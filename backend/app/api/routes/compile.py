@@ -14,6 +14,8 @@ class CompileRequest(BaseModel):
 class CompileResponse(BaseModel):
     success: bool
     hex_content: str | None = None
+    binary_content: str | None = None  # base64-encoded .bin for RP2040
+    binary_type: str | None = None     # 'bin' or 'uf2'
     stdout: str
     stderr: str
     error: str | None = None
@@ -29,6 +31,8 @@ async def compile_sketch(request: CompileRequest):
         return CompileResponse(
             success=result["success"],
             hex_content=result.get("hex_content"),
+            binary_content=result.get("binary_content"),
+            binary_type=result.get("binary_type"),
             stdout=result.get("stdout", ""),
             stderr=result.get("stderr", ""),
             error=result.get("error")

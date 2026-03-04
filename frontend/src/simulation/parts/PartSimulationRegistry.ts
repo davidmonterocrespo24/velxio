@@ -1,4 +1,7 @@
 import { AVRSimulator } from '../AVRSimulator';
+import { RP2040Simulator } from '../RP2040Simulator';
+
+export type AnySimulator = AVRSimulator | RP2040Simulator;
 
 /**
  * Interface for simulation logic mapped to a specific wokwi-element
@@ -25,7 +28,7 @@ export interface PartSimulationLogic {
      */
     attachEvents?: (
         element: HTMLElement,
-        avrSimulator: AVRSimulator,
+        simulator: AnySimulator,
         getArduinoPinHelper: (componentPinName: string) => number | null
     ) => () => void;
 }

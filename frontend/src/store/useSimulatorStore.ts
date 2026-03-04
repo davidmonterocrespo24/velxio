@@ -1,8 +1,21 @@
 import { create } from 'zustand';
 import { AVRSimulator } from '../simulation/AVRSimulator';
+import { RP2040Simulator } from '../simulation/RP2040Simulator';
 import { PinManager } from '../simulation/PinManager';
 import type { Wire, WireInProgress, WireEndpoint } from '../types/wire';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
+
+export type BoardType = 'arduino-uno' | 'raspberry-pi-pico';
+
+export const BOARD_FQBN: Record<BoardType, string> = {
+  'arduino-uno': 'arduino:avr:uno',
+  'raspberry-pi-pico': 'rp2040:rp2040:rpipico',
+};
+
+export const BOARD_LABELS: Record<BoardType, string> = {
+  'arduino-uno': 'Arduino Uno',
+  'raspberry-pi-pico': 'Raspberry Pi Pico',
+};
 
 // Fixed position for the Arduino board (not in components array)
 export const ARDUINO_POSITION = { x: 50, y: 50 };
@@ -16,8 +29,12 @@ interface Component {
 }
 
 interface SimulatorState {
+  // Board selection
+  boardType: BoardType;
+  setBoardType: (type: BoardType) => void;
+
   // Simulation state
-  simulator: AVRSimulator | null;
+  simulator: AVRSimulator | RP2040Simulator | null;
   pinManager: PinManager;
   running: boolean;
   compiledHex: string | null;
@@ -33,10 +50,12 @@ interface SimulatorState {
   // Actions
   initSimulator: () => void;
   loadHex: (hex: string) => void;
+  loadBinary: (base64: string) => void;
   startSimulation: () => void;
   stopSimulation: () => void;
   resetSimulation: () => void;
   setCompiledHex: (hex: string) => void;
+  setCompiledBinary: (base64: string) => void;
   setRunning: (running: boolean) => void;
 
   // Component management
@@ -70,6 +89,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
   const pinManager = new PinManager();
 
   return {
+    boardType: 'arduino-uno' as BoardType,
     simulator: null,
     pinManager,
     running: false,
@@ -133,15 +153,30 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     selectedWireId: null,
     wireInProgress: null,
 
+    setBoardType: (type: BoardType) => {
+      const { running } = get();
+      if (running) {
+        get().stopSimulation();
+      }
+      const simulator = type === 'arduino-uno'
+        ? new AVRSimulator(pinManager)
+        : new RP2040Simulator(pinManager);
+      set({ boardType: type, simulator, compiledHex: null });
+      console.log(`Board switched to: ${type}`);
+    },
+
     initSimulator: () => {
-      const simulator = new AVRSimulator(pinManager);
+      const { boardType } = get();
+      const simulator = boardType === 'arduino-uno'
+        ? new AVRSimulator(pinManager)
+        : new RP2040Simulator(pinManager);
       set({ simulator });
-      console.log('Simulator initialized');
+      console.log(`Simulator initialized: ${boardType}`);
     },
 
     loadHex: (hex: string) => {
       const { simulator } = get();
-      if (simulator) {
+      if (simulator && simulator instanceof AVRSimulator) {
         try {
           simulator.loadHex(hex);
           set({ compiledHex: hex });
@@ -150,7 +185,22 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           console.error('Failed to load HEX:', error);
         }
       } else {
-        console.warn('Simulator not initialized');
+        console.warn('loadHex: simulator not initialized or wrong board type');
+      }
+    },
+
+    loadBinary: (base64: string) => {
+      const { simulator } = get();
+      if (simulator && simulator instanceof RP2040Simulator) {
+        try {
+          simulator.loadBinary(base64);
+          set({ compiledHex: base64 }); // reuse compiledHex as "program loaded" flag
+          console.log('Binary loaded into RP2040 successfully');
+        } catch (error) {
+          console.error('Failed to load binary:', error);
+        }
+      } else {
+        console.warn('loadBinary: simulator not initialized or wrong board type');
       }
     },
 
@@ -180,8 +230,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     setCompiledHex: (hex: string) => {
       set({ compiledHex: hex });
-      // Auto-load hex when set
       get().loadHex(hex);
+    },
+
+    setCompiledBinary: (base64: string) => {
+      set({ compiledHex: base64 }); // use compiledHex as "program ready" flag
+      get().loadBinary(base64);
     },
 
     setRunning: (running: boolean) => set({ running }),

@@ -1,10 +1,12 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8001/api';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001/api';
 
 export interface CompileResult {
   success: boolean;
   hex_content?: string;
+  binary_content?: string;  // base64-encoded .bin for RP2040
+  binary_type?: 'bin' | 'uf2';
   stdout: string;
   stderr: string;
   error?: string;

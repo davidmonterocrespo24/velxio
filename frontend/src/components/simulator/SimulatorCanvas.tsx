@@ -1,6 +1,8 @@
-import { useSimulatorStore, ARDUINO_POSITION } from '../../store/useSimulatorStore';
+import { useSimulatorStore, ARDUINO_POSITION, BOARD_LABELS } from '../../store/useSimulatorStore';
+import type { BoardType } from '../../store/useSimulatorStore';
 import React, { useEffect, useState, useRef } from 'react';
 import { ArduinoUno } from '../components-wokwi/ArduinoUno';
+import { NanoRP2040 } from '../components-wokwi/NanoRP2040';
 import { ComponentPickerModal } from '../ComponentPickerModal';
 import { ComponentPropertyDialog } from './ComponentPropertyDialog';
 import { DynamicComponent, createComponentFromMetadata } from '../DynamicComponent';
@@ -14,6 +16,8 @@ import './SimulatorCanvas.css';
 
 export const SimulatorCanvas = () => {
   const {
+    boardType,
+    setBoardType,
     components,
     running,
     pinManager,
@@ -371,8 +375,21 @@ export const SimulatorCanvas = () => {
       {/* Main Canvas */}
       <div className="simulator-canvas">
         <div className="canvas-header">
-          <h3>Arduino Simulator</h3>
+          <h3>Simulator</h3>
           <div className="canvas-header-info">
+            {/* Board selector */}
+            <select
+              className="board-selector"
+              value={boardType}
+              onChange={(e) => setBoardType(e.target.value as BoardType)}
+              disabled={running}
+              title="Select board"
+            >
+              {(Object.entries(BOARD_LABELS) as [BoardType, string][]).map(([type, label]) => (
+                <option key={type} value={type}>{label}</option>
+              ))}
+            </select>
+
             <button
               className="add-component-btn"
               onClick={() => setShowComponentPicker(true)}
@@ -397,16 +414,24 @@ export const SimulatorCanvas = () => {
           {/* Wire Layer - Renders below all components */}
           <WireLayer />
 
-          {/* Arduino Uno Board using wokwi-elements */}
-          <ArduinoUno
-            x={ARDUINO_POSITION.x}
-            y={ARDUINO_POSITION.y}
-            led13={Boolean(components.find((c) => c.id === 'led-builtin')?.properties.state)}
-          />
+          {/* Board visual — switches based on selected board type */}
+          {boardType === 'arduino-uno' ? (
+            <ArduinoUno
+              x={ARDUINO_POSITION.x}
+              y={ARDUINO_POSITION.y}
+              led13={Boolean(components.find((c) => c.id === 'led-builtin')?.properties.state)}
+            />
+          ) : (
+            <NanoRP2040
+              x={ARDUINO_POSITION.x}
+              y={ARDUINO_POSITION.y}
+              ledBuiltIn={Boolean(components.find((c) => c.id === 'led-builtin')?.properties.state)}
+            />
+          )}
 
-          {/* Arduino pin overlay */}
+          {/* Board pin overlay */}
           <PinOverlay
-            componentId="arduino-uno"
+            componentId={boardType === 'arduino-uno' ? 'arduino-uno' : 'nano-rp2040'}
             componentX={ARDUINO_POSITION.x}
             componentY={ARDUINO_POSITION.y}
             onPinClick={handlePinClick}

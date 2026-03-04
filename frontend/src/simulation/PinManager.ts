@@ -72,6 +72,20 @@ export class PinManager {
     return this.pinStates.get(arduinoPin) || false;
   }
 
+  /**
+   * Directly fire pin change callbacks for a specific pin.
+   * Used by RP2040Simulator which has individual GPIO listeners instead of PORT registers.
+   */
+  triggerPinChange(pin: number, state: boolean): void {
+    const current = this.pinStates.get(pin);
+    if (current === state) return; // no change
+    this.pinStates.set(pin, state);
+    const callbacks = this.listeners.get(pin);
+    if (callbacks) {
+      callbacks.forEach(cb => cb(pin, state));
+    }
+  }
+
   // ── PWM duty cycle API ───────────────────────────────────────────────────
 
   /**

@@ -1,12 +1,21 @@
 import { useState } from 'react';
 import { useEditorStore } from '../../store/useEditorStore';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { useSimulatorStore, BOARD_FQBN } from '../../store/useSimulatorStore';
 import { compileCode } from '../../services/compilation';
 import './EditorToolbar.css';
 
 export const EditorToolbar = () => {
   const { code } = useEditorStore();
-  const { setCompiledHex, startSimulation, stopSimulation, resetSimulation, running, compiledHex } = useSimulatorStore();
+  const {
+    boardType,
+    setCompiledHex,
+    setCompiledBinary,
+    startSimulation,
+    stopSimulation,
+    resetSimulation,
+    running,
+    compiledHex,
+  } = useSimulatorStore();
   const [compiling, setCompiling] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -15,21 +24,27 @@ export const EditorToolbar = () => {
     setMessage(null);
 
     try {
-      console.log('Starting compilation...');
-      const result = await compileCode(code);
+      const fqbn = BOARD_FQBN[boardType];
+      console.log('Starting compilation for board:', fqbn);
+      const result = await compileCode(code, fqbn);
       console.log('Compilation result:', result);
 
-      if (result.success && result.hex_content) {
-        setCompiledHex(result.hex_content);
-        setMessage({ type: 'success', text: 'Compilation successful! Ready to run.' });
+      if (result.success) {
+        if (result.hex_content) {
+          // AVR path
+          setCompiledHex(result.hex_content);
+          setMessage({ type: 'success', text: 'Compilation successful! Ready to run.' });
+        } else if (result.binary_content) {
+          // RP2040 path
+          setCompiledBinary(result.binary_content);
+          setMessage({ type: 'success', text: 'Compilation successful! Ready to run.' });
+        } else {
+          setMessage({ type: 'error', text: 'Compilation produced no output' });
+        }
       } else {
         const errorMsg = result.error || result.stderr || 'Compilation failed';
         console.error('Compilation error:', errorMsg);
-        console.error('Full result:', JSON.stringify(result, null, 2));
-        setMessage({
-          type: 'error',
-          text: errorMsg,
-        });
+        setMessage({ type: 'error', text: errorMsg });
       }
     } catch (err) {
       console.error('Compilation exception:', err);

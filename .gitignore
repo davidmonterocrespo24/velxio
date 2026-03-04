@@ -76,3 +76,4 @@ wokwi-libs/*/.cache/
 !wokwi-libs/wokwi-features/
 .claude/settings.local.json
 .history/*
+.daveagent/*

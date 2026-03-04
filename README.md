@@ -7,8 +7,10 @@ A fully local, open-source Arduino emulator inspired by [Wokwi](https://wokwi.co
 If you find this project helpful, please consider giving it a star! Your support helps the project grow and motivates continued development.
 
 [![GitHub stars](https://img.shields.io/github/stars/davidmonterocrespo24/openwokwi?style=social)](https://github.com/davidmonterocrespo24/openwokwi/stargazers)
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-pink?logo=githubsponsors)](https://github.com/sponsors/davidmonterocrespo24)
+[![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://paypal.me/dmonterocrepoclub)
 
-Every star counts and helps make this project better!
+Every star counts and helps make this project better! You can also support the project financially through GitHub Sponsors or PayPal -- any contribution helps keep the development going.
 
 ## Screenshots
 
@@ -131,13 +133,37 @@ arduino-cli core install arduino:avr
 
 ## Installation
 
-### 1. Clone the repository
+### Option A: Docker (Recommended)
+
+The fastest way to get started. Requires only [Docker](https://docs.docker.com/get-docker/) and Docker Compose.
+
+```bash
+git clone https://github.com/davidmonterocrespo24/openwokwi.git
+cd openwokwi
+docker compose up --build
+```
+
+Once running:
+- **App**: http://localhost:3000
+- **API**: http://localhost:8001
+- **API Docs**: http://localhost:8001/docs
+
+The Docker setup automatically installs `arduino-cli`, the AVR core, builds the wokwi-libs, and serves everything -- no other prerequisites needed.
+
+To stop:
+```bash
+docker compose down
+```
+
+### Option B: Manual Setup
+
+#### 1. Clone the repository
 ```bash
 git clone https://github.com/davidmonterocrespo24/openwokwi.git
 cd openwokwi
 ```
 
-### 2. Setup Backend
+#### 2. Setup Backend
 
 ```bash
 cd backend
@@ -152,7 +178,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Setup Frontend
+#### 3. Setup Frontend
 
 ```bash
 cd frontend

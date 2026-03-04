@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+*.egg-info/
+
+# Build outputs (will be built inside Docker)
+frontend/dist/
+frontend/.vite/
+wokwi-libs/avr8js/dist/
+wokwi-libs/wokwi-elements/dist/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Git
+.git/
+.gitignore
+
+# Docker files (avoid recursion)
+docker-compose.yml
+Dockerfile*
+
+# Documentation (not needed in image)
+*.md
+doc/
+LICENSE
+
+# Logs
+*.log
