@@ -3,10 +3,6 @@ FROM node:20 AS frontend-builder
 
 WORKDIR /app
 
-# Copy root package.json (metadata/scripts)
-COPY package.json .
-RUN npm install
-
 # Build avr8js
 COPY wokwi-libs/avr8js/ wokwi-libs/avr8js/
 WORKDIR /app/wokwi-libs/avr8js
@@ -23,11 +19,12 @@ WORKDIR /app/wokwi-libs/wokwi-elements
 RUN npm install && npm run build --if-present
 
 # Build frontend
+# components-metadata.json is already committed; skip generate:metadata
+# (it requires wokwi-elements/src which isn't needed at runtime)
 WORKDIR /app
 COPY frontend/ frontend/
-COPY scripts/ scripts/
 WORKDIR /app/frontend
-RUN npm install && npm run build
+RUN npm install && npm run build:docker
 
 
 # ---- Stage 2: Final Production Image ----
