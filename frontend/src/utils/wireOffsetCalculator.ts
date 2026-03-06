@@ -218,44 +218,76 @@ export function calculateWireOffsets(wires: Wire[]): Map<string, number> {
 }
 
 /**
- * Apply offset to wire points (perpendicular to wire direction)
+ * Apply offset to wire points (perpendicular to wire direction).
+ *
+ * Instead of moving the endpoints (which would visually disconnect the wire from its
+ * pins), we keep the true pin positions fixed and insert short stub segments that
+ * travel from each pin to the offset path, forming an L-shaped attachment at both ends.
+ *
+ * Example (horizontal wire, offset = +6):
+ *   Before:  pin ────────────────── pin
+ *   After:   pin          (stub)
+ *              │ ──────────────── │
+ *                              (stub)  pin
  */
 export function applyOffsetToWire(wire: Wire, offset: number): Wire {
   if (offset === 0) return wire;
 
-  // Clone the wire
-  const offsetWire: Wire = {
-    ...wire,
-    start: { ...wire.start },
-    end: { ...wire.end },
-    controlPoints: wire.controlPoints ? [...wire.controlPoints] : [],
-  };
+  // Determine primary direction from the first segment of the path
+  const firstControlOrEnd =
+    wire.controlPoints && wire.controlPoints.length > 0
+      ? wire.controlPoints[0]
+      : wire.end;
 
-  // Apply offset to start and end points
-  // Determine primary direction (first segment)
-  const firstPoint = offsetWire.start;
-  const secondPoint = offsetWire.controlPoints && offsetWire.controlPoints.length > 0
-    ? offsetWire.controlPoints[0]
-    : offsetWire.end;
+  const isHorizontalFirst =
+    Math.abs(firstControlOrEnd.x - wire.start.x) >=
+    Math.abs(firstControlOrEnd.y - wire.start.y);
 
-  const isVertical = Math.abs(secondPoint.x - firstPoint.x) < Math.abs(secondPoint.y - firstPoint.y);
+  // True pin positions (never moved)
+  const pinStart = { x: wire.start.x, y: wire.start.y };
+  const pinEnd   = { x: wire.end.x,   y: wire.end.y   };
 
-  // Apply offset perpendicular to direction
-  if (isVertical) {
-    // Vertical wire: offset in X
-    offsetWire.start.x += offset;
-    offsetWire.end.x += offset;
-    offsetWire.controlPoints?.forEach(point => {
-      point.x += offset;
-    });
-  } else {
-    // Horizontal wire: offset in Y
-    offsetWire.start.y += offset;
-    offsetWire.end.y += offset;
-    offsetWire.controlPoints?.forEach(point => {
-      point.y += offset;
-    });
+  // Offset intermediate points perpendicular to the primary direction
+  const shiftedControlPoints = (wire.controlPoints || []).map(cp => ({
+    ...cp,
+    x: isHorizontalFirst ? cp.x           : cp.x + offset,
+    y: isHorizontalFirst ? cp.y + offset  : cp.y,
+  }));
+
+  // Compute where the offset path actually starts/ends
+  // (the point on the parallel track immediately after the pin stub)
+  const offsetStart = isHorizontalFirst
+    ? { x: pinStart.x, y: pinStart.y + offset }
+    : { x: pinStart.x + offset, y: pinStart.y };
+
+  const offsetEnd = isHorizontalFirst
+    ? { x: pinEnd.x, y: pinEnd.y + offset }
+    : { x: pinEnd.x + offset, y: pinEnd.y };
+
+  // Build new control points:
+  //   stub from pinStart → offsetStart, then the shifted intermediates, then stub from offsetEnd → pinEnd
+  // We only need to add extra stubs when they are non-zero length.
+  const newControlPoints: typeof wire.controlPoints = [];
+
+  // Leading stub end-point (where the offset path begins)
+  if (offsetStart.x !== pinStart.x || offsetStart.y !== pinStart.y) {
+    newControlPoints.push({ id: `${wire.id}-stub-s`, ...offsetStart });
   }
 
-  return offsetWire;
+  // Shifted original control points
+  for (const cp of shiftedControlPoints) {
+    newControlPoints.push(cp);
+  }
+
+  // Trailing stub start-point (where the offset path rejoins the pin)
+  if (offsetEnd.x !== pinEnd.x || offsetEnd.y !== pinEnd.y) {
+    newControlPoints.push({ id: `${wire.id}-stub-e`, ...offsetEnd });
+  }
+
+  return {
+    ...wire,
+    start: { ...wire.start, x: pinStart.x, y: pinStart.y },
+    end:   { ...wire.end,   x: pinEnd.x,   y: pinEnd.y   },
+    controlPoints: newControlPoints,
+  };
 }
