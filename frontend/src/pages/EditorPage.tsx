@@ -69,6 +69,19 @@ export const EditorPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [handleSaveClick]);
 
+  // Prevent body scroll on the editor page
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    window.scrollTo(0, 0);
+    return () => {
+      html.style.overflow = '';
+      body.style.overflow = '';
+    };
+  }, []);
+
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     resizingRef.current = true;
