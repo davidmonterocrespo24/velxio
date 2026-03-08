@@ -710,12 +710,30 @@
         {
           "name": "values",
           "type": "number",
-          "defaultValue": [0, 0, 0, 0, 0, 0, 0, 0],
+          "defaultValue": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
           "control": "range"
         }
       ],
       "defaultValues": {
-        "values": [0, 0, 0, 0, 0, 0, 0, 0]
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
       },
       "pinCount": 16,
       "tags": [
@@ -1817,116 +1835,6 @@
         "stepper",
         "motor",
         "nema"
-      ]
-    },
-    {
-      "id": "tilt-switch",
-      "tagName": "wokwi-tilt-switch",
-      "name": "Tilt Switch",
-      "category": "sensors",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"9\" fill=\"#666\">TILT</text></svg>",
-      "properties": [],
-      "defaultValues": {},
-      "pinCount": 3,
-      "tags": [
-        "tilt-switch",
-        "tilt switch",
-        "tilt",
-        "ball switch"
-      ]
-    },
-    {
-      "id": "ntc-temperature-sensor",
-      "tagName": "wokwi-ntc-temperature-sensor",
-      "name": "NTC Temperature Sensor",
-      "category": "sensors",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"8\" fill=\"#666\">NTC TEMP</text></svg>",
-      "properties": [],
-      "defaultValues": {},
-      "pinCount": 3,
-      "tags": [
-        "ntc-temperature-sensor",
-        "ntc temperature sensor",
-        "ntc",
-        "temperature",
-        "sensor",
-        "thermistor"
-      ]
-    },
-    {
-      "id": "heart-beat-sensor",
-      "tagName": "wokwi-heart-beat-sensor",
-      "name": "Heart Beat Sensor",
-      "category": "sensors",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#ffebee\" rx=\"4\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\"-.2em\" font-size=\"9\" fill=\"#e53935\">HEART</text><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\"1em\" font-size=\"9\" fill=\"#e53935\">BEAT</text></svg>",
-      "properties": [],
-      "defaultValues": {},
-      "pinCount": 3,
-      "tags": [
-        "heart-beat-sensor",
-        "heart beat sensor",
-        "heart",
-        "pulse",
-        "sensor"
-      ]
-    },
-    {
-      "id": "neopixel-matrix",
-      "tagName": "wokwi-neopixel-matrix",
-      "name": "NeoPixel Matrix",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#222\" rx=\"4\"/><circle cx=\"16\" cy=\"16\" r=\"5\" fill=\"#f44336\"/><circle cx=\"32\" cy=\"16\" r=\"5\" fill=\"#4caf50\"/><circle cx=\"48\" cy=\"16\" r=\"5\" fill=\"#2196f3\"/><circle cx=\"16\" cy=\"32\" r=\"5\" fill=\"#ffeb3b\"/><circle cx=\"32\" cy=\"32\" r=\"5\" fill=\"#9c27b0\"/><circle cx=\"48\" cy=\"32\" r=\"5\" fill=\"#00bcd4\"/><circle cx=\"16\" cy=\"48\" r=\"5\" fill=\"#ff9800\"/><circle cx=\"32\" cy=\"48\" r=\"5\" fill=\"#f44336\"/><circle cx=\"48\" cy=\"48\" r=\"5\" fill=\"#4caf50\"/></svg>",
-      "properties": [
-        {
-          "name": "rows",
-          "type": "number",
-          "defaultValue": 8,
-          "control": "text"
-        },
-        {
-          "name": "cols",
-          "type": "number",
-          "defaultValue": 8,
-          "control": "text"
-        }
-      ],
-      "defaultValues": {
-        "rows": 8,
-        "cols": 8
-      },
-      "pinCount": 4,
-      "tags": [
-        "neopixel-matrix",
-        "neopixel matrix",
-        "ws2812b",
-        "led matrix",
-        "neopixel"
-      ]
-    },
-    {
-      "id": "led-ring",
-      "tagName": "wokwi-led-ring",
-      "name": "WS2812B LED Ring",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#222\" rx=\"4\"/><circle cx=\"32\" cy=\"32\" r=\"26\" fill=\"none\" stroke=\"#363\" stroke-width=\"6\"/><circle cx=\"32\" cy=\"6\" r=\"4\" fill=\"#f44336\"/><circle cx=\"57\" cy=\"32\" r=\"4\" fill=\"#4caf50\"/><circle cx=\"32\" cy=\"58\" r=\"4\" fill=\"#2196f3\"/><circle cx=\"7\" cy=\"32\" r=\"4\" fill=\"#ffeb3b\"/></svg>",
-      "properties": [
-        {
-          "name": "pixels",
-          "type": "number",
-          "defaultValue": 16,
-          "control": "text"
-        }
-      ],
-      "defaultValues": {
-        "pixels": 16
-      },
-      "pinCount": 4,
-      "tags": [
-        "led-ring",
-        "led ring",
-        "ws2812b",
-        "neopixel ring",
-        "ring"
       ]
     }
   ]
