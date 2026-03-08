@@ -21,6 +21,8 @@ import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegist
 // Side-effect imports — register all parts
 import '../simulation/parts/BasicParts';
 import '../simulation/parts/ComplexParts';
+import '../simulation/parts/ChipParts';
+import '../simulation/parts/SensorParts';
 
 // ─── RAF depth-limited mock ───────────────────────────────────────────────────
 // Calls the callback once synchronously but prevents re-entrancy so that

@@ -24,5 +24,18 @@ declare namespace JSX {
     'wokwi-pir-motion-sensor': any;
     'wokwi-photoresistor-sensor': any;
     'wokwi-74hc595': any;
+    'wokwi-stepper-motor': any;
+    'wokwi-biaxial-stepper': any;
+    'wokwi-tilt-switch': any;
+    'wokwi-ntc-temperature-sensor': any;
+    'wokwi-gas-sensor': any;
+    'wokwi-flame-sensor': any;
+    'wokwi-heart-beat-sensor': any;
+    'wokwi-big-sound-sensor': any;
+    'wokwi-small-sound-sensor': any;
+    'wokwi-led-ring': any;
+    'wokwi-neopixel-matrix': any;
+    'wokwi-lcd1602': any;
+    'wokwi-ky-040': any;
   }
 }

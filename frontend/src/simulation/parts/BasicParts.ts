@@ -164,33 +164,148 @@ PartSimulationRegistry.register('led-bar-graph', {
     },
 });
 
+// NOTE: '7segment' is registered in ChipParts.ts which supports both direct-drive
+// and 74HC595-driven modes. Do not re-register it here.
+
+// ─── KY-040 Rotary Encoder ───────────────────────────────────────────────────
+
 /**
- * 7-Segment Display
- * Pins: A, B, C, D, E, F, G, DP (common cathode — segments light when HIGH)
- * The wokwi-7segment 'values' property is an array of 8 values (A B C D E F G DP)
+ * KY-040 rotary encoder — maps element events to Arduino CLK/DT/SW pins.
+ *
+ * The element emits:
+ *   - 'rotate-cw'      → clockwise step
+ *   - 'rotate-ccw'     → counter-clockwise step
+ *   - 'button-press'   → push-button pressed
+ *   - 'button-release' → push-button released
+ *
+ * Most Arduino encoder libraries sample CLK and read DT on a CLK rising edge:
+ *   DT LOW  on CLK rising  → clockwise
+ *   DT HIGH on CLK rising  → counter-clockwise
+ *
+ * The SW pin is active LOW (HIGH when not pressed).
  */
-PartSimulationRegistry.register('7segment', {
-    attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
-        const pinManager = (avrSimulator as any).pinManager;
-        if (!pinManager) return () => { };
+PartSimulationRegistry.register('ky-040', {
+    attachEvents: (element, simulator, getArduinoPinHelper) => {
+        const pinCLK = getArduinoPinHelper('CLK');
+        const pinDT  = getArduinoPinHelper('DT');
+        const pinSW  = getArduinoPinHelper('SW');
 
-        // Order matches wokwi-elements values array: [A, B, C, D, E, F, G, DP]
-        const segmentPinNames = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'DP'];
-        const values = new Array(8).fill(0);
-        const unsubscribers: (() => void)[] = [];
+        // SW starts HIGH (not pressed, active LOW)
+        if (pinSW !== null) simulator.setPinState(pinSW, true);
+        // CLK and DT start HIGH (idle)
+        if (pinCLK !== null) simulator.setPinState(pinCLK, true);
+        if (pinDT !== null)  simulator.setPinState(pinDT, true);
 
-        segmentPinNames.forEach((segName, idx) => {
-            const pin = getArduinoPinHelper(segName);
-            if (pin !== null) {
-                unsubscribers.push(
-                    pinManager.onPinChange(pin, (_p: number, state: boolean) => {
-                        values[idx] = state ? 1 : 0;
-                        (element as any).values = [...values];
-                    })
-                );
+        /** Emit one encoder pulse: set DT to dtLevel, pulse CLK HIGH→LOW. */
+        function emitPulse(dtLevel: boolean) {
+            if (pinDT !== null) simulator.setPinState(pinDT, dtLevel);
+            if (pinCLK !== null) {
+                simulator.setPinState(pinCLK, false); // CLK LOW first
+                // Small delay then CLK rising edge (encoder sampled on rising edge)
+                setTimeout(() => {
+                    if (pinCLK !== null) simulator.setPinState(pinCLK, true);
+                    setTimeout(() => {
+                        if (pinCLK !== null) simulator.setPinState(pinCLK, false);
+                        if (pinDT !== null) simulator.setPinState(pinDT, true); // restore DT
+                    }, 1);
+                }, 1);
             }
-        });
+        }
 
-        return () => unsubscribers.forEach(u => u());
+        const onCW      = () => emitPulse(false); // DT LOW  = CW
+        const onCCW     = () => emitPulse(true);  // DT HIGH = CCW
+        const onPress   = () => { if (pinSW !== null) simulator.setPinState(pinSW, false); };
+        const onRelease = () => { if (pinSW !== null) simulator.setPinState(pinSW, true); };
+
+        element.addEventListener('rotate-cw',      onCW);
+        element.addEventListener('rotate-ccw',     onCCW);
+        element.addEventListener('button-press',   onPress);
+        element.addEventListener('button-release', onRelease);
+
+        return () => {
+            element.removeEventListener('rotate-cw',      onCW);
+            element.removeEventListener('rotate-ccw',     onCCW);
+            element.removeEventListener('button-press',   onPress);
+            element.removeEventListener('button-release', onRelease);
+        };
+    },
+});
+
+// ─── Biaxial Stepper Motor ────────────────────────────────────────────────────
+
+/**
+ * Biaxial stepper motor — monitors 8 coil pins for two independent motors.
+ *
+ * Motor 1 pins: A1-, A1+, B1+, B1-  →  outerHandAngle
+ * Motor 2 pins: A2-, A2+, B2+, B2-  →  innerHandAngle
+ *
+ * Full-step decode: each motor uses the same 4-step lookup table as
+ * the single stepper-motor. 1.8° per step.
+ */
+PartSimulationRegistry.register('biaxial-stepper', {
+    attachEvents: (element, simulator, getArduinoPinHelper) => {
+        const pinManager = (simulator as any).pinManager;
+        if (!pinManager) return () => {};
+
+        const el = element as any;
+        const STEP_ANGLE = 1.8;
+
+        // Full-step table: [A+, B+, A-, B-]
+        const stepTable: [boolean, boolean, boolean, boolean][] = [
+            [true,  false, false, false],
+            [false, true,  false, false],
+            [false, false, true,  false],
+            [false, false, false, true],
+        ];
+
+        function stepIndexFromCoils(ap: boolean, bp: boolean, am: boolean, bm: boolean): number {
+            for (let i = 0; i < stepTable.length; i++) {
+                const [tap, tbp, tam, tbm] = stepTable[i];
+                if (ap === tap && bp === tbp && am === tam && bm === tbm) return i;
+            }
+            return -1;
+        }
+
+        function makeMotorTracker(
+            pinAminus: number | null, pinAplus: number | null,
+            pinBplus: number | null, pinBminus: number | null,
+            setAngle: (deg: number) => void,
+        ) {
+            let aMinus = false, aPlus = false, bPlus = false, bMinus = false;
+            let cumAngle = 0;
+            let prevIdx = -1;
+            const unsubs: (() => void)[] = [];
+
+            function onCoilChange() {
+                const idx = stepIndexFromCoils(aPlus, bPlus, aMinus, bMinus);
+                if (idx < 0) return;
+                if (prevIdx < 0) { prevIdx = idx; return; }
+                const diff = (idx - prevIdx + 4) % 4;
+                if (diff === 1) cumAngle += STEP_ANGLE;
+                else if (diff === 3) cumAngle -= STEP_ANGLE;
+                prevIdx = idx;
+                setAngle(((cumAngle % 360) + 360) % 360);
+            }
+
+            if (pinAminus !== null) unsubs.push(pinManager.onPinChange(pinAminus, (_: number, s: boolean) => { aMinus = s; onCoilChange(); }));
+            if (pinAplus  !== null) unsubs.push(pinManager.onPinChange(pinAplus,  (_: number, s: boolean) => { aPlus  = s; onCoilChange(); }));
+            if (pinBplus  !== null) unsubs.push(pinManager.onPinChange(pinBplus,  (_: number, s: boolean) => { bPlus  = s; onCoilChange(); }));
+            if (pinBminus !== null) unsubs.push(pinManager.onPinChange(pinBminus, (_: number, s: boolean) => { bMinus = s; onCoilChange(); }));
+
+            return () => unsubs.forEach(u => u());
+        }
+
+        const cleanup1 = makeMotorTracker(
+            getArduinoPinHelper('A1-'), getArduinoPinHelper('A1+'),
+            getArduinoPinHelper('B1+'), getArduinoPinHelper('B1-'),
+            (deg) => { el.outerHandAngle = deg; },
+        );
+        const cleanup2 = makeMotorTracker(
+            getArduinoPinHelper('A2-'), getArduinoPinHelper('A2+'),
+            getArduinoPinHelper('B2+'), getArduinoPinHelper('B2-'),
+            (deg) => { el.innerHandAngle = deg; },
+        );
+
+        return () => { cleanup1(); cleanup2(); };
     },
 });
