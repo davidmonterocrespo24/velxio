@@ -17,6 +17,13 @@
   </url>
 
   <url>
+    <loc>https://velxio.dev/docs</loc>
+    <lastmod>2026-03-11</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
     <loc>https://velxio.dev/examples</loc>
     <lastmod>2026-03-06</lastmod>
     <changefreq>monthly</changefreq>

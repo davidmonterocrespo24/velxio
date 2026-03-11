@@ -423,7 +423,7 @@ Enable verbose logging:
 ## Additional Resources
 
 - Main README: [README.md](README.md)
-- Architecture Details: [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md)
+- Architecture Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Wokwi Elements Repo: https://github.com/wokwi/wokwi-elements
 - AVR8js Repo: https://github.com/wokwi/avr8js
 - Arduino CLI Docs: https://arduino.github.io/arduino-cli/

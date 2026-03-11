@@ -121,9 +121,9 @@ Repositorios oficiales de Wokwi en `wokwi-libs/`:
 | Archivo | Descripción |
 |---------|-------------|
 | `README.md` | Instrucciones de instalación y uso |
-| `doc/ARCHITECTURE.md` | Arquitectura detallada del proyecto |
-| `doc/WOKWI_LIBS.md` | Guía de integración con Wokwi |
-| `doc/SETUP_COMPLETE.md` | Este archivo — estado del proyecto |
+| `docs/ARCHITECTURE.md` | Arquitectura detallada del proyecto |
+| `docs/WOKWI_LIBS.md` | Guía de integración con Wokwi |
+| `docs/SETUP_COMPLETE.md` | Este archivo — estado del proyecto |
 | `CLAUDE.md` | Guía para asistentes IA |
 | `update-wokwi-libs.bat` | Script de actualización automática |
 

@@ -30,7 +30,7 @@ Abre http://localhost:5173
 **Guardar la imagen:**
 1. Abre Paint o cualquier editor
 2. Pega (Ctrl + V)
-3. Guarda como PNG en `doc/examples/[nombre-ejemplo].png`
+3. Guarda como PNG en `docs/examples/[nombre-ejemplo].png`
 
 ### 4. Nombres de Archivo
 
@@ -55,7 +55,7 @@ Una vez tengas las imágenes, edita `frontend/src/data/examples.ts`:
   description: 'Classic Arduino blink example - toggle an LED on and off',
   category: 'basics',
   difficulty: 'beginner',
-  thumbnail: '/doc/examples/blink-led.png',  // ← Agregar esta línea
+  thumbnail: '/docs/examples/blink-led.png',  // ← Agregar esta línea
   code: `...`,
   // ... resto
 }

@@ -9,6 +9,7 @@ import { UserProfilePage } from './pages/UserProfilePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { ProjectByIdPage } from './pages/ProjectByIdPage';
 import { AdminPage } from './pages/AdminPage';
+import { DocsPage } from './pages/DocsPage';
 import { useAuthStore } from './store/useAuthStore';
 import './App.css';
 
@@ -28,6 +29,7 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/docs" element={<DocsPage />} />
         {/* Canonical project URL by ID */}
         <Route path="/project/:id" element={<ProjectByIdPage />} />
         {/* Legacy slug route — redirects to /project/:id */}

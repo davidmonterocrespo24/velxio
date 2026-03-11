@@ -46,19 +46,19 @@ Then open **http://localhost:3080**.
 
 ## Screenshots
 
-![Raspberry Pi Pico ADC simulation with Serial Monitor](doc/img1.png)
+![Raspberry Pi Pico ADC simulation with Serial Monitor](docs/img1.png)
 
 Raspberry Pi Pico simulation — ADC read test with two potentiometers, Serial Monitor showing live output, and compilation console at the bottom.
 
-![ILI9341 TFT display simulation on Arduino Uno](doc/img2.png)
+![ILI9341 TFT display simulation on Arduino Uno](docs/img2.png)
 
 Arduino Uno driving an ILI9341 240×320 TFT display via SPI — rendering a real-time graphics demo using Adafruit_GFX + Adafruit_ILI9341.
 
-![Library Manager with full library list](doc/img3.png)
+![Library Manager with full library list](docs/img3.png)
 
 Library Manager loads the full Arduino library index on open — browse and install libraries without typing first.
 
-![Component Picker with 48 components](doc/img4.png)
+![Component Picker with 48 components](docs/img4.png)
 
 Component Picker showing 48 available components with visual previews, search, and category filters.
 

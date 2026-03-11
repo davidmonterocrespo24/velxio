@@ -209,8 +209,8 @@ See [backend documentation](../backend/README.md) for API details.
 
 - [Main Project README](../README.md)
 - [Development Guide (CLAUDE.md)](../CLAUDE.md)
-- [Architecture Documentation](../doc/ARCHITECTURE.md)
-- [Wokwi Integration](../doc/WOKWI_LIBS.md)
+- [Architecture Documentation](../docs/ARCHITECTURE.md)
+- [Wokwi Integration](../docs/WOKWI_LIBS.md)
 - [Monaco Editor API](https://microsoft.github.io/monaco-editor/api/index.html)
 - [Vite Documentation](https://vitejs.dev/)
 - [Zustand Guide](https://docs.pmnd.rs/zustand/getting-started/introduction)
