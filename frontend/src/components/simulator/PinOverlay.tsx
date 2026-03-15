@@ -63,13 +63,18 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
         const pinX = pin.x;
         const pinY = pin.y;
 
+        const handleActivate = (e: React.MouseEvent | React.TouchEvent) => {
+          e.stopPropagation();
+          onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
+        };
+
         return (
           <div
             key={pin.name}
-            onClick={(e) => {
-              e.stopPropagation();
-              onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
-            }}
+            data-pin-component-id={componentId}
+            data-pin-name={pin.name}
+            onClick={handleActivate}
+            onTouchEnd={handleActivate}
             style={{
               position: 'absolute',
               left: `${pinX - 4}px`,

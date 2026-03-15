@@ -102,6 +102,15 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
     [wire.id, setSelectedWire]
   );
 
+  // Handle wire selection via touch tap
+  const handleWireTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      e.stopPropagation();
+      setSelectedWire(wire.id);
+    },
+    [wire.id, setSelectedWire]
+  );
+
   // Handle segment hover
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -170,6 +179,47 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
     [dragState, isSelected, segments, wire, updateWire]
   );
 
+  // Handle touch move for segment drag
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      if (!dragState) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        const svg = svgRef.current?.ownerSVGElement;
+        if (!svg) return;
+
+        const svgRect = svg.getBoundingClientRect();
+        const touchX = touch.clientX - svgRect.left;
+        const touchY = touch.clientY - svgRect.top;
+
+        const { segment, startMousePos, originalOrthoPoints } = dragState;
+
+        let offset = 0;
+        if (segment.orientation === 'horizontal') {
+          offset = touchY - startMousePos.y;
+        } else {
+          offset = touchX - startMousePos.x;
+        }
+
+        const newOrthoPoints = updateOrthogonalPointsForSegmentDrag(
+          originalOrthoPoints,
+          segment,
+          offset
+        );
+
+        setPreviewOrthoPoints(newOrthoPoints);
+        rafRef.current = null;
+      });
+    },
+    [dragState]
+  );
+
   const handleSegmentMouseDown = useCallback(
     (segment: WireSegment, e: React.MouseEvent) => {
       e.stopPropagation();
@@ -200,6 +250,32 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
       setDragState({
         segment,
         startMousePos: { x: mouseX, y: mouseY },
+        originalOrthoPoints: orthoPoints,
+      });
+    },
+    [wire]
+  );
+
+  // Handle touch start on a segment — begins drag on mobile
+  const handleSegmentTouchStart = useCallback(
+    (segment: WireSegment, e: React.TouchEvent) => {
+      e.stopPropagation();
+      const touch = e.touches[0];
+      if (!touch) return;
+
+      const svg = svgRef.current?.ownerSVGElement;
+      if (!svg) return;
+
+      const svgRect = svg.getBoundingClientRect();
+      const touchX = touch.clientX - svgRect.left;
+      const touchY = touch.clientY - svgRect.top;
+
+      const pathPoints = getPathPoints(wire);
+      const orthoPoints = generateOrthogonalPoints(pathPoints);
+
+      setDragState({
+        segment,
+        startMousePos: { x: touchX, y: touchY },
         originalOrthoPoints: orthoPoints,
       });
     },
@@ -247,6 +323,28 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
     setPreviewOrthoPoints(null);
   }, [dragState, previewOrthoPoints, wire, updateWire]);
 
+  // Touch equivalent of handleMouseUp — finishes segment drag on mobile
+  const handleTouchEnd = useCallback(() => {
+    if (dragState && previewOrthoPoints) {
+      const GRID_SIZE = 20;
+      const snappedPoints = previewOrthoPoints.map((p) => ({
+        x: Math.round(p.x / GRID_SIZE) * GRID_SIZE,
+        y: Math.round(p.y / GRID_SIZE) * GRID_SIZE,
+      }));
+
+      const newControlPoints = orthogonalPointsToControlPoints(
+        snappedPoints,
+        wire.start,
+        wire.end
+      );
+
+      updateWire(wire.id, { controlPoints: newControlPoints });
+    }
+
+    setDragState(null);
+    setPreviewOrthoPoints(null);
+  }, [dragState, previewOrthoPoints, wire, updateWire]);
+
   const handleMouseLeave = useCallback(() => {
     if (!dragState) {
       setHoveredSegment(null);
@@ -282,11 +380,14 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
     <g
       ref={svgRef}
       className="wire-group"
+      data-no-pan="true"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
-      {/* Invisible thick path for easier clicking */}
+      {/* Invisible thick path for easier clicking/tapping */}
       <path
         d={path}
         stroke="transparent"
@@ -294,6 +395,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
         fill="none"
         style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
         onClick={handleWireClick}
+        onTouchEnd={handleWireTouchEnd}
       />
 
       {/* Background erasing path for visual crossing effect */}
@@ -357,6 +459,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
                 pointerEvents: 'stroke',
               }}
               onMouseDown={(e) => handleSegmentMouseDown(segment, e)}
+              onTouchStart={(e) => handleSegmentTouchStart(segment, e)}
             />
 
             {/* Visual drag handle at midpoint when hovering */}

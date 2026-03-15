@@ -99,6 +99,18 @@ export const SimulatorCanvas = () => {
   const boardPositionRef = useRef(boardPosition);
   boardPositionRef.current = boardPosition;
 
+  // Refs for wire actions — needed inside native touch closures
+  const wireInProgressRef = useRef(wireInProgress);
+  wireInProgressRef.current = wireInProgress;
+  const startWireCreationRef = useRef(startWireCreation);
+  startWireCreationRef.current = startWireCreation;
+  const finishWireCreationRef = useRef(finishWireCreation);
+  finishWireCreationRef.current = finishWireCreation;
+  const cancelWireCreationRef = useRef(cancelWireCreation);
+  cancelWireCreationRef.current = cancelWireCreation;
+  const updateWireInProgressRef = useRef(updateWireInProgress);
+  updateWireInProgressRef.current = updateWireInProgress;
+
   // Touch-specific state refs (for single-finger drag and pinch-to-zoom)
   const touchDraggedComponentIdRef = useRef<string | null>(null);
   const touchDragOffsetRef = useRef({ x: 0, y: 0 });
@@ -108,6 +120,8 @@ export const SimulatorCanvas = () => {
   const pinchStartZoomRef = useRef(1);
   const pinchStartMidRef = useRef({ x: 0, y: 0 });
   const pinchStartPanRef = useRef({ x: 0, y: 0 });
+  // Flag: the most recent single-finger touch started on a pin element
+  const touchStartedOnPinRef = useRef(false);
 
   // Convert viewport coords to world (canvas) coords
   const toWorld = useCallback((screenX: number, screenY: number) => {
@@ -181,11 +195,25 @@ export const SimulatorCanvas = () => {
       const touch = e.touches[0];
       touchClickStartTimeRef.current = Date.now();
       touchClickStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+      touchStartedOnPinRef.current = false;
 
       // Identify what element was touched
       const target = document.elementFromPoint(touch.clientX, touch.clientY);
       const componentWrapper = target?.closest('[data-component-id]') as HTMLElement | null;
       const boardOverlay = target?.closest('[data-board-overlay]') as HTMLElement | null;
+
+      // ── Single finger on a pin: handle wire creation (do not pan) ──
+      const pinEl = target?.closest('[data-pin-component-id]') as HTMLElement | null;
+      if (pinEl && !runningRef.current) {
+        touchStartedOnPinRef.current = true;
+        return; // PinOverlay's onTouchEnd will call onPinClick
+      }
+
+      // ── Single finger on a wire element: do not pan (WireRenderer handles it) ──
+      const noPanEl = target?.closest('[data-no-pan]');
+      if (noPanEl) {
+        return;
+      }
 
       if (componentWrapper && !runningRef.current) {
         // ── Single finger on a component: start drag ──
@@ -283,6 +311,10 @@ export const SimulatorCanvas = () => {
             y: world.y - touchDragOffsetRef.current.y,
           } as any);
         }
+      } else if (wireInProgressRef.current) {
+        // ── Single finger wire-in-progress preview ──
+        const world = toWorld(touch.clientX, touch.clientY);
+        updateWireInProgressRef.current(world.x, world.y);
       }
     };
 
@@ -330,16 +362,23 @@ export const SimulatorCanvas = () => {
         return;
       }
 
-      // ── Short tap on empty canvas: deselect ──
+      // ── Short tap on empty canvas ──
       if (changed) {
         const elapsed = Date.now() - touchClickStartTimeRef.current;
         const dx = changed.clientX - touchClickStartPosRef.current.x;
         const dy = changed.clientY - touchClickStartPosRef.current.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < 5 && elapsed < 300) {
-          setSelectedComponentId(null);
+          // If wire creation is in progress and the tap was NOT on a pin,
+          // cancel the wire (acts like pressing Escape on desktop).
+          if (wireInProgressRef.current && !touchStartedOnPinRef.current) {
+            cancelWireCreationRef.current();
+          } else {
+            setSelectedComponentId(null);
+          }
         }
       }
+      touchStartedOnPinRef.current = false;
     };
 
     el.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -799,6 +838,17 @@ export const SimulatorCanvas = () => {
           </div>
 
           <div className="canvas-header-right">
+            {/* Cancel wire creation — shown when a wire is being drawn (especially useful on mobile) */}
+            {wireInProgress && (
+              <button
+                className="cancel-wire-btn"
+                onClick={cancelWireCreation}
+                title="Cancel wire (Esc)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                Cancel wire
+              </button>
+            )}
             {/* Zoom controls */}
             <div className="zoom-controls">
               <button className="zoom-btn" onClick={() => handleWheel({ deltaY: 100, clientX: 0, clientY: 0, preventDefault: () => {} } as any)} title="Zoom out">

@@ -150,6 +150,28 @@
   cursor: not-allowed;
 }
 
+/* ── Cancel wire button ──────────────────────────── */
+.cancel-wire-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: 32px;
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.cancel-wire-btn:hover {
+  background: #e74c3c;
+}
+
 /* ── Canvas content (viewport) ───────────────────── */
 .canvas-content {
   flex: 1;
