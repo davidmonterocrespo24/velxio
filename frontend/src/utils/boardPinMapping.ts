@@ -139,7 +139,11 @@ const ESP32_PIN_MAP: Record<string, number> = {
 /** All known board component IDs in the simulator */
 export const BOARD_COMPONENT_IDS = [
   'arduino-uno', 'arduino-nano', 'arduino-mega', 'nano-rp2040', 'raspberry-pi-3',
-  'esp32', 'esp32-s3', 'esp32-c3',
+  'raspberry-pi-pico', 'pi-pico-w',
+  'esp32', 'esp32-devkit-c-v4', 'esp32-cam', 'wemos-lolin32-lite',
+  'esp32-s3', 'xiao-esp32-s3', 'arduino-nano-esp32',
+  'esp32-c3', 'xiao-esp32-c3', 'aitewinrobot-esp32c3-supermini',
+  'attiny85', 'riscv-generic',
 ];
 
 /**
@@ -194,12 +198,88 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
     return null;
   }
 
+  // Pi Pico W — same GPIO mapping as Raspberry Pi Pico (GP0-GP28 → 0-28)
+  if (boardId === 'pi-pico-w') {
+    if (pinName.startsWith('GP')) {
+      const n = parseInt(pinName.substring(2), 10);
+      if (!isNaN(n)) return n;
+    }
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num)) return num;
+    return null;
+  }
+
   // ESP32 / ESP32-S3 / ESP32-C3 — GPIO numbers used directly
   if (boardId === 'esp32' || boardId.startsWith('esp32')) {
     // Try bare number first ("13" → 13)
     const num = parseInt(pinName, 10);
     if (!isNaN(num) && num >= 0 && num <= 39) return num;
     return ESP32_PIN_MAP[pinName] ?? null;
+  }
+
+  // ESP32 variants not starting with 'esp32'
+  if (boardId === 'wemos-lolin32-lite') {
+    // Pins named "GPIO34", "GPIO32" etc → strip prefix
+    if (pinName.startsWith('GPIO')) return parseInt(pinName.substring(4), 10);
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num)) return num;
+    return ESP32_PIN_MAP[pinName] ?? null;
+  }
+
+  if (boardId === 'xiao-esp32-s3' || boardId === 'arduino-nano-esp32') {
+    // D0-D13, A0-A7 → ESP32-S3 GPIO numbers
+    const XIAO_S3_MAP: Record<string, number> = {
+      'D0': 1, 'D1': 2, 'D2': 3, 'D3': 4, 'D4': 5, 'D5': 6,
+      'D6': 43, 'D7': 44, 'D8': 7, 'D9': 8, 'D10': 9,
+    };
+    const NANO_ESP32_MAP: Record<string, number> = {
+      'D0': 44, 'D1': 43, 'D2': 5, 'D3': 6, 'D4': 7, 'D5': 8,
+      'D6': 9, 'D7': 10, 'D8': 17, 'D9': 18, 'D10': 21,
+      'D11': 38, 'D12': 47, 'D13': 48,
+      'A0': 1, 'A1': 2, 'A2': 3, 'A3': 4, 'A4': 11, 'A5': 12, 'A6': 13, 'A7': 14,
+    };
+    const map = boardId === 'arduino-nano-esp32' ? NANO_ESP32_MAP : XIAO_S3_MAP;
+    if (pinName in map) return map[pinName];
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num)) return num;
+    return null;
+  }
+
+  if (boardId === 'xiao-esp32-c3') {
+    const XIAO_C3_MAP: Record<string, number> = {
+      'D0': 2, 'D1': 3, 'D2': 4, 'D3': 5, 'D4': 6, 'D5': 7,
+      'D6': 21, 'D7': 20, 'D8': 8, 'D9': 9, 'D10': 10,
+    };
+    if (pinName in XIAO_C3_MAP) return XIAO_C3_MAP[pinName];
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num)) return num;
+    return null;
+  }
+
+  if (boardId === 'aitewinrobot-esp32c3-supermini') {
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num)) return num;
+    return ESP32_PIN_MAP[pinName] ?? null;
+  }
+
+  // ATtiny85 — PORTB only: PB0-PB5 → pins 0-5
+  if (boardId === 'attiny85' || boardId.startsWith('attiny85')) {
+    if (/^PB(\d+)$/.test(pinName)) return parseInt(pinName.substring(2), 10);
+    // Numeric fallback
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num) && num >= 0 && num <= 5) return num;
+    return null;
+  }
+
+  // RISC-V generic (CH32V003 target) — PA0-PA7=0-7, PC0-PC7=8-15, PD0-PD7=16-23
+  if (boardId === 'riscv-generic' || boardId.startsWith('riscv-generic')) {
+    if (/^PA(\d+)$/.test(pinName)) return parseInt(pinName.substring(2), 10);
+    if (/^PC(\d+)$/.test(pinName)) return 8 + parseInt(pinName.substring(2), 10);
+    if (/^PD(\d+)$/.test(pinName)) return 16 + parseInt(pinName.substring(2), 10);
+    // Numeric fallback
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num) && num >= 0 && num <= 23) return num;
+    return null;
   }
 
   return null;

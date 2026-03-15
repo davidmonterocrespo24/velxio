@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { RP2040Simulator } from '../simulation/RP2040Simulator';
+import { RiscVSimulator } from '../simulation/RiscVSimulator';
 import { PinManager } from '../simulation/PinManager';
 import { VirtualDS1307, VirtualTempSensor, I2CMemoryDevice } from '../simulation/I2CBusManager';
 import type { RP2040I2CDevice } from '../simulation/RP2040Simulator';
@@ -34,7 +35,7 @@ export const DEFAULT_BOARD_POSITION = { x: 50, y: 50 };
 export const ARDUINO_POSITION = DEFAULT_BOARD_POSITION;
 
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
-const simulatorMap = new Map<string, AVRSimulator | RP2040Simulator>();
+const simulatorMap = new Map<string, AVRSimulator | RP2040Simulator | RiscVSimulator>();
 const pinManagerMap = new Map<string, PinManager>();
 const bridgeMap = new Map<string, RaspberryPi3Bridge>();
 const esp32BridgeMap = new Map<string, Esp32Bridge>();
@@ -44,8 +45,14 @@ export const getBoardPinManager = (id: string) => pinManagerMap.get(id);
 export const getBoardBridge = (id: string) => bridgeMap.get(id);
 export const getEsp32Bridge = (id: string) => esp32BridgeMap.get(id);
 
-function isEsp32Kind(kind: BoardKind): kind is 'esp32' | 'esp32-s3' | 'esp32-c3' {
-  return kind === 'esp32' || kind === 'esp32-s3' || kind === 'esp32-c3';
+const ESP32_KINDS = new Set<BoardKind>([
+  'esp32', 'esp32-devkit-c-v4', 'esp32-cam', 'wemos-lolin32-lite',
+  'esp32-s3', 'xiao-esp32-s3', 'arduino-nano-esp32',
+  'esp32-c3', 'xiao-esp32-c3', 'aitewinrobot-esp32c3-supermini',
+]);
+
+function isEsp32Kind(kind: BoardKind): boolean {
+  return ESP32_KINDS.has(kind);
 }
 
 // ── Component type ────────────────────────────────────────────────────────
@@ -79,7 +86,7 @@ interface SimulatorState {
   /** @deprecated use boards[x].x/y */
   boardPosition: { x: number; y: number };
   /** @deprecated use getBoardSimulator(activeBoardId) */
-  simulator: AVRSimulator | RP2040Simulator | null;
+  simulator: AVRSimulator | RP2040Simulator | RiscVSimulator | null;
   /** @deprecated use getBoardPinManager(activeBoardId) */
   pinManager: PinManager;
   running: boolean;
@@ -152,11 +159,15 @@ function createSimulator(
   onSerial: (ch: string) => void,
   onBaud: (baud: number) => void,
   onPinTime: (pin: number, state: boolean, t: number) => void,
-): AVRSimulator | RP2040Simulator {
-  let sim: AVRSimulator | RP2040Simulator;
+): AVRSimulator | RP2040Simulator | RiscVSimulator {
+  let sim: AVRSimulator | RP2040Simulator | RiscVSimulator;
   if (boardKind === 'arduino-mega') {
     sim = new AVRSimulator(pm, 'mega');
-  } else if (boardKind === 'raspberry-pi-pico') {
+  } else if (boardKind === 'attiny85') {
+    sim = new AVRSimulator(pm, 'tiny85');
+  } else if (boardKind === 'riscv-generic') {
+    sim = new RiscVSimulator(pm);
+  } else if (boardKind === 'raspberry-pi-pico' || boardKind === 'pi-pico-w') {
     sim = new RP2040Simulator(pm);
   } else {
     // arduino-uno, arduino-nano
@@ -266,7 +277,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           // Cross-board serial bridge: Pi TX → all AVR simulators RX
           get().boards.forEach((b) => {
             const sim = simulatorMap.get(b.id);
-            if (sim instanceof AVRSimulator) sim.serialWrite(ch);
+            if (sim instanceof AVRSimulator || sim instanceof RiscVSimulator) sim.serialWrite(ch);
           });
         };
         bridge.onPinChange = (_gpioPin, _state) => {

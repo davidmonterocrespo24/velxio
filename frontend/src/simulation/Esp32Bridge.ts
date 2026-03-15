@@ -29,6 +29,16 @@
 
 import type { BoardKind } from '../types/board';
 
+/**
+ * Map any ESP32-family board kind to the 3 base QEMU machine types understood
+ * by the backend esp_qemu_manager.
+ */
+function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
+  if (kind === 'esp32-s3' || kind === 'xiao-esp32-s3' || kind === 'arduino-nano-esp32') return 'esp32-s3';
+  if (kind === 'esp32-c3' || kind === 'xiao-esp32-c3' || kind === 'aitewinrobot-esp32c3-supermini') return 'esp32-c3';
+  return 'esp32'; // esp32, esp32-devkit-c-v4, esp32-cam, wemos-lolin32-lite
+}
+
 const API_BASE = (): string =>
   (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
 
@@ -96,7 +106,7 @@ export class Esp32Bridge {
       this._send({
         type: 'start_esp32',
         data: {
-          board: this.boardKind,
+          board: toQemuBoardType(this.boardKind),
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
         },
       });

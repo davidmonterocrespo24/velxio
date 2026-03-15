@@ -8,7 +8,6 @@ import { PinSelector } from './PinSelector';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle } from './WireLayer';
 import { BoardOnCanvas } from './BoardOnCanvas';
-import { BoardPickerModal } from './BoardPickerModal';
 import { PartSimulationRegistry } from '../../simulation/parts';
 import { PinOverlay } from './PinOverlay';
 import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping';
@@ -25,7 +24,6 @@ import type { ComponentMetadata } from '../../types/component-metadata';
 import type { BoardKind } from '../../types/board';
 import { BOARD_KIND_LABELS } from '../../types/board';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
-import { useEditorStore } from '../../store/useEditorStore';
 import './SimulatorCanvas.css';
 
 export const SimulatorCanvas = () => {
@@ -72,9 +70,6 @@ export const SimulatorCanvas = () => {
   // ESP32 crash notification
   const esp32CrashBoardId = useSimulatorStore((s) => s.esp32CrashBoardId);
   const dismissEsp32Crash = useSimulatorStore((s) => s.dismissEsp32Crash);
-
-  // Board picker modal
-  const [showBoardPicker, setShowBoardPicker] = useState(false);
 
   // Component picker modal
   const [showComponentPicker, setShowComponentPicker] = useState(false);
@@ -1019,21 +1014,6 @@ export const SimulatorCanvas = () => {
               Add
             </button>
 
-            {/* Add Board */}
-            <button
-              className="add-component-btn"
-              onClick={() => setShowBoardPicker(true)}
-              title="Add Board"
-              disabled={running}
-              style={{ marginLeft: 2 }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="5" width="20" height="14" rx="2" />
-                <line x1="12" y1="9" x2="12" y2="15" />
-                <line x1="9" y1="12" x2="15" y2="12" />
-              </svg>
-              Board
-            </button>
           </div>
         </div>
         <div
@@ -1170,21 +1150,17 @@ export const SimulatorCanvas = () => {
         isOpen={showComponentPicker}
         onClose={() => setShowComponentPicker(false)}
         onSelectComponent={handleSelectComponent}
-      />
-
-      {/* Board Picker Modal */}
-      <BoardPickerModal
-        isOpen={showBoardPicker}
-        onClose={() => setShowBoardPicker(false)}
         onSelectBoard={(kind: BoardKind) => {
           const sameKind = boards.filter((b) => b.boardKind === kind);
           const newBoardId = sameKind.length === 0 ? kind : `${kind}-${sameKind.length + 1}`;
           const x = boardPosition.x + boards.length * 60 + 420;
           const y = boardPosition.y + boards.length * 30;
           addBoard(kind, x, y);
-          useEditorStore.getState().createFileGroup(`group-${newBoardId}`);
+          // file group is created inside addBoard
+          void newBoardId;
         }}
       />
+
     </div>
   );
 };
