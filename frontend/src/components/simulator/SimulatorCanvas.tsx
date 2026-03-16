@@ -469,7 +469,7 @@ export const SimulatorCanvas = () => {
         subscribeComponentToPin(component, component.properties.pin as number, 'A');
       } else {
         // 2. Subscribe by finding wires connected to arduino
-        const connectedWires = useSimulatorStore.getState().wires.filter(
+        const connectedWires = wires.filter(
           w => w.start.componentId === component.id || w.end.componentId === component.id
         );
 
@@ -502,7 +502,7 @@ export const SimulatorCanvas = () => {
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [components, pinManager, updateComponentState]);
+  }, [components, wires, boards, pinManager, updateComponentState]);
 
   // Handle keyboard delete
   useEffect(() => {

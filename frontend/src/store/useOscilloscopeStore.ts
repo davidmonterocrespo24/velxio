@@ -2,7 +2,10 @@
  * Oscilloscope / Logic Analyzer store.
  *
  * Captures pin HIGH/LOW transitions with microsecond-level timestamps
- * derived from the AVR CPU cycle counter and renders them as waveforms.
+ * derived from the CPU cycle counter and renders them as waveforms.
+ *
+ * Channels are keyed by (boardId, pin) so multiple boards with the same
+ * logical pin number can be monitored independently.
  */
 
 import { create } from 'zustand';
@@ -23,6 +26,8 @@ export const CHANNEL_COLORS = [
 
 export interface OscChannel {
   id: string;
+  /** Board that owns this channel */
+  boardId: string;
   pin: number;
   label: string;
   color: string;
@@ -51,7 +56,7 @@ interface OscilloscopeState {
   toggleOscilloscope: () => void;
   setCapturing: (running: boolean) => void;
   setTimeDivMs: (ms: number) => void;
-  addChannel: (pin: number) => void;
+  addChannel: (boardId: string, pin: number, pinLabel: string) => void;
   removeChannel: (id: string) => void;
   /** Push one sample; drops the oldest if the buffer is full */
   pushSample: (channelId: string, timeMs: number, state: boolean) => void;
@@ -71,18 +76,16 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
 
   setTimeDivMs: (ms) => set({ timeDivMs: ms }),
 
-  addChannel: (pin: number) => {
+  addChannel: (boardId: string, pin: number, pinLabel: string) => {
     const { channels } = get();
-    if (channels.some((c) => c.pin === pin)) return; // already added
+    // Deduplicate by (boardId, pin)
+    if (channels.some((c) => c.boardId === boardId && c.pin === pin)) return;
 
-    const isAnalog = pin >= 14 && pin <= 19;
-    const pinLabel = isAnalog ? `A${pin - 14}` : `D${pin}`;
-
-    const id = `osc-ch-${pin}`;
+    const id = `osc-ch-${boardId}-${pin}`;
     const color = CHANNEL_COLORS[channels.length % CHANNEL_COLORS.length];
 
     set((s) => ({
-      channels: [...s.channels, { id, pin, label: pinLabel, color }],
+      channels: [...s.channels, { id, boardId, pin, label: pinLabel, color }],
       samples: { ...s.samples, [id]: [] },
     }));
   },
@@ -103,9 +106,8 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
       const buf = s.samples[channelId];
       if (!buf) return s;
 
-      // Efficient copy: one allocation instead of two (avoids spread + slice).
       const next = buf.slice();
-      if (next.length >= MAX_SAMPLES) next.shift(); // drop oldest
+      if (next.length >= MAX_SAMPLES) next.shift();
       next.push({ timeMs, state });
       return { samples: { ...s.samples, [channelId]: next } };
     });

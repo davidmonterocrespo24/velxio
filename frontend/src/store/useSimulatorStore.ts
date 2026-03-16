@@ -213,11 +213,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
   const initialPm = new PinManager();
   pinManagerMap.set(INITIAL_BOARD_ID, initialPm);
 
-  function getOscilloscopeCallback() {
+  function getOscilloscopeCallback(boardId: string) {
     return (pin: number, state: boolean, timeMs: number) => {
       const { channels, pushSample } = useOscilloscopeStore.getState();
       for (const ch of channels) {
-        if (ch.pin === pin) pushSample(ch.id, timeMs, state);
+        if (ch.boardId === boardId && ch.pin === pin) pushSample(ch.id, timeMs, state);
       }
     };
   }
@@ -243,7 +243,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         return { boards, ...(isActive ? { serialBaudRate: baud } : {}) };
       });
     },
-    getOscilloscopeCallback(),
+    getOscilloscopeCallback(INITIAL_BOARD_ID),
   );
   // Cross-board serial bridge for the initial board: AVR TX → Pi bridges RX
   const initialOrigSerial = initialSim.onSerialData;
@@ -341,7 +341,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               return { boards, ...(isActive ? { serialBaudRate: baud } : {}) };
             });
           },
-          getOscilloscopeCallback(),
+          getOscilloscopeCallback(id),
         );
         // Cross-board serial bridge: AVR TX → all Pi bridges RX
         const origSerial = sim.onSerialData;
@@ -948,8 +948,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         const component = state.components.find((c) => c.id === componentId);
         // Check if this componentId matches a board id
         const board = state.boards.find((b) => b.id === componentId);
-        const compX = component ? component.x : (board ? board.x : state.boardPosition.x);
-        const compY = component ? component.y : (board ? board.y : state.boardPosition.y);
+        // Components have a DynamicComponent wrapper with border:2px + padding:4px → offset (4,6)
+        // Boards are rendered directly without a wrapper, so no offset.
+        const compX = component ? component.x + 4 : (board ? board.x : state.boardPosition.x);
+        const compY = component ? component.y + 6 : (board ? board.y : state.boardPosition.y);
 
         const updatedWires = state.wires.map((wire) => {
           const updated = { ...wire };
@@ -972,21 +974,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const updatedWires = state.wires.map((wire) => {
         const updated = { ...wire };
 
-        // Resolve start
+        // Resolve start — components have wrapper offset (4,6), boards do not
         const startComp = state.components.find((c) => c.id === wire.start.componentId);
         const startBoard = state.boards.find((b) => b.id === wire.start.componentId);
-        const startX = startComp ? startComp.x : (startBoard ? startBoard.x : state.boardPosition.x);
-        const startY = startComp ? startComp.y : (startBoard ? startBoard.y : state.boardPosition.y);
+        const startX = startComp ? startComp.x + 4 : (startBoard ? startBoard.x : state.boardPosition.x);
+        const startY = startComp ? startComp.y + 6 : (startBoard ? startBoard.y : state.boardPosition.y);
         const startPos = calculatePinPosition(wire.start.componentId, wire.start.pinName, startX, startY);
         updated.start = startPos
           ? { ...wire.start, x: startPos.x, y: startPos.y }
           : { ...wire.start, x: startX, y: startY };
 
-        // Resolve end
+        // Resolve end — components have wrapper offset (4,6), boards do not
         const endComp = state.components.find((c) => c.id === wire.end.componentId);
         const endBoard = state.boards.find((b) => b.id === wire.end.componentId);
-        const endX = endComp ? endComp.x : (endBoard ? endBoard.x : state.boardPosition.x);
-        const endY = endComp ? endComp.y : (endBoard ? endBoard.y : state.boardPosition.y);
+        const endX = endComp ? endComp.x + 4 : (endBoard ? endBoard.x : state.boardPosition.x);
+        const endY = endComp ? endComp.y + 6 : (endBoard ? endBoard.y : state.boardPosition.y);
         const endPos = calculatePinPosition(wire.end.componentId, wire.end.pinName, endX, endY);
         updated.end = endPos
           ? { ...wire.end, x: endPos.x, y: endPos.y }

@@ -1,11 +1,11 @@
 /**
  * Oscilloscope / Logic Analyzer panel.
  *
- * Captures digital pin HIGH/LOW transitions (with timestamps from the CPU
- * cycle counter) and renders them as step waveforms on a <canvas>.
+ * Supports multiple boards: each channel is tied to a specific (boardId, pin)
+ * pair, so D13 on board A and D13 on board B are tracked independently.
  *
  * Usage:
- *  - Click "+ Add Channel" to pick pins to monitor.
+ *  - Click "+ Add Channel" → choose a board → choose a pin.
  *  - Adjust Time/div to zoom in or out.
  *  - Click Run / Pause to freeze the display without stopping the simulation.
  *  - Click Clear to wipe all captured samples.
@@ -18,8 +18,11 @@ import React, {
   useCallback,
   useLayoutEffect,
 } from 'react';
+import ReactDOM from 'react-dom';
 import { useOscilloscopeStore, type OscChannel, type OscSample } from '../../store/useOscilloscopeStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { BOARD_KIND_LABELS } from '../../types/board';
+import type { BoardKind } from '../../types/board';
 import './Oscilloscope.css';
 
 // Horizontal divisions shown at once
@@ -37,39 +40,47 @@ const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [
   { label: '500 ms', ms: 500 },
 ];
 
-/** Possible digital pins to monitor (Uno/Nano layout) */
-const AVAILABLE_PINS = [
-  { pin: 0,  label: 'D0'  },
-  { pin: 1,  label: 'D1'  },
-  { pin: 2,  label: 'D2'  },
-  { pin: 3,  label: 'D3'  },
-  { pin: 4,  label: 'D4'  },
-  { pin: 5,  label: 'D5'  },
-  { pin: 6,  label: 'D6'  },
-  { pin: 7,  label: 'D7'  },
-  { pin: 8,  label: 'D8'  },
-  { pin: 9,  label: 'D9'  },
-  { pin: 10, label: 'D10' },
-  { pin: 11, label: 'D11' },
-  { pin: 12, label: 'D12' },
-  { pin: 13, label: 'D13' },
-  { pin: 14, label: 'A0'  },
-  { pin: 15, label: 'A1'  },
-  { pin: 16, label: 'A2'  },
-  { pin: 17, label: 'A3'  },
-  { pin: 18, label: 'A4'  },
-  { pin: 19, label: 'A5'  },
-];
+/** Return the list of monitorable pins for a given board kind */
+function getPinsForBoardKind(boardKind: BoardKind): { pin: number; label: string }[] {
+  switch (boardKind) {
+    case 'arduino-mega':
+      return [
+        ...Array.from({ length: 54 }, (_, i) => ({ pin: i, label: `D${i}` })),
+        ...Array.from({ length: 16 }, (_, i) => ({ pin: 54 + i, label: `A${i}` })),
+      ];
+    case 'attiny85':
+      return Array.from({ length: 6 }, (_, i) => ({ pin: i, label: `D${i}` }));
+    case 'raspberry-pi-pico':
+    case 'pi-pico-w':
+      return Array.from({ length: 29 }, (_, i) => ({ pin: i, label: `GP${i}` }));
+    case 'esp32':
+    case 'esp32-devkit-c-v4':
+    case 'esp32-cam':
+    case 'wemos-lolin32-lite':
+      return Array.from({ length: 40 }, (_, i) => ({ pin: i, label: `GPIO${i}` }));
+    case 'esp32-s3':
+    case 'xiao-esp32-s3':
+    case 'arduino-nano-esp32':
+      return Array.from({ length: 45 }, (_, i) => ({ pin: i, label: `GPIO${i}` }));
+    case 'esp32-c3':
+    case 'xiao-esp32-c3':
+    case 'aitewinrobot-esp32c3-supermini':
+      return Array.from({ length: 22 }, (_, i) => ({ pin: i, label: `GPIO${i}` }));
+    case 'riscv-generic':
+      return Array.from({ length: 20 }, (_, i) => ({ pin: i, label: `D${i}` }));
+    case 'raspberry-pi-3':
+      return Array.from({ length: 28 }, (_, i) => ({ pin: i, label: `GPIO${i}` }));
+    default:
+      // arduino-uno, arduino-nano
+      return [
+        ...Array.from({ length: 14 }, (_, i) => ({ pin: i, label: `D${i}` })),
+        ...Array.from({ length: 6  }, (_, i) => ({ pin: 14 + i, label: `A${i}` })),
+      ];
+  }
+}
 
 // ── Canvas rendering helpers ────────────────────────────────────────────────
 
-/**
- * Draw a single channel's waveform onto `canvas`.
- * @param samples  The sample ring-buffer for this channel.
- * @param color    Stroke color (CSS string).
- * @param windowEndMs  Right edge of the time window.
- * @param windowMs     Total time window width (NUM_DIVS * timeDivMs).
- */
 function drawWaveform(
   canvas: HTMLCanvasElement,
   samples: OscSample[],
@@ -105,10 +116,7 @@ function drawWaveform(
   if (samples.length === 0) return;
 
   const windowStartMs = windowEndMs - windowMs;
-
-  // Convert timeMs → canvas x pixel
   const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
-
   const HIGH_Y = Math.round(height * 0.15);
   const LOW_Y  = Math.round(height * 0.85);
 
@@ -116,7 +124,6 @@ function drawWaveform(
   ctx.lineWidth = 1.5;
   ctx.beginPath();
 
-  // Find the last sample before the window to establish the initial state
   let initState = false;
   for (let i = samples.length - 1; i >= 0; i--) {
     if (samples[i].timeMs <= windowStartMs) {
@@ -134,27 +141,20 @@ function drawWaveform(
 
     const x = Math.max(0, Math.min(width, toX(s.timeMs)));
     const nextY = s.state ? HIGH_Y : LOW_Y;
-
-    // Vertical step
     ctx.lineTo(x, currentY);
     ctx.lineTo(x, nextY);
     currentY = nextY;
   }
 
-  // Extend to the right edge
   ctx.lineTo(width, currentY);
   ctx.stroke();
 
-  // HIGH / LOW labels at the right margin
   ctx.fillStyle = color;
   ctx.font = '9px monospace';
   ctx.fillText('H', width - 12, HIGH_Y + 3);
   ctx.fillText('L', width - 12, LOW_Y + 3);
 }
 
-/**
- * Draw the time-axis ruler below all the channels.
- */
 function drawRuler(
   canvas: HTMLCanvasElement,
   windowEndMs: number,
@@ -182,7 +182,6 @@ function drawRuler(
     ctx.lineTo(x, 5);
     ctx.stroke();
 
-    // Format the label
     const absMs = Math.abs(timeAtDiv);
     const label = absMs >= 1000
       ? `${(timeAtDiv / 1000).toFixed(1)}s`
@@ -194,7 +193,7 @@ function drawRuler(
   }
 }
 
-// ── Channel canvas hook ─────────────────────────────────────────────────────
+// ── Channel canvas ──────────────────────────────────────────────────────────
 
 interface ChannelCanvasProps {
   channel: OscChannel;
@@ -204,15 +203,11 @@ interface ChannelCanvasProps {
 }
 
 const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
-  channel,
-  samples,
-  windowEndMs,
-  windowMs,
+  channel, samples, windowEndMs, windowMs,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef  = useRef<HTMLDivElement>(null);
 
-  // Re-draw whenever data or sizing changes
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -221,13 +216,11 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
     const { width, height } = wrap.getBoundingClientRect();
     if (width === 0 || height === 0) return;
 
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
+    canvas.width  = Math.floor(width)  * window.devicePixelRatio;
     canvas.height = Math.floor(height) * window.devicePixelRatio;
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     drawWaveform(canvas, samples, channel.color, windowEndMs, windowMs);
-    // Intentionally exclude canvasRef/wrapRef (stable refs) and the
-    // module-level drawWaveform function from the dependency array.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [samples, channel.color, windowEndMs, windowMs]);
 
@@ -258,12 +251,11 @@ const RulerCanvas: React.FC<RulerCanvasProps> = ({ windowEndMs, windowMs, timeDi
     const { width, height } = wrap.getBoundingClientRect();
     if (width === 0 || height === 0) return;
 
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
+    canvas.width  = Math.floor(width)  * window.devicePixelRatio;
     canvas.height = Math.floor(height) * window.devicePixelRatio;
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     drawRuler(canvas, windowEndMs, windowMs, timeDivMs);
-    // Intentionally exclude stable canvasRef/wrapRef and module-level drawRuler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowEndMs, windowMs, timeDivMs]);
 
@@ -271,6 +263,93 @@ const RulerCanvas: React.FC<RulerCanvasProps> = ({ windowEndMs, windowMs, timeDi
     <div ref={wrapRef} className="osc-ruler">
       <canvas ref={canvasRef} className="osc-ruler-canvas" />
     </div>
+  );
+};
+
+// ── Channel picker (two-step: board → pin) ───────────────────────────────────
+
+interface ChannelPickerProps {
+  onAdd: (boardId: string, pin: number, pinLabel: string) => void;
+  activeChannels: OscChannel[];
+  onClose: () => void;
+  anchorRect: DOMRect;
+  dropdownRef: React.RefObject<HTMLDivElement>;
+}
+
+const ChannelPicker: React.FC<ChannelPickerProps> = ({
+  onAdd, activeChannels, onClose, anchorRect, dropdownRef,
+}) => {
+  const boards = useSimulatorStore((s) => s.boards);
+  const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
+  const [selectedBoardId, setSelectedBoardId] = useState<string>(
+    activeBoardId ?? boards[0]?.id ?? '',
+  );
+
+  const selectedBoard = boards.find((b) => b.id === selectedBoardId) ?? boards[0];
+  const pins = selectedBoard ? getPinsForBoardKind(selectedBoard.boardKind) : [];
+
+  const activePinsForBoard = new Set(
+    activeChannels.filter((c) => c.boardId === selectedBoardId).map((c) => c.pin),
+  );
+
+  // Open upward from the anchor button, fixed in the viewport
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    left: anchorRect.left,
+    bottom: window.innerHeight - anchorRect.top + 4,
+    zIndex: 9999,
+  };
+
+  return ReactDOM.createPortal(
+    <div
+      ref={dropdownRef}
+      className="osc-picker-dropdown osc-picker-multiboard"
+      style={style}
+    >
+      {/* Board tabs */}
+      <div className="osc-picker-board-tabs">
+        {boards.map((b) => (
+          <button
+            key={b.id}
+            className={`osc-picker-board-tab${b.id === selectedBoard?.id ? ' active' : ''}`}
+            onClick={() => setSelectedBoardId(b.id)}
+            title={BOARD_KIND_LABELS[b.boardKind]}
+          >
+            {b.id}
+          </button>
+        ))}
+      </div>
+
+      {/* Board label */}
+      {selectedBoard && (
+        <div className="osc-picker-board-label">
+          {BOARD_KIND_LABELS[selectedBoard.boardKind]}
+        </div>
+      )}
+
+      {/* Pin grid */}
+      <div className="osc-picker-pins">
+        {pins.map(({ pin, label }) => {
+          const added = activePinsForBoard.has(pin);
+          return (
+            <button
+              key={pin}
+              className={`osc-pin-btn${added ? ' osc-pin-btn-active' : ''}`}
+              onClick={() => {
+                if (!added) {
+                  onAdd(selectedBoardId, pin, label);
+                  onClose();
+                }
+              }}
+              title={added ? 'Already added' : `Monitor ${label}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>,
+    document.body,
   );
 };
 
@@ -289,34 +368,47 @@ export const Oscilloscope: React.FC = () => {
     clearSamples,
   } = useOscilloscopeStore();
 
-  const simRunning = useSimulatorStore((s) => s.running);
+  // Any board running → oscilloscope can capture
+  const anyRunning = useSimulatorStore((s) => s.boards.some((b) => b.running));
 
   const [showPicker, setShowPicker] = useState(false);
-  const pickerRef  = useRef<HTMLDivElement>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close picker when clicking outside
+  const handleTogglePicker = () => {
+    if (showPicker) {
+      setShowPicker(false);
+      setPickerAnchor(null);
+    } else {
+      const rect = addBtnRef.current?.getBoundingClientRect() ?? null;
+      setPickerAnchor(rect);
+      setShowPicker(true);
+    }
+  };
+
+  // Close picker on outside click (checks both the button and the portal dropdown)
   useEffect(() => {
     if (!showPicker) return;
     const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inBtn = addBtnRef.current?.contains(target);
+      const inDropdown = dropdownRef.current?.contains(target);
+      if (!inBtn && !inDropdown) {
         setShowPicker(false);
+        setPickerAnchor(null);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showPicker]);
 
-  // ── Compute the display window ──────────────────────────────────────────
-  //
-  // We show the last (NUM_DIVS * timeDivMs) ms of captured data.
-  // windowEndMs = latest sample time across all channels (or 0 if none).
-
+  // ── Display window ──────────────────────────────────────────────────────
   const [, forceRedraw] = useState(0);
-
-  // Poll at 60 fps while simulation + capture are running
   const rafRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (simRunning && capturing) {
+    if (anyRunning && capturing) {
       const tick = () => {
         forceRedraw((n) => n + 1);
         rafRef.current = requestAnimationFrame(tick);
@@ -326,11 +418,10 @@ export const Oscilloscope: React.FC = () => {
         if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       };
     }
-  }, [simRunning, capturing]);
+  }, [anyRunning, capturing]);
 
   const windowMs = NUM_DIVS * timeDivMs;
 
-  // Find the latest sample time to anchor the right edge of the window
   let windowEndMs = 0;
   for (const ch of channels) {
     const buf = samples[ch.id] ?? [];
@@ -338,15 +429,23 @@ export const Oscilloscope: React.FC = () => {
       windowEndMs = Math.max(windowEndMs, buf[buf.length - 1].timeMs);
     }
   }
-  // Always advance at least one window ahead so the display isn't stale
   windowEndMs = Math.max(windowEndMs, windowMs);
 
-  const handleAddChannel = useCallback((pin: number) => {
-    addChannel(pin);
-    setShowPicker(false);
+  const handleAddChannel = useCallback((boardId: string, pin: number, pinLabel: string) => {
+    addChannel(boardId, pin, pinLabel);
   }, [addChannel]);
 
-  const activePins = new Set(channels.map((c) => c.pin));
+  // Short display name for a board id — strip leading "arduino-", "raspberry-pi-", etc.
+  const boardShortName = (boardId: string) => {
+    const parts = boardId.split('-');
+    // If numeric suffix like "arduino-uno-2", keep the suffix
+    const last = parts[parts.length - 1];
+    const isNum = /^\d+$/.test(last);
+    if (isNum && parts.length >= 2) {
+      return `${parts[parts.length - 2]}-${last}`;
+    }
+    return last;
+  };
 
   return (
     <div className="osc-container">
@@ -354,31 +453,25 @@ export const Oscilloscope: React.FC = () => {
       <div className="osc-header">
         <span className="osc-title">Oscilloscope</span>
 
-        {/* Add Channel button + dropdown */}
-        <div className="osc-picker-wrap" ref={pickerRef}>
-          <button
-            className="osc-btn"
-            onClick={() => setShowPicker((v) => !v)}
-            title="Add a pin channel"
-          >
-            + Add Channel
-          </button>
+        {/* Add Channel button + portal picker */}
+        <button
+          ref={addBtnRef}
+          className="osc-btn"
+          onClick={handleTogglePicker}
+          title="Add a pin channel"
+        >
+          + Add Channel
+        </button>
 
-          {showPicker && (
-            <div className="osc-picker-dropdown">
-              {AVAILABLE_PINS.map(({ pin, label }) => (
-                <button
-                  key={pin}
-                  className={`osc-pin-btn${activePins.has(pin) ? ' osc-pin-btn-active' : ''}`}
-                  onClick={() => !activePins.has(pin) && handleAddChannel(pin)}
-                  title={activePins.has(pin) ? 'Already added' : `Monitor ${label}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {showPicker && pickerAnchor && (
+          <ChannelPicker
+            onAdd={handleAddChannel}
+            activeChannels={channels}
+            onClose={() => { setShowPicker(false); setPickerAnchor(null); }}
+            anchorRect={pickerAnchor}
+            dropdownRef={dropdownRef}
+          />
+        )}
 
         {/* Time / div */}
         <span className="osc-label">Time/div:</span>
@@ -422,8 +515,10 @@ export const Oscilloscope: React.FC = () => {
           <div className="osc-waveforms">
             {channels.map((ch) => (
               <div key={ch.id} className="osc-channel-row">
-                {/* Label + remove button */}
                 <div className="osc-channel-label">
+                  <span className="osc-channel-board" title={ch.boardId}>
+                    {boardShortName(ch.boardId)}
+                  </span>
                   <span className="osc-channel-name" style={{ color: ch.color }}>
                     {ch.label}
                   </span>
@@ -436,7 +531,6 @@ export const Oscilloscope: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Waveform canvas */}
                 <ChannelCanvas
                   channel={ch}
                   samples={samples[ch.id] ?? []}
@@ -447,7 +541,6 @@ export const Oscilloscope: React.FC = () => {
             ))}
           </div>
 
-          {/* Time ruler */}
           <RulerCanvas
             windowEndMs={windowEndMs}
             windowMs={windowMs}

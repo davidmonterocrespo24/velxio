@@ -207,4 +207,9 @@ PartSimulationRegistry.register('7segment', {
 
     return () => unsubscribers.forEach(u => u());
   },
+  // Called by SimulatorCanvas for boards without a local simulator (e.g. ESP32 via QEMU backend).
+  // pinName is the segment identifier (A, B, C, D, E, F, G, DP).
+  onPinStateChange: (pinName: string, state: boolean, element: HTMLElement) => {
+    set7SegPin(element, pinName, state);
+  },
 });
