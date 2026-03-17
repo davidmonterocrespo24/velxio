@@ -40,8 +40,14 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             logger.info('[%s] system event: %s', client_id, data.get('event'))
         elif event_type == 'error':
             logger.error('[%s] error: %s', client_id, data.get('message'))
+        elif event_type == 'serial_output':
+            text = data.get('data', '')
+            logger.info('[%s] serial_output uart=%s len=%d: %r', client_id, data.get('uart', 0), len(text), text[:80])
         payload = json.dumps({'type': event_type, 'data': data})
-        await manager.send(client_id, payload)
+        try:
+            await manager.send(client_id, payload)
+        except Exception as _send_exc:
+            logger.debug('[%s] qemu_callback send failed (%s): %s', client_id, event_type, _send_exc)
 
     def _use_lib() -> bool:
         return esp_lib_manager.is_available()
@@ -177,13 +183,19 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                     )
 
     except WebSocketDisconnect:
-        manager.disconnect(client_id)
-        qemu_manager.stop_instance(client_id)
-        await esp_lib_manager.stop_instance(client_id)
-        esp_qemu_manager.stop_instance(client_id)
+        # Guard: only clean up if this coroutine still owns the connection for client_id.
+        # A newer simulation_websocket may have already connected and replaced us.
+        if manager.active_connections.get(client_id) is websocket:
+            manager.disconnect(client_id)
+            qemu_manager.stop_instance(client_id)
+            await esp_lib_manager.stop_instance(client_id)
+            esp_qemu_manager.stop_instance(client_id)
+        else:
+            logger.info('[%s] old WS session ended; newer session is active — skipping cleanup', client_id)
     except Exception as exc:
         logger.error('WebSocket error for %s: %s', client_id, exc)
-        manager.disconnect(client_id)
-        qemu_manager.stop_instance(client_id)
-        await esp_lib_manager.stop_instance(client_id)
-        esp_qemu_manager.stop_instance(client_id)
+        if manager.active_connections.get(client_id) is websocket:
+            manager.disconnect(client_id)
+            qemu_manager.stop_instance(client_id)
+            await esp_lib_manager.stop_instance(client_id)
+            esp_qemu_manager.stop_instance(client_id)

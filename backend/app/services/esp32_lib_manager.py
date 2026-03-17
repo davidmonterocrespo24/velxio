@@ -160,7 +160,10 @@ class EspLibManager:
 
         logger.info('Launching esp32_worker for %s (machine=%s, script=%s, python=%s)',
                     client_id, machine, _WORKER_SCRIPT, sys.executable)
-        await callback('system', {'event': 'booting'})
+        try:
+            await callback('system', {'event': 'booting'})
+        except Exception as exc:
+            logger.warning('start_instance %s: booting event delivery failed: %s', client_id, exc)
 
         try:
             proc = subprocess.Popen(
@@ -361,6 +364,17 @@ class EspLibManager:
             for raw in inst.process.stdout:
                 raw = raw.strip()
                 if not raw:
+                    continue
+                # With -nographic, serial0 is connected to the stdio mux so
+                # qemu_chr_fe_write() writes the raw UART byte to fd 1 just
+                # before picsimlab_uart_tx_event emits the JSON line.  Strip
+                # any prefix bytes before the JSON object marker.
+                idx = raw.find(b'{"type":')
+                if idx > 0:
+                    raw = raw[idx:]
+                elif idx < 0:
+                    logger.debug('[%s] ignoring non-JSON worker line: %s',
+                                 client_id, raw[:200])
                     continue
                 try:
                     event = json.loads(raw)

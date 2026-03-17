@@ -307,6 +307,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         bridge.onCrash = () => {
           set({ esp32CrashBoardId: id });
         };
+        bridge.onDisconnected = () => {
+          set((s) => {
+            const boards = s.boards.map((b) => b.id === id ? { ...b, running: false } : b);
+            const isActive = s.activeBoardId === id;
+            return { boards, ...(isActive ? { running: false } : {}) };
+          });
+        };
         bridge.onLedcUpdate = (update) => {
           // Route LEDC duty cycles to PinManager as PWM (0.0–1.0).
           // If gpio is known (from GPIO out_sel sync), use the actual GPIO pin;
@@ -619,6 +626,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           if (boardPm) boardPm.triggerPinChange(gpioPin, state);
         };
         bridge.onCrash = () => { set({ esp32CrashBoardId: boardId }); };
+        bridge.onDisconnected = () => {
+          set((s) => {
+            const boards = s.boards.map((b) => b.id === boardId ? { ...b, running: false } : b);
+            const isActive = s.activeBoardId === boardId;
+            return { boards, ...(isActive ? { running: false } : {}) };
+          });
+        };
         bridge.onLedcUpdate = (update) => {
           const boardPm = pinManagerMap.get(boardId);
           if (boardPm && typeof boardPm.updatePwm === 'function') {
