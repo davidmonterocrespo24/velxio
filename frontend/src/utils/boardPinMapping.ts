@@ -224,6 +224,8 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
 
   // ESP32 / ESP32-S3 / ESP32-C3 — GPIO numbers used directly
   if (boardId === 'esp32' || boardId.startsWith('esp32')) {
+    // Power / GND pins (GND, GND.1, 3V3, 3V3.1, 5V, 5V.1, etc.)
+    if (pinName.startsWith('GND') || pinName.startsWith('3V3') || pinName.startsWith('5V')) return -1;
     // Try bare number first ("13" → 13)
     const num = parseInt(pinName, 10);
     if (!isNaN(num) && num >= 0 && num <= 39) return num;

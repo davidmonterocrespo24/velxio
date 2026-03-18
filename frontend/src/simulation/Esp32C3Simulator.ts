@@ -560,9 +560,11 @@ export class Esp32C3Simulator {
   }
 
   /**
-   * ROM region (0x40000000-0x4005FFFF) — serves the real ROM binary when
-   * loaded, or falls back to C.RET (0x8082) with a0=0 if the binary is
-   * unavailable.
+   * ROM region (0x40000000-0x4005FFFF) — when the CPU fetches an instruction
+   * from a known ROM function address, we emulate it natively in JavaScript
+   * (memset, memcpy, __udivdi3, ets_delay_us, etc.), set the return value
+   * in a0/a1, and serve C.RET (0x8082) so the CPU returns to the caller.
+   * Unknown functions still get a0=0 + C.RET.
    */
   private _registerRomStub(): void {
     const core = this.core;
@@ -573,15 +575,9 @@ export class Esp32C3Simulator {
           const off = (addr >>> 0) - ROM_BASE;
           if (off < this._romData.length) return this._romData[off];
         }
-        // Fallback: detect instruction fetch and set a0=0 for C.RET stub
+        // Detect instruction fetch and emulate known ROM functions
         if ((addr & 1) === 0 && (addr >>> 0) === (core.pc >>> 0)) {
-          core.regs[10] = 0;  // a0 = 0 (ESP_OK)
-          if (++this._romCallCount <= 50) {
-            console.log(
-              `[ROM] stub call #${this._romCallCount} → 0x${(addr >>> 0).toString(16)}` +
-              ` ra=0x${(core.regs[1] >>> 0).toString(16)}`
-            );
-          }
+          this._emulateRomFunction(addr >>> 0);
         }
         return (addr & 1) === 0 ? 0x82 : 0x80;
       },
@@ -589,24 +585,254 @@ export class Esp32C3Simulator {
     );
   }
 
-  /** Second ROM region (0x40800000) — same stub with a0=0. */
+  /** Second ROM region (0x40800000) — same emulation with fallback a0=0. */
   private _registerRomStub2(): void {
     const core = this.core;
     this.core.addMmio(ROM2_BASE, ROM2_SIZE,
       (addr) => {
         if ((addr & 1) === 0 && (addr >>> 0) === (core.pc >>> 0)) {
-          core.regs[10] = 0;
-          if (++this._romCallCount <= 50) {
-            console.log(
-              `[ROM2] call #${this._romCallCount} → 0x${(addr >>> 0).toString(16)}` +
-              ` ra=0x${(core.regs[1] >>> 0).toString(16)}`
-            );
-          }
+          this._emulateRomFunction(addr >>> 0);
         }
         return (addr & 1) === 0 ? 0x82 : 0x80;
       },
       () => {},
     );
+  }
+
+  // ── ROM function emulation ─────────────────────────────────────────────────
+  //
+  // The ESP32-C3 firmware links common C library functions (memset, memcpy,
+  // __udivdi3, …) and helper functions (ets_delay_us, rtc_get_reset_reason, …)
+  // to addresses in the ROM region (0x40000000+).  Since we don't run the real
+  // ROM binary, we emulate these functions natively in JavaScript by reading
+  // arguments from registers a0–a7, performing the operation on emulated
+  // memory, and writing the result back to a0(/a1).  The caller then hits our
+  // C.RET (0x8082) stub and returns normally.
+  //
+  // Address mappings from esp32c3.rom.ld / esp32c3.rom.libgcc.ld:
+
+  private _emulateRomFunction(addr: number): void {
+    const r = this.core.regs;
+    const c = this.core;
+
+    if (++this._romCallCount <= 50) {
+      console.log(
+        `[ROM] #${this._romCallCount} 0x${addr.toString(16)}` +
+        ` ra=0x${(r[1]>>>0).toString(16)}` +
+        ` a0=0x${(r[10]>>>0).toString(16)} a1=0x${(r[11]>>>0).toString(16)}` +
+        ` a2=0x${(r[12]>>>0).toString(16)} a3=0x${(r[13]>>>0).toString(16)}`
+      );
+    }
+
+    switch (addr) {
+      // ── C library functions ──────────────────────────────────────────
+      case 0x40000354: { // memset(dest, val, n) → dest
+        const dest = r[10] >>> 0;
+        const val  = r[11] & 0xFF;
+        const n    = r[12] >>> 0;
+        const safeN = Math.min(n, 0x100000); // cap at 1 MB safety
+        for (let i = 0; i < safeN; i++) c.writeByte(dest + i, val);
+        r[10] = dest | 0;
+        break;
+      }
+      case 0x40000358: { // memcpy(dest, src, n) → dest
+        const dest = r[10] >>> 0;
+        const src  = r[11] >>> 0;
+        const n    = r[12] >>> 0;
+        const safeN = Math.min(n, 0x100000);
+        // Copy forward (like real memcpy, undefined for overlap)
+        for (let i = 0; i < safeN; i++) c.writeByte(dest + i, c.readByte(src + i));
+        r[10] = dest | 0;
+        break;
+      }
+      case 0x4000035c: { // memmove(dest, src, n) → dest
+        const dest = r[10] >>> 0;
+        const src  = r[11] >>> 0;
+        const n    = r[12] >>> 0;
+        const safeN = Math.min(n, 0x100000);
+        if (dest < src) {
+          for (let i = 0; i < safeN; i++) c.writeByte(dest + i, c.readByte(src + i));
+        } else {
+          for (let i = safeN - 1; i >= 0; i--) c.writeByte(dest + i, c.readByte(src + i));
+        }
+        r[10] = dest | 0;
+        break;
+      }
+      case 0x40000360: { // memcmp(a, b, n) → int
+        const a = r[10] >>> 0;
+        const b = r[11] >>> 0;
+        const n = r[12] >>> 0;
+        let result = 0;
+        for (let i = 0; i < n; i++) {
+          const diff = c.readByte(a + i) - c.readByte(b + i);
+          if (diff !== 0) { result = diff > 0 ? 1 : -1; break; }
+        }
+        r[10] = result;
+        break;
+      }
+      case 0x40000364: { // strcpy(dest, src) → dest
+        const dest = r[10] >>> 0;
+        const src  = r[11] >>> 0;
+        let i = 0;
+        while (i < 0x100000) {
+          const ch = c.readByte(src + i);
+          c.writeByte(dest + i, ch);
+          if (ch === 0) break;
+          i++;
+        }
+        r[10] = dest | 0;
+        break;
+      }
+      case 0x4000036c: { // strcmp(a, b) → int
+        const a = r[10] >>> 0;
+        const b = r[11] >>> 0;
+        let result = 0;
+        for (let i = 0; i < 0x100000; i++) {
+          const ca = c.readByte(a + i);
+          const cb = c.readByte(b + i);
+          if (ca !== cb) { result = ca - cb; break; }
+          if (ca === 0) break;
+        }
+        r[10] = result;
+        break;
+      }
+      case 0x40000374: { // strlen(s) → size_t
+        const s = r[10] >>> 0;
+        let len = 0;
+        while (len < 0x100000 && c.readByte(s + len) !== 0) len++;
+        r[10] = len;
+        break;
+      }
+      case 0x4000037c: { // bzero(dest, n)
+        const dest = r[10] >>> 0;
+        const n    = r[11] >>> 0;
+        const safeN = Math.min(n, 0x100000);
+        for (let i = 0; i < safeN; i++) c.writeByte(dest + i, 0);
+        break;
+      }
+
+      // ── libgcc 64-bit integer math ───────────────────────────────────
+      case 0x400008ac: { // __udivdi3(a, b) → a / b (unsigned 64-bit)
+        const aLo = r[10] >>> 0, aHi = r[11] >>> 0;
+        const bLo = r[12] >>> 0, bHi = r[13] >>> 0;
+        const a = BigInt(aLo) | (BigInt(aHi) << 32n);
+        const b = BigInt(bLo) | (BigInt(bHi) << 32n);
+        const q = b !== 0n ? a / b : 0n;
+        r[10] = Number(q & 0xFFFFFFFFn) | 0;
+        r[11] = Number((q >> 32n) & 0xFFFFFFFFn) | 0;
+        break;
+      }
+      case 0x400008b0: { // __udivmoddi4(a, b, *rem) → a / b, *rem = a % b
+        const aLo = r[10] >>> 0, aHi = r[11] >>> 0;
+        const bLo = r[12] >>> 0, bHi = r[13] >>> 0;
+        const remPtr = r[14] >>> 0; // a4
+        const a = BigInt(aLo) | (BigInt(aHi) << 32n);
+        const b = BigInt(bLo) | (BigInt(bHi) << 32n);
+        const q = b !== 0n ? a / b : 0n;
+        const rem = b !== 0n ? a % b : 0n;
+        r[10] = Number(q & 0xFFFFFFFFn) | 0;
+        r[11] = Number((q >> 32n) & 0xFFFFFFFFn) | 0;
+        if (remPtr !== 0) {
+          c.writeWord(remPtr,     Number(rem & 0xFFFFFFFFn));
+          c.writeWord(remPtr + 4, Number((rem >> 32n) & 0xFFFFFFFFn));
+        }
+        break;
+      }
+      case 0x400008b4: { // __udivsi3(a, b) → a / b (unsigned 32-bit)
+        const a = r[10] >>> 0, b = r[11] >>> 0;
+        r[10] = b !== 0 ? (a / b) >>> 0 : 0;
+        break;
+      }
+      case 0x400008bc: { // __umoddi3(a, b) → a % b (unsigned 64-bit)
+        const aLo = r[10] >>> 0, aHi = r[11] >>> 0;
+        const bLo = r[12] >>> 0, bHi = r[13] >>> 0;
+        const a = BigInt(aLo) | (BigInt(aHi) << 32n);
+        const b = BigInt(bLo) | (BigInt(bHi) << 32n);
+        const rem = b !== 0n ? a % b : 0n;
+        r[10] = Number(rem & 0xFFFFFFFFn) | 0;
+        r[11] = Number((rem >> 32n) & 0xFFFFFFFFn) | 0;
+        break;
+      }
+      case 0x400008c0: { // __umodsi3(a, b) → a % b (unsigned 32-bit)
+        const a = r[10] >>> 0, b = r[11] >>> 0;
+        r[10] = b !== 0 ? (a % b) >>> 0 : 0;
+        break;
+      }
+      case 0x400007b4: { // __divdi3(a, b) → a / b (signed 64-bit)
+        const aLo = r[10] >>> 0, aHi = r[11] | 0;
+        const bLo = r[12] >>> 0, bHi = r[13] | 0;
+        const a = BigInt.asIntN(64, BigInt(aLo) | (BigInt(aHi) << 32n));
+        const b = BigInt.asIntN(64, BigInt(bLo) | (BigInt(bHi) << 32n));
+        const q = b !== 0n ? a / b : 0n;
+        const qu = BigInt.asUintN(64, q);
+        r[10] = Number(qu & 0xFFFFFFFFn) | 0;
+        r[11] = Number((qu >> 32n) & 0xFFFFFFFFn) | 0;
+        break;
+      }
+      case 0x400007c0: { // __divsi3(a, b) → a / b (signed 32-bit)
+        const a = r[10] | 0, b = r[11] | 0;
+        r[10] = b !== 0 ? (a / b) | 0 : 0;
+        break;
+      }
+      case 0x4000083c: { // __moddi3(a, b) → a % b (signed 64-bit)
+        const aLo = r[10] >>> 0, aHi = r[11] | 0;
+        const bLo = r[12] >>> 0, bHi = r[13] | 0;
+        const a = BigInt.asIntN(64, BigInt(aLo) | (BigInt(aHi) << 32n));
+        const b = BigInt.asIntN(64, BigInt(bLo) | (BigInt(bHi) << 32n));
+        const rem = b !== 0n ? a % b : 0n;
+        const remu = BigInt.asUintN(64, rem);
+        r[10] = Number(remu & 0xFFFFFFFFn) | 0;
+        r[11] = Number((remu >> 32n) & 0xFFFFFFFFn) | 0;
+        break;
+      }
+      case 0x40000840: { // __modsi3(a, b) → a % b (signed 32-bit)
+        const a = r[10] | 0, b = r[11] | 0;
+        r[10] = b !== 0 ? (a % b) | 0 : 0;
+        break;
+      }
+      case 0x4000084c: { // __muldi3(a, b) → a * b (64-bit)
+        const aLo = r[10] >>> 0, aHi = r[11] >>> 0;
+        const bLo = r[12] >>> 0, bHi = r[13] >>> 0;
+        const a = BigInt(aLo) | (BigInt(aHi) << 32n);
+        const b = BigInt(bLo) | (BigInt(bHi) << 32n);
+        const p = BigInt.asUintN(64, a * b);
+        r[10] = Number(p & 0xFFFFFFFFn) | 0;
+        r[11] = Number((p >> 32n) & 0xFFFFFFFFn) | 0;
+        break;
+      }
+      case 0x40000858: { // __mulsi3(a, b) → a * b (32-bit)
+        r[10] = Math.imul(r[10], r[11]);
+        break;
+      }
+
+      // ── ESP-IDF ROM helpers ──────────────────────────────────────────
+      case 0x40000018: { // rtc_get_reset_reason() → 1 (POWERON_RESET)
+        r[10] = 1;
+        break;
+      }
+      case 0x40000050: { // ets_delay_us(us) → void
+        // Burn the equivalent number of CPU cycles so timers advance
+        const us = r[10] >>> 0;
+        const burnCycles = Math.min(us * (CPU_HZ / 1_000_000), 1_000_000);
+        this.core.cycles += burnCycles;
+        r[10] = 0;
+        break;
+      }
+      case 0x40000548: { // Cache_Set_IDROM_MMU_Size(...) → 0 (success)
+        r[10] = 0;
+        break;
+      }
+      case 0x40001960: { // rom_i2c_writeReg_Mask(...) → 0 (success)
+        r[10] = 0;
+        break;
+      }
+
+      default: {
+        // Unknown ROM function — return a0=0 (ESP_OK for esp_err_t functions)
+        r[10] = 0;
+        break;
+      }
+    }
   }
 
   /**

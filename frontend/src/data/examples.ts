@@ -2618,7 +2618,7 @@ void loop() {
     wires: [
       { id: 'c3w1', start: { componentId: 'esp32-c3', pinName: '8' }, end: { componentId: 'c3-led1', pinName: 'A' }, color: '#22cc22' },
       { id: 'c3w2', start: { componentId: 'c3-led1', pinName: 'C' }, end: { componentId: 'c3-r1', pinName: '1' }, color: '#888888' },
-      { id: 'c3w3', start: { componentId: 'c3-r1', pinName: '2' }, end: { componentId: 'esp32-c3', pinName: 'GND' }, color: '#000000' },
+      { id: 'c3w3', start: { componentId: 'c3-r1', pinName: '2' }, end: { componentId: 'esp32-c3', pinName: 'GND.9' }, color: '#000000' },
     ],
   },
   {
@@ -2700,7 +2700,7 @@ void loop() {
       { id: 'c3-rw1', start: { componentId: 'esp32-c3', pinName: '6' }, end: { componentId: 'c3-rgb1', pinName: 'R' }, color: '#ff2222' },
       { id: 'c3-rw2', start: { componentId: 'esp32-c3', pinName: '7' }, end: { componentId: 'c3-rgb1', pinName: 'G' }, color: '#22cc22' },
       { id: 'c3-rw3', start: { componentId: 'esp32-c3', pinName: '8' }, end: { componentId: 'c3-rgb1', pinName: 'B' }, color: '#2244ff' },
-      { id: 'c3-rw4', start: { componentId: 'c3-rgb1', pinName: 'COM' }, end: { componentId: 'esp32-c3', pinName: 'GND' }, color: '#000000' },
+      { id: 'c3-rw4', start: { componentId: 'c3-rgb1', pinName: 'COM' }, end: { componentId: 'esp32-c3', pinName: 'GND.8' }, color: '#000000' },
     ],
   },
   {
@@ -2738,8 +2738,8 @@ void loop() {
     wires: [
       { id: 'c3-bw1', start: { componentId: 'esp32-c3', pinName: '9'  }, end: { componentId: 'c3-btn1',    pinName: '1a' }, color: '#00aaff' },
       { id: 'c3-bw2', start: { componentId: 'esp32-c3', pinName: '8'  }, end: { componentId: 'c3-led-btn', pinName: 'A'  }, color: '#2244ff' },
-      { id: 'c3-bw3', start: { componentId: 'c3-led-btn', pinName: 'C'  }, end: { componentId: 'esp32-c3', pinName: 'GND' }, color: '#000000' },
-      { id: 'c3-bw4', start: { componentId: 'c3-btn1',    pinName: '1b' }, end: { componentId: 'esp32-c3', pinName: 'GND' }, color: '#000000' },
+      { id: 'c3-bw3', start: { componentId: 'c3-led-btn', pinName: 'C'  }, end: { componentId: 'esp32-c3', pinName: 'GND.8' }, color: '#000000' },
+      { id: 'c3-bw4', start: { componentId: 'c3-btn1',    pinName: '1b' }, end: { componentId: 'esp32-c3', pinName: 'GND.9' }, color: '#000000' },
     ],
   },
   {
