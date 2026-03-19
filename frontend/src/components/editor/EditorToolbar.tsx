@@ -7,6 +7,7 @@ import { InstallLibrariesModal } from '../simulator/InstallLibrariesModal';
 import { parseCompileResult } from '../../utils/compilationLogger';
 import type { CompilationLog } from '../../utils/compilationLogger';
 import { exportToWokwiZip, importFromWokwiZip } from '../../utils/wokwiZip';
+import { trackCompileCode, trackRunSimulation } from '../../utils/analytics';
 import './EditorToolbar.css';
 
 interface EditorToolbarProps {
@@ -43,6 +44,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     setCompiling(true);
     setMessage(null);
     setConsoleOpen(true);
+    trackCompileCode();
 
     const fqbn = BOARD_FQBN[boardType];
     const boardLabel = BOARD_LABELS[boardType];
@@ -81,6 +83,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
   const handleRun = () => {
     if (compiledHex) {
+      trackRunSimulation();
       startSimulation();
       setMessage(null);
     } else {

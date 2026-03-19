@@ -10,6 +10,7 @@ import { ExamplesGallery } from '../components/examples/ExamplesGallery';
 import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import type { ExampleProject } from '../data/examples';
+import { trackOpenExample } from '../utils/analytics';
 
 export const ExamplesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ export const ExamplesPage: React.FC = () => {
 
   const handleLoadExample = (example: ExampleProject) => {
     console.log('Loading example:', example.title);
+    trackOpenExample(example.title);
 
     // Switch board type if the example specifies one
     const targetBoard = example.boardType || 'arduino-uno';

@@ -4,6 +4,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { createProject, updateProject } from '../../services/projectService';
+import { trackCreateProject } from '../../utils/analytics';
 
 interface SaveProjectModalProps {
   onClose: () => void;
@@ -56,6 +57,7 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
         saved = await updateProject(currentProject.id, payload);
       } else {
         saved = await createProject(payload);
+        trackCreateProject();
       }
       setCurrentProject({
         id: saved.id,

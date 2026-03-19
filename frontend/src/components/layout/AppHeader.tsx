@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
+import { trackVisitGitHub } from '../../utils/analytics';
 
 interface AppHeaderProps {}
 
@@ -55,6 +56,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
           target="_blank"
           rel="noopener noreferrer"
           title="GitHub — Velxio"
+          onClick={trackVisitGitHub}
           style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#ccc', textDecoration: 'none', fontSize: 13 }}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

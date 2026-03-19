@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
+import { trackVisitGitHub } from '../utils/analytics';
 import './LandingPage.css';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
@@ -417,7 +418,7 @@ export const LandingPage: React.FC = () => {
           <span>Velxio</span>
         </div>
         <div className="landing-nav-links">
-          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="nav-link">
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" onClick={trackVisitGitHub} className="nav-link">
             <IcoGitHub /> GitHub
           </a>
           <Link to="/docs" className="nav-link">Docs</Link>
@@ -458,7 +459,7 @@ export const LandingPage: React.FC = () => {
               <IcoZap />
               Launch Editor
             </Link>
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="cta-secondary">
+            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" onClick={trackVisitGitHub} className="cta-secondary">
               <IcoGitHub />
               View on GitHub
             </a>
@@ -564,7 +565,7 @@ export const LandingPage: React.FC = () => {
           <span>Velxio</span>
         </div>
         <div className="footer-links">
-          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" onClick={trackVisitGitHub}>GitHub</a>
           <Link to="/docs">Docs</Link>
           <Link to="/examples">Examples</Link>
           <Link to="/editor">Editor</Link>
