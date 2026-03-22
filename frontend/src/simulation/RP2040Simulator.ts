@@ -247,7 +247,7 @@ export class RP2040Simulator {
       if (!gpio) continue;
 
       const unsub = gpio.addListener((state: GPIOPinState) => {
-        const isHigh = state === GPIOPinState.High;
+        const isHigh = state === GPIOPinState.High || state === GPIOPinState.InputPullUp;
         this.pinManager.triggerPinChange(pin, isHigh);
         if (this.onPinChangeWithTime && this.rp2040) {
           // IClock interface exposes `nanos` (not `timeUs`)
