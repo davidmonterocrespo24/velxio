@@ -33,7 +33,8 @@ WORKDIR /app
 # git is pre-installed in the node:20 Debian image.
 RUN git clone --depth=1 https://github.com/wokwi/avr8js.git wokwi-libs/avr8js \
  && git clone --depth=1 https://github.com/wokwi/rp2040js.git wokwi-libs/rp2040js \
- && git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-libs/wokwi-elements
+ && git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-libs/wokwi-elements \
+ && git clone --depth=1 https://github.com/wokwi/wokwi-boards.git wokwi-libs/wokwi-boards
 
 # Build avr8js
 WORKDIR /app/wokwi-libs/avr8js
