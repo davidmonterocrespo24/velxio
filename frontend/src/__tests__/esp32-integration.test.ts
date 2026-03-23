@@ -314,10 +314,11 @@ describe('useSimulatorStore — ESP32 boards', () => {
     );
   });
 
-  it('addBoard("esp32") creates an Esp32Bridge, not a simulator', () => {
+  it('addBoard("esp32") creates an Esp32Bridge + a shim in simulatorMap', () => {
     const { addBoard } = useSimulatorStore.getState();
     const id = addBoard('esp32', 300, 100);
-    expect(getBoardSimulator(id)).toBeUndefined();
+    // Esp32BridgeShim is stored in simulatorMap so PartSimulationRegistry components work
+    expect(getBoardSimulator(id)).toBeDefined();
     expect(getEsp32Bridge(id)).toBeDefined();
     expect(getEsp32Bridge(id)?.boardKind).toBe('esp32');
   });
@@ -328,11 +329,13 @@ describe('useSimulatorStore — ESP32 boards', () => {
     expect(getEsp32Bridge(id)?.boardKind).toBe('esp32-s3');
   });
 
-  it('addBoard("esp32-c3") creates an Esp32C3Simulator, not an Esp32Bridge', () => {
+  it('addBoard("esp32-c3") uses QEMU Esp32Bridge (full ESP-IDF support)', () => {
     const { addBoard } = useSimulatorStore.getState();
     const id = addBoard('esp32-c3', 300, 100);
-    // ESP32-C3 uses the browser-side RV32IMC emulator — no QEMU bridge
-    expect(getEsp32Bridge(id)).toBeUndefined();
+    // ESP32-C3 uses QEMU backend via Esp32Bridge for full ESP-IDF ROM compatibility
+    expect(getEsp32Bridge(id)).toBeDefined();
+    expect(getEsp32Bridge(id)?.boardKind).toBe('esp32-c3');
+    // Esp32BridgeShim is also present in simulatorMap for component compatibility
     expect(getBoardSimulator(id)).toBeDefined();
   });
 

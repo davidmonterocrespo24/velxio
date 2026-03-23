@@ -47,6 +47,8 @@ const API_BASE = (): string =>
 
 /** Returns a stable UUID for this browser tab (persists across reloads, resets on new tab). */
 function getTabSessionId(): string {
+  // sessionStorage is not available in Node/test environments
+  if (typeof sessionStorage === 'undefined') return crypto.randomUUID();
   const KEY = 'velxio-tab-id';
   let id = sessionStorage.getItem(KEY);
   if (!id) {
@@ -187,7 +189,7 @@ export class Esp32Bridge {
     };
 
     socket.onclose = (ev) => {
-      console.log(`[Esp32Bridge:${this.boardId}] WebSocket closed (code=${ev.code})`);
+      console.log(`[Esp32Bridge:${this.boardId}] WebSocket closed (code=${ev?.code ?? '?'})`);
       this._connected = false;
       this.socket = null;
       this.onDisconnected?.();

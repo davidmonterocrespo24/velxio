@@ -687,30 +687,32 @@ describe('Servo — attachEvents', () => {
   });
 
   it('calculates 90° when OCR1A = ICR1/2 (servo midpoint)', () => {
-    // ICR1 = 20000 (50 Hz at prescaler 8, 16 MHz)
-    // OCR1A = 10000 → pulseUs = 1000 + (10000/20000)*1000 = 1500 µs → 90°
+    // Real Arduino Servo.h: prescaler=8, 16 MHz → 0.5 µs/tick
+    // ICR1 = 40000 ticks = 20 ms period (50 Hz)
+    // 90° midpoint: 1472 µs → OCR1A = 1472 / 0.5 = 2944
+    // pulseUs = (2944/40000)*20000 = 1472 µs → angle = (1472-544)/1856*180 = 90°
     const logic = PartSimulationRegistry.get('servo')!;
     const el = makeElement({ angle: -1 });
     const sim = makeSimulator();
 
     // ICR1L=0x86, ICR1H=0x87; OCR1AL=0x88, OCR1AH=0x89
-    sim.cpu.data[0x88] = 10000 & 0xFF;        // OCR1AL
-    sim.cpu.data[0x89] = (10000 >> 8) & 0xFF; // OCR1AH
-    sim.cpu.data[0x86] = 20000 & 0xFF;        // ICR1L
-    sim.cpu.data[0x87] = (20000 >> 8) & 0xFF; // ICR1H
+    sim.cpu.data[0x88] = 2944 & 0xFF;         // OCR1AL
+    sim.cpu.data[0x89] = (2944 >> 8) & 0xFF;  // OCR1AH
+    sim.cpu.data[0x86] = 40000 & 0xFF;        // ICR1L
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF; // ICR1H
 
     logic.attachEvents!(el, sim as any, noPins);
     expect((el as any).angle).toBe(90);
   });
 
   it('calculates 0° when OCR1A = 0 (minimum pulse)', () => {
-    // OCR1A=0, ICR1=20000 → pulseUs = 1000 + 0 = 1000 µs → 0°
+    // OCR1A=0 → pulseUs=0 → clamped to MIN_PULSE_US=544 µs → 0°
     const logic = PartSimulationRegistry.get('servo')!;
     const el = makeElement({ angle: -1 });
     const sim = makeSimulator();
 
-    sim.cpu.data[0x86] = 20000 & 0xFF;
-    sim.cpu.data[0x87] = (20000 >> 8) & 0xFF;
+    sim.cpu.data[0x86] = 40000 & 0xFF;
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF;
     // OCR1A = 0 (default)
 
     logic.attachEvents!(el, sim as any, noPins);
@@ -718,15 +720,16 @@ describe('Servo — attachEvents', () => {
   });
 
   it('calculates 180° when OCR1A = ICR1 (maximum pulse)', () => {
-    // OCR1A=20000, ICR1=20000 → pulseUs = 1000 + 1000 = 2000 µs → 180°
+    // 180° maximum: 2400 µs → OCR1A = 2400 / 0.5 = 4800 (ICR1=40000, 50 Hz)
+    // pulseUs = (4800/40000)*20000 = 2400 µs → angle = (2400-544)/1856*180 = 180°
     const logic = PartSimulationRegistry.get('servo')!;
     const el = makeElement({ angle: -1 });
     const sim = makeSimulator();
 
-    sim.cpu.data[0x88] = 20000 & 0xFF;
-    sim.cpu.data[0x89] = (20000 >> 8) & 0xFF;
-    sim.cpu.data[0x86] = 20000 & 0xFF;
-    sim.cpu.data[0x87] = (20000 >> 8) & 0xFF;
+    sim.cpu.data[0x88] = 4800 & 0xFF;
+    sim.cpu.data[0x89] = (4800 >> 8) & 0xFF;
+    sim.cpu.data[0x86] = 40000 & 0xFF;
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF;
 
     logic.attachEvents!(el, sim as any, noPins);
     expect((el as any).angle).toBe(180);

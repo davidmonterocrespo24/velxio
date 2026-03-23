@@ -450,9 +450,9 @@ export const LandingPage: React.FC = () => {
       <section className="landing-hero">
         <div className="hero-left">
           <h1 className="hero-title">
-            Simulate Arduino,<br />
+            Emulate Arduino,<br />
             ESP32 &amp; Raspberry Pi.<br />
-            <span className="hero-accent">And 16 more boards in your browser..</span>
+            <span className="hero-accent">in your browser.</span>
           </h1>
           <p className="hero-subtitle">
             Write code, compile, and run on 19 real boards — Arduino Uno, ESP32, ESP32-C3,
