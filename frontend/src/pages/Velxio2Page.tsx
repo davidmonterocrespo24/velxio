@@ -100,6 +100,16 @@ const IcoStar = () => (
   </svg>
 );
 
+const IcoMultiBoard = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="8" height="7" rx="1.5" />
+    <rect x="14" y="3" width="8" height="7" rx="1.5" />
+    <rect x="8" y="14" width="8" height="7" rx="1.5" />
+    <path d="M6 10v2.5a1.5 1.5 0 0 0 1.5 1.5H8" />
+    <path d="M18 10v2.5a1.5 1.5 0 0 1-1.5 1.5H16" />
+  </svg>
+);
+
 const IcoRefresh = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21.5 2v6h-6" />
@@ -391,6 +401,55 @@ export const Velxio2Page: React.FC = () => {
               <div className="v2-board-card">
                 <img src={raspberryPi3Svg} alt="Raspberry Pi 3B" />
                 <span>Raspberry Pi 3B</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Multi-board ── */}
+        <section className="seo-section">
+          <h2>Multiple boards in one circuit</h2>
+          <p className="lead">
+            Most simulators limit you to one board at a time. Velxio lets you place multiple boards
+            on the same canvas and wire them together — just like a real workbench.
+          </p>
+          <div className="v2-multiboard">
+            <div className="v2-multiboard-visual">
+              <div className="v2-mb-node" style={{ borderColor: '#c8701a' }}>
+                <img src="/boards/esp32-devkit-c-v4.svg" alt="ESP32" />
+                <span>ESP32</span>
+              </div>
+              <div className="v2-mb-wire">
+                <svg width="60" height="24" viewBox="0 0 60 24">
+                  <path d="M0 12 H20 Q30 12 30 4 Q30 12 40 12 H60" stroke="#484848" strokeWidth="2" fill="none" strokeDasharray="4 3" />
+                </svg>
+              </div>
+              <div className="v2-mb-node" style={{ borderColor: '#a8192a' }}>
+                <img src="/boards/pi-pico.svg" alt="Raspberry Pi Pico" />
+                <span>Pi Pico</span>
+              </div>
+              <div className="v2-mb-wire">
+                <svg width="60" height="24" viewBox="0 0 60 24">
+                  <path d="M0 12 H20 Q30 12 30 20 Q30 12 40 12 H60" stroke="#484848" strokeWidth="2" fill="none" strokeDasharray="4 3" />
+                </svg>
+              </div>
+              <div className="v2-mb-node" style={{ borderColor: '#0071e3' }}>
+                <img src="/boards/arduino-uno.svg" alt="Arduino Uno" />
+                <span>Arduino</span>
+              </div>
+            </div>
+            <div className="seo-grid" style={{ marginTop: 24 }}>
+              <div className="seo-card">
+                <h3>Mix architectures</h3>
+                <p>Connect an ESP32 to a Raspberry Pi 3, wire three Arduinos together, or combine a Pico with an ESP32-C3. Any combination works.</p>
+              </div>
+              <div className="seo-card">
+                <h3>Real inter-board communication</h3>
+                <p>Boards communicate through wired connections — UART, I2C, SPI, or simple GPIO signals, just like real hardware.</p>
+              </div>
+              <div className="seo-card">
+                <h3>No other simulator does this</h3>
+                <p>Traditional simulators emulate one board in isolation. Velxio simulates entire systems with multiple boards running simultaneously.</p>
               </div>
             </div>
           </div>

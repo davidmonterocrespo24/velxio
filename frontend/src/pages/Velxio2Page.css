@@ -175,6 +175,56 @@
   white-space: nowrap;
 }
 
+/* ── Multi-board visual ──────────────────────────────── */
+.v2-multiboard-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  flex-wrap: wrap;
+  padding: 32px 16px;
+  background: #121214;
+  border: 1px solid #1c1c1e;
+  border-radius: 12px;
+}
+
+.v2-mb-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 2px solid;
+  border-radius: 10px;
+  background: #0d0d0f;
+  transition: transform 0.15s, border-color 0.2s;
+}
+
+.v2-mb-node:hover {
+  transform: translateY(-3px);
+}
+
+.v2-mb-node img {
+  height: 56px;
+  width: auto;
+  object-fit: contain;
+}
+
+.v2-mb-node span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+
+.v2-mb-wire {
+  flex-shrink: 0;
+}
+
+.v2-mb-wire svg {
+  display: block;
+}
+
 /* ── Changelog ───────────────────────────────────────── */
 .v2-changelog {
   display: grid;
@@ -321,5 +371,17 @@
 
   .v2-board-card img {
     height: 48px;
+  }
+
+  .v2-mb-wire {
+    display: none;
+  }
+
+  .v2-multiboard-visual {
+    gap: 10px;
+  }
+
+  .v2-mb-node img {
+    height: 40px;
   }
 }
