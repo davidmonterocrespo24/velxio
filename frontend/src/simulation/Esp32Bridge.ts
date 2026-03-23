@@ -144,7 +144,6 @@ export class Esp32Bridge {
         case 'gpio_dir': {
           const pin = msg.data.pin as number;
           const dir = msg.data.dir as 0 | 1;
-          console.log(`[Esp32Bridge:${this.boardId}] gpio_dir pin=${pin} dir=${dir ? 'OUTPUT' : 'INPUT'}`);
           this.onPinDir?.(pin, dir);
           break;
         }

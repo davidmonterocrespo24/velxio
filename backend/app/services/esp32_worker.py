@@ -253,52 +253,82 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         chk = (h_H + h_L + t_H + t_L) & 0xFF
         return [h_H, h_L, t_H, t_L, chk]
 
-    def _dht22_respond(gpio_pin: int, temperature: float, humidity: float,
-                       ratio: float) -> None:
-        """Thread function: inject the DHT22 protocol waveform via qemu_picsimlab_set_pin.
+    # ── DHT22 sync-based response ────────────────────────────────────────────
+    # Instead of driving pins from a separate Python thread (which requires
+    # cross-thread qemu_picsimlab_set_pin calls — unsafe because the QEMU
+    # iothread mutex is commented out), we drive pins synchronously from
+    # within the GPIO_IN read sync callback.
+    #
+    # Every digitalRead() in the firmware's expectPulse() loop triggers a
+    # sync event: _on_dir_change(slot=-1, direction=-1).  By counting these
+    # syncs and toggling the pin at the right moments, we inject the DHT22
+    # waveform perfectly synchronized with QEMU execution.
+    #
+    # The Adafruit DHT library decodes bits by comparing highCycles vs
+    # lowCycles counts — only the RATIO matters, not absolute values.
+    # So we use the raw µs values as sync counts (e.g. 80 syncs for 80µs),
+    # which preserves the correct ratios.
 
-        The pin is already driven LOW by the _on_dir_change callback before this
-        thread starts.  *ratio* is wall-clock-µs per QEMU-µs, derived from
-        measuring how long the firmware's start signal took in wall-clock time.
+    _dht22_sync: list[dict | None] = [None]  # mutable container for nonlocal access
+
+    def _dht22_build_sync_phases(payload: list[int]) -> list[tuple[int, int]]:
+        """Build list of (sync_count, pin_value) phase transitions for DHT22.
+
+        Each entry means: after sync_count digitalRead() calls in this phase,
+        drive the pin to pin_value and advance to the next phase.
         """
-        slot = gpio_pin + 1  # identity pinmap: slot = gpio + 1
-        payload = _dht22_build_payload(temperature, humidity)
+        phases: list[tuple[int, int]] = []
+        # Preamble: LOW 80 syncs → drive HIGH
+        phases.append((80, 1))
+        # Preamble: HIGH 80 syncs → drive LOW
+        phases.append((80, 0))
+        # 40 data bits: LOW 50 syncs → HIGH, then HIGH (26 or 70) → LOW
+        for byte_val in payload:
+            for b in range(7, -1, -1):
+                bit = (byte_val >> b) & 1
+                phases.append((50, 1))              # LOW phase → drive HIGH
+                phases.append((70 if bit else 26, 0))  # HIGH phase → drive LOW
+        # Final: LOW 50 syncs → release HIGH
+        phases.append((50, 1))
+        return phases
 
-        def qemu_wait(qemu_us: float) -> None:
-            """Busy-wait for the wall-clock equivalent of *qemu_us* QEMU µs."""
-            wall_us = max(1, int(qemu_us * ratio))
-            _busy_wait_us(wall_us)
+    def _dht22_sync_step() -> None:
+        """Advance the DHT22 sync response by one GPIO_IN read.
 
-        try:
-            _log(f'DHT22 respond: gpio={gpio_pin} slot={slot} ratio={ratio:.4f}')
+        Called on the QEMU thread from the GPIO_IN read sync handler.
+        Each call corresponds to one digitalRead() in the firmware's
+        expectPulse() loop.
+        """
+        state = _dht22_sync[0]
+        if state is None:
+            return
 
-            # Pin is already LOW (driven synchronously in _on_dir_change).
-            # Preamble: hold LOW 80 µs → drive HIGH 80 µs
-            qemu_wait(80)
-            lib.qemu_picsimlab_set_pin(slot, 1)
-            qemu_wait(80)
+        state['count'] += 1
+        phase_idx = state['phase_idx']
+        phases = state['phases']
 
-            # 40 data bits: 50 µs LOW + (26 µs HIGH = 0, 70 µs HIGH = 1)
-            for byte_val in payload:
-                for b in range(7, -1, -1):
-                    bit = (byte_val >> b) & 1
-                    lib.qemu_picsimlab_set_pin(slot, 0)
-                    qemu_wait(50)
-                    lib.qemu_picsimlab_set_pin(slot, 1)
-                    qemu_wait(70 if bit else 26)
-
-            # Final: release line HIGH
-            lib.qemu_picsimlab_set_pin(slot, 0)
-            qemu_wait(50)
-            lib.qemu_picsimlab_set_pin(slot, 1)
-        except Exception as exc:
-            _log(f'DHT22 respond error on GPIO {gpio_pin}: {exc}')
-        finally:
-            _log(f'DHT22 respond done on GPIO {gpio_pin}')
+        if phase_idx >= len(phases):
+            # Response complete — clean up
+            gpio_pin = state['gpio']
+            total = state['total_syncs']
             with _sensors_lock:
                 sensor = _sensors.get(gpio_pin)
                 if sensor:
                     sensor['responding'] = False
+            _dht22_sync[0] = None
+            _log(f'DHT22 sync respond done gpio={gpio_pin} '
+                 f'total_syncs={total} phases={len(phases)}')
+            _emit({'type': 'system', 'event': 'dht22_diag',
+                   'gpio': gpio_pin, 'status': 'ok',
+                   'total_syncs': total})
+            return
+
+        target, pin_value = phases[phase_idx]
+        if state['count'] >= target:
+            lib.qemu_picsimlab_set_pin(state['slot'], pin_value)
+            state['total_syncs'] += state['count']
+            state['count'] = 0
+            state['phase_idx'] += 1
 
     def _hcsr04_respond(trig_pin: int, echo_pin: int, distance_cm: float) -> None:
         """Thread function: inject the HC-SR04 echo pulse via qemu_picsimlab_set_pin."""
@@ -363,57 +393,16 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         if _stopped.is_set():
             return
 
-        # Debug: log all real-pin direction changes (skip noisy slot=-1 sync events)
-        if slot >= 1:
-            gpio_dbg = int(_PINMAP[slot]) if slot <= _GPIO_COUNT else slot
-            _log(f'DIR_CHANGE slot={slot} gpio={gpio_dbg} direction={direction}')
-
-        # DHT22: track direction changes for calibration + response trigger.
-        # QEMU runs faster than real-time, so wall-clock _busy_wait_us()
-        # delays are too slow.  We calibrate by measuring the wall-clock
-        # duration of the firmware's start signal (OUTPUT→INPUT), which
-        # corresponds to a known QEMU duration (~1200 µs minimum).
-        if slot >= 1:
-            gpio = int(_PINMAP[slot]) if slot <= _GPIO_COUNT else slot
-            with _sensors_lock:
-                sensor = _sensors.get(gpio)
-            if sensor is not None and sensor.get('type') == 'dht22':
-                if direction == 1:
-                    # OUTPUT mode — record timestamp for timing calibration
-                    sensor['dir_out_ns'] = time.perf_counter_ns()
-                elif direction == 0:
-                    # INPUT mode — trigger DHT22 response
-                    if sensor.get('saw_low', False) and not sensor.get('responding', False):
-                        sensor['saw_low'] = False
-                        sensor['responding'] = True
-
-                        # Calibrate: measure how long the start signal took in
-                        # wall-clock time.  The QEMU time between direction=1
-                        # and direction=0 is at least ~1200 µs (Adafruit DHT
-                        # library: delayMicroseconds(1100) + overhead).
-                        now_ns = time.perf_counter_ns()
-                        dir_out_ns = sensor.get('dir_out_ns', now_ns)
-                        wall_us = max(1.0, (now_ns - dir_out_ns) / 1000)
-                        qemu_us_signal = 1200.0
-                        ratio = wall_us / qemu_us_signal
-                        _log(f'DHT22 dir_change→INPUT gpio={gpio}: '
-                             f'wall={wall_us:.0f}µs ratio={ratio:.4f}')
-
-                        # Drive pin LOW *synchronously* before returning to
-                        # QEMU — this guarantees the firmware sees LOW at its
-                        # first digitalRead() in expectPulse().
-                        lib.qemu_picsimlab_set_pin(slot, 0)
-
-                        threading.Thread(
-                            target=_dht22_respond,
-                            args=(gpio, sensor.get('temperature', 25.0),
-                                  sensor.get('humidity', 50.0), ratio),
-                            daemon=True,
-                            name=f'dht22-gpio{gpio}',
-                        ).start()
-
-        # slot == -1 means a sync event from GPIO/LEDC/IOMUX peripheral
+        # ── GPIO_IN read sync (slot == -1, direction == -1) ──────────────
+        # Every digitalRead() in the firmware triggers this sync.  We use
+        # it to drive DHT22 pin transitions synchronously on the QEMU
+        # thread, perfectly synchronized with the firmware's expectPulse()
+        # loop iterations.
         if slot == -1:
+            if direction == -1 and _dht22_sync[0] is not None:
+                # GPIO_IN read — advance DHT22 sync response
+                _dht22_sync_step()
+                return
             marker = direction & 0xF000
             if marker == 0x2000:  # GPIO_FUNCX_OUT_SEL_CFG change
                 gpio_pin = direction & 0xFF
@@ -423,6 +412,43 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     ledc_ch = signal - 72  # ch 0-15
                     _ledc_gpio_map[ledc_ch] = gpio_pin
             return
+
+        # ── DHT22: track direction changes + trigger sync response ───────
+        if slot >= 1:
+            gpio = int(_PINMAP[slot]) if slot <= _GPIO_COUNT else slot
+            with _sensors_lock:
+                sensor = _sensors.get(gpio)
+            if sensor is not None and sensor.get('type') == 'dht22':
+                if direction == 1:
+                    # OUTPUT mode — record timestamp for diagnostics
+                    sensor['dir_out_ns'] = time.perf_counter_ns()
+                elif direction == 0:
+                    # INPUT mode — trigger DHT22 sync-based response
+                    if sensor.get('saw_low', False) and not sensor.get('responding', False):
+                        sensor['saw_low'] = False
+                        sensor['responding'] = True
+
+                        # Build the response waveform phases
+                        payload = _dht22_build_payload(
+                            sensor.get('temperature', 25.0),
+                            sensor.get('humidity', 50.0))
+                        phases = _dht22_build_sync_phases(payload)
+
+                        # Drive pin LOW synchronously — firmware sees LOW
+                        # at its first digitalRead() in expectPulse().
+                        lib.qemu_picsimlab_set_pin(slot, 0)
+
+                        # Arm the sync-based response state machine
+                        _dht22_sync[0] = {
+                            'gpio': gpio,
+                            'slot': slot,
+                            'phases': phases,
+                            'phase_idx': 0,
+                            'count': 0,
+                            'total_syncs': 0,
+                        }
+                        _log(f'DHT22 sync armed gpio={gpio} '
+                             f'phases={len(phases)} payload={payload}')
         gpio = int(_PINMAP[slot]) if 1 <= slot <= _GPIO_COUNT else slot
         _emit({'type': 'gpio_dir', 'pin': gpio, 'dir': direction})
 
