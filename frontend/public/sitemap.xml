@@ -187,6 +187,14 @@
     <priority>0.85</priority>
   </url>
 
+  <!-- ── Release pages ────────────────────────────────── -->
+  <url>
+    <loc>https://velxio.dev/v2</loc>
+    <lastmod>2026-03-23</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
   <!-- Auth/admin/project pages intentionally excluded (noindex) -->
 
 </urlset>

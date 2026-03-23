@@ -1,0 +1,267 @@
+/* ── Velxio2Page.css — Styles for the v2 release page ── */
+
+/* ── Hero override ───────────────────────────────────── */
+.v2-hero {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 72px 2rem 56px;
+  text-align: center;
+}
+
+.v2-hero h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700;
+  line-height: 1.12;
+  color: #ffffff;
+  margin: 0 0 1rem;
+  letter-spacing: -0.5px;
+}
+
+.v2-hero h1 .accent {
+  color: #007acc;
+}
+
+.v2-hero .subtitle {
+  font-size: 1.1rem;
+  color: #8b949e;
+  max-width: 640px;
+  margin: 0 auto 2rem;
+  line-height: 1.65;
+}
+
+/* ── Version badge ───────────────────────────────────── */
+.v2-version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 122, 204, 0.12);
+  color: #3b9ae8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 122, 204, 0.25);
+  margin-bottom: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
+.v2-version-badge svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Community buttons ───────────────────────────────── */
+.v2-community-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.v2-community-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.15s, border-color 0.2s;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.v2-star-btn {
+  background: #1c1c1e;
+  color: #f0c14b;
+  border-color: #333;
+}
+
+.v2-star-btn:hover {
+  background: #2a2a2c;
+  border-color: #f0c14b;
+  transform: scale(1.03);
+}
+
+.v2-star-btn svg {
+  fill: #f0c14b;
+  stroke: #f0c14b;
+}
+
+.v2-discord-btn {
+  background: #1c1c1e;
+  color: #7289da;
+  border-color: #333;
+}
+
+.v2-discord-btn:hover {
+  background: #2a2a2c;
+  border-color: #7289da;
+  transform: scale(1.03);
+}
+
+.v2-discord-btn svg {
+  fill: #7289da;
+}
+
+/* ── Architecture groups ─────────────────────────────── */
+.v2-arch-group {
+  margin-bottom: 2rem;
+}
+
+.v2-arch-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e6edf3;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid;
+  letter-spacing: -0.1px;
+}
+
+.v2-arch-engine {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: rgba(255, 255, 255, 0.06);
+  color: #8b949e;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* ── Board cards ─────────────────────────────────────── */
+.v2-boards-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.v2-board-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: #121214;
+  border: 1px solid #1c1c1e;
+  border-radius: 10px;
+  padding: 16px 20px;
+  min-width: 110px;
+  transition: border-color 0.2s, transform 0.15s;
+}
+
+.v2-board-card:hover {
+  border-color: #333;
+  transform: translateY(-2px);
+}
+
+.v2-board-card img {
+  height: 64px;
+  width: auto;
+  object-fit: contain;
+}
+
+.v2-board-card span {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #8b949e;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ── Changelog ───────────────────────────────────────── */
+.v2-changelog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.v2-change-block {
+  background: #121214;
+  border: 1px solid #1c1c1e;
+  border-radius: 10px;
+  padding: 1.25rem 1.35rem;
+}
+
+.v2-change-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0.75rem;
+}
+
+.v2-change-header h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 0;
+  color: inherit;
+}
+
+.v2-change-header svg {
+  flex-shrink: 0;
+}
+
+.v2-change-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.v2-change-list li {
+  position: relative;
+  font-size: 0.82rem;
+  color: #8b949e;
+  line-height: 1.6;
+  padding-left: 14px;
+  margin-bottom: 4px;
+}
+
+.v2-change-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #484848;
+}
+
+/* ── Bottom community ────────────────────────────────── */
+.v2-bottom-community {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 600px) {
+  .v2-hero {
+    padding: 48px 1.25rem 40px;
+  }
+
+  .v2-changelog {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-boards-row {
+    justify-content: center;
+  }
+
+  .v2-board-card {
+    min-width: 90px;
+    padding: 12px 14px;
+  }
+
+  .v2-board-card img {
+    height: 48px;
+  }
+}
