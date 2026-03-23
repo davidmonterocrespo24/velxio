@@ -56,6 +56,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Ping search engines with sitemap
+        if: success()
+        run: |
+          curl -s "https://www.google.com/ping?sitemap=https%3A%2F%2Fvelxio.dev%2Fsitemap.xml" -o /dev/null -w "Google ping: %{http_code}\n"
+          curl -s "https://www.bing.com/ping?sitemap=https%3A%2F%2Fvelxio.dev%2Fsitemap.xml" -o /dev/null -w "Bing ping: %{http_code}\n"
+
       - name: Update Docker Hub description
         uses: peter-evans/dockerhub-description@v4
         with:
