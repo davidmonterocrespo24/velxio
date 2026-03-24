@@ -88,8 +88,7 @@ RUN arduino-cli config init \
     && arduino-cli core update-index \
     && arduino-cli core install arduino:avr \
     && arduino-cli core install rp2040:rp2040 \
-    && arduino-cli core install esp32:esp32 \
-    && cp -a /root/.arduino15 /root/.arduino15-base
+    && arduino-cli core install esp32:esp32
 
 WORKDIR /app
 
