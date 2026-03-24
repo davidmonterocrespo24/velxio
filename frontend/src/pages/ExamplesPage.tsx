@@ -4,7 +4,7 @@
  * Displays the examples gallery
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ExamplesGallery } from '../components/examples/ExamplesGallery';
 import { AppHeader } from '../components/layout/AppHeader';
@@ -13,6 +13,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useVfsStore } from '../store/useVfsStore';
 import { isBoardComponent } from '../utils/boardPinMapping';
+import { getInstalledLibraries, installLibrary } from '../services/libraryService';
 import type { ExampleProject } from '../data/examples';
 import type { BoardKind } from '../types/board';
 
@@ -27,9 +28,36 @@ export const ExamplesPage: React.FC = () => {
   const navigate = useNavigate();
   const { setCode } = useEditorStore();
   const { setComponents, setWires, setBoardType, activeBoardId, boards, addBoard, removeBoard, setActiveBoardId } = useSimulatorStore();
+  const [installing, setInstalling] = useState<{ total: number; done: number; current: string } | null>(null);
 
-  const handleLoadExample = (example: ExampleProject) => {
-    console.log('Loading example:', example.title);
+  /** Install any missing libraries required by the example (non-blocking UI). */
+  const ensureLibraries = async (libs: string[]): Promise<void> => {
+    if (libs.length === 0) return;
+    try {
+      const installed = await getInstalledLibraries();
+      const installedNames = new Set(
+        installed.map((l) => (l.library?.name ?? l.name ?? '').toLowerCase())
+      );
+      const missing = libs.filter((l) => !installedNames.has(l.toLowerCase()));
+      if (missing.length === 0) return;
+
+      setInstalling({ total: missing.length, done: 0, current: missing[0] });
+      for (let i = 0; i < missing.length; i++) {
+        setInstalling({ total: missing.length, done: i, current: missing[i] });
+        await installLibrary(missing[i]);
+      }
+      setInstalling(null);
+    } catch {
+      // If install fails (e.g. offline), continue anyway — compile will show the error
+      setInstalling(null);
+    }
+  };
+
+  const handleLoadExample = async (example: ExampleProject) => {
+    // Auto-install required libraries before loading
+    if (example.libraries && example.libraries.length > 0) {
+      await ensureLibraries(example.libraries);
+    }
 
     if (example.boards && example.boards.length > 0) {
       // ── Multi-board loading ───────────────────────────────────────────────
@@ -150,6 +178,36 @@ export const ExamplesPage: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#1e1e1e' }}>
       <AppHeader />
       <ExamplesGallery onLoadExample={handleLoadExample} />
+
+      {/* Library install overlay */}
+      {installing && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1e1e1e', border: '1px solid #333', borderRadius: 12,
+            padding: '28px 36px', textAlign: 'center', maxWidth: 360,
+          }}>
+            <div style={{ fontSize: 14, color: '#ccc', marginBottom: 12 }}>
+              Installing libraries ({installing.done + 1}/{installing.total})
+            </div>
+            <div style={{ fontSize: 16, color: '#00e5ff', fontWeight: 600, marginBottom: 16 }}>
+              {installing.current}
+            </div>
+            <div style={{
+              height: 4, borderRadius: 2, background: '#333', overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%', borderRadius: 2, background: '#00b8d4',
+                width: `${((installing.done + 1) / installing.total) * 100}%`,
+                transition: 'width 0.3s ease',
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

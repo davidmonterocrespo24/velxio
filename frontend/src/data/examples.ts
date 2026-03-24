@@ -48,6 +48,8 @@ export interface ExampleProject {
     color: string;
   }>;
   thumbnail?: string;
+  /** Arduino libraries required by this example (auto-installed when loading). */
+  libraries?: string[];
 }
 
 export const exampleProjects: ExampleProject[] = [
@@ -635,6 +637,7 @@ void loop() {
     id: 'tft-display',
     title: 'TFT ILI9341 Display',
     description: 'Color TFT display demo: fills, text, and a bouncing ball animation using the Adafruit ILI9341 library (240x320)',
+    libraries: ['Adafruit GFX Library', 'Adafruit ILI9341'],
     category: 'displays',
     difficulty: 'intermediate',
     code: `// TFT ILI9341 Display Demo (240x320)
@@ -3134,7 +3137,8 @@ void loop() {
   {
     id: 'uno-dht22',
     title: 'Uno: DHT22 Temperature & Humidity',
-    description: 'Read temperature and humidity using a DHT22 sensor on pin 7. Requires the Adafruit DHT sensor library.',
+    description: 'Read temperature and humidity using a DHT22 sensor on pin 7.',
+    libraries: ['DHT sensor library'],
     category: 'sensors',
     difficulty: 'beginner',
     boardFilter: 'arduino-uno',
@@ -3427,7 +3431,8 @@ void loop() {
   {
     id: 'pico-dht22',
     title: 'Pico: DHT22 Temperature & Humidity',
-    description: 'Read temperature and humidity from a DHT22 sensor on GP7 using the Raspberry Pi Pico. Requires Adafruit DHT library.',
+    description: 'Read temperature and humidity from a DHT22 sensor on GP7 using the Raspberry Pi Pico.',
+    libraries: ['DHT sensor library'],
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'raspberry-pi-pico',
@@ -3705,7 +3710,8 @@ void loop() {
   {
     id: 'esp32-dht22',
     title: 'ESP32: DHT22 Temperature & Humidity',
-    description: 'Read temperature and humidity from a DHT22 sensor on GPIO4 of the ESP32. Requires Adafruit DHT library.',
+    description: 'Read temperature and humidity from a DHT22 sensor on GPIO4 of the ESP32.',
+    libraries: ['DHT sensor library'],
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'esp32',
@@ -3803,7 +3809,8 @@ void loop() {
   {
     id: 'esp32-mpu6050',
     title: 'ESP32: MPU-6050 Accelerometer',
-    description: 'Read 3-axis acceleration and gyroscope data from an MPU-6050 over I2C (SDA=D21, SCL=D22). Requires the Adafruit MPU6050 library.',
+    description: 'Read 3-axis acceleration and gyroscope data from an MPU-6050 over I2C (SDA=D21, SCL=D22).',
+    libraries: ['Adafruit MPU6050', 'Adafruit Unified Sensor'],
     category: 'sensors',
     difficulty: 'intermediate',
     boardType: 'esp32',
@@ -3908,6 +3915,7 @@ void loop() {
     id: 'esp32-servo',
     title: 'ESP32: Servo Motor + Potentiometer',
     description: 'Control a servo motor angle directly with a potentiometer. The servo follows the pot position in real time.',
+    libraries: ['ESP32Servo'],
     category: 'robotics',
     difficulty: 'beginner',
     boardType: 'esp32',
@@ -4004,6 +4012,7 @@ void loop() {
     id: 'c3-dht22',
     title: 'ESP32-C3: DHT22 Temperature & Humidity',
     description: 'Read temperature and humidity with a DHT22 sensor on GPIO3 of the ESP32-C3 RISC-V board.',
+    libraries: ['DHT sensor library'],
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'esp32-c3',
@@ -4148,6 +4157,7 @@ void loop() {
     id: 'c3-servo',
     title: 'ESP32-C3: Servo Motor Sweep',
     description: 'Sweep a servo motor from 0° to 180° and back on the ESP32-C3 using GPIO10 (PWM).',
+    libraries: ['ESP32Servo'],
     category: 'robotics',
     difficulty: 'beginner',
     boardType: 'esp32-c3',
