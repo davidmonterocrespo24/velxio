@@ -292,6 +292,12 @@ docker compose -f docker-compose.prod.yml up -d
 git clone https://github.com/davidmonterocrespo24/velxio.git
 cd velxio
 
+# With Makefile (Linux/macOS)
+make install
+make dev-backend
+make dev-frontend
+
+# Or manually:
 # Backend
 cd backend
 python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
