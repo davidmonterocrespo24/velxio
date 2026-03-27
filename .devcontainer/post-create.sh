@@ -9,12 +9,14 @@ cd "$WORKSPACE_ROOT"
 CURRENT_USER=$(whoami)
 
 echo "==> Fixing ownership for mounted volumes..."
-# Fix ownership of directories that are mounted as volumes
-sudo chown -R "$CURRENT_USER:$CURRENT_USER" frontend/node_modules 2>/dev/null || true
-sudo chown -R "$CURRENT_USER:$CURRENT_USER" wokwi-libs/avr8js/node_modules 2>/dev/null || true
-sudo chown -R "$CURRENT_USER:$CURRENT_USER" wokwi-libs/rp2040js/node_modules 2>/dev/null || true
-sudo chown -R "$CURRENT_USER:$CURRENT_USER" wokwi-libs/wokwi-elements/node_modules 2>/dev/null || true
-sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$HOME/.arduino15" 2>/dev/null || true
+for d in frontend/node_modules wokwi-libs/avr8js/node_modules wokwi-libs/rp2040js/node_modules wokwi-libs/wokwi-elements/node_modules "$HOME/.arduino15"; do
+    sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$d" 2>/dev/null || true
+done
+
+echo "==> Initializing git submodules..."
+# Nuke everything except node_modules (which are Docker volumes - can't delete)
+rm -rf wokwi-libs/avr8js/* wokwi-libs/rp2040js/* wokwi-libs/wokwi-elements/* wokwi-libs/wokwi-features/* wokwi-libs/wokwi-boards/* wokwi-libs/qemu-lcgamboa/*
+git submodule update --init --recursive
 
 echo "==> Installing arduino-cli..."
 if ! command -v arduino-cli &> /dev/null; then

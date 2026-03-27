@@ -20,12 +20,8 @@
   "remoteUser": "vscode",
   "waitFor": "postCreateCommand",
   "mounts": [
-    "source=${localWorkspaceFolder}/wokwi-libs,target=${containerWorkspaceFolder}/wokwi-libs,type=bind,consistency=cached",
     "source=velxio-arduino-cache,target=/home/vscode/.arduino15,type=volume",
-    "source=velxio-frontend-nodemodules,target=${containerWorkspaceFolder}/frontend/node_modules,type=volume",
-    "source=velxio-avr8js-nodemodules,target=${containerWorkspaceFolder}/wokwi-libs/avr8js/node_modules,type=volume",
-    "source=velxio-rp2040js-nodemodules,target=${containerWorkspaceFolder}/wokwi-libs/rp2040js/node_modules,type=volume",
-    "source=velxio-wokwi-elements-nodemodules,target=${containerWorkspaceFolder}/wokwi-libs/wokwi-elements/node_modules,type=volume"
+    "source=velxio-frontend-nodemodules,target=${containerWorkspaceFolder}/frontend/node_modules,type=volume"
   ],
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/post-start.sh",
