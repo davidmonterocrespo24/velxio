@@ -13,3 +13,6 @@
 [submodule "wokwi-libs/wokwi-features"]
 	path = wokwi-libs/wokwi-features
 	url = https://github.com/wokwi/wokwi-features.git
+[submodule "wokwi-libs/wokwi-boards"]
+	path = wokwi-libs/wokwi-boards
+	url = https://github.com/wokwi/wokwi-boards.git
