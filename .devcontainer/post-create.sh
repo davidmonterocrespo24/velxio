@@ -16,7 +16,7 @@ done
 echo "==> Cloning wokwi-libs (shallow, faster than submodules)..."
 # Only clone the 3 libs we actually use (avr8js, rp2040js, wokwi-elements)
 # Shallow clone with --depth=1 is much faster than recursive submodule init
-for lib in avr8js rp2040js wokwi-elements; do
+for lib in avr8js rp2040js wokwi-elements wokwi-boards; do
     if [ ! -d "wokwi-libs/$lib/.git" ]; then
         rm -rf "wokwi-libs/$lib"
         git clone --depth=1 "https://github.com/wokwi/$lib.git" "wokwi-libs/$lib"
