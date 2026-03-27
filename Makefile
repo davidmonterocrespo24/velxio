@@ -21,10 +21,22 @@ dev-frontend: ## Start frontend (port 5173)
 install: ## Install dependencies
 	@echo "Installing root dependencies (tsx, typescript for build scripts)..."
 	@npm install
+	@echo "Cloning wokwi-libs (shallow)..."
+	@for lib in avr8js rp2040js wokwi-elements; do \
+		if [ ! -d "wokwi-libs/$$lib/.git" ]; then \
+			rm -rf "wokwi-libs/$$lib"; \
+			git clone --depth=1 "https://github.com/wokwi/$$lib.git" "wokwi-libs/$$lib"; \
+		fi; \
+	done
 	@echo "Installing backend dependencies..."
 	@cd backend && python3 -m venv venv && . venv/bin/activate && pip install -r requirements.txt
 	@echo "Installing frontend dependencies..."
 	@cd frontend && npm install
+	@echo "Building wokwi-libs..."
+	@for lib in avr8js rp2040js wokwi-elements; do \
+		echo "Building $$lib..."; \
+		cd "wokwi-libs/$$lib" && npm install && npm run build && cd ../..; \
+	done
 	@echo "✓ All dependencies installed"
 
 clean: ## Remove venv and node_modules

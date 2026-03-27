@@ -54,6 +54,10 @@ fi
 # - For full ESP32 support, see: docs/ESP32_EMULATION.md
 # - Backend auto-detects and falls back to UART-only mode if libs are missing
 
+echo "==> Installing root dependencies (tsx, typescript for build scripts)..."
+HUSKY=0 npm install &
+ROOT_PID=$!
+
 echo "==> Setting up Python virtual environment (base layer)..."
 (cd backend
 python3 -m venv venv
@@ -86,6 +90,7 @@ npm run build) &
 ELEMENTS_PID=$!
 
 echo "  -> Waiting for all parallel builds to complete..."
+wait $ROOT_PID && echo "  ✓ Root deps installed"
 wait $BACKEND_PID && echo "  ✓ Backend deps installed"
 wait $FRONTEND_PID && echo "  ✓ Frontend deps installed"
 wait $AVR_PID && echo "  ✓ avr8js built"
