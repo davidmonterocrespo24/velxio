@@ -10,6 +10,7 @@ import { UserProfilePage } from './pages/UserProfilePage';
 import { ProjectPage } from './pages/ProjectPage';
 import { ProjectByIdPage } from './pages/ProjectByIdPage';
 import { AdminPage } from './pages/AdminPage';
+import { ExampleLoaderPage } from './pages/ExampleLoaderPage';
 import { ArduinoSimulatorPage } from './pages/ArduinoSimulatorPage';
 import { ArduinoEmulatorPage } from './pages/ArduinoEmulatorPage';
 import { AtmegaSimulatorPage } from './pages/AtmegaSimulatorPage';
@@ -37,6 +38,7 @@ function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/editor" element={<EditorPage />} />
         <Route path="/examples" element={<ExamplesPage />} />
+        <Route path="/examples/:exampleId" element={<ExampleLoaderPage />} />
         <Route path="/docs" element={<DocsPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

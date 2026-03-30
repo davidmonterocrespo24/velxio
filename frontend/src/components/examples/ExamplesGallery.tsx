@@ -4,7 +4,7 @@
  * Displays a gallery of example Arduino projects that users can load and run
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { exampleProjects, type ExampleProject } from '../../data/examples';
 import './ExamplesGallery.css';
 
@@ -42,6 +42,16 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
   const [selectedBoard, setSelectedBoard] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<ExampleProject['category'] | 'all'>('all');
   const [selectedDifficulty, setSelectedDifficulty] = useState<ExampleProject['difficulty'] | 'all'>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyLink = useCallback((e: React.MouseEvent, exampleId: string) => {
+    e.stopPropagation(); // Don't trigger card click
+    const url = `${window.location.origin}/examples/${exampleId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(exampleId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }, []);
 
   const filteredExamples = exampleProjects.filter((example) => {
     const boardMatch  = selectedBoard === 'all' || getBoardFilter(example) === selectedBoard;
@@ -237,6 +247,22 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                       {boardBadge.label}
                     </span>
                   )}
+                  <button
+                    className="example-copy-link"
+                    onClick={(e) => handleCopyLink(e, example.id)}
+                    title="Copy shareable link"
+                  >
+                    {copiedId === example.id ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>

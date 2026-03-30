@@ -103,14 +103,35 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
             placeholder="Optional"
           />
 
-          <label style={styles.checkboxRow}>
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
-            />
-            <span style={{ color: '#ccc', fontSize: 13 }}>Public</span>
-          </label>
+          <div
+            style={styles.visibilityToggle}
+            onClick={() => setIsPublic(!isPublic)}
+            role="button"
+            tabIndex={0}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {isPublic ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              )}
+              <div>
+                <div style={{ color: isPublic ? '#4ade80' : '#f59e0b', fontSize: 13, fontWeight: 600 }}>
+                  {isPublic ? 'Public' : 'Private'}
+                </div>
+                <div style={{ color: '#888', fontSize: 11 }}>
+                  {isPublic ? 'Anyone with the link can view' : 'Only you can see this'}
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div style={styles.actions}>
             <button type="submit" disabled={saving} style={styles.saveBtn}>
@@ -132,6 +153,7 @@ const styles: Record<string, React.CSSProperties> = {
   label: { color: '#9d9d9d', fontSize: 13 },
   input: { background: '#3c3c3c', border: '1px solid #555', borderRadius: 4, padding: '8px 10px', color: '#ccc', fontSize: 14, outline: 'none' },
   checkboxRow: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
+  visibilityToggle: { display: 'flex', alignItems: 'center', padding: '8px 10px', background: '#1e1e1e', border: '1px solid #444', borderRadius: 6, cursor: 'pointer', transition: 'border-color 0.15s' },
   actions: { display: 'flex', gap: 8, marginTop: 4 },
   saveBtn: { flex: 1, background: '#0e639c', border: 'none', borderRadius: 4, color: '#fff', padding: '9px', fontSize: 14, cursor: 'pointer', fontWeight: 500 },
   cancelBtn: { background: 'transparent', border: '1px solid #555', borderRadius: 4, color: '#ccc', padding: '9px 16px', fontSize: 14, cursor: 'pointer' },

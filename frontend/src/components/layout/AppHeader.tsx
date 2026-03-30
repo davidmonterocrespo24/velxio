@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useProjectStore } from '../../store/useProjectStore';
+import { ShareModal } from './ShareModal';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
@@ -13,8 +15,10 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
   const location = useLocation();
+  const currentProject = useProjectStore((s) => s.currentProject);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,8 +84,30 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
           </nav>
         </div>
 
-        {/* Right: auth + mobile hamburger */}
+        {/* Right: share + auth + mobile hamburger */}
         <div className="header-right">
+          {/* Share button — visible when a project is loaded */}
+          {currentProject && location.pathname === '/editor' && (
+            <button
+              onClick={() => setShowShareModal(true)}
+              style={{
+                background: 'transparent', border: '1px solid #555', borderRadius: 4,
+                padding: '4px 10px', cursor: 'pointer', display: 'flex',
+                alignItems: 'center', gap: 5, color: '#ccc', fontSize: 13,
+              }}
+              title="Share project"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              Share
+            </button>
+          )}
+
           {/* Auth UI */}
           {user ? (
             <div style={{ position: 'relative' }} ref={dropdownRef}>
@@ -138,6 +164,8 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
         </div>
 
       </div>
+
+      {showShareModal && <ShareModal onClose={() => setShowShareModal(false)} />}
     </header>
   );
 };

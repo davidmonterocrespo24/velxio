@@ -98,3 +98,11 @@ test/esp32-emulator/out_*/
 # Google Cloud service account credentials
 velxio-ba3355a41944.json
 marketing/*
+docs/github-issues/*
+
+# Arduino compilation byproducts in test fixtures
+**/*.ino.eep
+**/*.ino.with_bootloader.bin
+**/*.ino.with_bootloader.hex
+**/*.ino.map
+**/*.ino.uf2

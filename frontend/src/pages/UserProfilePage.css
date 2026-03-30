@@ -128,6 +128,23 @@
   font-family: var(--mono);
 }
 
+.profile-share-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.profile-share-btn:hover {
+  color: #4fc3f7;
+  border-color: #4fc3f7;
+}
+
 .profile-muted {
   color: var(--text-muted);
   font-size: 15px;

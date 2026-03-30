@@ -267,6 +267,23 @@
 }
 
 /* Empty state */
+.example-copy-link {
+  margin-left: auto;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 5px;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+.example-copy-link:hover {
+  color: #4fc3f7;
+  border-color: #4fc3f7;
+}
+
 .examples-empty {
   max-width: 1200px;
   margin: 80px auto;
