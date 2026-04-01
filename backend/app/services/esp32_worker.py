@@ -1,3 +1,4 @@
+from __future__ import annotations
 #!/usr/bin/env python3
 """
 esp32_worker.py — Standalone ESP32 QEMU subprocess worker.

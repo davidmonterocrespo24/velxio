@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 QemuManager — backend service for Raspberry Pi 3B emulation via QEMU.
 

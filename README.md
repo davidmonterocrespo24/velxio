@@ -227,13 +227,14 @@ See [docs/RASPBERRYPI3_EMULATION.md](docs/RASPBERRYPI3_EMULATION.md) for full te
 - Browse and install the full Arduino library index directly from the UI
 - Live search, installed tab, version display
 
-### Auth & Project Persistence
+### Project Persistence (No Sign-In Required)
 
-- **Email/password** and **Google OAuth** sign-in
-- **Project save** with name, description, and public/private visibility
+- **Save without an account** — projects are stored locally on your machine, no authentication needed
+- **Local storage at `~/velxio/projects/`** — each project gets its own directory with a `meta.json` and sketch files alongside it
 - **Project URL** — each project gets a permanent URL at `/project/:id`
-- **Sketch files stored on disk** per project (accessible from the host via Docker volume)
-- **User profile** at `/:username` showing public projects
+- **My Projects page** at `/projects` — lists all locally saved projects
+- **Name, description, and visibility** saved per project
+- Auth routes (email/password, Google OAuth) are still available but not required for any core functionality
 
 ### Example Projects
 
@@ -286,7 +287,12 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### Option C: Manual Setup
 
-**Prerequisites:** Node.js 18+, Python 3.12+, arduino-cli
+**Prerequisites:** Node.js 18+, Python 3.9+, arduino-cli
+
+> **Python 3.9 users:** install the extra backport packages required by Pydantic and SQLAlchemy:
+> ```bash
+> pip install eval_type_backport pydantic-settings greenlet
+> ```
 
 ```bash
 git clone https://github.com/davidmonterocrespo24/velxio.git
@@ -305,6 +311,8 @@ npm run dev
 ```
 
 Open <http://localhost:5173>.
+
+Projects are saved to `~/velxio/projects/` on the machine running the backend. The directory is created automatically on first save.
 
 **arduino-cli setup (first time):**
 
@@ -340,8 +348,8 @@ velxio/
 ├── backend/                     # FastAPI + Python
 │   └── app/
 │       ├── api/routes/          # compile, auth, projects, libraries, simulation (ws)
-│       ├── models/              # User, Project (SQLAlchemy)
-│       ├── services/            # arduino_cli, esp32_worker, qemu_manager, gpio_shim
+│       ├── models/              # User, Project (SQLAlchemy — used by auth/admin)
+│       ├── services/            # arduino_cli, local_store, esp32_worker, qemu_manager, gpio_shim
 │       └── core/                # config, security, dependencies
 ├── wokwi-libs/                  # Local clones of Wokwi repos
 │   ├── wokwi-elements/          # Web Components for electronic parts
@@ -371,8 +379,8 @@ velxio/
 | Raspberry Pi 3 Simulation | QEMU 8.1.3 (`qemu-system-aarch64 -M raspi3b`) + Raspberry Pi OS Trixie |
 | UI Components | wokwi-elements (Web Components) |
 | Compiler | arduino-cli (subprocess) |
-| Auth | JWT (httpOnly cookie), Google OAuth 2.0 |
-| Persistence | SQLite + disk volume (`/app/data/projects/{id}/`) |
+| Auth | Optional — JWT (httpOnly cookie), Google OAuth 2.0 |
+| Persistence | Local filesystem (`~/velxio/projects/{id}/`) — no sign-in required |
 | Deploy | Docker, nginx, GitHub Actions → GHCR + Docker Hub |
 
 ---

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 
 RESERVED_USERNAMES = {"login", "register", "api", "admin", "examples", "logout", "me", "google"}

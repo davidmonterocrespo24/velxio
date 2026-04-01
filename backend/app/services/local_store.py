@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Local file-based project storage in ~/velxio/projects/.
 
@@ -7,8 +8,6 @@ Each project is a directory:
     sketch.ino      — sketch files (any name)
     ...
 """
-
-from __future__ import annotations
 
 import json
 import shutil
@@ -130,11 +129,11 @@ def update_project(project_id: str, data: dict) -> dict | None:
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
     _write_meta(project_id, meta)
 
+    # Always write files — overwrite whatever is on disk
     if data.get("files") is not None:
         write_files(project_id, data["files"])
     elif data.get("code") is not None:
-        if not read_files(project_id):
-            write_files(project_id, [{"name": "sketch.ino", "content": data["code"]}])
+        write_files(project_id, [{"name": "sketch.ino", "content": data["code"]}])
 
     return meta
 

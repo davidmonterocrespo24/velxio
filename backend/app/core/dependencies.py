@@ -1,3 +1,4 @@
+from __future__ import annotations
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

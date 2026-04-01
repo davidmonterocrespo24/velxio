@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Esp32LibBridge — ESP32 emulation via lcgamboa QEMU shared library (libqemu-xtensa.dll).
 

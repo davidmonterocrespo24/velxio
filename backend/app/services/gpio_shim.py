@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 RPi.GPIO shim — injected into the QEMU Raspberry Pi 3B guest at boot.
 

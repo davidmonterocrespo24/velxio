@@ -88,9 +88,10 @@ interface ContextMenu {
 
 interface FileExplorerProps {
   onSaveClick: () => void;
+  saveStatus?: 'idle' | 'saving' | 'saved';
 }
 
-export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
+export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, saveStatus = 'idle' }) => {
   const { fileGroups, activeFileId, activeGroupId, openFile, createFile, deleteFile, renameFile, setActiveGroup } =
     useEditorStore();
   const boards = useSimulatorStore((s) => s.boards);
@@ -202,8 +203,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
             className="file-explorer-save-btn"
             title="Save project (Ctrl+S)"
             onClick={onSaveClick}
+            disabled={saveStatus === 'saving'}
           >
-            <IcoSave />
+            {saveStatus === 'saved'
+              ? <span style={{ fontSize: 11, color: '#4ec9b0', fontWeight: 600 }}>Saved</span>
+              : saveStatus === 'saving'
+              ? <span style={{ fontSize: 11, color: '#888' }}>…</span>
+              : <IcoSave />}
           </button>
         </div>
       </div>

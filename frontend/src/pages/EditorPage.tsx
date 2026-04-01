@@ -23,7 +23,9 @@ import { SaveProjectModal } from '../components/layout/SaveProjectModal';
 import { GitHubStarBanner } from '../components/layout/GitHubStarBanner';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
-
+import { useEditorStore } from '../store/useEditorStore';
+import { useProjectStore } from '../store/useProjectStore';
+import { updateProject } from '../services/projectService';
 import type { CompilationLog } from '../utils/compilationLogger';
 import '../App.css';
 
@@ -68,6 +70,33 @@ export const EditorPage: React.FC = () => {
   const [compileLogs, setCompileLogs] = useState<CompilationLog[]>([]);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(BOTTOM_PANEL_DEFAULT);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  const currentProject = useProjectStore((s) => s.currentProject);
+  const { boardType, components, wires } = useSimulatorStore();
+
+  // Direct silent save — used by Ctrl+S when a project already exists
+  const handleDirectSave = useCallback(async () => {
+    const { fileGroups, activeGroupId, files } = useEditorStore.getState();
+    const activeFiles = fileGroups[activeGroupId] ?? files;
+    const code = activeFiles.find((f) => f.name === 'sketch.ino')?.content ?? activeFiles[0]?.content ?? '';
+    if (!currentProject) { setSaveModalOpen(true); return; }
+    setSaveStatus('saving');
+    try {
+      await updateProject(currentProject.id, {
+        board_type: boardType,
+        files: activeFiles.map((f) => ({ name: f.name, content: f.content })),
+        code,
+        components_json: JSON.stringify(components),
+        wires_json: JSON.stringify(wires),
+      });
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    } catch {
+      setSaveStatus('idle');
+      setSaveModalOpen(true); // fall back to modal on error
+    }
+  }, [currentProject, boardType, components, wires]);
 
   const [showStarBanner, setShowStarBanner] = useState(false);
 
@@ -115,8 +144,12 @@ export const EditorPage: React.FC = () => {
   // Default to 'code' on mobile — show the editor so users can write/view code
   const [mobileView, setMobileView] = useState<'code' | 'circuit'>('code');
   const handleSaveClick = useCallback(() => {
-    setSaveModalOpen(true);
-  }, []);
+    if (currentProject) {
+      handleDirectSave();
+    } else {
+      setSaveModalOpen(true);
+    }
+  }, [currentProject, handleDirectSave]);
 
   // Track mobile breakpoint
   useEffect(() => {
@@ -131,7 +164,7 @@ export const EditorPage: React.FC = () => {
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  // Ctrl+S shortcut
+  // Ctrl+S: direct save if project exists, otherwise open modal
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -269,7 +302,7 @@ export const EditorPage: React.FC = () => {
           {explorerOpen && (
             <>
               <div style={{ width: explorerWidth, flexShrink: 0, display: 'flex', overflow: 'hidden' }}>
-                <FileExplorer onSaveClick={handleSaveClick} />
+                <FileExplorer onSaveClick={handleSaveClick} saveStatus={saveStatus} />
               </div>
               {!isMobile && (
                 <div className="explorer-resize-handle" onMouseDown={handleExplorerResizeMouseDown} />

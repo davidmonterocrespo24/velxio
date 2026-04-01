@@ -11,7 +11,7 @@ const MAIN_ID = 'main-sketch';
 
 const DEFAULT_INO_CONTENT = `// Arduino Blink Example
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT); //aaaa
+  pinMode(LED_BUILTIN, OUTPUT); //bb
 }
 
 void loop() {

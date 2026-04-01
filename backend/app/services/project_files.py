@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Reads and writes per-project sketch files to the data volume.
 

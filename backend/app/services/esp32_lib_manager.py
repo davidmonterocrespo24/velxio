@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 EspLibManager — ESP32 emulation via lcgamboa libqemu-xtensa (.dll/.so).
 

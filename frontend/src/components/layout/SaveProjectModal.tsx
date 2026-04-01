@@ -12,8 +12,8 @@ interface SaveProjectModalProps {
 
 export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) => {
   const navigate = useNavigate();
-  const files = useEditorStore((s) => s.files);
-  // Legacy: save primary .ino content for the project code field
+  // Read from fileGroups[activeGroupId] — the authoritative source for editor content
+  const files = useEditorStore((s) => s.fileGroups[s.activeGroupId] ?? s.files);
   const code = files.find((f) => f.name === 'sketch.ino')?.content ?? files[0]?.content ?? '';
   const { boardType, components, wires } = useSimulatorStore();
   const currentProject = useProjectStore((s) => s.currentProject);

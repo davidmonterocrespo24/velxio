@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 EspQemuManager — backend service for ESP32/ESP32-S3/ESP32-C3 emulation via QEMU.
 

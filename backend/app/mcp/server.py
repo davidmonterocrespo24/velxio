@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Velxio MCP Server
 
@@ -16,7 +17,6 @@ Transport:
   - SSE    — mounted at /mcp in the FastAPI app for HTTP-based agents
 """
 
-from __future__ import annotations
 
 import json
 import sys

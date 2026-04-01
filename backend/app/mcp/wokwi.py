@@ -1,9 +1,9 @@
+from __future__ import annotations
 """
 Wokwi diagram.json parse/format utilities (Python port of frontend/src/utils/wokwiZip.ts).
 Handles conversion between Wokwi diagram format and the Velxio internal circuit format.
 """
 
-from __future__ import annotations
 
 from typing import Any
 

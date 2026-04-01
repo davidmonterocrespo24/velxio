@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 WiFi/BLE status parser — extracts connection events from ESP-IDF serial output.
 

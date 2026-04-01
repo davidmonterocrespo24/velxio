@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 IoT Gateway — HTTP reverse proxy for ESP32 web servers running in QEMU.
 

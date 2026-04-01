@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ESP-IDF Compilation Service for ESP32 targets.
 
