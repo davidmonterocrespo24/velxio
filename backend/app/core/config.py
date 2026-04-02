@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # Set to true in production (HTTPS). Controls the Secure flag on the JWT cookie.
     COOKIE_SECURE: bool = False
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+    ANTHROPIC_API_KEY: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

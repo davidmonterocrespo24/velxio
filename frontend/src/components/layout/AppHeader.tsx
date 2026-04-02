@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
+import { useChatStore } from '../../store/useChatStore';
+import '../../components/chat/ChatWidget.css';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
 const DISCORD_URL = 'https://discord.gg/3mARjJrh4E';
@@ -10,6 +12,7 @@ interface AppHeaderProps {}
 export const AppHeader: React.FC<AppHeaderProps> = () => {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { toggle: toggleChat, isOpen: chatOpen } = useChatStore();
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -56,6 +59,17 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
             </svg>
             Discord
           </a>
+          <button
+            className={`header-ai-btn${chatOpen ? ' header-ai-btn-active' : ''}`}
+            onClick={toggleChat}
+            title="AI Code Generator"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/>
+              <path d="M8 12h8M12 8v8"/>
+            </svg>
+            AI
+          </button>
           </nav>
         </div>
 

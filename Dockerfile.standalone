@@ -25,26 +25,11 @@ RUN bash build_libqemu-esp32.sh
 
 
 # ---- Stage 0.5: ESP-IDF toolchain for ESP32 compilation ----
-FROM ubuntu:22.04 AS espidf-builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git wget flex bison gperf python3 python3-pip python3-venv \
-    cmake ninja-build ccache libffi-dev libssl-dev \
-    libusb-1.0-0 ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install ESP-IDF 4.4.7 (matches Arduino ESP32 core 2.0.17 / lcgamboa QEMU ROM)
-RUN git clone -b v4.4.7 --recursive --depth=1 --shallow-submodules \
-    https://github.com/espressif/esp-idf.git /opt/esp-idf
-
-WORKDIR /opt/esp-idf
-
-# Install toolchains for esp32 (Xtensa) and esp32c3 (RISC-V) only
-RUN ./install.sh esp32,esp32c3
-
-# Clean up large unnecessary files to reduce image size
-RUN rm -rf .git docs examples \
-    && find /root/.espressif -name '*.tar.*' -delete 2>/dev/null || true
+# Uses the official Espressif Docker image to avoid cloning the massive
+# esp-idf repo (hundreds of submodules) from scratch.
+FROM espressif/idf:v4.4.7 AS espidf-builder
+# IDF is pre-installed at /opt/esp/idf; tools at /opt/esp/tools
+# Nothing to do — just use this image as a COPY source
 
 
 # ---- Stage 1: Build frontend and wokwi-libs ----
@@ -151,9 +136,9 @@ ENV QEMU_ESP32_LIB=/app/lib/libqemu-xtensa.so
 ENV QEMU_RISCV32_LIB=/app/lib/libqemu-riscv32.so
 
 # ── ESP-IDF toolchain for ESP32 compilation ──────────────────────────────────
-# Copied from espidf-builder stage: IDF framework + cross-compiler toolchains
-COPY --from=espidf-builder /opt/esp-idf /opt/esp-idf
-COPY --from=espidf-builder /root/.espressif /root/.espressif
+# espressif/idf image stores IDF at /opt/esp/idf and tools at /opt/esp/tools
+COPY --from=espidf-builder /opt/esp/idf /opt/esp-idf
+COPY --from=espidf-builder /opt/esp/tools /root/.espressif
 
 ENV IDF_PATH=/opt/esp-idf
 ENV IDF_TOOLS_PATH=/root/.espressif

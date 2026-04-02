@@ -72,6 +72,9 @@ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(projects_router, prefix="/api", tags=["projects"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
+from app.api.routes.chat import router as chat_router
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
+
 # WebSockets
 from app.api.routes import simulation
 app.include_router(simulation.router, prefix="/api/simulation", tags=["simulation"])
