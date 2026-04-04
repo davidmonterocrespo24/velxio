@@ -15,6 +15,7 @@ export interface GeneratedFile {
 export interface ChatResponse {
   explanation: string;
   files: GeneratedFile[];
+  diagram?: object;
 }
 
 export async function generateSketch(messages: ChatMessage[]): Promise<ChatResponse> {

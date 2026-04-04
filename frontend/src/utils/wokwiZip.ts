@@ -218,6 +218,75 @@ export async function exportToWokwiZip(
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ── Diagram parser (reusable, no zip) ────────────────────────────────────────
+
+export type DiagramResult = Omit<ImportResult, 'files' | 'libraries'>;
+
+/**
+ * Parse a Wokwi diagram.json string (or object already parsed to JSON string)
+ * into Velxio's internal board/component/wire format.
+ */
+export function parseDiagramJson(diagramText: string): DiagramResult {
+  const diagram: WokwiDiagram = JSON.parse(diagramText);
+
+  const boardPart = diagram.parts.find((p) => WOKWI_TYPE_TO_BOARD[p.type]);
+  const boardType = boardPart ? WOKWI_TYPE_TO_BOARD[boardPart.type] : 'arduino-uno';
+  const boardId = boardPart?.id ?? 'uno';
+
+  const VELXIO_BOARD_ID: Record<string, string> = {
+    'arduino-uno': 'arduino-uno',
+    'arduino-nano': 'arduino-nano',
+    'arduino-mega': 'arduino-mega',
+    'raspberry-pi-pico': 'nano-rp2040',
+  };
+  const velxioBoardId = VELXIO_BOARD_ID[boardType] ?? 'arduino-uno';
+
+  const MIN_OFFSET = 50;
+  const rawBoardX = boardPart?.left ?? MIN_OFFSET;
+  const rawBoardY = boardPart?.top ?? MIN_OFFSET;
+  const offsetX = rawBoardX < MIN_OFFSET ? MIN_OFFSET - rawBoardX : 0;
+  const offsetY = rawBoardY < MIN_OFFSET ? MIN_OFFSET - rawBoardY : 0;
+  const boardPosition = { x: rawBoardX + offsetX, y: rawBoardY + offsetY };
+
+  const components: VelxioComponent[] = (diagram.parts ?? [])
+    .filter((p) => !WOKWI_TYPE_TO_BOARD[p.type])
+    .map((p) => ({
+      id: p.id,
+      metadataId: wokwiTypeToMetadataId(p.type),
+      x: p.left + offsetX,
+      y: p.top + offsetY,
+      properties: { ...p.attrs },
+    }));
+
+  const wires: Wire[] = (diagram.connections ?? []).map((conn, i) => {
+    const [startStr, endStr, color] = conn;
+    const colonA = startStr.indexOf(':');
+    const colonB = endStr.indexOf(':');
+    const startCompRaw = colonA >= 0 ? startStr.slice(0, colonA) : startStr;
+    const startPin = colonA >= 0 ? startStr.slice(colonA + 1) : '';
+    const endCompRaw = colonB >= 0 ? endStr.slice(0, colonB) : endStr;
+    const endPin = colonB >= 0 ? endStr.slice(colonB + 1) : '';
+
+    const startId = startCompRaw === boardId ? velxioBoardId : startCompRaw;
+    const endId = endCompRaw === boardId ? velxioBoardId : endCompRaw;
+
+    const startMetadataId = components.find((c) => c.id === startId)?.metadataId ?? '';
+    const endMetadataId = components.find((c) => c.id === endId)?.metadataId ?? '';
+    const normalizedStartPin = normalizePinName(startMetadataId, startPin);
+    const normalizedEndPin = normalizePinName(endMetadataId, endPin);
+
+    return {
+      id: `wire-${i}-${Date.now()}`,
+      start: { componentId: startId, pinName: normalizedStartPin, x: 0, y: 0 },
+      end: { componentId: endId, pinName: normalizedEndPin, x: 0, y: 0 },
+      waypoints: [],
+      color: colorToHex(color),
+    };
+  });
+
+  return { boardType, boardPosition, components, wires };
+}
+
 // ── Import ────────────────────────────────────────────────────────────────────
 
 export async function importFromWokwiZip(file: File): Promise<ImportResult> {

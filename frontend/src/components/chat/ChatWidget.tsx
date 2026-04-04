@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/useChatStore';
 import { generateSketch } from '../../services/chatService';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { parseDiagramJson } from '../../utils/wokwiZip';
 import type { ChatMessage, GeneratedFile } from '../../services/chatService';
 import './ChatWidget.css';
 
@@ -63,7 +65,7 @@ export const ChatWidget: React.FC = () => {
 
       try {
         const res = await generateSketch(buildApiMessages(currentMessages));
-        addMessage({ role: 'assistant', text: res.explanation, files: res.files });
+        addMessage({ role: 'assistant', text: res.explanation, files: res.files, diagram: res.diagram });
       } catch (err: any) {
         const detail =
           err?.response?.data?.detail ??
@@ -84,15 +86,35 @@ export const ChatWidget: React.FC = () => {
     }
   };
 
-  const loadIntoEditor = (files: GeneratedFile[]) => {
-    loadFiles(
-      files.map((f, i) => ({
-        id: `chat-${Date.now()}-${i}`,
-        name: f.name,
-        content: f.content,
-        modified: false,
-      })),
-    );
+  const loadIntoEditor = (files: GeneratedFile[], diagram?: object) => {
+    // Load code files into editor
+    if (files.length > 0) {
+      loadFiles(
+        files.map((f, i) => ({
+          id: `chat-${Date.now()}-${i}`,
+          name: f.name,
+          content: f.content,
+          modified: false,
+        })),
+      );
+    }
+
+    // Load diagram into simulator — diagram is already a parsed JS object, no string escaping issues
+    if (diagram) {
+      try {
+        const { boardType, boardPosition, components, wires } = parseDiagramJson(JSON.stringify(diagram));
+        const { stopSimulation, setBoardType, setBoardPosition, setComponents, setWires } =
+          useSimulatorStore.getState();
+        stopSimulation();
+        setBoardType(boardType as any);
+        setBoardPosition(boardPosition);
+        setComponents(components);
+        setWires(wires);
+      } catch (e) {
+        console.warn('[ChatWidget] Failed to load diagram:', e);
+      }
+    }
+
     navigate('/editor');
     close();
   };
@@ -133,15 +155,21 @@ export const ChatWidget: React.FC = () => {
               </div>
               <div className={`cw-bubble${msg.error ? ' cw-bubble-error' : ''}`}>
                 {msg.text}
-                {msg.files && msg.files.length > 0 && (
+                {(msg.files && msg.files.length > 0 || msg.diagram) && (
                   <div className="cw-files">
-                    {msg.files.map((file) => (
+                    {msg.files?.map((file) => (
                       <div key={file.name} className="cw-file-card">
                         <div className="cw-file-name">{file.name}</div>
                         <pre className="cw-file-code">{file.content}</pre>
                       </div>
                     ))}
-                    <button className="cw-load-btn" onClick={() => loadIntoEditor(msg.files!)}>
+                    {msg.diagram && (
+                      <div className="cw-file-card cw-file-diagram">
+                        <div className="cw-file-name">diagram.json</div>
+                        <div className="cw-file-diagram-hint">Circuit diagram included — click Load to see it on the canvas</div>
+                      </div>
+                    )}
+                    <button className="cw-load-btn" onClick={() => loadIntoEditor(msg.files ?? [], msg.diagram)}>
                       Load into Editor →
                     </button>
                   </div>

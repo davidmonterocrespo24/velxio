@@ -5,6 +5,7 @@ export interface ChatUIMessage {
   role: 'user' | 'assistant';
   text: string;
   files?: GeneratedFile[];
+  diagram?: object;
   error?: boolean;
 }
 

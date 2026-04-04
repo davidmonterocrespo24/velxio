@@ -311,7 +311,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       const { loadFiles } = useEditorStore.getState();
       const { setComponents, setWires, setBoardType, setBoardPosition, stopSimulation } = useSimulatorStore.getState();
       stopSimulation();
-      if (result.boardType) setBoardType(result.boardType);
+      if (result.boardType) setBoardType(result.boardType as any);
       setBoardPosition(result.boardPosition);
       setComponents(result.components);
       setWires(result.wires);
