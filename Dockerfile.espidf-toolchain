@@ -1,0 +1,28 @@
+# ESP-IDF toolchain image — built once, pulled many times.
+# Published to GHCR by build-espidf-toolchain.yml Action.
+# Usage: docker build -f Dockerfile.espidf-toolchain -t velxio-espidf-toolchain .
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget flex bison gperf python3 python3-pip python3-venv \
+    cmake ninja-build ccache libffi-dev libssl-dev \
+    libusb-1.0-0 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ESP-IDF 4.4.7 (matches Arduino ESP32 core 2.0.17 / lcgamboa QEMU ROM)
+RUN git clone -b v4.4.7 --recursive --depth=1 --shallow-submodules \
+    https://github.com/espressif/esp-idf.git /opt/esp-idf
+
+WORKDIR /opt/esp-idf
+
+# Install toolchains for esp32 (Xtensa) and esp32c3 (RISC-V) only
+RUN ./install.sh esp32,esp32c3
+
+# Clean up large unnecessary files to reduce image size
+RUN rm -rf .git docs examples \
+    && find /root/.espressif -name '*.tar.*' -delete 2>/dev/null || true
+
+# Install Arduino-as-component for full Arduino API support in ESP-IDF builds
+RUN git clone --branch 2.0.17 --depth=1 --recursive --shallow-submodules \
+    https://github.com/espressif/arduino-esp32.git /opt/arduino-esp32 \
+ && rm -rf /opt/arduino-esp32/.git

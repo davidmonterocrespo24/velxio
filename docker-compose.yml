@@ -1,30 +1,32 @@
+# Development Docker Compose — same image as production for full parity.
+# Usage: docker compose up --build
+# Access: http://localhost:3080
 services:
-  backend:
+  velxio:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8001:8001"
+      context: .
+      dockerfile: Dockerfile.standalone
+    container_name: velxio-dev
     restart: unless-stopped
+    ports:
+      - "3080:80"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/velxio.db
       - DATA_DIR=/app/data
+      - IDF_PATH=/opt/esp-idf
+      - IDF_TOOLS_PATH=/root/.espressif
+      - ARDUINO_ESP32_PATH=/opt/arduino-esp32
     volumes:
       - ./data:/app/data
+      - arduino-libs:/root/.arduino15
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 90s
 
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    ports:
-      - "3000:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
+volumes:
+  arduino-libs:

@@ -14,6 +14,7 @@ services:
       - DATA_DIR=/app/data
       - IDF_PATH=/opt/esp-idf
       - IDF_TOOLS_PATH=/root/.espressif
+      - ARDUINO_ESP32_PATH=/opt/arduino-esp32
     volumes:
       - ./data:/app/data
       - arduino-libs:/root/.arduino15

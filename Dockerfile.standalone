@@ -1,27 +1,30 @@
-# ---- Stage 0: Compile lcgamboa QEMU as Linux .so (full ESP32 GPIO emulation) ----
-FROM ubuntu:22.04 AS qemu-builder
+# ---- Stage 0: QEMU .so + ROM binaries ----
+# Two modes:
+#   1. Local: place files in prebuilt/qemu/ (from build-qemu.sh or manual copy)
+#   2. CI/CD: downloads from GitHub Release (requires qemu-lcgamboa repo to be public)
+# The COPY always runs; the RUN only downloads missing files.
+FROM ubuntu:22.04 AS qemu-provider
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git python3 python3-pip python3-setuptools \
-    ninja-build pkg-config flex bison \
-    gcc g++ make ca-certificates \
-    libglib2.0-dev libgcrypt20-dev libslirp-dev \
-    libpixman-1-dev libfdt-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# QEMU 8.x requires meson >= 1.0
-RUN pip3 install meson
+ARG QEMU_RELEASE_URL=https://github.com/davidmonterocrespo24/velxio/releases/download/qemu-prebuilt
 
-# Clone lcgamboa fork (picsimlab-esp32 branch adds GPIO/ADC/UART/RMT C callback API)
-RUN git clone --depth=1 --branch picsimlab-esp32 \
-    https://github.com/lcgamboa/qemu /qemu-lcgamboa
+# Copy the prebuilt directory (may contain .so+ROM files or just the .gitkeep)
+RUN mkdir -p /qemu
+COPY prebuilt/qemu/ /qemu/
 
-WORKDIR /qemu-lcgamboa
-
-# Build libqemu-xtensa.so (ESP32/S3) and libqemu-riscv32.so (ESP32-C3).
-# The script: configures with --extra-cflags=-fPIC, builds normally, then
-# re-links without softmmu_main.c.o and with -shared.
-RUN bash build_libqemu-esp32.sh
+# Download any missing files from GitHub Release
+RUN cd /qemu \
+ && for f in libqemu-xtensa.so libqemu-riscv32.so esp32-v3-rom.bin esp32-v3-rom-app.bin esp32c3-rom.bin; do \
+      if [ ! -f "$f" ]; then \
+        echo "Downloading $f from release..." ; \
+        curl -fSL -o "$f" "${QEMU_RELEASE_URL}/$f" ; \
+      else \
+        echo "Using local $f ($(stat -c%s "$f") bytes)" ; \
+      fi ; \
+    done \
+ && ls -lh /qemu/
 
 
 # ---- Stage 0.5: ESP-IDF toolchain for ESP32 compilation ----
@@ -133,11 +136,12 @@ COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 # Copy built frontend assets from builder stage
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Copy and configure entrypoint script
+# Copy and configure entrypoint script (fix Windows CRLF → LF)
 COPY deploy/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-# ── ESP32 emulation: lcgamboa QEMU .so + ROM binaries ────────────────────────
+# ── ESP32 emulation: pre-built QEMU .so + ROM binaries ──────────────────────
+# Downloaded from GitHub Release (public — no access to qemu-lcgamboa needed)
 # libqemu-xtensa.so    → ESP32 / ESP32-S3 (Xtensa LX6/LX7)
 # libqemu-riscv32.so   → ESP32-C3 (RISC-V RV32IMC)
 # esp32-v3-rom*.bin    → boot/app ROM images required by esp32-picsimlab machine
@@ -145,11 +149,7 @@ RUN chmod +x /app/entrypoint.sh
 # NOTE: ROM files must live in the same directory as the .so (worker passes -L
 #       to QEMU pointing at os.path.dirname(lib_path))
 RUN mkdir -p /app/lib
-COPY --from=qemu-builder /qemu-lcgamboa/build/libqemu-xtensa.so /app/lib/
-COPY --from=qemu-builder /qemu-lcgamboa/build/libqemu-riscv32.so /app/lib/
-COPY --from=qemu-builder /qemu-lcgamboa/pc-bios/esp32-v3-rom.bin /app/lib/
-COPY --from=qemu-builder /qemu-lcgamboa/pc-bios/esp32-v3-rom-app.bin /app/lib/
-COPY --from=qemu-builder /qemu-lcgamboa/pc-bios/esp32c3-rom.bin /app/lib/
+COPY --from=qemu-provider /qemu/ /app/lib/
 
 # Activate ESP32 emulation
 # QEMU_ESP32_LIB    → Xtensa library (ESP32, ESP32-S3)

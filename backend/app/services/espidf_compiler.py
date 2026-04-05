@@ -106,6 +106,62 @@ class ESPIDFCompiler:
             code
         ))
 
+    def _normalize_wifi_for_qemu(self, code: str) -> str:
+        """
+        Normalize WiFi SSID/password/channel in Arduino sketches for QEMU.
+
+        QEMU's WiFi AP broadcasts "Velxio-GUEST" on channel 6 with open auth.
+        This method rewrites the user's sketch so that:
+          - Any SSID string literal → "Velxio-GUEST"
+          - Password → "" (open auth)
+          - Channel → 6
+        The user's editor still shows their original code; only the compiled
+        binary is modified.
+        """
+        if not self._detect_wifi_usage(code):
+            return code
+
+        # 1) Replace SSID variable definitions:
+        #    const char* ssid = "anything" → "Velxio-GUEST"
+        #    char ssid[] = "anything"      → "Velxio-GUEST"
+        #    #define WIFI_SSID "anything"   → "Velxio-GUEST"
+        code = re.sub(
+            r'((?:const\s+)?char\s*\*?\s*ssid\s*\[?\]?\s*=\s*)"[^"]*"',
+            rf'\1"{_QEMU_WIFI_SSID}"',
+            code,
+            flags=re.IGNORECASE
+        )
+        code = re.sub(
+            r'(#define\s+\w*SSID\w*\s+)"[^"]*"',
+            rf'\1"{_QEMU_WIFI_SSID}"',
+            code,
+            flags=re.IGNORECASE
+        )
+
+        # 2) Normalize WiFi.begin() calls:
+        #    WiFi.begin("X")           → WiFi.begin("Velxio-GUEST", "", 6)
+        #    WiFi.begin("X", "pass")   → WiFi.begin("Velxio-GUEST", "", 6)
+        #    WiFi.begin(ssid, pass, N) → WiFi.begin(ssid, "", 6)
+        #    WiFi.begin(ssid)          → WiFi.begin(ssid, "", 6)
+
+        def _rewrite_wifi_begin(m: re.Match) -> str:
+            args = m.group(1)
+            parts = [a.strip() for a in args.split(',')]
+            ssid_arg = parts[0]
+            # If SSID is a string literal, force to Velxio-GUEST
+            if ssid_arg.startswith('"'):
+                ssid_arg = f'"{_QEMU_WIFI_SSID}"'
+            return f'WiFi.begin({ssid_arg}, "", 6)'
+
+        code = re.sub(
+            r'WiFi\.begin\s*\(([^)]+)\)',
+            _rewrite_wifi_begin,
+            code
+        )
+
+        logger.info('[espidf] WiFi normalized: SSID→%s, channel→6, open auth', _QEMU_WIFI_SSID)
+        return code
+
     def _translate_sketch_to_espidf(self, sketch_code: str) -> str:
         """
         Translate an Arduino WiFi+WebServer sketch to pure ESP-IDF C code.
@@ -401,26 +457,11 @@ class ESPIDFCompiler:
             if not main_content and files:
                 main_content = files[0]['content']
 
-            # Auto-fix missing channel argument in WiFi.begin for QEMU compatibility
-            # QEMU's mock WiFi AP is on channel 6, and active scanning hangs the simulator.
-            # Match WiFi.begin(...) without a channel, catching both literals and variables.
-            # 1 arg: WiFi.begin(ssid) -> WiFi.begin(ssid, "", 6)
-            main_content = re.sub(
-                r'WiFi\.begin\s*\(\s*([^,]+?)\s*\)',
-                r'WiFi.begin(\1, "", 6)',
-                main_content
-            )
-            # 2 args: WiFi.begin(ssid, pass) -> WiFi.begin(ssid, pass, 6)
-            # Exclude matching if the second arg is obviously an int channel (which is wrong but possible)
-            # We match if there are exactly two args. We have to be careful with commas.
-            main_content = re.sub(
-                r'WiFi\.begin\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*\)',
-                r'WiFi.begin(\1, \2, 6)',
-                main_content
-            )
-            
-            # Since QEMU's AP accepts any SSID (as long as it's on channel 6),
-            # we let the user use Velxio-GUEST or whatever they want.
+            # ── QEMU WiFi compatibility ──────────────────────────────────────
+            # QEMU's WiFi AP broadcasts "Velxio-GUEST" on channel 6.
+            # We normalize ANY user SSID → "Velxio-GUEST", enforce channel 6,
+            # and use open auth (empty password) so the connection always works.
+            main_content = self._normalize_wifi_for_qemu(main_content)
 
             if self.has_arduino:
                 # Arduino-as-component mode: copy sketch as .cpp

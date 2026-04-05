@@ -89,6 +89,12 @@ backend/app/services/esp32-v3-rom.bin
 backend/app/services/esp32-v3-rom-app.bin
 backend/app/services/esp32c3-rom.bin
 
+# Pre-built QEMU .so for Docker (built by build-qemu.sh — ~30MB Linux binaries)
+prebuilt/*
+!prebuilt/qemu/
+prebuilt/qemu/*
+!prebuilt/qemu/.gitkeep
+
 # ESP32 build artifacts (ELF/MAP debug symbols — large, not needed for tests)
 test/esp32-emulator/**/*.elf
 test/esp32-emulator/**/*.map
