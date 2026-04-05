@@ -191,6 +191,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     if os.name == 'nt' and os.path.isdir(_MINGW64_BIN):
         os.add_dll_directory(_MINGW64_BIN)
     try:
+        lib_size = os.path.getsize(lib_path) if os.path.isfile(lib_path) else 0
+        _log(f'Loading library: {lib_path} ({lib_size} bytes)')
         lib = ctypes.CDLL(lib_path)
     except Exception as exc:
         _emit({'type': 'error', 'message': f'Cannot load DLL: {exc}'})
@@ -217,7 +219,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         b'-drive', f'file={firmware_path},if=mtd,format=raw'.encode(),
     ]
 
-    # ── ESP32-C3 requires deterministic instruction counting for stable boot
+    # Deterministic instruction counting for stable timers.
+    # Required for ESP32-C3 boot (RISC-V needs deterministic timing).
+    # For ESP32 (Xtensa), -icount is NOT used: the WiFi AP beacon timer
+    # runs on QEMU_CLOCK_REALTIME, so decoupling virtual time from real
+    # time can cause beacon delivery issues on slow/virtualized hosts.
     if 'c3' in machine:
         args_list.extend([b'-icount', b'3'])
 
@@ -531,6 +537,14 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     _reboot_count[0] += 1
                     _emit({'type': 'system', 'event': 'reboot',
                            'count': _reboot_count[0]})
+                # WiFi progress logging (only in debug — helps diagnose prod issues)
+                if wifi_enabled:
+                    line = chunk.decode('utf-8', errors='replace').strip()
+                    if any(kw in line.lower() for kw in (
+                        'wifi', 'connect', 'ip address', 'wl_connected',
+                        'dhcp', 'sta_start', 'sta_got_ip', 'sta_disconnect',
+                    )):
+                        _log(f'[wifi-uart] {line}')
 
     def _on_rmt_event(channel: int, config0: int, value: int) -> None:
         if _stopped.is_set():
@@ -621,6 +635,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
     _emit({'type': 'system', 'event': 'booted'})
     _log(f'QEMU started: machine={machine} firmware={firmware_path}')
+    _log(f'QEMU args: {[a.decode() for a in args_list]}')
 
     # ── 7. LEDC polling thread (100 ms interval) ──────────────────────────────
 
