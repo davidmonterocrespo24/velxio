@@ -669,6 +669,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           );
           esp32Bridge.wifiEnabled = hasWifi;
 
+          // Ensure firmware is loaded into the bridge (handles page-refresh case
+          // where _pendingFirmware is lost but compiledProgram is still in store).
+          if (!esp32Bridge.hasFirmware() && board.compiledProgram) {
+            esp32Bridge.loadFirmware(board.compiledProgram);
+          }
+
           esp32Bridge.connect();
         }
       } else {

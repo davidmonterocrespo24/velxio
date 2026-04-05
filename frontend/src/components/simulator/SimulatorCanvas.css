@@ -356,6 +356,20 @@
 .canvas-wifi-got_ip       { color: #22c55e; }
 .canvas-wifi-disconnected { color: #6b7280; }
 
+.canvas-wifi-clickable {
+  cursor: pointer !important;
+  transition: transform 0.2s, filter 0.2s;
+}
+
+.canvas-wifi-clickable:hover {
+  transform: scale(1.15);
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+.canvas-wifi-clickable:active {
+  transform: scale(0.95);
+}
+
 /* BLE status colours */
 .canvas-ble-initialized { color: #3b82f6; }
 .canvas-ble-advertising { color: #6366f1; }

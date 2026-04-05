@@ -8,6 +8,7 @@ import { SENSOR_CONTROLS } from '../../simulation/sensorControlConfig';
 import { DynamicComponent, createComponentFromMetadata } from '../DynamicComponent';
 import { ComponentRegistry } from '../../services/ComponentRegistry';
 import { PinSelector } from './PinSelector';
+import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle } from './WireLayer';
 import { BoardOnCanvas } from './BoardOnCanvas';
@@ -1276,27 +1277,37 @@ export const SimulatorCanvas = () => {
             </button>
 
             {/* WiFi status indicator (ESP32 boards only) */}
-            {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.wifiStatus && (
-              <span
-                className={`canvas-wifi-badge canvas-wifi-${activeBoard.wifiStatus.status}`}
-                title={
-                  activeBoard.wifiStatus.status === 'got_ip'
-                    ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — IP: ${activeBoard.wifiStatus.ip}`
-                    : activeBoard.wifiStatus.status === 'connected'
-                    ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — Connecting...`
-                    : activeBoard.wifiStatus.status === 'initializing'
-                    ? 'WiFi: Initializing...'
-                    : 'WiFi: Disconnected'
-                }
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-                  <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-                  <circle cx="12" cy="20" r="1" />
-                </svg>
-              </span>
-            )}
+            {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.wifiStatus && (() => {
+              const status = activeBoard.wifiStatus.status;
+              const hasIp = status === 'got_ip';
+              const sessionId = getTabSessionId();
+              const clientId = `${sessionId}::${activeBoard.id}`;
+              const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
+              const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+
+              return (
+                <span
+                  className={`canvas-wifi-badge canvas-wifi-${status}${hasIp ? ' canvas-wifi-clickable' : ''}`}
+                  onClick={() => hasIp && window.open(gatewayUrl, '_blank')}
+                  title={
+                    hasIp
+                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — IP: ${activeBoard.wifiStatus.ip}\nClick to open IoT Gateway ↗`
+                      : status === 'connected'
+                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — Connecting...`
+                      : status === 'initializing'
+                      ? 'WiFi: Initializing...'
+                      : 'WiFi: Disconnected'
+                  }
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                    <circle cx="12" cy="20" r="1" />
+                  </svg>
+                </span>
+              );
+            })()}
 
             {/* BLE status indicator (ESP32 boards only) */}
             {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.bleStatus && (

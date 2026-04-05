@@ -46,7 +46,7 @@ const API_BASE = (): string =>
   (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
 
 /** Returns a stable UUID for this browser tab (persists across reloads, resets on new tab). */
-function getTabSessionId(): string {
+export function getTabSessionId(): string {
   // sessionStorage is not available in Node/test environments
   if (typeof sessionStorage === 'undefined') return crypto.randomUUID();
   const KEY = 'velxio-tab-id';
@@ -98,6 +98,10 @@ export class Esp32Bridge {
 
   get connected(): boolean {
     return this._connected;
+  }
+
+  get clientId(): string {
+    return getTabSessionId() + '::' + this.boardId;
   }
 
   connect(): void {
@@ -238,6 +242,11 @@ export class Esp32Bridge {
    */
   setSensors(sensors: Array<Record<string, unknown>>): void {
     this._pendingSensors = sensors;
+  }
+
+  /** Returns true if a firmware has been loaded and is ready to send. */
+  hasFirmware(): boolean {
+    return this._pendingFirmware !== null && this._pendingFirmware !== '';
   }
 
   /**

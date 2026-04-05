@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Velxio Diagram",
+  "description": "Circuit diagram layout (Wokwi-compatible format)",
+  "type": "object",
+  "required": ["version", "parts", "connections"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "author": { "type": "string" },
+    "editor": { "type": "string" },
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "left", "top"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "left": { "type": "number" },
+          "top": { "type": "number" },
+          "rotate": { "type": "number" },
+          "hide": { "type": "boolean" },
+          "attrs": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 4,
+        "items": [
+          { "type": "string", "description": "Source pin (componentId:pinName)" },
+          { "type": "string", "description": "Target pin (componentId:pinName)" },
+          { "type": "string", "description": "Wire color" },
+          {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Routing hints"
+          }
+        ]
+      }
+    },
+    "serialMonitor": {
+      "type": "object",
+      "properties": {
+        "display": { "type": "string", "enum": ["terminal", "plotter"] },
+        "newline": { "type": "string", "enum": ["lf", "cr", "crlf"] }
+      }
+    }
+  }
+}

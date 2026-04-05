@@ -5,11 +5,12 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import type { BoardKind } from '../../types/board';
 import { BOARD_KIND_LABELS } from '../../types/board';
 
 // Short labels for tabs
-const BOARD_SHORT_LABEL: Record<BoardKind, string> = {
+const BOARD_SHORT_LABEL: Record<string, string> = {
   'arduino-uno':       'Uno',
   'arduino-nano':      'Nano',
   'arduino-mega':      'Mega',
@@ -20,7 +21,7 @@ const BOARD_SHORT_LABEL: Record<BoardKind, string> = {
   'esp32-c3': 'ESP32-C3',
 };
 
-const BOARD_ICON: Record<BoardKind, string> = {
+const BOARD_ICON: Record<string, string> = {
   'arduino-uno':       '⬤',
   'arduino-nano':      '▪',
   'arduino-mega':      '▬',
@@ -31,7 +32,7 @@ const BOARD_ICON: Record<BoardKind, string> = {
   'esp32-c3': '⬡',
 };
 
-const BOARD_COLOR: Record<BoardKind, string> = {
+const BOARD_COLOR: Record<string, string> = {
   'arduino-uno':       '#4fc3f7',
   'arduino-nano':      '#4fc3f7',
   'arduino-mega':      '#4fc3f7',
@@ -173,8 +174,49 @@ export const SerialMonitor: React.FC = () => {
 
       {/* Output area */}
       <pre ref={outputRef} style={styles.output}>
-        {activeBoard?.serialOutput ||
-          (activeBoard?.running ? 'Waiting for serial data...\n' : 'Start simulation to see serial output.\n')}
+        {activeBoard?.serialOutput ? (() => {
+          const text = activeBoard.serialOutput;
+          const ipRegex = /http:\/\/192\.168\.4\.(\d+)(\/[^\s]*)?/g;
+          const matches = [...text.matchAll(ipRegex)];
+
+          if (matches.length > 0) {
+            const parts: (string | React.ReactNode)[] = [];
+            let lastIdx = 0;
+            const sessionId = getTabSessionId();
+            const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
+
+            matches.forEach((m, i) => {
+              const start = m.index!;
+              const end = start + m[0].length;
+              const path = m[2] || '/';
+              const clientId = `${sessionId}::${activeBoard.id}`;
+              const gatewayUrl = `${backendBase}/gateway/${clientId}${path}`;
+
+              parts.push(text.slice(lastIdx, start));
+              parts.push(
+                <a
+                  key={i}
+                  href={gatewayUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    color: '#4fc3f7',
+                    textDecoration: 'underline',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                  title="Click to open through IoT Gateway"
+                >
+                  {m[0]} (Open IoT Gateway ↗)
+                </a>
+              );
+              lastIdx = end;
+            });
+            parts.push(text.slice(lastIdx));
+            return parts;
+          }
+          return text;
+        })() : (activeBoard?.running ? 'Waiting for serial data...\n' : 'Start simulation to see serial output.\n')}
       </pre>
 
       {/* Input row */}

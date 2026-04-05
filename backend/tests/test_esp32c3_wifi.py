@@ -30,7 +30,7 @@ class TestEsp32C3QemuNicArgs(unittest.TestCase):
             nic_model = 'esp32c3_wifi' if 'c3' in machine else 'esp32_wifi'
             nic_arg = f'user,model={nic_model},net=192.168.4.0/24'
             if hostfwd_port:
-                nic_arg += f',hostfwd=tcp::{hostfwd_port}-192.168.4.2:80'
+                nic_arg += f',hostfwd=tcp::{hostfwd_port}-192.168.4.15:80'
             args.extend([b'-nic', nic_arg.encode()])
         return args
 
@@ -69,7 +69,7 @@ class TestEsp32C3QemuNicArgs(unittest.TestCase):
         args = self._simulate_args(wifi_enabled=True, hostfwd_port=12345)
         nic_idx = args.index(b'-nic')
         nic_val = args[nic_idx + 1].decode()
-        self.assertIn('hostfwd=tcp::12345-192.168.4.2:80', nic_val)
+        self.assertIn('hostfwd=tcp::12345-192.168.4.15:80', nic_val)
 
     def test_c3_hostfwd_absent_when_port_zero(self):
         """No hostfwd when port is 0."""

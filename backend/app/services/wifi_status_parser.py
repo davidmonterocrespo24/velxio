@@ -49,6 +49,8 @@ _RE_WIFI_DISCONNECT = re.compile(
 )
 # Also catch "WiFi.begin" style Arduino logs
 _RE_WIFI_BEGIN = re.compile(r'wifi\s*:\s*new\s*:\s*([^,]+)', re.IGNORECASE)
+_RE_WIFI_MODE_STA = re.compile(r'wifi\s*:\s*mode\s*:\s*sta', re.IGNORECASE)
+_RE_WIFI_CONNECTING = re.compile(r'Connecting\s+to\s+WiFi', re.IGNORECASE)
 
 # ── BLE patterns ─────────────────────────────────────────────────────────────
 
@@ -70,8 +72,11 @@ def parse_wifi_line(line: str) -> WifiEvent | None:
         m = _RE_WIFI_BEGIN.search(line)
         return WifiEvent(status='connected', ssid=m.group(1).strip() if m else '')
 
-    if _RE_WIFI_STA_START.search(line):
+    if _RE_WIFI_STA_START.search(line) or _RE_WIFI_MODE_STA.search(line):
         return WifiEvent(status='initializing')
+
+    if _RE_WIFI_CONNECTING.search(line):
+        return WifiEvent(status='connected', ssid='Velxio-GUEST')
 
     if _RE_WIFI_DISCONNECT.search(line):
         return WifiEvent(status='disconnected')

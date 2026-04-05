@@ -58,9 +58,24 @@ class ESPIDFCompiler:
                     self.idf_path = candidate
                     break
 
+        # Auto-detect Arduino-as-component if not explicitly set
+        if self.idf_path and not self.has_arduino:
+            for candidate in [
+                r'C:\Espressif\components\arduino-esp32',
+                os.path.join(self.idf_path, '..', 'components', 'arduino-esp32'),
+                '/opt/arduino-esp32',
+            ]:
+                if os.path.isdir(candidate):
+                    self.arduino_path = os.path.abspath(candidate)
+                    self.has_arduino = True
+                    break
+
         if self.idf_path:
             logger.info(f'[espidf] IDF_PATH={self.idf_path}')
-            logger.info(f'[espidf] Arduino component: {"yes" if self.has_arduino else "no"}')
+            if self.has_arduino:
+                logger.info(f'[espidf] Arduino component: yes ({self.arduino_path})')
+            else:
+                logger.info('[espidf] Arduino component: no (pure ESP-IDF fallback)')
         else:
             logger.warning('[espidf] IDF_PATH not set — ESP-IDF compilation unavailable')
 
@@ -386,8 +401,26 @@ class ESPIDFCompiler:
             if not main_content and files:
                 main_content = files[0]['content']
 
-            # Replace Wokwi-GUEST with Velxio-GUEST in sketch
-            main_content = main_content.replace('Wokwi-GUEST', _QEMU_WIFI_SSID)
+            # Auto-fix missing channel argument in WiFi.begin for QEMU compatibility
+            # QEMU's mock WiFi AP is on channel 6, and active scanning hangs the simulator.
+            # Match WiFi.begin(...) without a channel, catching both literals and variables.
+            # 1 arg: WiFi.begin(ssid) -> WiFi.begin(ssid, "", 6)
+            main_content = re.sub(
+                r'WiFi\.begin\s*\(\s*([^,]+?)\s*\)',
+                r'WiFi.begin(\1, "", 6)',
+                main_content
+            )
+            # 2 args: WiFi.begin(ssid, pass) -> WiFi.begin(ssid, pass, 6)
+            # Exclude matching if the second arg is obviously an int channel (which is wrong but possible)
+            # We match if there are exactly two args. We have to be careful with commas.
+            main_content = re.sub(
+                r'WiFi\.begin\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*\)',
+                r'WiFi.begin(\1, \2, 6)',
+                main_content
+            )
+            
+            # Since QEMU's AP accepts any SSID (as long as it's on channel 6),
+            # we let the user use Velxio-GUEST or whatever they want.
 
             if self.has_arduino:
                 # Arduino-as-component mode: copy sketch as .cpp
@@ -433,6 +466,7 @@ class ESPIDFCompiler:
             cmake_cmd = [
                 'cmake',
                 '-G', 'Ninja',
+                '-Wno-dev',
                 f'-DIDF_TARGET={idf_target}',
                 '-DCMAKE_BUILD_TYPE=Release',
                 f'-DSDKCONFIG_DEFAULTS={project_dir / "sdkconfig.defaults"}',
@@ -496,6 +530,18 @@ class ESPIDFCompiler:
 
             all_stdout = cmake_result.stdout + '\n' + ninja_result.stdout
             all_stderr = cmake_result.stderr + '\n' + ninja_result.stderr
+
+            # Filter out expected but ugly warnings from stderr (e.g. absent git, cmake deprecation)
+            filtered_stderr_lines = []
+            for line in all_stderr.splitlines():
+                if 'fatal: not a git repository' in line:
+                    continue
+                if 'CMake Deprecation Warning' in line:
+                    continue
+                if 'Compatibility with CMake' in line:
+                    continue
+                filtered_stderr_lines.append(line)
+            all_stderr = '\n'.join(filtered_stderr_lines)
 
             if ninja_result.returncode != 0:
                 logger.error(f'[espidf] ninja build failed:\n{ninja_result.stderr}')

@@ -1,0 +1,140 @@
+{
+  "name": "velxio-simulator",
+  "displayName": "Velxio Simulator",
+  "description": "Local Arduino & ESP32 simulator for VS Code — compile, simulate, and debug embedded projects without leaving your editor",
+  "version": "0.1.0",
+  "publisher": "velxio",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/davidmonterocrespo24/velxio"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Testing",
+    "Education"
+  ],
+  "keywords": [
+    "arduino",
+    "esp32",
+    "simulator",
+    "emulator",
+    "embedded",
+    "micropython",
+    "raspberry-pi-pico",
+    "wokwi",
+    "electronics"
+  ],
+  "activationEvents": [
+    "workspaceContains:velxio.toml",
+    "workspaceContains:diagram.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "velxio.openSimulator",
+        "title": "Open Simulator",
+        "category": "Velxio",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "velxio.compile",
+        "title": "Compile Sketch",
+        "category": "Velxio",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "velxio.run",
+        "title": "Run Simulation",
+        "category": "Velxio",
+        "icon": "$(play)"
+      },
+      {
+        "command": "velxio.stop",
+        "title": "Stop Simulation",
+        "category": "Velxio",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "velxio.selectBoard",
+        "title": "Select Board",
+        "category": "Velxio",
+        "icon": "$(list-selection)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "velxio.run",
+          "when": "resourceExtname == .ino || resourceExtname == .py",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Velxio Simulator",
+      "properties": {
+        "velxio.defaultBoard": {
+          "type": "string",
+          "default": "arduino-uno",
+          "enum": [
+            "arduino-uno",
+            "arduino-nano",
+            "arduino-mega",
+            "raspberry-pi-pico",
+            "pi-pico-w",
+            "esp32",
+            "esp32-s3",
+            "esp32-c3",
+            "attiny85"
+          ],
+          "description": "Default board type for new projects"
+        },
+        "velxio.autoStartBackend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the compilation backend when needed"
+        },
+        "velxio.backendPort": {
+          "type": "number",
+          "default": 0,
+          "description": "Fixed port for the backend (0 = auto-assign)"
+        },
+        "velxio.arduinoCliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to arduino-cli executable (leave empty to auto-detect)"
+        }
+      }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "diagram.json",
+        "url": "./schemas/diagram.schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:webview",
+    "build:extension": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap",
+    "build:webview": "cd webview && npm run build",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap --watch",
+    "lint": "eslint src/",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5"
+  }
+}

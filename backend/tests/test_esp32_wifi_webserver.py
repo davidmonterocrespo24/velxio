@@ -135,7 +135,7 @@ class TestQemuNicArgs(unittest.TestCase):
             nic_model = 'esp32c3_wifi' if 'c3' in machine else 'esp32_wifi'
             nic_arg = f'user,model={nic_model},net=192.168.4.0/24'
             if hostfwd_port:
-                nic_arg += f',hostfwd=tcp::{hostfwd_port}-192.168.4.2:80'
+                nic_arg += f',hostfwd=tcp::{hostfwd_port}-192.168.4.15:80'
             args.extend([b'-nic', nic_arg.encode()])
         return args
 
@@ -157,7 +157,7 @@ class TestQemuNicArgs(unittest.TestCase):
         """WebServer listens on port 80, hostfwd should route to it."""
         args = self.build_args(wifi_enabled=True, hostfwd_port=54321)
         nic_val = args[args.index(b'-nic') + 1].decode()
-        self.assertIn('hostfwd=tcp::54321-192.168.4.2:80', nic_val)
+        self.assertIn('hostfwd=tcp::54321-192.168.4.15:80', nic_val)
 
     def test_no_hostfwd_when_port_zero(self):
         args = self.build_args(wifi_enabled=True, hostfwd_port=0)

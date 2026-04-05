@@ -30,6 +30,7 @@ import socket
 import tempfile
 import time
 from typing import Callable, Awaitable
+from app.services.wifi_status_parser import parse_serial_text
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ class EspQemuManager:
             nic_model = 'esp32c3_wifi' if 'c3' in machine else 'esp32_wifi'
             nic_arg = f'user,model={nic_model},net=192.168.4.0/24'
             if wifi_hostfwd_port:
-                nic_arg += f',hostfwd=tcp::{wifi_hostfwd_port}-192.168.4.2:80'
+                nic_arg += f',hostfwd=tcp::{wifi_hostfwd_port}-192.168.4.15:80'
             cmd += ['-nic', nic_arg]
 
         logger.info('Launching ESP32 QEMU for %s: %s', inst.client_id, ' '.join(cmd))
@@ -264,7 +265,13 @@ class EspQemuManager:
                 buf.extend(chunk)
                 text = buf.decode('utf-8', errors='replace')
                 buf.clear()
-                await inst.emit('serial_output', {'data': text})
+                asyncio.create_task(inst.emit('serial_output', {'data': text}))
+                # Parse WiFi/BLE status from serial output
+                wifi_evts, ble_evts = parse_serial_text(text)
+                for we in wifi_evts:
+                    asyncio.create_task(inst.emit('wifi_status', dict(we)))
+                for be in ble_evts:
+                    asyncio.create_task(inst.emit('ble_status', dict(be)))
             except asyncio.TimeoutError:
                 continue
             except Exception as e:

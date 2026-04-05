@@ -164,8 +164,22 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       const board = boards.find((b) => b.id === activeBoardId);
       const isQemuBoard = board?.boardKind === 'raspberry-pi-3' || board?.boardKind === 'esp32' || board?.boardKind === 'esp32-s3';
 
-      // QEMU boards don't need compilation
+      // QEMU boards: auto-compile if no firmware available yet
       if (isQemuBoard) {
+        if (!board?.compiledProgram || codeChangedSinceLastCompile) {
+          autoRunAfterCompile.current = true;
+          await handleCompile();
+          const updatedBoard = useSimulatorStore.getState().boards.find((b) => b.id === activeBoardId);
+          if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
+            autoRunAfterCompile.current = false;
+            trackRunSimulation(updatedBoard.boardKind);
+            startBoard(activeBoardId);
+            setMessage(null);
+          } else {
+            autoRunAfterCompile.current = false;
+          }
+          return;
+        }
         trackRunSimulation(board?.boardKind);
         startBoard(activeBoardId);
         setMessage(null);

@@ -96,7 +96,9 @@ class _UartBuffer:
         """Add one byte. Returns decoded string when a flush occurs, else None."""
         with self._lock:
             self._buf.append(byte_val)
-            if byte_val == ord('\n') or len(self._buf) >= self.flush_size:
+            # Flush on newline, carriage return, period, or max size
+            # This ensures progress dots '...' don't buffer endlessly.
+            if byte_val in (ord('\n'), ord('\r'), ord('.')) or len(self._buf) >= self.flush_size:
                 text = self._buf.decode('utf-8', errors='replace')
                 self._buf.clear()
                 return text

@@ -46,6 +46,11 @@ RUN ./install.sh esp32,esp32c3
 RUN rm -rf .git docs examples \
     && find /root/.espressif -name '*.tar.*' -delete 2>/dev/null || true
 
+# Install Arduino-as-component for full Arduino API support in ESP-IDF builds
+RUN git clone --branch 2.0.17 --depth=1 --recursive --shallow-submodules \
+    https://github.com/espressif/arduino-esp32.git /opt/arduino-esp32 \
+ && rm -rf /opt/arduino-esp32/.git
+
 
 # ---- Stage 1: Build frontend and wokwi-libs ----
 FROM node:20 AS frontend-builder
@@ -96,8 +101,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ninja-build \
     libusb-1.0-0 \
+    git \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir packaging
 
 # Install arduino-cli into /usr/local/bin directly (avoids touching /bin)
 RUN curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
@@ -155,8 +162,16 @@ ENV QEMU_RISCV32_LIB=/app/lib/libqemu-riscv32.so
 COPY --from=espidf-builder /opt/esp-idf /opt/esp-idf
 COPY --from=espidf-builder /root/.espressif /root/.espressif
 
+COPY --from=espidf-builder /opt/arduino-esp32 /opt/arduino-esp32
+
 ENV IDF_PATH=/opt/esp-idf
 ENV IDF_TOOLS_PATH=/root/.espressif
+ENV ARDUINO_ESP32_PATH=/opt/arduino-esp32
+
+# Install ESP-IDF Python dependencies using the final image's Python
+# The requirements.txt has version constraints required by ESP-IDF 4.4.x
+RUN grep -v 'esp-windows-curses' /opt/esp-idf/requirements.txt \
+    | pip install --no-cache-dir -r /dev/stdin
 
 EXPOSE 80
 
