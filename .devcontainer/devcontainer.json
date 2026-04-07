@@ -1,0 +1,42 @@
+{
+  "name": "Velxio",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20",
+      "installGlobally": true
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-vscode.vscode-typescript-next",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "waitFor": "postCreateCommand",
+  "mounts": [
+    "source=velxio-arduino-cache,target=/home/vscode/.arduino15,type=volume",
+    "source=velxio-frontend-nodemodules,target=${containerWorkspaceFolder}/frontend/node_modules,type=volume"
+  ],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/home/vscode/.local/bin:${containerWorkspaceFolder}/frontend/node_modules/.bin:${containerWorkspaceFolder}/backend/venv/bin"
+  },
+  "forwardPorts": [5173, 8001],
+  "portsAttributes": {
+    "5173": {
+      "label": "Frontend (Vite)",
+      "onAutoForward": "notify"
+    },
+    "8001": {
+      "label": "Backend (FastAPI)",
+      "onAutoForward": "notify"
+    }
+  }
+}
