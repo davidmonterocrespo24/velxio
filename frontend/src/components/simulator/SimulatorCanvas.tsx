@@ -633,27 +633,56 @@ export const SimulatorCanvas = () => {
   useEffect(() => {
     const unsubscribers: (() => void)[] = [];
 
+    // Returns true if the component has at least one wire connected to a board
+    // GND or power-rail pin (boardPinToNumber returns -1 for these).
+    // Used to block output components from activating without a ground connection.
+    const componentHasGndWire = (component: any): boolean =>
+      wires.some(w => {
+        const isSelfStart = w.start.componentId === component.id;
+        const isSelfEnd   = w.end.componentId   === component.id;
+        if (!isSelfStart && !isSelfEnd) return false;
+        const otherEndpoint = isSelfStart ? w.end : w.start;
+        if (!isBoardComponent(otherEndpoint.componentId)) return false;
+        const boardInstance = boards.find(b => b.id === otherEndpoint.componentId);
+        const lookupKey = boardInstance ? boardInstance.boardKind : otherEndpoint.componentId;
+        return boardPinToNumber(lookupKey, otherEndpoint.pinName) === -1;
+      });
+
     // Helper to add subscription
-    const subscribeComponentToPin = (component: any, pin: number, componentPinName?: string) => {
+    // wireConnected: true when this call came from the wire-scanning path (not properties.pin).
+    const subscribeComponentToPin = (
+      component: any,
+      pin: number,
+      componentPinName?: string,
+      wireConnected = false,
+    ) => {
       // Components with attachEvents in PartSimulationRegistry manage their own
-      // visual state (e.g. servo, buzzer). Skip generic digital/PWM updates for them
-      // to avoid flickering from raw PWM pulses being misinterpreted as on/off state.
+      // visual state (e.g. LED, servo, buzzer). Skip generic digital/PWM updates for
+      // them — they already handle GND logic internally via getArduinoPinHelper.
       const logic = PartSimulationRegistry.get(component.metadataId);
       const hasSelfManagedVisuals = !!(logic && logic.attachEvents);
+
+      // Generic GND check: for wire-connected output components that don't manage
+      // their own state, require at least one GND wire before activating.
+      // Skip the check for pin-property components (no GND wire to detect) and for
+      // self-managed components (they handle GND themselves via attachEvents).
+      const hasGnd = (!wireConnected || hasSelfManagedVisuals)
+        ? true
+        : componentHasGndWire(component);
 
       const unsubscribe = pinManager.onPinChange(
         pin,
         (_pin, state) => {
           if (!hasSelfManagedVisuals) {
-            // 1. Update React state for standard properties (LEDs, buttons, etc.)
-            updateComponentState(component.id, state);
+            // Update React state — gate on GND for wire-connected components.
+            updateComponentState(component.id, hasGnd && state);
           }
 
-          // 2. Delegate to PartSimulationRegistry for custom visual updates
+          // Delegate to PartSimulationRegistry for custom visual updates
           if (logic && logic.onPinStateChange) {
             const el = document.getElementById(component.id);
             if (el) {
-              logic.onPinStateChange(componentPinName || 'A', state, el);
+              logic.onPinStateChange(componentPinName || 'A', hasGnd && state, el);
             }
           }
         }
@@ -665,6 +694,7 @@ export const SimulatorCanvas = () => {
       // control signal, not a brightness value, so setting opacity would cause flicker.
       if (!hasSelfManagedVisuals) {
         const pwmUnsub = pinManager.onPwmChange(pin, (_p, duty) => {
+          if (!hasGnd) return; // no GND → stay dark even under PWM
           const el = document.getElementById(component.id);
           if (el) el.style.opacity = duty > 0 ? String(duty) : '';
         });
@@ -673,9 +703,9 @@ export const SimulatorCanvas = () => {
     };
 
     components.forEach((component) => {
-      // 1. Subscribe by explicit pin property
+      // 1. Subscribe by explicit pin property (old-style, no wire needed)
       if (component.properties.pin !== undefined) {
-        subscribeComponentToPin(component, component.properties.pin as number, 'A');
+        subscribeComponentToPin(component, component.properties.pin as number, 'A', false);
       } else {
         // 2. Subscribe by finding wires connected to arduino
         const connectedWires = wires.filter(
@@ -699,7 +729,7 @@ export const SimulatorCanvas = () => {
               ` kind=${lookupKey} pinName=${otherEndpoint.pinName} → gpioPin=${pin}`
             );
             if (pin !== null && pin >= 0) {
-              subscribeComponentToPin(component, pin, selfEndpoint.pinName);
+              subscribeComponentToPin(component, pin, selfEndpoint.pinName, true);
             } else if (pin === null) {
               console.warn(`[WirePin] Could not resolve pin "${otherEndpoint.pinName}" on ${lookupKey}`);
             }
