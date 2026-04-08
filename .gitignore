@@ -99,6 +99,13 @@ prebuilt/qemu/*
 test/esp32-emulator/**/*.elf
 test/esp32-emulator/**/*.map
 test/esp32-emulator/out_*/
+
+# Arduino-cli compilation by-products (not needed for tests)
+**/*.ino.eep
+**/*.ino.with_bootloader.bin
+**/*.ino.with_bootloader.hex
+**/*.ino.map
+**/*.ino.uf2
 .claude/settings.json
 
 # Google Cloud service account credentials

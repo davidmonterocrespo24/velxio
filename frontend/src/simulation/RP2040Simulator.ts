@@ -1,7 +1,8 @@
-import { RP2040, GPIOPinState, ConsoleLogger, LogLevel } from 'rp2040js';
+import { RP2040, GPIOPinState, ConsoleLogger, LogLevel, USBCDC } from 'rp2040js';
 import type { RPI2C } from 'rp2040js';
 import { PinManager } from './PinManager';
 import { bootromB1 } from './rp2040-bootrom';
+import { loadUF2, loadUserFiles, getFirmware } from './MicroPythonLoader';
 
 /**
  * RP2040Simulator — Emulates Raspberry Pi Pico (RP2040) using rp2040js
@@ -52,8 +53,10 @@ export class RP2040Simulator {
   private totalCycles = 0;
   private scheduledPinChanges: Array<{ cycle: number; pin: number; state: boolean }> = [];
   private pioStepAccum = 0;
+  private usbCDC: USBCDC | null = null;
+  private micropythonMode = false;
 
-  /** Serial output callback — fires for each byte the Pico sends on UART0 */
+  /** Serial output callback — fires for each byte the Pico sends on UART0 (or USBCDC in MicroPython mode) */
   public onSerialData: ((char: string) => void) | null = null;
 
   /**
@@ -95,6 +98,88 @@ export class RP2040Simulator {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   loadHex(_hexContent: string): void {
     console.warn('[RP2040] loadHex() called on RP2040Simulator — use loadBinary() instead');
+  }
+
+  /**
+   * Load MicroPython firmware + user .py files into RP2040 flash.
+   * Uses USBCDC for serial (REPL) instead of UART.
+   */
+  async loadMicroPython(
+    files: Array<{ name: string; content: string }>,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<void> {
+    console.log('[RP2040] Loading MicroPython firmware...');
+
+    // 1. Get MicroPython UF2 firmware (cached in IndexedDB)
+    const firmware = await getFirmware(onProgress);
+
+    // 2. Create fresh RP2040 instance
+    this.rp2040 = new RP2040();
+    this.rp2040.logger = new ConsoleLogger(LogLevel.Error);
+    this.rp2040.loadBootrom(bootromB1);
+
+    // 3. Load UF2 firmware into flash
+    loadUF2(firmware, this.rp2040.flash);
+    console.log(`[RP2040] MicroPython UF2 loaded (${firmware.length} bytes)`);
+
+    // 4. Create LittleFS with user files and load into flash
+    await loadUserFiles(files, this.rp2040.flash);
+    console.log(`[RP2040] LittleFS loaded with ${files.length} file(s)`);
+
+    // Keep a flash copy for reset
+    this.flashCopy = new Uint8Array(this.rp2040.flash);
+
+    // 5. Set up USBCDC for serial REPL (instead of UART)
+    this.usbCDC = new USBCDC(this.rp2040.usbCtrl);
+    this.usbCDC.onDeviceConnected = () => {
+      // Send newline to trigger the REPL prompt
+      this.usbCDC!.sendSerialByte('\r'.charCodeAt(0));
+      this.usbCDC!.sendSerialByte('\n'.charCodeAt(0));
+    };
+    this.usbCDC.onSerialData = (buffer: Uint8Array) => {
+      for (const byte of buffer) {
+        if (this.onSerialData) {
+          this.onSerialData(String.fromCharCode(byte));
+        }
+      }
+    };
+
+    // 6. Set PC to flash start
+    this.rp2040.core.PC = 0x10000000;
+
+    // 7. Wire peripherals (I2C, SPI, ADC, PIO, GPIO — same as Arduino mode)
+    // But skip UART serial wiring since MicroPython uses USBCDC
+    this.rp2040.uart[1].onByte = (value: number) => {
+      if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+    };
+    this.wireI2C(0);
+    this.wireI2C(1);
+    this.rp2040.spi[0].onTransmit = (v: number) => { this.rp2040!.spi[0].completeTransmit(v); };
+    this.rp2040.spi[1].onTransmit = (v: number) => { this.rp2040!.spi[1].completeTransmit(v); };
+    this.rp2040.adc.channelValues[0] = 2048;
+    this.rp2040.adc.channelValues[1] = 2048;
+    this.rp2040.adc.channelValues[2] = 2048;
+    this.rp2040.adc.channelValues[3] = 2048;
+    this.rp2040.adc.channelValues[4] = 876;
+
+    // Patch PIO (same as initMCU)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const pio of (this.rp2040 as any).pio) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pio.run = function (this: any) {
+        if (this.runTimer) { clearTimeout(this.runTimer); this.runTimer = null; }
+      };
+    }
+    this.pioStepAccum = 0;
+
+    this.setupGpioListeners();
+    this.micropythonMode = true;
+    console.log('[RP2040] MicroPython ready');
+  }
+
+  /** Returns true if currently in MicroPython mode */
+  isMicroPythonMode(): boolean {
+    return this.micropythonMode;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,9 +444,46 @@ export class RP2040Simulator {
     this.totalCycles = 0;
     this.scheduledPinChanges = [];
     if (this.rp2040 && this.flashCopy) {
-      this.initMCU(this.flashCopy);
-      // Re-register any previously added I2C devices
-      // (devices are kept in i2cDevices maps which persist across reset)
+      if (this.micropythonMode) {
+        // In MicroPython mode, restore the full flash snapshot (UF2 + LittleFS)
+        this.rp2040 = new RP2040();
+        this.rp2040.logger = new ConsoleLogger(LogLevel.Error);
+        this.rp2040.loadBootrom(bootromB1);
+        this.rp2040.flash.set(this.flashCopy);
+        this.rp2040.core.PC = 0x10000000;
+
+        // Re-wire USBCDC
+        this.usbCDC = new USBCDC(this.rp2040.usbCtrl);
+        this.usbCDC.onDeviceConnected = () => {
+          this.usbCDC!.sendSerialByte('\r'.charCodeAt(0));
+          this.usbCDC!.sendSerialByte('\n'.charCodeAt(0));
+        };
+        this.usbCDC.onSerialData = (buffer: Uint8Array) => {
+          for (const byte of buffer) {
+            if (this.onSerialData) this.onSerialData(String.fromCharCode(byte));
+          }
+        };
+
+        // Re-wire peripherals (skipping UART0 serial)
+        this.rp2040.uart[1].onByte = (value: number) => {
+          if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+        };
+        this.wireI2C(0);
+        this.wireI2C(1);
+        this.rp2040.spi[0].onTransmit = (v: number) => { this.rp2040!.spi[0].completeTransmit(v); };
+        this.rp2040.spi[1].onTransmit = (v: number) => { this.rp2040!.spi[1].completeTransmit(v); };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const pio of (this.rp2040 as any).pio) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pio.run = function (this: any) {
+            if (this.runTimer) { clearTimeout(this.runTimer); this.runTimer = null; }
+          };
+        }
+        this.pioStepAccum = 0;
+        this.setupGpioListeners();
+      } else {
+        this.initMCU(this.flashCopy);
+      }
       console.log('[RP2040] CPU reset');
     }
   }
@@ -443,12 +565,30 @@ export class RP2040Simulator {
   }
 
   /**
-   * Send text to UART0 RX (as if typed in Serial Monitor).
+   * Send text to UART0 RX (or USBCDC in MicroPython mode).
    */
   serialWrite(text: string): void {
     if (!this.rp2040) return;
-    for (let i = 0; i < text.length; i++) {
-      this.rp2040.uart[0].feedByte(text.charCodeAt(i));
+    if (this.micropythonMode && this.usbCDC) {
+      for (let i = 0; i < text.length; i++) {
+        this.usbCDC.sendSerialByte(text.charCodeAt(i));
+      }
+    } else {
+      for (let i = 0; i < text.length; i++) {
+        this.rp2040.uart[0].feedByte(text.charCodeAt(i));
+      }
+    }
+  }
+
+  /**
+   * Send a raw byte to the serial interface (for control characters like Ctrl+C).
+   */
+  serialWriteByte(byte: number): void {
+    if (!this.rp2040) return;
+    if (this.micropythonMode && this.usbCDC) {
+      this.usbCDC.sendSerialByte(byte);
+    } else {
+      this.rp2040.uart[0].feedByte(byte);
     }
   }
 

@@ -12,10 +12,30 @@ export type BoardKind =
   | 'esp32-s3'                    // Xtensa LX7, QEMU backend
   | 'xiao-esp32-s3'               // Seeed XIAO ESP32-S3, QEMU (esp32-s3)
   | 'arduino-nano-esp32'          // Arduino Nano ESP32 (S3), QEMU (esp32-s3)
-  | 'esp32-c3'                    // RISC-V RV32IMC, browser emulation (Esp32C3Simulator)
-  | 'xiao-esp32-c3'               // Seeed XIAO ESP32-C3, browser emulation (Esp32C3Simulator)
-  | 'aitewinrobot-esp32c3-supermini' // ESP32-C3 SuperMini, browser emulation (Esp32C3Simulator)
+  | 'esp32-c3'                    // RISC-V RV32IMC, QEMU backend
+  | 'xiao-esp32-c3'               // Seeed XIAO ESP32-C3, QEMU backend
+  | 'aitewinrobot-esp32c3-supermini' // ESP32-C3 SuperMini, QEMU backend
   | 'attiny85';                   // AVR ATtiny85, browser emulation (avr8js)
+
+export type LanguageMode = 'arduino' | 'micropython';
+
+export const BOARD_SUPPORTS_MICROPYTHON = new Set<BoardKind>([
+  'raspberry-pi-pico',
+  'pi-pico-w',
+  // ESP32 Xtensa (QEMU bridge)
+  'esp32',
+  'esp32-devkit-c-v4',
+  'esp32-cam',
+  'wemos-lolin32-lite',
+  // ESP32-S3 Xtensa (QEMU bridge)
+  'esp32-s3',
+  'xiao-esp32-s3',
+  'arduino-nano-esp32',
+  // ESP32-C3 RISC-V (QEMU bridge)
+  'esp32-c3',
+  'xiao-esp32-c3',
+  'aitewinrobot-esp32c3-supermini',
+]);
 
 export interface WifiStatus {
   status: string;       // 'initializing' | 'connected' | 'got_ip' | 'disconnected'
@@ -38,6 +58,7 @@ export interface BoardInstance {
   serialBaudRate: number;
   serialMonitorOpen: boolean;
   activeFileGroupId: string;
+  languageMode: LanguageMode;     // 'arduino' (default) or 'micropython'
   hasWifi?: boolean;         // set by compiler — true when sketch uses WiFi
   wifiStatus?: WifiStatus;
   bleStatus?: BleStatus;

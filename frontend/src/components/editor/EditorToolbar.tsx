@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import type { BoardKind } from '../../types/board';
-import { BOARD_KIND_FQBN, BOARD_KIND_LABELS } from '../../types/board';
+import type { BoardKind, LanguageMode } from '../../types/board';
+import { BOARD_KIND_FQBN, BOARD_KIND_LABELS, BOARD_SUPPORTS_MICROPYTHON } from '../../types/board';
 import { compileCode } from '../../services/compilation';
 import { CompileAllProgress } from './CompileAllProgress';
 import type { BoardCompileStatus } from './CompileAllProgress';
@@ -50,6 +50,8 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     boards,
     activeBoardId,
     compileBoardProgram,
+    loadMicroPythonProgram,
+    setBoardLanguageMode,
     updateBoard,
     startBoard,
     stopBoard,
@@ -115,6 +117,25 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       return;
     }
 
+    // MicroPython mode — no backend compilation needed
+    if (activeBoard?.languageMode === 'micropython' && activeBoardId) {
+      addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+      try {
+        const groupFiles = useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId);
+        const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
+        await loadMicroPythonProgram(activeBoardId, pyFiles);
+        addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded successfully' });
+        setMessage({ type: 'success', text: 'MicroPython ready' });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+        addLog({ timestamp: new Date(), type: 'error', message: errMsg });
+        setMessage({ type: 'error', text: errMsg });
+      } finally {
+        setCompiling(false);
+      }
+      return;
+    }
+
     const fqbn = kind ? BOARD_KIND_FQBN[kind] : null;
     const boardLabel = kind ? BOARD_KIND_LABELS[kind] : 'Unknown';
 
@@ -168,6 +189,34 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const handleRun = async () => {
     if (activeBoardId) {
       const board = boards.find((b) => b.id === activeBoardId);
+
+      // MicroPython mode: auto-load firmware + files, then start
+      if (board?.languageMode === 'micropython') {
+        trackRunSimulation(board.boardKind);
+        if (!board.compiledProgram) {
+          // Need to load MicroPython first
+          setCompiling(true);
+          setMessage(null);
+          addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+          try {
+            const groupFiles = useEditorStore.getState().getGroupFiles(board.activeFileGroupId);
+            const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
+            await loadMicroPythonProgram(activeBoardId, pyFiles);
+            addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded' });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+            addLog({ timestamp: new Date(), type: 'error', message: errMsg });
+            setMessage({ type: 'error', text: errMsg });
+            setCompiling(false);
+            return;
+          }
+          setCompiling(false);
+        }
+        startBoard(activeBoardId);
+        setMessage(null);
+        return;
+      }
+
       const isQemuBoard = board?.boardKind === 'raspberry-pi-3' || board?.boardKind === 'esp32' || board?.boardKind === 'esp32-s3';
 
       // QEMU boards: auto-compile if no firmware available yet
@@ -407,14 +456,39 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       <div className="editor-toolbar" ref={toolbarRef}>
         {/* Active board context pill */}
         {activeBoard && (
-          <div
-            className="tb-board-pill"
-            style={{ borderColor: BOARD_PILL_COLOR[activeBoard.boardKind], color: BOARD_PILL_COLOR[activeBoard.boardKind] }}
-            title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
-          >
-            <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
-            <span className="tb-board-pill-label">{BOARD_KIND_LABELS[activeBoard.boardKind]}</span>
-            {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              className="tb-board-pill"
+              style={{ borderColor: BOARD_PILL_COLOR[activeBoard.boardKind], color: BOARD_PILL_COLOR[activeBoard.boardKind] }}
+              title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
+            >
+              <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
+              <span className="tb-board-pill-label">{BOARD_KIND_LABELS[activeBoard.boardKind]}</span>
+              {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+            </div>
+            {BOARD_SUPPORTS_MICROPYTHON.has(activeBoard.boardKind) && (
+              <select
+                className="tb-lang-select"
+                value={activeBoard.languageMode ?? 'arduino'}
+                onChange={(e) => {
+                  if (activeBoardId) setBoardLanguageMode(activeBoardId, e.target.value as LanguageMode);
+                }}
+                title="Language mode"
+                style={{
+                  background: '#2d2d2d',
+                  color: '#ccc',
+                  border: '1px solid #444',
+                  borderRadius: 4,
+                  padding: '2px 4px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                <option value="arduino">Arduino C++</option>
+                <option value="micropython">MicroPython</option>
+              </select>
+            )}
           </div>
         )}
 
@@ -424,7 +498,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             onClick={handleCompile}
             disabled={compiling}
             className="tb-btn tb-btn-compile"
-            title={compiling ? 'Compiling…' : 'Compile (Ctrl+B)'}
+            title={compiling ? 'Loading…' : activeBoard?.languageMode === 'micropython' ? 'Load MicroPython' : 'Compile (Ctrl+B)'}
           >
             {compiling ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin">
@@ -442,9 +516,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
           {/* Run */}
           <button
             onClick={handleRun}
-            disabled={running || compiling}
+            disabled={running || compiling || (
+              !['raspberry-pi-3','esp32','esp32-s3'].includes(activeBoard?.boardKind ?? '')
+              && activeBoard?.languageMode !== 'micropython'
+              && !compiledHex
+              && !activeBoard?.compiledProgram
+            )}
             className="tb-btn tb-btn-run"
-            title="Run (auto-compiles if needed)"
+            title={activeBoard?.languageMode === 'micropython' ? 'Run MicroPython' : 'Run'}
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
               <polygon points="5,3 19,12 5,21" />

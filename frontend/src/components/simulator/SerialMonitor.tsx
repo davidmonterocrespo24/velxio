@@ -10,37 +10,64 @@ import type { BoardKind } from '../../types/board';
 import { BOARD_KIND_LABELS } from '../../types/board';
 
 // Short labels for tabs
-const BOARD_SHORT_LABEL: Record<string, string> = {
+const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {
   'arduino-uno':       'Uno',
   'arduino-nano':      'Nano',
   'arduino-mega':      'Mega',
   'raspberry-pi-pico': 'Pico',
+  'pi-pico-w':         'Pico W',
   'raspberry-pi-3':    'Pi 3B',
-  'esp32':    'ESP32',
-  'esp32-s3': 'ESP32-S3',
-  'esp32-c3': 'ESP32-C3',
+  'esp32':             'ESP32',
+  'esp32-devkit-c-v4': 'ESP32',
+  'esp32-cam':         'ESP32-CAM',
+  'wemos-lolin32-lite':'Lolin32',
+  'esp32-s3':          'ESP32-S3',
+  'xiao-esp32-s3':     'XIAO-S3',
+  'arduino-nano-esp32':'Nano ESP32',
+  'esp32-c3':          'ESP32-C3',
+  'xiao-esp32-c3':     'XIAO-C3',
+  'aitewinrobot-esp32c3-supermini': 'C3 Mini',
+  'attiny85':          'ATtiny85',
 };
 
-const BOARD_ICON: Record<string, string> = {
+const BOARD_ICON: Partial<Record<string, string>> = {
   'arduino-uno':       '⬤',
   'arduino-nano':      '▪',
   'arduino-mega':      '▬',
   'raspberry-pi-pico': '◆',
+  'pi-pico-w':         '◆',
   'raspberry-pi-3':    '⬛',
-  'esp32':    '⬡',
-  'esp32-s3': '⬡',
-  'esp32-c3': '⬡',
+  'esp32':             '⬡',
+  'esp32-devkit-c-v4': '⬡',
+  'esp32-cam':         '⬡',
+  'wemos-lolin32-lite':'⬡',
+  'esp32-s3':          '⬡',
+  'xiao-esp32-s3':     '⬡',
+  'arduino-nano-esp32':'⬡',
+  'esp32-c3':          '⬡',
+  'xiao-esp32-c3':     '⬡',
+  'aitewinrobot-esp32c3-supermini': '⬡',
+  'attiny85':          '▪',
 };
 
-const BOARD_COLOR: Record<string, string> = {
+const BOARD_COLOR: Partial<Record<string, string>> = {
   'arduino-uno':       '#4fc3f7',
   'arduino-nano':      '#4fc3f7',
   'arduino-mega':      '#4fc3f7',
   'raspberry-pi-pico': '#ce93d8',
+  'pi-pico-w':         '#ce93d8',
   'raspberry-pi-3':    '#ef9a9a',
-  'esp32':    '#a5d6a7',
-  'esp32-s3': '#a5d6a7',
-  'esp32-c3': '#a5d6a7',
+  'esp32':             '#a5d6a7',
+  'esp32-devkit-c-v4': '#a5d6a7',
+  'esp32-cam':         '#a5d6a7',
+  'wemos-lolin32-lite':'#a5d6a7',
+  'esp32-s3':          '#a5d6a7',
+  'xiao-esp32-s3':     '#a5d6a7',
+  'arduino-nano-esp32':'#a5d6a7',
+  'esp32-c3':          '#a5d6a7',
+  'xiao-esp32-c3':     '#a5d6a7',
+  'aitewinrobot-esp32c3-supermini': '#a5d6a7',
+  'attiny85':          '#ffcc80',
 };
 
 export const SerialMonitor: React.FC = () => {
@@ -95,12 +122,25 @@ export const SerialMonitor: React.FC = () => {
     setInputValue('');
   }, [resolvedTabId, inputValue, lineEnding, serialWriteToBoard]);
 
+  const isMicroPython = activeBoard?.languageMode === 'micropython';
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       handleSend();
+      return;
     }
-  }, [handleSend]);
+    // MicroPython REPL control characters (works for RP2040 and ESP32)
+    if (resolvedTabId && isMicroPython && e.ctrlKey) {
+      if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        serialWriteToBoard(resolvedTabId, '\x03'); // Ctrl+C — keyboard interrupt
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        serialWriteToBoard(resolvedTabId, '\x04'); // Ctrl+D — soft reset
+      }
+    }
+  }, [handleSend, resolvedTabId]);
 
   const handleTabClick = (boardId: string) => {
     setActiveTabId(boardId);
@@ -127,7 +167,7 @@ export const SerialMonitor: React.FC = () => {
       <div style={styles.tabStrip}>
         {boards.map((board) => {
           const isActive = board.id === resolvedTabId;
-          const color = BOARD_COLOR[board.boardKind];
+          const color = BOARD_COLOR[board.boardKind] ?? '#999';
           const hasUnread = (board.serialOutput.length) > (lastSeenLen[board.id] ?? 0);
           return (
             <button
@@ -140,9 +180,9 @@ export const SerialMonitor: React.FC = () => {
               title={BOARD_KIND_LABELS[board.boardKind]}
             >
               <span style={{ fontSize: 9, marginRight: 3, color: isActive ? color : '#888' }}>
-                {BOARD_ICON[board.boardKind]}
+                {BOARD_ICON[board.boardKind] ?? '●'}
               </span>
-              {BOARD_SHORT_LABEL[board.boardKind]}
+              {BOARD_SHORT_LABEL[board.boardKind] ?? board.boardKind}
               {hasUnread && !isActive && <span style={styles.unreadDot} />}
             </button>
           );
@@ -150,7 +190,10 @@ export const SerialMonitor: React.FC = () => {
 
         {/* Right-side controls */}
         <div style={styles.tabControls}>
-          {activeBoard?.serialBaudRate != null && activeBoard.serialBaudRate > 0 && (
+          {isMicroPython && (
+            <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>MicroPython REPL</span>
+          )}
+          {activeBoard?.serialBaudRate != null && activeBoard.serialBaudRate > 0 && !isMicroPython && (
             <span style={styles.baudRate}>{activeBoard.serialBaudRate.toLocaleString()} baud</span>
           )}
           <label style={styles.autoscrollLabel}>
@@ -226,7 +269,7 @@ export const SerialMonitor: React.FC = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type message to send..."
+          placeholder={isMicroPython ? 'Type Python expression... (Ctrl+C to interrupt)' : 'Type message to send...'}
           style={styles.input}
           disabled={!activeBoard?.running}
         />

@@ -37,7 +37,7 @@ import type { BoardKind } from '../types/board';
  * Map any ESP32-family board kind to the 3 base QEMU machine types understood
  * by the backend esp_qemu_manager.
  */
-function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
+export function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
   if (kind === 'esp32-s3' || kind === 'xiao-esp32-s3' || kind === 'arduino-nano-esp32') return 'esp32-s3';
   if (kind === 'esp32-c3' || kind === 'xiao-esp32-c3' || kind === 'aitewinrobot-esp32c3-supermini') return 'esp32-c3';
   return 'esp32'; // esp32, esp32-devkit-c-v4, esp32-cam, wemos-lolin32-lite
@@ -93,6 +93,11 @@ export class Esp32Bridge {
   private _pendingFirmware: string | null = null;
   private _pendingSensors: Array<Record<string, unknown>> = [];
 
+  // MicroPython raw-paste REPL injection
+  private _pendingMicroPythonCode: string | null = null;
+  private _serialBuffer = '';
+  micropythonMode = false;
+
   constructor(boardId: string, boardKind: BoardKind) {
     this.boardId   = boardId;
     this.boardKind = boardKind;
@@ -147,6 +152,19 @@ export class Esp32Bridge {
           const uart = msg.data.uart as number | undefined;
           if (this.onSerialData) {
             for (const ch of text) this.onSerialData(ch, uart);
+          }
+          // Detect MicroPython REPL prompt and inject pending code
+          if (this._pendingMicroPythonCode) {
+            this._serialBuffer += text;
+            if (this._serialBuffer.includes('>>>')) {
+              this._injectCodeViaRawPaste(this._pendingMicroPythonCode);
+              this._pendingMicroPythonCode = null;
+              this._serialBuffer = '';
+            }
+            // Prevent buffer from growing indefinitely
+            if (this._serialBuffer.length > 4096) {
+              this._serialBuffer = this._serialBuffer.slice(-512);
+            }
           }
           break;
         }
@@ -318,6 +336,68 @@ export class Esp32Bridge {
   /** Detach a sensor from a GPIO pin */
   sendSensorDetach(pin: number): void {
     this._send({ type: 'esp32_sensor_detach', data: { pin } });
+  }
+
+  /**
+   * Queue user MicroPython code for injection after the REPL boots.
+   * The code will be sent via raw-paste protocol once `>>>` is detected.
+   */
+  setPendingMicroPythonCode(code: string): void {
+    this._pendingMicroPythonCode = code;
+    this._serialBuffer = '';
+    this.micropythonMode = true;
+  }
+
+  /** Check if this bridge is in MicroPython mode */
+  isMicroPythonMode(): boolean {
+    return this.micropythonMode;
+  }
+
+  /**
+   * Inject code via MicroPython raw-paste REPL protocol:
+   *   \x01 (Ctrl+A) → enter raw REPL
+   *   \x05 (Ctrl+E) → enter raw-paste mode
+   *   <code bytes>
+   *   \x04 (Ctrl+D) → execute
+   */
+  private _injectCodeViaRawPaste(code: string): void {
+    console.log(`[Esp32Bridge:${this.boardId}] Injecting MicroPython code (${code.length} bytes) via raw-paste REPL`);
+
+    // Small delay to let the REPL fully initialize after printing >>>
+    setTimeout(() => {
+      // Step 1: Enter raw REPL (Ctrl+A)
+      this.sendSerialBytes([0x01]);
+
+      setTimeout(() => {
+        // Step 2: Enter raw-paste mode (Ctrl+E)
+        this.sendSerialBytes([0x05]);
+
+        setTimeout(() => {
+          // Step 3: Send code bytes in chunks (avoid overwhelming the serial)
+          const encoder = new TextEncoder();
+          const codeBytes = encoder.encode(code);
+          const CHUNK_SIZE = 256;
+
+          let offset = 0;
+          const sendChunk = () => {
+            if (offset >= codeBytes.length) {
+              // Step 4: Execute (Ctrl+D)
+              setTimeout(() => {
+                this.sendSerialBytes([0x04]);
+                console.log(`[Esp32Bridge:${this.boardId}] MicroPython code injection complete`);
+              }, 50);
+              return;
+            }
+            const end = Math.min(offset + CHUNK_SIZE, codeBytes.length);
+            const chunk = Array.from(codeBytes.slice(offset, end));
+            this.sendSerialBytes(chunk);
+            offset = end;
+            setTimeout(sendChunk, 10);
+          };
+          sendChunk();
+        }, 100);
+      }, 100);
+    }, 500);
   }
 
   private _send(payload: unknown): void {

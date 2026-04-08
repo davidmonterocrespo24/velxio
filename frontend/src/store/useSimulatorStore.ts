@@ -7,7 +7,8 @@ import { PinManager } from '../simulation/PinManager';
 import { VirtualDS1307, VirtualTempSensor, I2CMemoryDevice } from '../simulation/I2CBusManager';
 import type { RP2040I2CDevice } from '../simulation/RP2040Simulator';
 import type { Wire, WireInProgress, WireEndpoint } from '../types/wire';
-import type { BoardKind, BoardInstance } from '../types/board';
+import type { BoardKind, BoardInstance, LanguageMode } from '../types/board';
+import { BOARD_SUPPORTS_MICROPYTHON } from '../types/board';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
 import { useOscilloscopeStore } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
@@ -218,6 +219,8 @@ interface SimulatorState {
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
   setActiveBoardId: (boardId: string) => void;
   compileBoardProgram: (boardId: string, program: string) => void;
+  loadMicroPythonProgram: (boardId: string, files: Array<{ name: string; content: string }>) => Promise<void>;
+  setBoardLanguageMode: (boardId: string, mode: LanguageMode) => void;
   startBoard: (boardId: string) => void;
   stopBoard: (boardId: string) => void;
   resetBoard: (boardId: string) => void;
@@ -335,6 +338,7 @@ const INITIAL_BOARD: BoardInstance = {
   serialBaudRate: 0,
   serialMonitorOpen: false,
   activeFileGroupId: `group-${INITIAL_BOARD_ID}`,
+  languageMode: 'arduino' as LanguageMode,
 };
 
 // ── Store ─────────────────────────────────────────────────────────────────
@@ -506,6 +510,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         serialOutput: '', serialBaudRate: 0,
         serialMonitorOpen: false,
         activeFileGroupId: `group-${id}`,
+        languageMode: 'arduino',
       };
 
       set((s) => ({ boards: [...s.boards, newBoard] }));
@@ -634,6 +639,68 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           ...(isActive ? { compiledHex: program, hexEpoch: s.hexEpoch + 1 } : {}),
         };
       });
+    },
+
+    loadMicroPythonProgram: async (boardId: string, files: Array<{ name: string; content: string }>) => {
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board) return;
+      if (!BOARD_SUPPORTS_MICROPYTHON.has(board.boardKind)) return;
+
+      if (isEsp32Kind(board.boardKind)) {
+        // ESP32 path: load MicroPython firmware via QEMU bridge, inject code via raw-paste REPL
+        const { getEsp32Firmware, uint8ArrayToBase64 } = await import('../simulation/Esp32MicroPythonLoader');
+        const esp32Bridge = getEsp32Bridge(boardId);
+        if (!esp32Bridge) return;
+
+        const firmware = await getEsp32Firmware(board.boardKind);
+        const b64 = uint8ArrayToBase64(firmware);
+        esp32Bridge.loadFirmware(b64);
+
+        // Queue code injection for after REPL boots
+        const mainFile = files.find(f => f.name === 'main.py') ?? files[0];
+        if (mainFile) {
+          esp32Bridge.setPendingMicroPythonCode(mainFile.content);
+        }
+      } else {
+        // RP2040 path: load firmware + filesystem in browser
+        const sim = getBoardSimulator(boardId);
+        if (!(sim instanceof RP2040Simulator)) return;
+        await sim.loadMicroPython(files);
+      }
+
+      set((s) => {
+        const boards = s.boards.map((b) =>
+          b.id === boardId ? { ...b, compiledProgram: 'micropython-loaded' } : b
+        );
+        const isActive = s.activeBoardId === boardId;
+        return {
+          boards,
+          ...(isActive ? { compiledHex: 'micropython-loaded', hexEpoch: s.hexEpoch + 1 } : {}),
+        };
+      });
+    },
+
+    setBoardLanguageMode: (boardId: string, mode: LanguageMode) => {
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board) return;
+
+      // Only allow MicroPython for supported boards
+      if (mode === 'micropython' && !BOARD_SUPPORTS_MICROPYTHON.has(board.boardKind)) return;
+
+      // Stop any running simulation
+      if (board.running) get().stopBoard(boardId);
+
+      // Clear compiled program since language changed
+      set((s) => ({
+        boards: s.boards.map((b) =>
+          b.id === boardId ? { ...b, languageMode: mode, compiledProgram: null } : b
+        ),
+      }));
+
+      // Replace file group with appropriate default files
+      const editorStore = useEditorStore.getState();
+      editorStore.deleteFileGroup(board.activeFileGroupId);
+      editorStore.createFileGroup(board.activeFileGroupId, mode);
     },
 
     startBoard: (boardId: string) => {
