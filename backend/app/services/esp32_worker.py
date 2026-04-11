@@ -301,11 +301,17 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     _sensors: dict[int, dict] = {}
     _sensors_lock = threading.Lock()
 
-    def _busy_wait_us(us: int) -> None:
-        """Busy-wait for the given number of microseconds using perf_counter_ns."""
-        end = time.perf_counter_ns() + us * 1000
-        while time.perf_counter_ns() < end:
-            pass
+    # ── Generic sync-handler registry ────────────────────────────────────────
+    # Each entry implements step() -> bool.  step() is called once per
+    # GPIO_IN read sync (every digitalRead() / pulseIn() iteration in firmware).
+    # Returning True signals completion; the dispatcher removes the handler.
+    # All mutations happen exclusively on the QEMU thread — no locks needed.
+    #
+    # To add a new GPIO-timed sensor:
+    #   1. Write a class with a step() -> bool method
+    #   2. Append an instance to _sync_handlers from _on_pin_change or _on_dir_change
+    #   3. No changes to the dispatcher are needed
+    _sync_handlers: list = []
 
     def _dht22_build_payload(temperature: float, humidity: float) -> list[int]:
         """Build 5-byte DHT22 data payload: [hum_H, hum_L, temp_H, temp_L, checksum]."""
@@ -318,24 +324,6 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         t_L = raw_t & 0xFF
         chk = (h_H + h_L + t_H + t_L) & 0xFF
         return [h_H, h_L, t_H, t_L, chk]
-
-    # ── DHT22 sync-based response ────────────────────────────────────────────
-    # Instead of driving pins from a separate Python thread (which requires
-    # cross-thread qemu_picsimlab_set_pin calls — unsafe because the QEMU
-    # iothread mutex is commented out), we drive pins synchronously from
-    # within the GPIO_IN read sync callback.
-    #
-    # Every digitalRead() in the firmware's expectPulse() loop triggers a
-    # sync event: _on_dir_change(slot=-1, direction=-1).  By counting these
-    # syncs and toggling the pin at the right moments, we inject the DHT22
-    # waveform perfectly synchronized with QEMU execution.
-    #
-    # The Adafruit DHT library decodes bits by comparing highCycles vs
-    # lowCycles counts — only the RATIO matters, not absolute values.
-    # So we use the raw µs values as sync counts (e.g. 80 syncs for 80µs),
-    # which preserves the correct ratios.
-
-    _dht22_sync: list[dict | None] = [None]  # mutable container for nonlocal access
 
     def _dht22_build_sync_phases(payload: list[int]) -> list[tuple[int, int]]:
         """Build list of (sync_count, pin_value) phase transitions for DHT22.
@@ -365,75 +353,144 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 phases.append((70 if bit else 26, 0))  # HIGH phase → drive LOW
         return phases
 
-    def _dht22_sync_step() -> None:
-        """Advance the DHT22 sync response by one GPIO_IN read.
+    class DHT22SyncHandler:
+        """Drives the DHT22 waveform synchronously, one GPIO_IN read sync at a time.
 
-        Called on the QEMU thread from the GPIO_IN read sync handler.
-        Each call corresponds to one digitalRead() in the firmware's
-        expectPulse() loop.
+        Uses phase-based counting: each phase defines how many syncs to wait before
+        driving the pin to a new value.  The Adafruit DHT library decodes bits by
+        comparing highCycles vs lowCycles — only RATIOS matter, so raw µs values used
+        as sync counts preserve the correct bit decoding.
         """
-        state = _dht22_sync[0]
-        if state is None:
-            return
+        def __init__(self, gpio: int, slot: int, phases: list[tuple[int, int]]) -> None:
+            self._gpio        = gpio
+            self._slot        = slot
+            self._phases      = phases
+            self._phase_idx   = 0
+            self._count       = 0
+            self._total_syncs = 0
 
-        state['count'] += 1
-        phase_idx = state['phase_idx']
-        phases = state['phases']
+        def step(self) -> bool:
+            """Advance one sync tick.  Returns True when the handler is done."""
+            self._count += 1
+            if self._phase_idx >= len(self._phases):
+                return self._finish()
+            target, pin_value = self._phases[self._phase_idx]
+            if self._count >= target:
+                lib.qemu_picsimlab_set_pin(self._slot, pin_value)
+                self._total_syncs += self._count
+                self._count       = 0
+                self._phase_idx  += 1
+                if self._phase_idx >= len(self._phases):
+                    return self._finish()
+            return False
 
-        if phase_idx >= len(phases):
-            # All phases done — clean up immediately
-            _dht22_sync_cleanup(state)
-            return
-
-        target, pin_value = phases[phase_idx]
-        if state['count'] >= target:
-            lib.qemu_picsimlab_set_pin(state['slot'], pin_value)
-            state['total_syncs'] += state['count']
-            state['count'] = 0
-            state['phase_idx'] += 1
-            # If that was the last phase, clean up now — the firmware's
-            # expectPulse() loop ends after the last data bit, so no more
-            # syncs will arrive to trigger cleanup later.
-            if state['phase_idx'] >= len(phases):
-                _dht22_sync_cleanup(state)
-
-    def _dht22_sync_cleanup(state: dict) -> None:
-        """Clean up after DHT22 sync response completes."""
-        gpio_pin = state['gpio']
-        total = state['total_syncs']
-        with _sensors_lock:
-            sensor = _sensors.get(gpio_pin)
-            if sensor:
-                sensor['responding'] = False
-        _dht22_sync[0] = None
-        _log(f'DHT22 sync respond done gpio={gpio_pin} '
-             f'total_syncs={total} phases={len(state["phases"])}')
-        _emit({'type': 'system', 'event': 'dht22_diag',
-               'gpio': gpio_pin, 'status': 'ok',
-               'total_syncs': total})
-
-    def _hcsr04_respond(trig_pin: int, echo_pin: int, distance_cm: float) -> None:
-        """Thread function: inject the HC-SR04 echo pulse via qemu_picsimlab_set_pin."""
-        echo_slot = echo_pin + 1  # identity pinmap: slot = gpio + 1
-        # Echo pulse width = distance_cm * 58 µs (speed of sound round trip)
-        echo_us = max(100, int(distance_cm * 58))
-
-        try:
-            # Wait for TRIG pulse to finish + propagation delay (~600 µs)
-            _busy_wait_us(600)
-            # Drive ECHO HIGH
-            lib.qemu_picsimlab_set_pin(echo_slot, 1)
-            # Hold ECHO HIGH for distance-proportional duration
-            _busy_wait_us(echo_us)
-            # Drive ECHO LOW
-            lib.qemu_picsimlab_set_pin(echo_slot, 0)
-        except Exception as exc:
-            _log(f'HC-SR04 respond error on TRIG {trig_pin} ECHO {echo_pin}: {exc}')
-        finally:
+        def _finish(self) -> bool:
             with _sensors_lock:
-                sensor = _sensors.get(trig_pin)
+                sensor = _sensors.get(self._gpio)
                 if sensor:
                     sensor['responding'] = False
+            _log(f'DHT22 sync respond done gpio={self._gpio} '
+                 f'total_syncs={self._total_syncs} phases={len(self._phases)}')
+            _emit({'type': 'system', 'event': 'dht22_diag', 'gpio': self._gpio,
+                   'status': 'ok', 'total_syncs': self._total_syncs})
+            return True
+
+    class HCSR04SyncHandler:
+        """Drives HC-SR04 ECHO pin synchronously from the QEMU GPIO_IN read callback.
+
+        _on_dir_change(-1, -1) fires for EVERY gpio_get_level() call in the
+        firmware — including pulseIn()'s busy-wait loops.  The state machine:
+
+          Phase 1 of pulseIn() (wait for !HIGH = wait for LOW):
+            ECHO is LOW so the condition is immediately false.  One
+            gpio_get_level() call fires.  We skip it.
+
+          Phase 2 of pulseIn() (wait for HIGH):
+            After skipping _SKIP_COUNT pre-phase2 callbacks, the next
+            gpio_get_level() fires.  We set ECHO HIGH here.  pulseIn() sees HIGH
+            immediately (qemu_picsimlab_set_pin is synchronous) and exits phase 2.
+
+          Phase 3 of pulseIn() (measure HIGH duration):
+            Subsequent gpio_get_level() calls fire step().  We hold ECHO HIGH
+            until echo_us wall-clock µs have elapsed (perf_counter_ns), then
+            set LOW.  Virtual time ≈ wall-clock time (confirmed: 30 000 µs
+            pulseIn timeout = 30 ms wall-clock), so pulseIn() measures ≈ echo_us
+            virtual µs → correct distance.
+
+        Guard: wall-clock timeouts replace step-count limits.  A step-count
+        guard is wrong because steps fire at rates that vary with QEMU load;
+        using a fixed count would cut the pulse short for longer distances
+        (100 cm = 5 800 µs, 200 cm = 11 600 µs) before elapsed_us is reached.
+        """
+        _SKIP_COUNT       = 2         # pre-phase2 callbacks to skip
+        _ARMED_TIMEOUT_US = 40_000    # µs; give up if we never enter 'high'
+        _HIGH_TIMEOUT_US  = 32_000    # µs; pulseIn() timeout is 30 000 µs
+
+        def __init__(self, trig_gpio: int, echo_slot: int, echo_us: int) -> None:
+            self._trig_gpio     = trig_gpio
+            self._echo_slot     = echo_slot
+            self._echo_us       = echo_us
+            self._state         = 'armed'
+            self._total_steps   = 0
+            self._arm_start_ns  = time.perf_counter_ns()
+            self._echo_start_ns = 0
+
+        def step(self) -> bool:
+            self._total_steps += 1
+
+            if self._state == 'armed':
+                if self._total_steps <= self._SKIP_COUNT:
+                    return False
+                # Check armed timeout (handler never entered 'high')
+                arm_us = (time.perf_counter_ns() - self._arm_start_ns) // 1000
+                if arm_us > self._ARMED_TIMEOUT_US:
+                    _log(f'HCSR04 armed timeout trig={self._trig_gpio} '
+                         f'arm_us={arm_us} steps={self._total_steps} — releasing')
+                    with _sensors_lock:
+                        sensor = _sensors.get(self._trig_gpio)
+                        if sensor:
+                            sensor['responding'] = False
+                    return True
+                # pulseIn() is now in phase 2 (waiting for HIGH) → raise ECHO
+                lib.qemu_picsimlab_set_pin(self._echo_slot, 1)
+                _emit({'type': 'system', 'event': 'hcsr04_echo_high',
+                       'gpio': self._trig_gpio, 'echo_us': self._echo_us})
+                _log(f'HCSR04 ECHO HIGH (sync) trig={self._trig_gpio} '
+                     f'slot={self._echo_slot} echo_us={self._echo_us} '
+                     f'armed_us={arm_us} skip={self._total_steps - 1}')
+                self._echo_start_ns = time.perf_counter_ns()
+                self._state = 'high'
+                return False
+
+            elif self._state == 'high':
+                elapsed_us = (time.perf_counter_ns() - self._echo_start_ns) // 1000
+                if elapsed_us >= self._echo_us:
+                    return self._finish(elapsed_us)
+                # Safety: don't hold ECHO past pulseIn() timeout
+                if elapsed_us >= self._HIGH_TIMEOUT_US:
+                    _log(f'HCSR04 high timeout trig={self._trig_gpio} '
+                         f'elapsed_us={elapsed_us} echo_us={self._echo_us}')
+                    lib.qemu_picsimlab_set_pin(self._echo_slot, 0)
+                    with _sensors_lock:
+                        sensor = _sensors.get(self._trig_gpio)
+                        if sensor:
+                            sensor['responding'] = False
+                    return True
+
+            return False
+
+        def _finish(self, elapsed_us: int) -> bool:
+            lib.qemu_picsimlab_set_pin(self._echo_slot, 0)
+            _emit({'type': 'system', 'event': 'hcsr04_echo_low',
+                   'gpio': self._trig_gpio})
+            _log(f'HCSR04 ECHO LOW (sync) trig={self._trig_gpio} '
+                 f'elapsed_us={elapsed_us} echo_us={self._echo_us} '
+                 f'steps={self._total_steps}')
+            with _sensors_lock:
+                sensor = _sensors.get(self._trig_gpio)
+                if sensor:
+                    sensor['responding'] = False
+            return True
 
     # ── 5. ctypes callbacks (called from QEMU thread) ─────────────────────────
 
@@ -459,17 +516,32 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 sensor['saw_low'] = True
 
         elif stype == 'hc-sr04':
-            # HC-SR04: detect TRIG going HIGH (firmware sends 10µs pulse)
+            # HC-SR04 trigger:
+            #   TRIG HIGH → arm: save echo params
+            #   TRIG LOW  → add HCSR04SyncHandler to _sync_handlers
+            #
+            # The sync handler drives ECHO from within the QEMU GPIO_IN read
+            # callback (_on_dir_change slot=-1 direction=-1), which fires for
+            # every gpio_get_level() call in the firmware — including pulseIn().
+            # This is 100% synchronous with the QEMU thread, eliminating the
+            # non-deterministic visibility issue that plagued the background-thread
+            # approach (only ~33% success rate due to cross-thread pin propagation).
             if value == 1 and not sensor.get('responding', False):
-                sensor['responding'] = True
                 echo_pin = int(sensor.get('echo_pin', gpio + 1))
                 distance = float(sensor.get('distance', 40.0))
-                threading.Thread(
-                    target=_hcsr04_respond,
-                    args=(gpio, echo_pin, distance),
-                    daemon=True,
-                    name=f'hcsr04-gpio{gpio}',
-                ).start()
+                echo_us  = max(100, int(distance * 58))
+                sensor['_trig_armed'] = {'echo_slot': echo_pin + 1, 'echo_us': echo_us}
+                _log(f'HCSR04 TRIG HIGH (armed) gpio={gpio} echo_slot={echo_pin + 1} '
+                     f'echo_us={echo_us} dist={distance}cm')
+
+            elif value == 0 and sensor.get('_trig_armed') and not sensor.get('responding', False):
+                armed     = sensor.pop('_trig_armed')
+                echo_slot = armed['echo_slot']
+                echo_us   = armed['echo_us']
+                sensor['responding'] = True
+                _sync_handlers.append(HCSR04SyncHandler(gpio, echo_slot, echo_us))
+                _log(f'HCSR04 TRIG LOW → sync handler armed gpio={gpio} '
+                     f'echo_slot={echo_slot} echo_us={echo_us}')
 
     def _on_dir_change(slot: int, direction: int) -> None:
         if _stopped.is_set():
@@ -482,9 +554,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         # loop iterations.
         if slot == -1:
             if direction == -1:
-                # GPIO_IN read sync — advance DHT22 response if active
-                if _dht22_sync[0] is not None:
-                    _dht22_sync_step()
+                # GPIO_IN read sync — advance all active sync handlers.
+                # step() returns True when done; list-comp removes finished handlers.
+                if _sync_handlers:
+                    _sync_handlers[:] = [h for h in _sync_handlers if not h.step()]
                 return  # always return for GPIO_IN syncs (fast path)
             marker = direction & 0xF000
             if marker == 0x5000:  # LEDC duty change (from esp32_ledc.c)
@@ -526,14 +599,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                         lib.qemu_picsimlab_set_pin(slot, 0)
 
                         # Arm the sync-based response state machine
-                        _dht22_sync[0] = {
-                            'gpio': gpio,
-                            'slot': slot,
-                            'phases': phases,
-                            'phase_idx': 0,
-                            'count': 0,
-                            'total_syncs': 0,
-                        }
+                        _sync_handlers.append(DHT22SyncHandler(gpio, slot, phases))
                         _log(f'DHT22 sync armed gpio={gpio} '
                              f'temp={temp} hum={hum} '
                              f'phases={len(phases)} payload={payload}')

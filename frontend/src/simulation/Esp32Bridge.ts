@@ -325,16 +325,35 @@ export class Esp32Bridge {
 
   /** Register a sensor on a GPIO pin — backend handles its protocol */
   sendSensorAttach(sensorType: string, pin: number, properties: Record<string, unknown>): void {
-    this._send({ type: 'esp32_sensor_attach', data: { sensor_type: sensorType, pin, ...properties } });
+    // Buffer into _pendingSensors so it is included in start_esp32 if sent
+    // before the WebSocket opens (the common case when attachEvents fires
+    // before the user clicks Run).
+    const entry = { sensor_type: sensorType, pin, ...properties };
+    const existing = this._pendingSensors.findIndex((s) => s['pin'] === pin);
+    if (existing >= 0) {
+      this._pendingSensors[existing] = entry;
+    } else {
+      this._pendingSensors.push(entry);
+    }
+    // Also send immediately if already connected (re-attach on hot reload)
+    if (this._connected) {
+      this._send({ type: 'esp32_sensor_attach', data: entry });
+    }
   }
 
   /** Update sensor properties (temperature, humidity, distance, etc.) */
   sendSensorUpdate(pin: number, properties: Record<string, unknown>): void {
+    // Keep _pendingSensors in sync so reconnects get current values
+    const idx = this._pendingSensors.findIndex((s) => s['pin'] === pin);
+    if (idx >= 0) {
+      this._pendingSensors[idx] = { ...this._pendingSensors[idx], ...properties };
+    }
     this._send({ type: 'esp32_sensor_update', data: { pin, ...properties } });
   }
 
   /** Detach a sensor from a GPIO pin */
   sendSensorDetach(pin: number): void {
+    this._pendingSensors = this._pendingSensors.filter((s) => s['pin'] !== pin);
     this._send({ type: 'esp32_sensor_detach', data: { pin } });
   }
 
