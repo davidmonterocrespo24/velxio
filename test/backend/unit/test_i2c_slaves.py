@@ -23,8 +23,8 @@ import sys
 import unittest
 from pathlib import Path
 
-# Ensure backend/ is importable as a package root
-sys.path.insert(0, str(Path(__file__).parent))
+# Ensure backend/ is importable (for direct execution; pytest uses conftest.py)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'backend'))
 
 from app.services.esp32_i2c_slaves import (
     BMP280Slave,

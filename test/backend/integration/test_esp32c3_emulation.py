@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 # ── paths ────────────────────────────────────────────────────────────────────
-BACKEND_DIR  = Path(__file__).parent
+BACKEND_DIR  = Path(__file__).parent.parent.parent.parent / 'backend'
 SERVICES_DIR = BACKEND_DIR / 'app' / 'services'
 WORKER       = SERVICES_DIR / 'esp32_worker.py'
 LIB_PATH     = SERVICES_DIR / 'libqemu-riscv32.dll'

@@ -1,0 +1,38 @@
+name: Backend Unit Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Cache pip dependencies to speed up repeated runs
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt') }}
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      # Run only unit tests (test/backend/unit/) — no QEMU or arduino-cli needed.
+      # Integration tests live in test/backend/integration/ and must be run manually.
+      - name: Run backend unit tests
+        run: pytest test/backend/unit/ -v --tb=short

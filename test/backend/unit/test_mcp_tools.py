@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-# Ensure the backend package is importable when running from the repo root
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Ensure backend/ is importable (for direct execution; pytest uses conftest.py)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'backend'))
 
 
 # ---------------------------------------------------------------------------

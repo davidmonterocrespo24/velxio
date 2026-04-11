@@ -14,8 +14,8 @@ import shutil
 import unittest
 from pathlib import Path
 
-# Ensure backend/app is importable
-sys.path.insert(0, str(Path(__file__).parent))
+# Ensure backend/app is importable (for direct execution; pytest uses conftest.py)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'backend'))
 
 from app.services.espidf_compiler import ESPIDFCompiler
 
@@ -283,7 +283,7 @@ class TestTemplateCMakeLists(unittest.TestCase):
 
     def test_root_cmake_has_user_libs_block(self):
         template_cmake = (
-            Path(__file__).parent
+            Path(__file__).parent.parent.parent.parent / 'backend'
             / 'app' / 'services' / 'esp-idf-template' / 'CMakeLists.txt'
         )
         self.assertTrue(template_cmake.exists(), 'Template CMakeLists.txt not found')
@@ -296,7 +296,7 @@ class TestTemplateCMakeLists(unittest.TestCase):
 
     def test_main_cmake_has_arduino_requires(self):
         main_cmake = (
-            Path(__file__).parent
+            Path(__file__).parent.parent.parent.parent / 'backend'
             / 'app' / 'services' / 'esp-idf-template' / 'main' / 'CMakeLists.txt'
         )
         self.assertTrue(main_cmake.exists())

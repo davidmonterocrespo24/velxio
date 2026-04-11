@@ -10,7 +10,7 @@ if os.name == 'nt':
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8')
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'backend'))
 from app.services.qemu_manager import qemu_manager
 
 
