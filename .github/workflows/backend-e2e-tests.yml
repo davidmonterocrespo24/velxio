@@ -20,6 +20,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── System dependencies for libqemu-xtensa.so ────────────────────────────
+      - name: Install QEMU shared-library dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libfdt1 \
+            libglib2.0-0 \
+            libpixman-1-0 \
+            zlib1g \
+            libncurses6 \
+            libslirp0
+
       # ── QEMU binaries + ROM files ──────────────────────────────────────────────
       - name: Download QEMU binaries and ROM files
         run: |
