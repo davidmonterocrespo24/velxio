@@ -50,6 +50,7 @@ node test/backend/e2e/test_mpu6050_simulation.mjs --timeout=60
 | `test_dht22_simulation.mjs` | DHT22 (GPIO4) | Temperature & humidity readings, `sensor_update` changes values | ~50 s |
 | `test_hcsr04_simulation.mjs` | HC-SR04 (GPIO18/19) | Distance at 10/40/100/200 cm, `sensor_update` changes distance | ~60 s |
 | `test_mpu6050_simulation.mjs` | MPU-6050 (I2C) | Accelerometer/gyroscope I2C readings | ~40 s |
+| `test_multi_board_i2c.mjs` | I2C multi-board (ESP32 + Arduino UNO + Raspberry Pi Pico) | I2C communication between three boards, compilation for each chip | ~90 s |
 
 ## Pass criteria
 
@@ -58,3 +59,4 @@ node test/backend/e2e/test_mpu6050_simulation.mjs --timeout=60
 | DHT22 | First reading received + values change after `sensor_update` |
 | HC-SR04 | ≥3 correct readings, ≥2 distances, miss rate ≤30% |
 | MPU-6050 | I2C communication established, sensor data in serial output |
+| Multi‑Board I2C | All three sketches compile, ESP32 detects both I2C slaves and reads expected values |
