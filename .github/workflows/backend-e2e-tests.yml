@@ -66,17 +66,25 @@ jobs:
           path: |
             ~/.arduino15
             ~/Arduino/libraries
-          key: arduino-cores-esp32-2x-libs-${{ runner.os }}-v1
+          key: arduino-cores-esp32-2x-rp2040-libs-${{ runner.os }}-v2
 
-      - name: Install ESP32 arduino core and required libraries
+      - name: Install arduino cores and required libraries
         run: |
           arduino-cli config init --overwrite
+
+          # ESP32 core (pinned to 2.x — IDF 4.x compatible with our QEMU build)
           arduino-cli config add board_manager.additional_urls \
             https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          # RP2040 core (Earle Philhower's arduino-pico)
+          arduino-cli config add board_manager.additional_urls \
+            https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+
           arduino-cli core update-index
-          # Pin to 2.x — the lcgamboa QEMU (esp32-picsimlab) was built against IDF 4.x.
+          # ESP32: Pin to 2.x — the lcgamboa QEMU (esp32-picsimlab) was built against IDF 4.x.
           # ESP32 Arduino 3.x (IDF 5.x) triggers "Cache disabled" panics on that machine.
           arduino-cli core install esp32:esp32@2.0.17
+          # RP2040: used by the Pico MicroPython e2e test compile check
+          arduino-cli core install rp2040:rp2040
 
           # Libraries needed by the e2e test sketches
           # DHT22 test needs: DHT sensor library
@@ -105,6 +113,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Install Pico test dependencies (rp2040js)
+        run: npm install --prefix test/backend/e2e
 
       # ── Start backend ─────────────────────────────────────────────────────────
       - name: Start backend server
@@ -149,6 +160,11 @@ jobs:
 
       - name: Run MPU-6050 e2e test
         run: node test/backend/e2e/test_mpu6050_simulation.mjs --timeout=90
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      - name: Run MicroPython Pico e2e test
+        run: node test/backend/e2e/test_micropython_pico.mjs --timeout=180
         env:
           BACKEND_URL: http://localhost:8001
 
