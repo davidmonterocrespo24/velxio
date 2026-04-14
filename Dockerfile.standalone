@@ -93,6 +93,7 @@ RUN npm install && npm run build --if-present
 # (it requires wokwi-elements/src which isn't needed at runtime)
 WORKDIR /app
 COPY frontend/ frontend/
+COPY scripts/ scripts/
 WORKDIR /app/frontend
 RUN npm install && npm run build:docker
 
