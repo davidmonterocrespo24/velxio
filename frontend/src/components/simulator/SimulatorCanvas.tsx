@@ -11,6 +11,7 @@ import { PinSelector } from './PinSelector';
 import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle } from './WireLayer';
+import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
 import { BoardOnCanvas } from './BoardOnCanvas';
 import { PartSimulationRegistry } from '../../simulation/parts';
 import { PinOverlay } from './PinOverlay';
@@ -1555,6 +1556,9 @@ export const SimulatorCanvas = () => {
 
             {/* Components using wokwi-elements */}
             <div className="components-area">{registryLoaded && components.map(renderComponent)}</div>
+
+            {/* Electrical simulation overlay (voltages / warnings) */}
+            <ElectricalOverlay />
           </div>
 
           {/* Wire creation mode banner — visible on both desktop and mobile */}

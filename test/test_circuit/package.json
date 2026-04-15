@@ -1,0 +1,21 @@
+{
+  "name": "test_circuit",
+  "version": "0.1.0",
+  "description": "Pure-JS circuit emulator sandbox for Velxio — MNA solver + avr8js integration",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:phase3": "vitest run test/passive",
+    "test:phase4": "vitest run test/diodes",
+    "test:avr": "vitest run test/avr",
+    "test:e2e": "vitest run test/e2e"
+  },
+  "devDependencies": {
+    "avr8js": "^0.21.0",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "eecircuit-engine": "^1.7.0"
+  }
+}

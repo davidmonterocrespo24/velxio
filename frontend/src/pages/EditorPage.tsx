@@ -3,6 +3,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { wireElectricalSolver } from '../simulation/spice/subscribeToStore';
 import { useSEO } from '../utils/useSEO';
 import { CodeEditor } from '../components/editor/CodeEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
@@ -70,6 +71,12 @@ export const EditorPage: React.FC = () => {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [showStarBanner, setShowStarBanner] = useState(false);
+
+  // ── Electrical simulation subscriber (one-time, idempotent) ───────────────
+  useEffect(() => {
+    const unsub = wireElectricalSolver();
+    return unsub;
+  }, []);
 
   // ── GitHub star prompt (show once: 2nd visit OR after 3 min) ──────────────
   useEffect(() => {

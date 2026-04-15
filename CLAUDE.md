@@ -415,6 +415,18 @@ Enable verbose logging:
 - Functional wire connections (electrical signal routing)
 - Wire validation and error handling
 
+**Electrical Simulation (Phase 8 — behind ⚡ toggle):**
+- ngspice-WASM engine via `eecircuit-engine` (lazy-loaded, ~39 MB chunk).
+- Entry: `frontend/src/simulation/spice/SpiceEngine.lazy.ts`
+- NetlistBuilder: `frontend/src/simulation/spice/NetlistBuilder.ts` — Union-Find on `wires[]` → SPICE cards via `componentToSpice.ts`.
+- Store: `useElectricalStore` (separate from `useSimulatorStore`; feature-flagged).
+- UI: `<ElectricalModeToggle />` in toolbar, `<ElectricalOverlay />` on canvas.
+- Probes: `instr-voltmeter`, `instr-ammeter` metadata IDs.
+- Build-time flag: `VITE_ELECTRICAL_SIM=false` to disable completely.
+- Tests: `frontend/src/__tests__/spice-*.test.ts`, `netlist-builder.test.ts`, `component-to-spice.test.ts`, `instruments.test.ts` (39+ tests).
+- Reference sandbox: `test/test_circuit/` (47 tests proving the approach).
+- Docs: `docs/wiki/circuit-emulation.md` (implementation details), `docs/wiki/electrical-simulation-user-guide.md` (user-facing).
+
 **Planned:**
 - Undo/redo functionality
 - More boards (ESP32, Arduino Mega, Arduino Nano)
