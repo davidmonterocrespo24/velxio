@@ -205,13 +205,30 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
     let cleanupSimulationEvents: (() => void) | undefined;
     if (logic && logic.attachEvents && simulator) {
       // Helper to find Arduino pin connected to a component pin.
-      // Traces through passive components (resistors) so that a circuit like
-      //   LED-cathode → resistor → GND  returns -1 (GND) instead of null.
+      // Traces through electrically-transparent passive components so that a
+      // circuit like  LED-cathode → resistor → GND  returns -1 (GND) instead
+      // of null.
+      //
+      // NOTE: diodes / transistors / op-amps are NOT traced through — they
+      // have polarity / Vf / non-linear behaviour that the digital layer
+      // cannot interpret as "same pin".
       const getArduinoPin = (componentPinName: string): number | null => {
         const state = useSimulatorStore.getState();
 
-        // Passive component metadataIds that are electrically transparent.
-        const PASSIVE = new Set(['resistor', 'resistor-us']);
+        // Map metadataId → [pinA, pinB] for 2-terminal passives.
+        // Tracing "through" means: if the caller arrived on pinA, continue
+        // from pinB (and vice-versa).
+        const PASSIVE_PIN_PAIRS: Record<string, [string, string]> = {
+          'resistor':               ['1', '2'],
+          'resistor-us':            ['1', '2'],
+          'capacitor':              ['1', '2'],
+          'inductor':               ['1', '2'],
+          'analog-resistor':        ['A', 'B'],
+          'analog-capacitor':       ['A', 'B'],
+          'analog-inductor':        ['A', 'B'],
+          'ntc-temperature-sensor': ['1', '2'],
+          'photoresistor':          ['LDR1', 'LDR2'],
+        };
 
         // Depth-limited BFS: trace from (fromId, fromPin) through wires,
         // traversing through passive components to reach a board pin.
@@ -236,9 +253,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
             } else {
               // Intermediate passive component — traverse through it
               const comp = state.components.find(c => c.id === otherEp.componentId);
-              if (comp && PASSIVE.has(comp.metadataId)) {
-                // Resistors have two pins; find the other one to continue tracing
-                const otherPin = otherEp.pinName === '1' ? '2' : '1';
+              const pair = comp && PASSIVE_PIN_PAIRS[comp.metadataId];
+              if (pair) {
+                const [p1, p2] = pair;
+                const otherPin = otherEp.pinName === p1 ? p2 : p1;
                 const result = trace(otherEp.componentId, otherPin, depth + 1);
                 if (result !== null) return result;
               }

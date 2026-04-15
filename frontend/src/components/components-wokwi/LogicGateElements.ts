@@ -10,6 +10,7 @@
  *   wokwi-logic-or   — 2-input OR gate
  *   wokwi-logic-nor  — 2-input NOR gate
  *   wokwi-logic-xor  — 2-input XOR gate
+ *   wokwi-logic-xnor — 2-input XNOR gate
  *   wokwi-logic-not  — 1-input NOT (inverter)
  *
  * Pin layout (in CSS pixels, used by PinOverlay):
@@ -155,6 +156,27 @@ class XorGateElement extends HTMLElement {
   }
 }
 
+// ─── XNOR Gate (72×48) ────────────────────────────────────────────────────────
+// XOR body (OR + left curve) + inversion bubble at output (cx=58, r=4)
+
+class XnorGateElement extends HTMLElement {
+  readonly pinInfo = twoInputPinInfo();
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' }).innerHTML = `
+      <style>${STYLE}</style>
+      <svg width="72" height="48" xmlns="http://www.w3.org/2000/svg">
+        ${leads2Input()}
+        <path d="M14,6 Q22,24 14,42"
+              fill="none" stroke="${STROKE}" stroke-width="1.5"/>
+        <path d="M18,6 Q50,6 54,24 Q50,42 18,42 Q26,24 18,6 Z"
+              fill="${FILL}" stroke="${STROKE}" stroke-width="1.5"/>
+        ${bubbleAndLead(58)}
+        ${label(24, 28, '=1')}
+      </svg>`;
+  }
+}
+
 // ─── NOT Gate (56×36) ─────────────────────────────────────────────────────────
 // Triangle pointing right + inversion bubble at tip
 // Input A(0,18) → triangle base at x=4,  tip at x=44
@@ -187,4 +209,112 @@ if (!customElements.get('wokwi-logic-nand')) customElements.define('wokwi-logic-
 if (!customElements.get('wokwi-logic-or'))   customElements.define('wokwi-logic-or',   OrGateElement);
 if (!customElements.get('wokwi-logic-nor'))  customElements.define('wokwi-logic-nor',  NorGateElement);
 if (!customElements.get('wokwi-logic-xor'))  customElements.define('wokwi-logic-xor',  XorGateElement);
+if (!customElements.get('wokwi-logic-xnor')) customElements.define('wokwi-logic-xnor', XnorGateElement);
 if (!customElements.get('wokwi-logic-not'))  customElements.define('wokwi-logic-not',  NotGateElement);
+
+// ─── 3/4-input gate elements ──────────────────────────────────────────────────
+// Generic N-input gates (96 × 72 for 3-in, 108 × 84 for 4-in). Inputs spaced
+// vertically, single output on the right tip.
+
+function nInputPinInfo(count: number, height: number, bodyRight: number) {
+  const spacing = height / (count + 1);
+  const pins = [];
+  for (let i = 0; i < count; i++) {
+    const letter = String.fromCharCode(65 + i); // A, B, C, D
+    pins.push({ name: letter, x: 0, y: Math.round((i + 1) * spacing), number: i + 1, signals: [] });
+  }
+  pins.push({ name: 'Y', x: bodyRight + 14, y: Math.round(height / 2), number: count + 1, signals: [] });
+  return pins;
+}
+
+function makeMultiInputGateSvg(
+  variant: 'and' | 'or' | 'nand' | 'nor',
+  inputs: number,
+  text: string,
+): string {
+  const W = inputs === 4 ? 108 : 96;
+  const H = inputs === 4 ? 84 : 72;
+  const inv = variant === 'nand' || variant === 'nor';
+  const orStyle = variant === 'or' || variant === 'nor';
+  const bodyLeft = 24;
+  const bodyRight = W - 24;
+  const outputTipX = orStyle ? bodyRight - 2 : bodyRight - 8;
+
+  // Input leads
+  const spacing = H / (inputs + 1);
+  let leads = '';
+  for (let i = 0; i < inputs; i++) {
+    const y = Math.round((i + 1) * spacing);
+    leads += `<line x1="0" y1="${y}" x2="${bodyLeft}" y2="${y}" stroke="${LEAD}" stroke-width="2"/>`;
+  }
+
+  // Body shape
+  let body: string;
+  if (orStyle) {
+    body = `
+      <path d="M${bodyLeft - 6},6 Q${bodyRight - 20},6 ${outputTipX},${H / 2} Q${bodyRight - 20},${H - 6} ${bodyLeft - 6},${H - 6} Q${bodyLeft + 4},${H / 2} ${bodyLeft - 6},6 Z"
+            fill="${FILL}" stroke="${STROKE}" stroke-width="1.5"/>`;
+  } else {
+    // AND / NAND — flat left, rounded right
+    const radius = (H - 12) / 2;
+    const rightStraight = bodyRight - radius - 4;
+    body = `
+      <path d="M${bodyLeft},6 L${rightStraight},6 A${radius},${radius} 0 0 1 ${rightStraight},${H - 6} L${bodyLeft},${H - 6} Z"
+            fill="${FILL}" stroke="${STROKE}" stroke-width="1.5"/>`;
+  }
+
+  // Output lead / bubble
+  let output: string;
+  if (inv) {
+    const bubbleCx = outputTipX + 4;
+    output = `
+      <circle cx="${bubbleCx}" cy="${H / 2}" r="4" fill="${FILL}" stroke="${STROKE}" stroke-width="1.5"/>
+      <line x1="${bubbleCx + 4}" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="${LEAD}" stroke-width="2"/>`;
+  } else {
+    output = `<line x1="${outputTipX}" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="${LEAD}" stroke-width="2"/>`;
+  }
+
+  return `
+    <style>${STYLE}</style>
+    <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      ${leads}
+      ${body}
+      ${output}
+      <text x="${bodyLeft + 6}" y="${H / 2 + 4}" font-family="sans-serif" font-size="10" fill="${TEXT}" font-weight="bold">${text}</text>
+    </svg>`;
+}
+
+function makeMultiInputGateClass(variant: 'and' | 'or' | 'nand' | 'nor', inputs: number) {
+  const text = variant === 'and' || variant === 'nand' ? '&amp;' : '≥1';
+  const W = inputs === 4 ? 108 : 96;
+  const H = inputs === 4 ? 84 : 72;
+  const bodyRight = W - 24;
+  return class extends HTMLElement {
+    readonly pinInfo = nInputPinInfo(inputs, H, bodyRight);
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' }).innerHTML = makeMultiInputGateSvg(variant, inputs, text);
+    }
+  };
+}
+
+const And3Gate  = makeMultiInputGateClass('and',  3);
+const Or3Gate   = makeMultiInputGateClass('or',   3);
+const Nand3Gate = makeMultiInputGateClass('nand', 3);
+const Nor3Gate  = makeMultiInputGateClass('nor',  3);
+const And4Gate  = makeMultiInputGateClass('and',  4);
+const Or4Gate   = makeMultiInputGateClass('or',   4);
+const Nand4Gate = makeMultiInputGateClass('nand', 4);
+const Nor4Gate  = makeMultiInputGateClass('nor',  4);
+
+if (!customElements.get('wokwi-logic-and-3'))  customElements.define('wokwi-logic-and-3',  And3Gate);
+if (!customElements.get('wokwi-logic-or-3'))   customElements.define('wokwi-logic-or-3',   Or3Gate);
+if (!customElements.get('wokwi-logic-nand-3')) customElements.define('wokwi-logic-nand-3', Nand3Gate);
+if (!customElements.get('wokwi-logic-nor-3'))  customElements.define('wokwi-logic-nor-3',  Nor3Gate);
+if (!customElements.get('wokwi-logic-and-4'))  customElements.define('wokwi-logic-and-4',  And4Gate);
+if (!customElements.get('wokwi-logic-or-4'))   customElements.define('wokwi-logic-or-4',   Or4Gate);
+if (!customElements.get('wokwi-logic-nand-4')) customElements.define('wokwi-logic-nand-4', Nand4Gate);
+if (!customElements.get('wokwi-logic-nor-4'))  customElements.define('wokwi-logic-nor-4',  Nor4Gate);
+
+// Mark as a module (all symbols are internal — this file is imported for side effects only)
+export {};

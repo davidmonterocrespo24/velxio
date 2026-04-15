@@ -167,6 +167,9 @@ class MetadataGenerator {
    *  - Patch existing property fields (e.g. change control from "text" to "select")
    *  - Add entirely new properties to a component
    *  - Merge extra defaultValues
+   *  - Inject brand-new components via the `_customComponents` array
+   *    (used for Velxio-only parts not defined in wokwi-elements, e.g. logic
+   *    gates, discrete analog components, instruments).
    */
   private applyOverrides(components: ComponentMetadata[]): void {
     if (!fs.existsSync(this.overridesPath)) return;
@@ -177,6 +180,34 @@ class MetadataGenerator {
     } catch (e) {
       console.warn(`⚠️  Could not parse ${this.overridesPath}:`, e);
       return;
+    }
+
+    // Inject custom components first (so wokwi-elements scan can still take
+    // precedence on id collisions). Each entry must be a full ComponentMetadata.
+    const customComps = (overrides._customComponents ?? []) as ComponentMetadata[];
+    let injected = 0;
+    for (const custom of customComps) {
+      if (!custom.id || !custom.tagName) {
+        console.warn(`⚠️  Skipping custom component without id/tagName:`, custom);
+        continue;
+      }
+      if (components.find(c => c.id === custom.id)) {
+        console.log(`  ⏭️  Custom component ${custom.id} already scanned from wokwi-elements; skipping custom entry`);
+        continue;
+      }
+      components.push({
+        thumbnail: custom.thumbnail ?? this.generateThumbnailPlaceholder(custom.id),
+        tags: custom.tags ?? this.generateTags(custom.id, custom.name || custom.id),
+        properties: custom.properties ?? [],
+        defaultValues: custom.defaultValues ?? {},
+        pinCount: custom.pinCount ?? 0,
+        ...custom,
+      });
+      injected++;
+      console.log(`  ➕ Injected custom component ${custom.id}`);
+    }
+    if (injected > 0) {
+      console.log(`\n➕ Injected ${injected} custom component(s)`);
     }
 
     let applied = 0;

@@ -193,12 +193,158 @@ For flip-flops / latches, pair the above with a voltage-controlled switch (`S-el
 
 For the Velxio integration, these will need either ngspice `.subckt` macromodels (many available in vendor-provided SPICE libraries) or behavioral B-source blocks:
 
-- Op-amps (LM358, TL072, etc.) — vendor .subckt available
 - 555 timer — vendor .subckt or our relaxation-osc behavioral model
-- Voltage regulators (78xx, LDOs) — behavioral with `limit()`
 - Shift registers (74HC595) — behavioral gate network, clocked switches
-- H-bridges (L293D) — 4 MOSFETs or 4 switches
+- H-bridges (L293D, DRV8833) — 4 MOSFETs or 4 switches
+- Optocouplers (4N25, PC817) — BJT + LED pair in one package
+- 74HC logic families (74HC00/04/08/14/32) — gate networks in 14-pin packages
 - ADCs / DACs — behavioral `u()` thresholds or `limit()` scaled
+
+## Fase 9 — catalog expansion (implemented)
+
+The following mappers were added during fase 9 (commit fase 9.0–9.5) and are live in `frontend/src/simulation/spice/componentToSpice.ts`. The `MAPPERS` table now has 58 entries (up from 25) and `components-metadata.json` has 92 parts (up from 48). Every new component is accessible from the picker UI.
+
+### Fase 9.1 — Logic gates (behavioral B-sources)
+
+Every gate uses an ngspice B-source with `u()` unit-step functions and a 1 MΩ pull-down on the output (to give the node a DC path and prevent "matrix singular" errors).
+
+| metadataId | Inputs | Output expression |
+|---|---|---|
+| `logic-gate-and`   | A, B           | `Vcc · u(V(A)−T) · u(V(B)−T)` |
+| `logic-gate-or`    | A, B           | `Vcc · (1 − (1−u(V(A)−T))·(1−u(V(B)−T)))` |
+| `logic-gate-nand`  | A, B           | `Vcc · (1 − u(V(A)−T)·u(V(B)−T))` |
+| `logic-gate-nor`   | A, B           | `Vcc · (1−u(V(A)−T)) · (1−u(V(B)−T))` |
+| `logic-gate-xor`   | A, B           | `Vcc · (u(V(A)−T) + u(V(B)−T) − 2·u(V(A)−T)·u(V(B)−T))` |
+| `logic-gate-xnor`  | A, B           | `Vcc · (1 − XOR)` |
+| `logic-gate-not`   | A              | `Vcc · (1 − u(V(A)−T))` |
+
+Threshold `T = Vcc/2`. Multi-input variants (AND-3/4, OR-3/4, NAND-3/4, NOR-3/4) extend the product/sum to more terms.
+
+### Fase 9.2 — Transistors (discrete real parts)
+
+NMOS and PMOS use **Level=1** Shichman-Hodges with numerically sane W/L — the previous Level=3 with `W=0.1` (= 100 mm!) caused ngspice to hang. See [`circuit-emulation-gotchas.md`](circuit-emulation-gotchas.md#mosfet-convergence).
+
+| metadataId | Polarity | Package | Typical use |
+|---|---|---|---|
+| `bjt-2n2222`  | NPN | TO-92 | General purpose switching |
+| `bjt-bc547`   | NPN | TO-92 | Small-signal, hFE ~400 |
+| `bjt-2n3055`  | NPN | TO-3  | Power (15 A / 60 V / 115 W) |
+| `bjt-2n3906`  | PNP | TO-92 | General purpose (2N3904 complement) |
+| `bjt-bc557`   | PNP | TO-92 | Small-signal (BC547 complement) |
+| `mosfet-2n7000`   | NMOS | TO-92  | Logic-level (V_th ≈ 1.6 V) |
+| `mosfet-irf540`   | NMOS | TO-220 | Power (33 A / 100 V, V_th ≈ 3 V) |
+| `mosfet-irf9540`  | PMOS | TO-220 | Power P-channel |
+| `mosfet-fqp27p06` | PMOS | TO-220 | Logic-level P-channel |
+
+### Fase 9.3 — Operational amplifiers
+
+All op-amps use a behavioral `B_out = max(vLo, min(vHi, A · (V+ − V−)))` with rails derived from `ctx.vcc`. High input impedance via 10 MΩ (or 1 TΩ for JFET input) resistors to ground on each input pin.
+
+| metadataId | Type | Gain A | Low rail | High rail | Notes |
+|---|---|---|---|---|---|
+| `opamp-ideal` | VCVS | 10⁶ | unclamped | unclamped | Textbook circuits only |
+| `opamp-lm358` | Dual | 10⁵ | 0.05 V | Vcc − 1.5 V | Single-supply, rail-to-rail output |
+| `opamp-lm741` | Single | 2·10⁵ | 1.5 V | Vcc − 1.5 V | Classic, needs headroom |
+| `opamp-tl072` | Dual (JFET) | 2·10⁵ | 2 V | Vcc − 2 V | Audio / instrumentation |
+| `opamp-lm324` | Quad | 10⁵ | 0.05 V | Vcc − 1.5 V | 4× LM358 in one package |
+
+### Fase 9.4 — Power-supply parts
+
+| metadataId | Topology | Behavioral card |
+|---|---|---|
+| `reg-7805`  | +5 V linear, 2 V dropout | `B_out = min(V(VIN)−V(GND)−2, 5)` |
+| `reg-7812`  | +12 V linear | `B_out = min(V(VIN)−V(GND)−2, 12)` |
+| `reg-7905`  | −5 V linear (negative rail) | `B_out = max(V(VIN)−V(GND)+2, −5)` |
+| `reg-lm317` | Adjustable, 1.25 V reference | `B_out = V(ADJ) + min(V(VIN)−V(ADJ)−2, 1.25)` (referenced to ground for load current return) |
+| `battery-9v`        | 9 V with 1.5 Ω ESR | `V + int DC 9`, `R int − 1.5` |
+| `battery-aa`        | 1.5 V with 0.15 Ω ESR | " 1.5 / 0.15 |
+| `battery-coin-cell` | 3 V with 10 Ω ESR (CR2032) | " 3 / 10 |
+| `signal-generator`  | Sine / square / DC | `SIN(off amp freq)` / `PULSE(...)` / `DC off` selected by `waveform` property |
+
+### Fase 9.5 — Schottky, photodiode, multi-input gates
+
+| metadataId | Model / expression |
+|---|---|
+| `diode-1n5817` | Schottky 20 V, `D(Is=3.3u N=1 Rs=0.025)`, Vf ≈ 0.32 V |
+| `diode-1n5819` | Schottky 40 V, `D(Is=3u N=1 Rs=0.027)` |
+| `photodiode`   | Regular diode + current source: `I_ph = lux · 100 nA` sinking from cathode to anode |
+| `logic-gate-{and,or,nand,nor}-{3,4}` | Same behavioral pattern as 2-input gates, extended to 3 or 4 inputs |
+
+### Fase 10 — Electromechanical + IC packaging (implemented)
+
+#### Relay (SPDT)
+
+| metadataId | Topology |
+|---|---|
+| `relay` | R + L in parallel for the coil + ngspice `S` switches for NO/NC contacts with native Vt/Vh hysteresis + B-source inverter to implement the normally-closed switch (ngspice SW has no "NC" mode). Optional integrated flyback diode (cathode on COIL+, anode on COIL−). Configurable via `coil_voltage`, `coil_resistance`, `include_flyback` properties. |
+
+#### Optocouplers
+
+Pattern: LED + 0 V current-sense source in series + CCCS (`F` element) mirrors I_LED into the phototransistor output with the part's Current Transfer Ratio (CTR).
+
+| metadataId | CTR |
+|---|---|
+| `opto-4n25`  | 0.5 (50%) |
+| `opto-pc817` | 1.0 (100% typical, 80–600% spread in real parts) |
+
+#### 74HC logic ICs (multi-gate packages — 14-pin DIP)
+
+First mapper pattern in the project that emits **multiple** B-source cards per component (one per internal gate). Pin naming follows the datasheet (e.g. 1A/1B/1Y for gate 1, up to 4Y on quad packages or 6Y on hex inverters).
+
+| metadataId | Contents |
+|---|---|
+| `ic-74hc00` | 4× 2-input NAND |
+| `ic-74hc02` | 4× 2-input NOR |
+| `ic-74hc04` | 6× NOT |
+| `ic-74hc08` | 4× 2-input AND |
+| `ic-74hc14` | 6× Schmitt-trigger NOT (hysteresis via state-dependent threshold) |
+| `ic-74hc32` | 4× 2-input OR |
+| `ic-74hc86` | 4× 2-input XOR |
+
+Unwired gates are skipped silently (no wasted netlist cards).
+
+#### Flip-flops (digital simulation only)
+
+SPICE can't do edge detection in `.op` without `ddt()`, so flip-flops live in the digital-sim layer (`PartSimulationRegistry`) and **have no SPICE mapper**. They still participate in MCU-driven circuits.
+
+| metadataId | Behaviour on rising CLK |
+|---|---|
+| `flip-flop-d`  | Q ← D |
+| `flip-flop-t`  | Q ← Q ⊕ T (toggle when T=1) |
+| `flip-flop-jk` | J=0/K=0 hold, J=1/K=0 set, J=0/K=1 reset, J=1/K=1 toggle |
+
+Implemented via a shared `edgeTriggeredFF` helper that tracks the previous CLK state, detects rising edges, and samples the data inputs.
+
+#### L293D dual H-bridge motor driver
+
+| metadataId | Topology |
+|---|---|
+| `motor-driver-l293d` | Per channel (2 channels, EN1 + IN1/IN2 + OUT1/OUT2 and EN2 + IN3/IN4 + OUT3/OUT4): `OUT = u(EN−T) · u(IN−T) · V(VCC2)`. When EN=LOW the outputs are high-impedance (weak 10 MΩ pull-down to 0). Resolves V_motor from the wired VCC2 net when available, else from `ctx.vcc`. |
+
+## The `_customComponents` mechanism
+
+Velxio-specific parts (everything not defined in `wokwi-libs/wokwi-elements`) are declared in `scripts/component-overrides.json` under the `_customComponents[]` array. The metadata generator ([`scripts/generate-component-metadata.ts`](../../scripts/generate-component-metadata.ts), function `applyOverrides`) injects them before the standard property-patching loop. An entry must have: `id`, `tagName`, `name`, `category`, `pinCount`, `tags` — other fields default.
+
+Example:
+
+```json
+{
+  "_customComponents": [
+    {
+      "id": "logic-gate-xnor",
+      "tagName": "wokwi-logic-xnor",
+      "name": "XNOR Gate",
+      "category": "logic",
+      "properties": [],
+      "defaultValues": {},
+      "pinCount": 3,
+      "tags": ["logic", "gate", "xnor", "digital"]
+    }
+  ]
+}
+```
+
+A drift detector at [`test/test_circuit/test/metadata_drift.test.js`](../../test/test_circuit/test/metadata_drift.test.js) fails if `components-metadata.json` is out of sync with the overrides file. The frontend CI workflow also regenerates and checks `git diff` on the JSON. Run `cd frontend && npm run generate:metadata` after any change to `component-overrides.json`.
 
 ## What the sandbox does **not** include
 

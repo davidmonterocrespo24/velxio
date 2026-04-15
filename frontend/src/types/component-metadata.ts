@@ -14,6 +14,9 @@ export type ComponentCategory =
   | 'motors'
   | 'communication'
   | 'passive'
+  | 'logic'
+  | 'analog'
+  | 'electromech'
   | 'other';
 
 export interface PropertyDescriptor {

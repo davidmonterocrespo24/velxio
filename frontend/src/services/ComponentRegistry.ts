@@ -180,6 +180,9 @@ export class ComponentRegistry {
       motors: 'Motors',
       communication: 'Communication',
       passive: 'Passive',
+      logic: 'Logic Gates',
+      analog: 'Analog',
+      electromech: 'Electromechanical',
       other: 'Other',
     };
     return displayNames[category] || category;

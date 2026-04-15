@@ -27,9 +27,25 @@ const MINIMAL_FIXTURES: Record<string, { pins: string[]; properties?: Record<str
   'bjt-2n2222': { pins: ['C', 'B', 'E'] },
   'bjt-bc547': { pins: ['C', 'B', 'E'] },
   'bjt-2n3055': { pins: ['C', 'B', 'E'] },
+  'bjt-2n3906': { pins: ['C', 'B', 'E'] },
+  'bjt-bc557': { pins: ['C', 'B', 'E'] },
   'mosfet-2n7000': { pins: ['D', 'G', 'S'] },
   'mosfet-irf540': { pins: ['D', 'G', 'S'] },
+  'mosfet-irf9540': { pins: ['D', 'G', 'S'] },
+  'mosfet-fqp27p06': { pins: ['D', 'G', 'S'] },
   'opamp-ideal': { pins: ['IN+', 'IN-', 'OUT'] },
+  'opamp-lm358': { pins: ['IN+', 'IN-', 'OUT'] },
+  'opamp-lm741': { pins: ['IN+', 'IN-', 'OUT'] },
+  'opamp-tl072': { pins: ['IN+', 'IN-', 'OUT'] },
+  'opamp-lm324': { pins: ['IN+', 'IN-', 'OUT'] },
+  'reg-7805':  { pins: ['VIN', 'GND', 'VOUT'] },
+  'reg-7812':  { pins: ['VIN', 'GND', 'VOUT'] },
+  'reg-7905':  { pins: ['VIN', 'GND', 'VOUT'] },
+  'reg-lm317': { pins: ['VIN', 'ADJ', 'VOUT'] },
+  'battery-9v':        { pins: ['+', '−'] },
+  'battery-aa':        { pins: ['+', '−'] },
+  'battery-coin-cell': { pins: ['+', '−'] },
+  'signal-generator':  { pins: ['SIG', 'GND'], properties: { waveform: 'sine', frequency: 1000, amplitude: 1, offset: 0 } },
   pushbutton: { pins: ['A', 'B'] },
   'slide-switch': { pins: ['1', '2'], properties: { value: 1 } },
   'slide-potentiometer': { pins: ['VCC', 'SIG', 'GND'], properties: { value: '10k', position: 50 } },
@@ -37,6 +53,38 @@ const MINIMAL_FIXTURES: Record<string, { pins: string[]; properties?: Record<str
   photoresistor: { pins: ['LDR1', 'LDR2'], properties: { lux: 500 } },
   'instr-voltmeter': { pins: ['V+', 'V-'] },
   'instr-ammeter': { pins: ['A+', 'A-'] },
+  'logic-gate-and':  { pins: ['A', 'B', 'Y'] },
+  'logic-gate-nand': { pins: ['A', 'B', 'Y'] },
+  'logic-gate-or':   { pins: ['A', 'B', 'Y'] },
+  'logic-gate-nor':  { pins: ['A', 'B', 'Y'] },
+  'logic-gate-xor':  { pins: ['A', 'B', 'Y'] },
+  'logic-gate-xnor': { pins: ['A', 'B', 'Y'] },
+  'logic-gate-not':  { pins: ['A', 'Y'] },
+  'logic-gate-and-3':  { pins: ['A', 'B', 'C', 'Y'] },
+  'logic-gate-or-3':   { pins: ['A', 'B', 'C', 'Y'] },
+  'logic-gate-nand-3': { pins: ['A', 'B', 'C', 'Y'] },
+  'logic-gate-nor-3':  { pins: ['A', 'B', 'C', 'Y'] },
+  'logic-gate-and-4':  { pins: ['A', 'B', 'C', 'D', 'Y'] },
+  'logic-gate-or-4':   { pins: ['A', 'B', 'C', 'D', 'Y'] },
+  'logic-gate-nand-4': { pins: ['A', 'B', 'C', 'D', 'Y'] },
+  'logic-gate-nor-4':  { pins: ['A', 'B', 'C', 'D', 'Y'] },
+  'diode-1n5817': { pins: ['A', 'C'] },
+  'diode-1n5819': { pins: ['A', 'C'] },
+  'photodiode':   { pins: ['A', 'C'], properties: { lux: 500 } },
+  relay: { pins: ['COIL+', 'COIL-', 'COM', 'NO', 'NC'], properties: { coil_voltage: 5 } },
+  'opto-4n25':  { pins: ['AN', 'CAT', 'COL', 'EMIT'] },
+  'opto-pc817': { pins: ['AN', 'CAT', 'COL', 'EMIT'] },
+  // ICs: include at least one full gate (1A, 1B, 1Y) so the mapper emits
+  // cards. Listed in NEEDS_CUSTOM_TOPOLOGY so the ngspice-acceptance test
+  // doesn't try to short the output to GND.
+  'ic-74hc00': { pins: ['1A', '1B', '1Y'] },
+  'ic-74hc02': { pins: ['1A', '1B', '1Y'] },
+  'ic-74hc04': { pins: ['1A', '1Y'] },
+  'ic-74hc08': { pins: ['1A', '1B', '1Y'] },
+  'ic-74hc14': { pins: ['1A', '1Y'] },
+  'ic-74hc32': { pins: ['1A', '1B', '1Y'] },
+  'ic-74hc86': { pins: ['1A', '1B', '1Y'] },
+  'motor-driver-l293d': { pins: ['EN1', 'IN1', 'OUT1'] },
 };
 
 describe('componentToSpice — catalog completeness', () => {
@@ -61,10 +109,26 @@ describe('componentToSpice — catalog completeness', () => {
   });
 });
 
-// The ideal op-amp has infinite gain and needs real feedback to converge
-// in DC — can't be tested with the one-component fixture below.
-// It has its own dedicated test in spice-active.test.ts.
-const NEEDS_CUSTOM_TOPOLOGY = new Set(['opamp-ideal']);
+// Op-amps have huge open-loop gain and need real feedback to converge in DC —
+// can't be tested with the naive one-component fixture below. Multi-gate ICs
+// use B-sources that drive the output pin; the topology test would short
+// that pin to GND creating a V-source conflict. They have their own dedicated
+// tests in spice-active.test.ts, spice-opamps.test.ts and spice_mapped_74hc.test.js.
+const NEEDS_CUSTOM_TOPOLOGY = new Set([
+  'opamp-ideal',
+  'opamp-lm358',
+  'opamp-lm741',
+  'opamp-tl072',
+  'opamp-lm324',
+  'ic-74hc00',
+  'ic-74hc02',
+  'ic-74hc04',
+  'ic-74hc08',
+  'ic-74hc14',
+  'ic-74hc32',
+  'ic-74hc86',
+  'motor-driver-l293d',
+]);
 
 describe('componentToSpice — ngspice accepts every card', () => {
   for (const id of Object.keys(MINIMAL_FIXTURES)) {

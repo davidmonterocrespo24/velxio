@@ -242,6 +242,43 @@ Vpwm pwm 0 DC 2.5           ; duty=0.5 → 2.5V DC
 
 The `eecircuit-engine` WASM boot is lazy. In Vitest, we use a singleton — the first test in a run pays 400 ms; subsequent tests pay 5–500 ms each. In a browser context, the 400 ms boot is user-visible; lazy-load the module behind a "⚡ Electrical simulation" toggle.
 
+## G-N. Unicode arrow (→) in netlist title silently hangs ngspice
+
+**Symptom:** `runNetlist()` never resolves. Test times out after 30 s, no error logged.
+
+**Reproduction:**
+
+```spice
+3.3V GPIO → MOSFET → LED
+V_sys vsys 0 DC 5
+...
+```
+
+The `→` (U+2192) in the first line (the title card) is all it takes. Removing it or replacing with `to` fixes it instantly.
+
+**Root cause:** the ngspice-WASM build doesn't sanitize non-ASCII input in the title card. The character enters the parser in an unexpected state and the simulation loop never converges / exits.
+
+**Mitigation (enforced at test-author level):** only ASCII in netlist titles. Non-ASCII is fine in comments (`* ...`) and inside B-source expressions. Consider a pre-commit hook that lints `runNetlist()` call sites — detailed in [`test/test_circuit/autosearch/06_ngspice_convergence.md`](../../test/test_circuit/autosearch/06_ngspice_convergence.md).
+
+## G-M. MOSFET `Level=3` with unphysical W causes `.op` to hang
+
+**Symptom:** same as G-N — test times out, no error.
+
+**Reproduction:**
+
+```spice
+.model M_X NMOS(Level=3 Vto=1.6 Kp=0.1 Rd=1 Rs=0.5)
+M1 d g 0 0 M_X L=2u W=0.1
+```
+
+`W=0.1` without unit is interpreted as **0.1 metres** (100 mm channel width). With `L=2u` that is W/L = 50 000 and `Kp=0.1 A/V²` gives kiloamps of theoretical channel current; Newton blows up on the first iteration and can't recover. Tests that happened to have the drain shorted to ground escaped this because the external resistor forced a small Vds, but any free-swinging drain hangs.
+
+**Mitigation:** use `Level=1` Shichman-Hodges with W/L in a physically reasonable range (W/L between 10 and 10⁵, W ≤ 10 mm, L ≥ 1 µm). All fase-9 MOSFET mappers have been migrated to this pattern.
+
+```spice
+.model M2N7000 NMOS(Level=1 Vto=1.6 Kp=50u Lambda=0.01)   ; with L=2u W=200u
+```
+
 ## What to check first when something fails
 
 1. **Console stderr** from ngspice often contains the root cause ("singular matrix", "model not found", "syntax error at line X").

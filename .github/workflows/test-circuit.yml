@@ -1,0 +1,35 @@
+name: Circuit Sandbox Tests
+
+on:
+  push:
+    branches: [master, main, 'feature/**']
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache test_circuit node_modules
+        uses: actions/cache@v4
+        with:
+          path: test/test_circuit/node_modules
+          key: test-circuit-${{ hashFiles('test/test_circuit/package-lock.json') }}
+
+      - name: Install test_circuit dependencies
+        working-directory: test/test_circuit
+        run: npm ci
+
+      - name: Run ngspice + MNA + AVR8 test suite
+        working-directory: test/test_circuit
+        run: npm test
