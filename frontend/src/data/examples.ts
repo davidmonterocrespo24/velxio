@@ -4799,6 +4799,10 @@ void loop() {
   },
 ];
 
+// Append circuit-focused examples (analog, digital gates, electromechanical)
+import { circuitExamples } from './examples-circuits';
+exampleProjects.push(...circuitExamples);
+
 // Get examples by category
 export function getExamplesByCategory(category: ExampleProject['category']): ExampleProject[] {
   return exampleProjects.filter((example) => example.category === category);
