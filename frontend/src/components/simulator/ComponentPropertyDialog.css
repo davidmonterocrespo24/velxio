@@ -105,6 +105,56 @@
   font-weight: 600;
 }
 
+.property-edit-section {
+  margin-bottom: 12px;
+  border-top: 1px solid #444;
+  padding-top: 10px;
+}
+
+.property-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.property-edit-label {
+  font-size: 12px;
+  color: #aaa;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.property-edit-select {
+  flex: 1;
+  max-width: 100px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #3d3d3d;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.property-edit-select:hover {
+  border-color: #007acc;
+}
+
+.property-edit-select:focus {
+  border-color: #007acc;
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.25);
+}
+
+.property-edit-select option {
+  background-color: #2d2d2d;
+  color: #fff;
+}
+
 .property-actions {
   display: flex;
   gap: 8px;

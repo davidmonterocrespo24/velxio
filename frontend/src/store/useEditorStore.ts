@@ -21,6 +21,28 @@ void loop() {
   delay(1000);
 }`;
 
+const DEFAULT_MICROPYTHON_CONTENT = `# MicroPython Blink for Raspberry Pi Pico
+from machine import Pin
+import time
+
+led = Pin(25, Pin.OUT)
+
+while True:
+    led.toggle()
+    time.sleep(1)
+`;
+
+const DEFAULT_ESP32_MICROPYTHON_CONTENT = `# MicroPython Blink for ESP32
+from machine import Pin
+import time
+
+led = Pin(2, Pin.OUT)  # Built-in LED on GPIO 2
+
+while True:
+    led.toggle()
+    time.sleep(1)
+`;
+
 const DEFAULT_PY_CONTENT = `import RPi.GPIO as GPIO
 import time
 
@@ -79,7 +101,7 @@ interface EditorState {
   loadFiles: (files: { name: string; content: string }[]) => void;
 
   // File group management
-  createFileGroup: (groupId: string, initialFiles?: { name: string; content: string }[]) => void;
+  createFileGroup: (groupId: string, languageModeOrFiles?: string | { name: string; content: string }[]) => void;
   deleteFileGroup: (groupId: string) => void;
   setActiveGroup: (groupId: string) => void;
   getGroupFiles: (groupId: string) => WorkspaceFile[];
@@ -88,6 +110,10 @@ interface EditorState {
   // Settings
   setTheme: (theme: 'vs-dark' | 'light') => void;
   setFontSize: (size: number) => void;
+
+  // Dirty flag — tracks whether code changed since last compilation
+  codeChangedSinceLastCompile: boolean;
+  markCompiled: () => void;
 
   // Legacy compat — sets content of the active file
   setCode: (code: string) => void;
@@ -107,6 +133,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeGroupId: DEFAULT_GROUP_ID,
   activeGroupFileId: { [DEFAULT_GROUP_ID]: MAIN_ID },
   openGroupFileIds: { [DEFAULT_GROUP_ID]: [MAIN_ID] },
+
+  codeChangedSinceLastCompile: true,
+  markCompiled: () => set({ codeChangedSinceLastCompile: false }),
 
   // ── File operations (legacy API — operate on active group) ──────────────
 
@@ -178,6 +207,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         files: s.files.map(mapper),
         fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
+        codeChangedSinceLastCompile: true,
       };
     });
   },
@@ -263,9 +293,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   // ── File group management ─────────────────────────────────────────────────
 
-  createFileGroup: (groupId: string, initialFiles?: { name: string; content: string }[]) => {
+  createFileGroup: (groupId: string, languageModeOrFiles?: string | { name: string; content: string }[]) => {
     set((s) => {
       if (s.fileGroups[groupId]) return s; // already exists
+
+      // Resolve overloaded parameter
+      const initialFiles = Array.isArray(languageModeOrFiles) ? languageModeOrFiles : undefined;
+      const languageMode = typeof languageModeOrFiles === 'string' ? languageModeOrFiles : undefined;
 
       let files: WorkspaceFile[];
       if (initialFiles && initialFiles.length > 0) {
@@ -276,15 +310,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           modified: false,
         }));
       } else {
-        // Determine default file by group name convention
+        // Determine default file by group name convention or language mode
         const isPi = groupId.includes('raspberry-pi-3');
+        const isMicroPython = languageMode === 'micropython';
         const mainId = `${groupId}-main`;
-        files = [{
-          id: mainId,
-          name: isPi ? 'script.py' : 'sketch.ino',
-          content: isPi ? DEFAULT_PY_CONTENT : DEFAULT_INO_CONTENT,
-          modified: false,
-        }];
+        let fileName: string;
+        let content: string;
+        const isEsp32 = groupId.includes('esp32');
+        if (isMicroPython && isEsp32) {
+          fileName = 'main.py';
+          content = DEFAULT_ESP32_MICROPYTHON_CONTENT;
+        } else if (isMicroPython) {
+          fileName = 'main.py';
+          content = DEFAULT_MICROPYTHON_CONTENT;
+        } else if (isPi) {
+          fileName = 'script.py';
+          content = DEFAULT_PY_CONTENT;
+        } else {
+          fileName = 'sketch.ino';
+          content = DEFAULT_INO_CONTENT;
+        }
+        files = [{ id: mainId, name: fileName, content, modified: false }];
       }
 
       const firstId = files[0]?.id ?? `${groupId}-main`;

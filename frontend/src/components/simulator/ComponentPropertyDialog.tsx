@@ -18,6 +18,7 @@ interface ComponentPropertyDialogProps {
   onClose: () => void;
   onRotate: (componentId: string) => void;
   onDelete: (componentId: string) => void;
+  onPropertyChange?: (componentId: string, propertyName: string, value: unknown) => void;
 }
 
 export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = ({
@@ -29,15 +30,16 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
   onClose,
   onRotate,
   onDelete,
+  onPropertyChange,
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const [dialogPosition, setDialogPosition] = useState({ x: 0, y: 0 });
 
-  // Calculate dialog position on mount
+  // Calculate dialog position on mount — clamp within canvas viewport
   useEffect(() => {
     if (!dialogRef.current) return;
 
-    const dialogWidth = 220;
+    const dialogWidth = dialogRef.current.offsetWidth || 220;
     const dialogHeight = dialogRef.current.offsetHeight || 200;
     const canvasElement = document.querySelector('.canvas-content');
     if (!canvasElement) return;
@@ -45,19 +47,20 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
     const canvasWidth = canvasElement.clientWidth;
     const canvasHeight = canvasElement.clientHeight;
 
-    // Try positioning to the right of component
-    let x = position.x + 150; // Approximate component width + gap
+    // Position to the right of the component (screen coords already include pan+zoom)
+    let x = position.x + 120;
     let y = position.y;
 
-    // If off-screen right, position to left
+    // If off-screen right, position to the left
     if (x + dialogWidth > canvasWidth) {
       x = Math.max(10, position.x - dialogWidth - 10);
     }
 
-    // Keep within vertical bounds
-    if (y + dialogHeight > canvasHeight) {
-      y = Math.max(10, canvasHeight - dialogHeight - 10);
-    }
+    // Clamp horizontal
+    x = Math.max(10, Math.min(x, canvasWidth - dialogWidth - 10));
+
+    // Clamp vertical — ensure dialog stays fully visible
+    y = Math.max(10, Math.min(y, canvasHeight - dialogHeight - 10));
 
     setDialogPosition({ x, y });
   }, [position]);
@@ -139,6 +142,36 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
               ? `A${componentProperties.pin - 14}`
               : `D${componentProperties.pin}`}
           </div>
+        </div>
+      )}
+
+      {/* Editable Properties (select dropdowns) */}
+      {componentMetadata.properties
+        .filter((p: any) => p.control === 'select' && p.options)
+        .length > 0 && (
+        <div className="property-edit-section">
+          {componentMetadata.properties
+            .filter((p: any) => p.control === 'select' && p.options)
+            .map((prop: any) => (
+              <div key={prop.name} className="property-edit-row">
+                <label className="property-edit-label">
+                  {prop.description || prop.name}
+                </label>
+                <select
+                  className="property-edit-select"
+                  value={String(componentProperties[prop.name] ?? prop.defaultValue ?? '')}
+                  onChange={(e) =>
+                    onPropertyChange?.(componentId, prop.name, e.target.value)
+                  }
+                >
+                  {prop.options.map((opt: string) => (
+                    <option key={opt} value={opt}>
+                      {opt.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
         </div>
       )}
 

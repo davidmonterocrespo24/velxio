@@ -1,0 +1,303 @@
+name: Discord — Release Merge Notification
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - release
+
+jobs:
+  notify:
+    # Solo cuando el PR fue efectivamente mergeado (no cerrado sin merge)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # necesario para pushear CHANGELOG.md
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: release
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate CHANGELOG entry, commit, then send Discord announcement
+        uses: actions/github-script@v7
+        env:
+          DAVEAGENT_API_KEY:   ${{ secrets.DAVEAGENT_API_KEY }}
+          DISCORD_BOT_TOKEN:   ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID:  ${{ secrets.DISCORD_CHANNEL_ID }}
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const fs = require('fs');
+            const today = new Date().toISOString().slice(0, 10);
+
+            // ── Helpers ──────────────────────────────────────────────────────
+            function git(cmd) {
+              try {
+                return execSync(`git ${cmd}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+              } catch { return ''; }
+            }
+
+            async function callDeepSeek(prompt, maxTokens = 800, temperature = 0.3) {
+              const apiKey = process.env.DAVEAGENT_API_KEY;
+              if (!apiKey) throw new Error('DAVEAGENT_API_KEY not set');
+              const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                  model: 'deepseek-chat',
+                  max_tokens: maxTokens,
+                  temperature,
+                  messages: [{ role: 'user', content: prompt }],
+                }),
+              });
+              if (!res.ok) {
+                const err = await res.text();
+                throw new Error(`DeepSeek ${res.status}: ${err}`);
+              }
+              const data = await res.json();
+              return (data.choices?.[0]?.message?.content ?? '').trim();
+            }
+
+            // ── Version ──────────────────────────────────────────────────────
+            let version = '2.0.1';
+            try {
+              const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+              version = pkg.version ?? '2.0.1';
+            } catch {}
+            console.log(`Version: v${version}`);
+
+            // ── Rango exacto del PR mergeado ──────────────────────────────────
+            // base.sha = tip de release ANTES del merge
+            // head.sha = tip de la rama fuente (master u otra)
+            const pr = context.payload.pull_request;
+            const baseSha    = pr.base.sha;
+            const headSha    = pr.head.sha;
+            const sourceBranch = pr.head.ref;        // ej: "master"
+            const prTitle    = pr.title ?? '';
+            const prBody     = pr.body  ?? '';
+
+            console.log(`PR: #${pr.number} "${prTitle}"`);
+            console.log(`Range: ${baseSha.slice(0,7)}..${headSha.slice(0,7)} (${sourceBranch} → release)`);
+
+            // Commits que entraron (con hash + subject + body + autor)
+            const commits = git(
+              `log ${baseSha}..${headSha} --pretty=format:"%h||%s||%b||%an|||" --no-merges`
+            ) || git(`log -30 --pretty=format:"%h||%s||%b||%an|||" --no-merges`);
+
+            // Lineas simples para el anuncio Discord
+            const commitLines = git(
+              `log ${baseSha}..${headSha} --pretty=format:"%h %s" --no-merges`
+            ) || git(`log -20 --pretty=format:"%h %s" --no-merges`);
+
+            const changedFiles = git(`diff --name-only ${baseSha}..${headSha}`)
+              .split('\n').filter(Boolean);
+
+            console.log(`Commits found: ${commitLines.split('\n').filter(Boolean).length}`);
+            console.log(`Files changed: ${changedFiles.length}`);
+
+            // ──────────────────────────────────────────────────────────────────
+            // FASE 1 — Generar entrada de CHANGELOG con DeepSeek
+            // ──────────────────────────────────────────────────────────────────
+            const changelogPrompt = `You are generating a CHANGELOG entry for version ${version} of Velxio.
+
+            Velxio is a fully local, open-source Arduino/RP2040 emulator and circuit simulator.
+
+            PR TITLE: ${prTitle}
+            PR DESCRIPTION: ${prBody}
+            SOURCE BRANCH: ${sourceBranch}
+
+            GIT COMMITS (hash||subject||body||author):
+            ${commits}
+
+            Generate a changelog entry using EXACTLY this format:
+
+            ## [${version}] - ${today}
+
+            ### Added
+            - New user-facing features
+
+            ### Changed
+            - Changes in existing functionality
+
+            ### Fixed
+            - Bug fixes
+
+            RULES:
+            1. Group commits by category (Added, Changed, Fixed, Performance, Removed, Security)
+            2. Write in past tense, user-facing language
+            3. Skip trivial commits (formatting, typos, version bumps)
+            4. Combine related commits into single entries
+            5. Remove commit hashes and author names
+            6. Only include sections that have real content
+            7. Output ONLY the changelog entry block, nothing else`;
+
+            console.log('Generating CHANGELOG entry...');
+            const changelogEntry = await callDeepSeek(changelogPrompt, 800, 0.3);
+
+            // ── Actualizar CHANGELOG.md ───────────────────────────────────────
+            const changelogPath = 'CHANGELOG.md';
+            let changelogContent;
+
+            if (!fs.existsSync(changelogPath)) {
+              changelogContent = '# Changelog\n\n'
+                + 'All notable changes to Velxio will be documented in this file.\n'
+                + 'The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).\n\n'
+                + changelogEntry + '\n\n'
+                + `[${version}]: https://github.com/davidmonterocrespo24/velxio/releases/tag/v${version}\n`;
+            } else {
+              const existing = fs.readFileSync(changelogPath, 'utf8');
+              const lines = existing.split('\n');
+
+              // Insertar antes del primer ## [ o despues del header
+              let insertIdx = lines.findIndex(l => l.startsWith('## ['));
+              if (insertIdx === -1) {
+                insertIdx = lines.findIndex((l, i) => i > 3 && l.trim() === '') + 1;
+              }
+
+              lines.splice(insertIdx, 0, changelogEntry, '');
+
+              const linkLine = `[${version}]: https://github.com/davidmonterocrespo24/velxio/releases/tag/v${version}`;
+              if (!existing.includes(linkLine)) lines.push(linkLine);
+
+              changelogContent = lines.join('\n');
+            }
+
+            fs.writeFileSync(changelogPath, changelogContent, 'utf8');
+            console.log('CHANGELOG.md updated');
+
+            // ── Commit y push del CHANGELOG ───────────────────────────────────
+            try {
+              execSync('git add CHANGELOG.md', { stdio: 'inherit' });
+              execSync(
+                `git commit -m "docs: update CHANGELOG for v${version} [skip ci]"`,
+                { stdio: 'inherit' }
+              );
+              execSync('git push origin release', { stdio: 'inherit' });
+              console.log('CHANGELOG.md committed and pushed');
+            } catch (e) {
+              console.log('Nothing to commit or push failed:', e.message);
+            }
+
+            // ──────────────────────────────────────────────────────────────────
+            // FASE 2 — Generar anuncio Discord usando el CHANGELOG recien generado
+            // ──────────────────────────────────────────────────────────────────
+            const announcementPrompt = `You are writing a Discord announcement for Velxio v${version}.
+
+            Velxio is a fully local, open-source Arduino/RP2040 emulator and circuit simulator that runs in the browser.
+            Website: https://velxio.dev/
+            GitHub: https://github.com/davidmonterocrespo24/velxio
+
+            CRITICAL: The announcement MUST be 1900 characters or less.
+
+            CHANGELOG for this version (use this as the source of truth):
+            ${changelogEntry}
+
+            RECENT COMMITS (for additional context):
+            ${commitLines}
+
+            STYLE EXAMPLES:
+
+            EXAMPLE 1:
+            v2.0.0 @everyone
+
+            Velxio just got a major upgrade. Here is what is new.
+
+            GROUND CHECK FOR LEDS
+            LEDs now require a proper cathode connection to GND. No more phantom lights without a complete circuit.
+
+            GENERIC OUTPUT COMPONENT PROTECTION
+            Any output component connected without a ground wire stays off. The simulator now enforces real circuit behavior for all components.
+
+            SSD1306 SPI MODE
+            The SSD1306 OLED display now supports both I2C and SPI. Switch protocols from the component property dialog.
+
+            Try it now: https://velxio.dev/
+            Full release details: https://github.com/davidmonterocrespo24/velxio/releases/tag/v2.0.0
+
+            EXAMPLE 2:
+            v2.0.1 @everyone
+
+            Quick fixes in this update:
+
+            Fixed LED staying on after simulation stops
+            Fixed wire color not persisting on reload
+            Fixed serial monitor scroll position resetting mid-output
+
+            Update your Docker image or open https://velxio.dev/
+
+            STYLE RULES:
+            - Start with version number and @everyone on the first line
+            - No emojis
+            - No markdown (no **, no ###)
+            - Use ALL CAPS for section headers when grouping multiple features
+            - Focus on USER BENEFITS, not implementation details
+            - Under 1900 characters
+            - End with link to GitHub release
+            - Write in English`;
+
+            console.log('Generating Discord announcement...');
+            let announcement = await callDeepSeek(announcementPrompt, 600, 0.7);
+
+            // Limpiar markdown residual
+            announcement = announcement
+              .replace(/###/g, '')
+              .replace(/\*\*/g, '')
+              .replace(/__/g, '')
+              .trim();
+
+            // Truncar si excede el limite
+            if (announcement.length > 1900) {
+              const cut = announcement.lastIndexOf('\n', 1900);
+              announcement = announcement.slice(0, cut > 1200 ? cut : 1900).trim();
+            }
+
+            console.log('='.repeat(70));
+            console.log('DISCORD ANNOUNCEMENT:');
+            console.log('='.repeat(70));
+            console.log(announcement);
+            console.log(`\nCharacters: ${announcement.length}/1900`);
+
+            // ──────────────────────────────────────────────────────────────────
+            // FASE 3 — Enviar a Discord via Bot API
+            // ──────────────────────────────────────────────────────────────────
+            const botToken  = process.env.DISCORD_BOT_TOKEN;
+            const channelId = process.env.DISCORD_CHANNEL_ID;
+            if (!botToken || !channelId) {
+              core.setFailed('DISCORD_BOT_TOKEN or DISCORD_CHANNEL_ID secret not configured');
+              return;
+            }
+
+            const discordRes = await fetch(
+              `https://discord.com/api/v10/channels/${channelId}/messages`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type':  'application/json',
+                  'Authorization': `Bot ${botToken}`,
+                },
+                body: JSON.stringify({ content: announcement }),
+              }
+            );
+
+            if (!discordRes.ok) {
+              const err = await discordRes.text();
+              core.setFailed(`Discord ${discordRes.status}: ${err}`);
+              return;
+            }
+
+            console.log('='.repeat(70));
+            console.log(`Release v${version} announced on Discord`);
+            console.log(`PR #${pr.number} | Commits: ${commitLines.split('\n').filter(Boolean).length} | Files: ${changedFiles.length}`);

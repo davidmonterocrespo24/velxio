@@ -21,6 +21,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -50,9 +53,12 @@ jobs:
         with:
           context: .
           file: Dockerfile.standalone
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ESPIDF_IMAGE=ghcr.io/davidmonterocrespo24/velxio-espidf-toolchain:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

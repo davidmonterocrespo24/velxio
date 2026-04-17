@@ -15,6 +15,9 @@ frontend/.vite/
 wokwi-libs/avr8js/dist/
 wokwi-libs/wokwi-elements/dist/
 
+# QEMU source & Windows builds (only prebuilt/qemu/ .so files are needed)
+wokwi-libs/qemu-lcgamboa/
+
 # IDE and OS
 .vscode/
 .idea/

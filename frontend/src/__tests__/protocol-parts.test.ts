@@ -16,6 +16,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
+import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
 import '../simulation/parts/ProtocolParts';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
@@ -91,17 +92,48 @@ const pinMap =
 
 const noPins = (_name: string): number | null => null;
 
+/**
+ * Simulator mock that triggers the ESP32 dual-path branch in ProtocolParts.
+ *
+ * Deliberately has no `addI2CDevice` so the `else if (registerSensor)` branch
+ * is taken. Captures I2C transaction listeners so tests can fire them.
+ */
+function makeEsp32Sim() {
+  const listeners = new Map<number, (data: number[]) => void>();
+  return {
+    registerSensor:   vi.fn(),
+    updateSensor:     vi.fn(),
+    unregisterSensor: vi.fn(),
+    addI2CTransactionListener: vi.fn((addr: number, fn: (d: number[]) => void) => {
+      listeners.set(addr, fn);
+    }),
+    removeI2CTransactionListener: vi.fn((addr: number) => {
+      listeners.delete(addr);
+    }),
+    /** Simulate backend emitting an i2c_transaction for a given address. */
+    _fireTransaction(addr: number, data: number[]) {
+      listeners.get(addr)?.(data);
+    },
+    i2cBus: { removeDevice: vi.fn() },
+    pinManager: { onPinChange: vi.fn().mockReturnValue(() => {}) },
+    setPinState: vi.fn(),
+    spi: null,
+    cpu: { data: new Uint8Array(512) },
+  };
+}
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 describe('Protocol parts — registration', () => {
   const IDS = [
     'ssd1306', 'ds1307', 'mpu6050',
+    'bmp280', 'ds3231', 'pcf8574',
     'dht22', 'hx711',
     'ir-receiver', 'ir-remote',
     'microsd-card',
   ];
 
-  it('registers all 8 protocol components', () => {
+  it('registers all 11 protocol components', () => {
     for (const id of IDS) {
       expect(PartSimulationRegistry.get(id), `missing: ${id}`).toBeDefined();
     }
@@ -592,5 +624,201 @@ describe('microsd-card — SPI init handshake', () => {
       const c = logic.attachEvents!(makeElement(), sim as any, noPins);
       c();
     }).not.toThrow();
+  });
+});
+
+// ─── ESP32 paths ──────────────────────────────────────────────────────────────
+// The following tests verify the `else if (typeof sim.registerSensor)` branch
+// that was added to each component for ESP32 QEMU simulation.
+
+// ─── ssd1306 — ESP32 relay path ───────────────────────────────────────────────
+
+// NOTE: 0x3C = 60 decimal → virtual pin = 200 + 60 = 260
+describe('ssd1306 — ESP32 relay path', () => {
+  it('registers sensor with type ssd1306 and virtual pin 260 (200+0x3C)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ssd1306')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.registerSensor).toHaveBeenCalledWith('ssd1306', 260, expect.objectContaining({ addr: 0x3C }));
+  });
+
+  it('adds I2C transaction listener for addr 0x3C', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ssd1306')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.addI2CTransactionListener).toHaveBeenCalledWith(0x3C, expect.any(Function));
+  });
+
+  it('transaction data is forwarded to VirtualSSD1306 device', () => {
+    const el  = makeElement();
+    const sim = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ssd1306')!;
+    logic.attachEvents!(el, sim as any, noPins);
+    // Send a command-mode control byte + set-page command — should not throw
+    expect(() => {
+      sim._fireTransaction(0x3C, [0x00, 0xB0]);
+    }).not.toThrow();
+  });
+
+  it('cleanup calls unregisterSensor(260) and removeI2CTransactionListener(0x3C)', () => {
+    const sim     = makeEsp32Sim();
+    const logic   = PartSimulationRegistry.get('ssd1306')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins);
+    cleanup();
+    expect(sim.unregisterSensor).toHaveBeenCalledWith(260);
+    expect(sim.removeI2CTransactionListener).toHaveBeenCalledWith(0x3C);
+  });
+});
+
+// ─── ds1307 — ESP32 path ──────────────────────────────────────────────────────
+
+describe('ds1307 — ESP32 path', () => {
+  it('registers sensor with type ds1307 and virtual pin 304 (200+0x68)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ds1307')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.registerSensor).toHaveBeenCalledWith('ds1307', 304, expect.objectContaining({ addr: 0x68 }));
+  });
+
+  it('does NOT add I2C transaction listener (read-only: backend handles reads)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ds1307')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.addI2CTransactionListener).not.toHaveBeenCalled();
+  });
+
+  it('cleanup calls unregisterSensor(304)', () => {
+    const sim     = makeEsp32Sim();
+    const logic   = PartSimulationRegistry.get('ds1307')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins);
+    cleanup();
+    expect(sim.unregisterSensor).toHaveBeenCalledWith(304);
+  });
+});
+
+// ─── bmp280 — ESP32 path ──────────────────────────────────────────────────────
+
+describe('bmp280 — ESP32 path', () => {
+  it('registers sensor with type bmp280 and virtual pin 318 (200+0x76)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('bmp280')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins, 'bmp-esp-1');
+    expect(sim.registerSensor).toHaveBeenCalledWith('bmp280', 318, expect.objectContaining({ addr: 0x76 }));
+  });
+
+  it('uses virtual pin 319 (200+0x77) when address is 0x77', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('bmp280')!;
+    logic.attachEvents!(makeElement({ address: '0x77' }), sim as any, noPins, 'bmp-esp-2');
+    expect(sim.registerSensor).toHaveBeenCalledWith('bmp280', 319, expect.objectContaining({ addr: 0x77 }));
+  });
+
+  it('forwards initial temperature from element.temperature', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('bmp280')!;
+    logic.attachEvents!(makeElement({ temperature: '35.5' }), sim as any, noPins, 'bmp-esp-3');
+    const [, , props] = sim.registerSensor.mock.calls[0];
+    expect(props.temperature).toBeCloseTo(35.5);
+  });
+
+  it('forwards initial pressure from element.pressure', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('bmp280')!;
+    logic.attachEvents!(makeElement({ pressure: '980.5' }), sim as any, noPins, 'bmp-esp-4');
+    const [, , props] = sim.registerSensor.mock.calls[0];
+    expect(props.pressure).toBeCloseTo(980.5);
+  });
+
+  it('registerSensorUpdate callback calls updateSensor with new values', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('bmp280')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins, 'bmp-esp-5');
+    dispatchSensorUpdate('bmp-esp-5', { temperature: 40, pressure: 950 });
+    expect(sim.updateSensor).toHaveBeenCalledWith(318, expect.objectContaining({ temperature: 40 }));
+  });
+
+  it('cleanup calls unregisterSensor and unregisters sensor update', () => {
+    const sim     = makeEsp32Sim();
+    const logic   = PartSimulationRegistry.get('bmp280')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins, 'bmp-esp-6');
+    cleanup();
+    expect(sim.unregisterSensor).toHaveBeenCalledWith(318);
+    // After cleanup, dispatching an update must NOT call updateSensor again
+    sim.updateSensor.mockClear();
+    dispatchSensorUpdate('bmp-esp-6', { temperature: 99 });
+    expect(sim.updateSensor).not.toHaveBeenCalled();
+  });
+});
+
+// ─── ds3231 — ESP32 path ──────────────────────────────────────────────────────
+
+describe('ds3231 — ESP32 path', () => {
+  it('registers sensor with type ds3231 and virtual pin 304 (200+0x68)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ds3231')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.registerSensor).toHaveBeenCalledWith('ds3231', 304, expect.objectContaining({ addr: 0x68 }));
+  });
+
+  it('forwards initial temperature from element.temperature', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('ds3231')!;
+    logic.attachEvents!(makeElement({ temperature: '28.5' }), sim as any, noPins);
+    const [, , props] = sim.registerSensor.mock.calls[0];
+    expect(props.temperature).toBeCloseTo(28.5);
+  });
+
+  it('cleanup calls unregisterSensor(304)', () => {
+    const sim     = makeEsp32Sim();
+    const logic   = PartSimulationRegistry.get('ds3231')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins);
+    cleanup();
+    expect(sim.unregisterSensor).toHaveBeenCalledWith(304);
+  });
+});
+
+// ─── pcf8574 — ESP32 relay path ───────────────────────────────────────────────
+
+describe('pcf8574 — ESP32 relay path', () => {
+  it('registers sensor with type pcf8574 and virtual pin 239 (200+0x27)', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('pcf8574')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.registerSensor).toHaveBeenCalledWith('pcf8574', 239, expect.objectContaining({ addr: 0x27 }));
+  });
+
+  it('adds I2C transaction listener for addr 0x27', () => {
+    const sim   = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('pcf8574')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.addI2CTransactionListener).toHaveBeenCalledWith(0x27, expect.any(Function));
+  });
+
+  it('transaction byte is forwarded to VirtualPCF8574 — onWrite fires', () => {
+    const el  = makeElement();
+    const sim = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('pcf8574')!;
+    logic.attachEvents!(el, sim as any, noPins);
+    // Fire a transaction: MCU wrote byte 0xAB to I2C address 0x27
+    sim._fireTransaction(0x27, [0xAB]);
+    expect((el as any).value).toBe(0xAB);
+  });
+
+  it('transaction at different address does NOT update element', () => {
+    const el  = makeElement();
+    const sim = makeEsp32Sim();
+    const logic = PartSimulationRegistry.get('pcf8574')!;
+    logic.attachEvents!(el, sim as any, noPins);
+    sim._fireTransaction(0x20, [0xFF]);  // wrong address
+    expect((el as any).value).toBeUndefined();
+  });
+
+  it('cleanup calls unregisterSensor(239) and removeI2CTransactionListener(0x27)', () => {
+    const sim     = makeEsp32Sim();
+    const logic   = PartSimulationRegistry.get('pcf8574')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins);
+    cleanup();
+    expect(sim.unregisterSensor).toHaveBeenCalledWith(239);
+    expect(sim.removeI2CTransactionListener).toHaveBeenCalledWith(0x27);
   });
 });

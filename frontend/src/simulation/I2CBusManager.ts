@@ -221,7 +221,7 @@ export class VirtualTempSensor implements I2CDevice {
  *
  * Register map (subset):
  *   0x88–0x9F  Calibration data (trimming parameters)
- *   0xD0       chip_id  = 0x60
+ *   0xD0       chip_id  = 0x58  (BMP280 production; BME280 = 0x60)
  *   0xF3       status   = 0x00 (measurement complete, no NVM copy)
  *   0xF4       ctrl_meas (mode, osrs_t, osrs_p) — writable
  *   0xF5       config    — writable
@@ -372,7 +372,7 @@ export class VirtualBMP280 implements I2CDevice {
     const wu16 = (a: number, v: number) => { r[a] = v & 0xFF; r[a+1] = (v >> 8) & 0xFF; };
     const ws16 = (a: number, v: number) => wu16(a, v & 0xFFFF);
 
-    r[0xD0] = 0x60;  // chip_id (BMP280)
+    r[0xD0] = 0x58;  // chip_id BMP280 (production silicon; BME280 uses 0x60)
     r[0xF3] = 0x00;  // status  (measurement done)
     r[0xF4] = 0x00;  // ctrl_meas default
     r[0xF5] = 0x00;  // config default

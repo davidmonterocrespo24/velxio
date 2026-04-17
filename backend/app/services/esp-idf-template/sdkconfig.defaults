@@ -1,0 +1,43 @@
+# QEMU-optimized sdkconfig for ESP32 emulation (proven working 2026-03-31)
+# These settings match the lcgamboa QEMU fork requirements.
+
+# Flash settings — DIO mode required by esp32-picsimlab QEMU machine
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Bootloader — minimal logging to speed up QEMU boot
+CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
+
+# Watchdogs — disable for QEMU (timing is not real-time)
+CONFIG_ESP_TASK_WDT=n
+CONFIG_ESP_INT_WDT=n
+
+# Compiler
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# WiFi
+CONFIG_ESP_WIFI_ENABLED=y
+
+# LWIP — reassembly needed for slirp networking
+CONFIG_LWIP_IP4_REASSEMBLY=y
+CONFIG_LWIP_IP6_REASSEMBLY=y
+
+# FreeRTOS
+CONFIG_FREERTOS_HZ=1000
+
+# Console
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# Arduino-as-component: we provide our own app_main (main.cpp)
+CONFIG_AUTOSTART_ARDUINO=n
+
+# Increase main task stack for Arduino sketches
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Enable C++ exceptions (some Arduino libraries require it)
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+
+# Bluetooth for BLE examples
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y

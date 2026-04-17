@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+      width="76" height="76"
+      version="1.1"
+      viewBox="0 0 20 20"
+      xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="outline">
+          <feDropShadow id="glow" dx="0" dy="0" stdDeviation="0.5" flood-color="cyan" />
+        </filter>
+      </defs>
+      <rect
+        x=".15"
+        y=".15"
+        width="19.5"
+        height="19.5"
+        ry="1.23"
+        fill="#045881"
+        stroke="#045881"
+        stroke-width=".30"
+      />
+      <rect x="5.4" y=".70" width="9.1" height="1.9" fill="#ccdae3" stroke-width=".15" />
+      <ellipse
+        id="knob"
+        cx="9.91"
+        cy="8.18"
+        rx="7.27"
+        ry="7.43"
+        fill="#e4e8eb"
+        stroke-width=".15"
+      />
+      <rect x="6" y="17" width="8" height="2" fill-opacity="0" stroke="#fff" stroke-width=".30" />
+      <g stroke-width=".15">
+        <text x="6.21" y="16.6">GND</text>
+        <text x="9.2" y="16.63">SIG</text>
+        <text x="11.5" y="16.59">VCC</text>
+      </g>
+      <g fill="#fff" stroke-width=".15">
+        <ellipse cx="1.68" cy="1.81" rx=".99" ry=".96" />
+        <ellipse cx="1.48" cy="18.37" rx=".99" ry=".96" />
+        <ellipse cx="17.97" cy="18.47" rx=".99" ry=".96" />
+        <ellipse cx="18.07" cy="1.91" rx=".99" ry=".96" />
+      </g>
+      <g fill="#b3b1b0" stroke-width=".15">
+        <ellipse cx="7.68" cy="18" rx=".61" ry=".63" />
+        <ellipse cx="10.22" cy="18" rx=".61" ry=".63" />
+        <ellipse cx="12.76" cy="18" rx=".61" ry=".63" />
+      </g>
+      <ellipse cx="9.95" cy="8.06" rx="6.60" ry="6.58" fill="#c3c2c3" stroke-width=".15" />
+      <rect id="rotating" x="10" y="2" width=".42" height="3.1" stroke-width=".15" />
+      <rect x="0" y="9.5" width="1" height="1" fill="none" id="firefox-workaround" />
+    </svg>

@@ -22,12 +22,22 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
   const outputRef = useRef<HTMLDivElement>(null);
   const [autoscroll, setAutoscroll] = useState(true);
   const [filter, setFilter] = useState<'all' | 'errors' | 'warnings'>('all');
+  const prevLogsLenRef = useRef(0);
 
   useEffect(() => {
     if (autoscroll && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [logs, autoscroll]);
+
+  // Auto-switch to "Errors" filter when a new batch of logs arrives with errors
+  useEffect(() => {
+    if (logs.length === prevLogsLenRef.current) return;
+    const newLogs = logs.slice(prevLogsLenRef.current);
+    prevLogsLenRef.current = logs.length;
+    const hasNewErrors = newLogs.some((l) => l.type === 'error');
+    if (hasNewErrors) setFilter('errors');
+  }, [logs]);
 
   const filteredLogs = logs.filter((log) => {
     if (filter === 'errors') return log.type === 'error';

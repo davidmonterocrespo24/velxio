@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "generatedAt": "2026-03-24T02:30:06.881Z",
+  "generatedAt": "2026-04-14T17:00:25.789Z",
   "components": [
     {
       "id": "arduino-mega",
@@ -247,9 +247,22 @@
           "name": "imageData",
           "type": "string",
           "control": "text"
+        },
+        {
+          "name": "protocol",
+          "type": "string",
+          "defaultValue": "i2c",
+          "control": "select",
+          "description": "Communication protocol",
+          "options": [
+            "i2c",
+            "spi"
+          ]
         }
       ],
-      "defaultValues": {},
+      "defaultValues": {
+        "protocol": "i2c"
+      },
       "pinCount": 0,
       "tags": [
         "ssd1306"
@@ -1326,7 +1339,16 @@
           "name": "color",
           "type": "string",
           "defaultValue": "red",
-          "control": "text"
+          "control": "select",
+          "options": [
+            "red",
+            "green",
+            "blue",
+            "yellow",
+            "orange",
+            "white",
+            "purple"
+          ]
         },
         {
           "name": "lightColor",
@@ -1702,6 +1724,22 @@
         "motion",
         "sensor"
       ]
+    },
+    {
+      "id": "bmp280",
+      "tagName": "wokwi-bmp280",
+      "name": "BMP280",
+      "category": "sensors",
+      "description": "BMP280 barometric pressure and temperature sensor (I2C). Pins: VCC, GND, SDA, SCL.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#2d6a2d\" rx=\"4\"/><rect x=\"16\" y=\"20\" width=\"32\" height=\"24\" rx=\"2\" fill=\"#111\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"9\" fill=\"#aaa\">BMP280</text></svg>",
+      "properties": [
+        { "name": "temperature", "type": "string", "defaultValue": "25", "control": "text" },
+        { "name": "pressure", "type": "string", "defaultValue": "1013.25", "control": "text" },
+        { "name": "address", "type": "string", "defaultValue": "0x76", "control": "text" }
+      ],
+      "defaultValues": { "temperature": "25", "pressure": "1013.25", "address": "0x76" },
+      "pinCount": 4,
+      "tags": ["bmp280", "barometric", "i2c", "pressure", "temperature", "sensor"]
     }
   ]
 }

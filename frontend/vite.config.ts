@@ -20,8 +20,9 @@ export default defineConfig({
       },
     },
   },
+  assetsInclude: ['**/*.wasm'],
   optimizeDeps: {
-    include: ['avr8js', 'rp2040js', '@wokwi/elements'],
+    include: ['avr8js', 'rp2040js', '@wokwi/elements', 'littlefs'],
   },
   test: {
     globals: true,

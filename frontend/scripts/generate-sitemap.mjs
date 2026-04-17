@@ -12,6 +12,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOMAIN = 'https://velxio.dev';
 const TODAY = new Date().toISOString().slice(0, 10);
 
+// Extract top-level ExampleProject ids from examples.ts.
+// Top-level ids are indented with exactly 4 spaces; component/wire ids use 8+.
+function parseExampleIds(source) {
+  const ids = [];
+  const re = /^ {4}id: '([^']+)'/gm;
+  let m;
+  while ((m = re.exec(source)) !== null) {
+    ids.push(m[1]);
+  }
+  return ids;
+}
+
 // Parse seoRoutes.ts to extract the route objects
 const seoRoutesPath = resolve(__dirname, '../src/seoRoutes.ts');
 const source = readFileSync(seoRoutesPath, 'utf-8');
@@ -35,6 +47,17 @@ const routes = new Function('DOMAIN', `return [${arrayStr}]`)(DOMAIN);
 
 const indexable = routes.filter((r) => !r.noindex);
 
+// Parse example project IDs and add /examples/:id URLs
+const examplesSource = readFileSync(resolve(__dirname, '../src/data/examples.ts'), 'utf-8');
+const exampleIds = parseExampleIds(examplesSource);
+
+const exampleUrls = exampleIds.map((id) => ({
+  loc: `${DOMAIN}/examples/${id}`,
+  lastmod: TODAY,
+  changefreq: 'monthly',
+  priority: 0.6,
+}));
+
 const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
@@ -49,13 +72,24 @@ ${indexable
   </url>`
   )
   .join('')}
+${exampleUrls
+  .map(
+    (u) => `
+  <url>
+    <loc>${u.loc}</loc>
+    <lastmod>${u.lastmod}</lastmod>
+    <changefreq>${u.changefreq}</changefreq>
+    <priority>${u.priority}</priority>
+  </url>`
+  )
+  .join('')}
 
 </urlset>
 `;
 
 const outPath = resolve(__dirname, '../public/sitemap.xml');
 writeFileSync(outPath, xml.trimStart(), 'utf-8');
-console.log(`sitemap.xml generated → ${indexable.length} URLs (${TODAY})`);
+console.log(`sitemap.xml generated → ${indexable.length + exampleIds.length} URLs (${TODAY}) [${indexable.length} routes + ${exampleIds.length} examples]`);
 
 // Ping search engines (optional)
 if (process.argv.includes('--ping')) {

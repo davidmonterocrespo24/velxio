@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getUserProjects, type ProjectResponse } from '../services/projectService';
 import { useAuthStore } from '../store/useAuthStore';
@@ -30,6 +30,17 @@ export const UserProfilePage: React.FC = () => {
   }, [username]);
 
   const isOwn = user?.username === username;
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyLink = useCallback((e: React.MouseEvent, projectId: string) => {
+    e.preventDefault(); // Don't navigate via the <Link>
+    e.stopPropagation();
+    const url = `${window.location.origin}/project/${projectId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(projectId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }, []);
 
   return (
     <div className="profile-page">
@@ -58,6 +69,24 @@ export const UserProfilePage: React.FC = () => {
                 <span className="profile-badge">{p.board_type}</span>
                 {!p.is_public && <span className="profile-badge profile-badge-private">Private</span>}
                 <span className="profile-date">{new Date(p.updated_at).toLocaleDateString()}</span>
+                {p.is_public && (
+                  <button
+                    className="profile-share-btn"
+                    onClick={(e) => handleCopyLink(e, p.id)}
+                    title="Copy shareable link"
+                  >
+                    {copiedId === p.id ? (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                    )}
+                  </button>
+                )}
               </div>
             </Link>
           ))}

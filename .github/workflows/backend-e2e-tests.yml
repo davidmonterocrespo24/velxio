@@ -1,0 +1,176 @@
+name: Backend E2E Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      QEMU_RELEASE_URL: https://github.com/davidmonterocrespo24/velxio/releases/download/qemu-prebuilt
+      QEMU_DIR: /opt/velxio-qemu
+      BACKEND_URL: http://localhost:8001
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── System dependencies for libqemu-xtensa.so ────────────────────────────
+      - name: Install QEMU shared-library dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libfdt1 \
+            libglib2.0-0 \
+            libpixman-1-0 \
+            zlib1g \
+            libncurses6 \
+            libslirp0
+
+      # ── QEMU binaries + ROM files ──────────────────────────────────────────────
+      - name: Download QEMU binaries and ROM files
+        run: |
+          mkdir -p $QEMU_DIR
+          cd $QEMU_DIR
+
+          echo "Downloading QEMU shared libraries..."
+          curl -fSL -o libqemu-xtensa.so  "$QEMU_RELEASE_URL/libqemu-xtensa-amd64.so"
+          curl -fSL -o libqemu-riscv32.so "$QEMU_RELEASE_URL/libqemu-riscv32-amd64.so"
+
+          echo "Downloading ROM files..."
+          curl -fSL -o esp32-v3-rom.bin     "$QEMU_RELEASE_URL/esp32-v3-rom.bin"
+          curl -fSL -o esp32-v3-rom-app.bin "$QEMU_RELEASE_URL/esp32-v3-rom-app.bin"
+          curl -fSL -o esp32c3-rom.bin      "$QEMU_RELEASE_URL/esp32c3-rom.bin"
+
+          chmod +x libqemu-xtensa.so libqemu-riscv32.so
+          ls -lh .
+
+          # Report missing shared-library dependencies (if any)
+          echo "=== ldd libqemu-xtensa.so ==="
+          ldd libqemu-xtensa.so || true
+
+      # ── arduino-cli + ESP32 core + required libraries ──────────────────────────
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR=/usr/local/bin sh
+
+      - name: Cache arduino-cli cores and libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-cores-esp32-2x-rp2040-libs-${{ runner.os }}-v2
+
+      - name: Install arduino cores and required libraries
+        run: |
+          arduino-cli config init --overwrite
+
+          # ESP32 core (pinned to 2.x — IDF 4.x compatible with our QEMU build)
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          # RP2040 core (Earle Philhower's arduino-pico)
+          arduino-cli config add board_manager.additional_urls \
+            https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+
+          arduino-cli core update-index
+          # ESP32: Pin to 2.x — the lcgamboa QEMU (esp32-picsimlab) was built against IDF 4.x.
+          # ESP32 Arduino 3.x (IDF 5.x) triggers "Cache disabled" panics on that machine.
+          arduino-cli core install esp32:esp32@2.0.17
+          # RP2040: used by the Pico MicroPython e2e test compile check
+          arduino-cli core install rp2040:rp2040
+
+          # Libraries needed by the e2e test sketches
+          # DHT22 test needs: DHT sensor library
+          # MPU6050 test needs: Adafruit MPU6050 + Adafruit Unified Sensor
+          arduino-cli lib install "DHT sensor library"
+          arduino-cli lib install "Adafruit MPU6050"
+          arduino-cli lib install "Adafruit Unified Sensor"
+
+      # ── Python + backend dependencies ─────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt') }}
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      # ── Node.js ───────────────────────────────────────────────────────────────
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Pico test dependencies (rp2040js)
+        run: npm install --prefix test/backend/e2e
+
+      # ── Start backend ─────────────────────────────────────────────────────────
+      - name: Start backend server
+        run: |
+          cd backend
+          uvicorn app.main:app --port 8001 --log-level info \
+            > /tmp/backend.log 2>&1 &
+          echo "Backend PID: $!"
+        env:
+          QEMU_ESP32_LIB: /opt/velxio-qemu/libqemu-xtensa.so
+          QEMU_RISCV32_LIB: /opt/velxio-qemu/libqemu-riscv32.so
+
+      - name: Wait for backend to be ready
+        run: |
+          echo "Waiting for backend on port 8001..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
+              echo "Backend is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "=== Backend failed to start — last 80 lines of log: ==="
+          tail -80 /tmp/backend.log || echo "(no log file)"
+          exit 1
+
+      # ── Run e2e tests ─────────────────────────────────────────────────────────
+      #
+      # These tests compile real firmware via arduino-cli and run full simulations
+      # over WebSocket using libqemu-xtensa.so. Each test has a generous timeout
+      # because ESP32 firmware compilation + QEMU boot takes 30-90 s.
+      #
+      - name: Run HC-SR04 e2e test
+        run: node test/backend/e2e/test_hcsr04_simulation.mjs --timeout=75
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      - name: Run DHT22 e2e test
+        run: node test/backend/e2e/test_dht22_simulation.mjs --timeout=90
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      - name: Run MPU-6050 e2e test
+        run: node test/backend/e2e/test_mpu6050_simulation.mjs --timeout=90
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      - name: Run MicroPython Pico e2e test
+        run: node test/backend/e2e/test_micropython_pico.mjs --timeout=180
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      # ── Always dump backend logs so failures are diagnosable ──────────────────
+      - name: Show backend logs
+        if: always()
+        run: |
+          echo "=== Backend log (last 150 lines) ==="
+          tail -150 /tmp/backend.log || echo "(no log file)"

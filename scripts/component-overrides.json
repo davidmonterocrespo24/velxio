@@ -1,0 +1,26 @@
+{
+  "$comment": "Custom property overrides applied AFTER auto-generation from wokwi-elements. Add entries here to customize controls, add new properties, or change defaults. These survive metadata regeneration.",
+  "led": {
+    "properties": {
+      "color": {
+        "control": "select",
+        "options": ["red", "green", "blue", "yellow", "orange", "white", "purple"]
+      }
+    }
+  },
+  "ssd1306": {
+    "properties": {
+      "protocol": {
+        "name": "protocol",
+        "type": "string",
+        "defaultValue": "i2c",
+        "control": "select",
+        "description": "Communication protocol",
+        "options": ["i2c", "spi"]
+      }
+    },
+    "defaultValues": {
+      "protocol": "i2c"
+    }
+  }
+}

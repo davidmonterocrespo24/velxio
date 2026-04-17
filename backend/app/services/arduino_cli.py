@@ -287,6 +287,10 @@ class ArduinoCLIService:
                     cmd = [self.cli_path, "compile", "--fqbn", fqbn_dio,
                            "--build-property",
                            "build.extra_flags=-DARDUINO_ESP32_LCGAMBOA=1",
+                           # Adafruit_BusIO 1.17.x dropped BitOrder on ESP32 3.x;
+                           # this define restores it as uint8_t (the type it was).
+                           "--build-property",
+                           "compiler.cpp.extra_flags=-DBitOrder=uint8_t",
                            "--output-dir", str(build_dir),
                            str(sketch_dir)]
                 else:

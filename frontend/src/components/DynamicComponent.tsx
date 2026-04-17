@@ -59,6 +59,15 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
   // display to flash blank and lose its frame buffer.
   const hexEpoch = useSimulatorStore((s) => s.hexEpoch);
 
+  // Track wires connected to this component so attachEvents re-runs when
+  // wires are added or removed (e.g. disconnecting an LED cathode from GND).
+  const wireFingerprint = useSimulatorStore((s) => {
+    const myWires = s.wires.filter(
+      w => w.start.componentId === id || w.end.componentId === id
+    );
+    return myWires.map(w => w.id).join(',');
+  });
+
   // Check if component is interactive (has simulation logic with attachEvents)
   const logic = PartSimulationRegistry.get(metadata.id || id.split('-')[0]);
   const isInteractive = logic?.attachEvents !== undefined;
@@ -195,28 +204,50 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
 
     let cleanupSimulationEvents: (() => void) | undefined;
     if (logic && logic.attachEvents && simulator) {
-      // Helper to find Arduino pin connected to a component pin
+      // Helper to find Arduino pin connected to a component pin.
+      // Traces through passive components (resistors) so that a circuit like
+      //   LED-cathode → resistor → GND  returns -1 (GND) instead of null.
       const getArduinoPin = (componentPinName: string): number | null => {
         const state = useSimulatorStore.getState();
-        const wires = state.wires.filter(
-          w => (w.start.componentId === id && w.start.pinName === componentPinName) ||
-            (w.end.componentId === id && w.end.pinName === componentPinName)
-        );
 
-        for (const w of wires) {
-          // Find which endpoint connects to a board component
-          const boardEndpoint = isBoardComponent(w.start.componentId) ? w.start :
-            isBoardComponent(w.end.componentId) ? w.end : null;
-          if (boardEndpoint) {
-            // Use the board's actual kind for pin mapping (instance ID may differ from kind,
-            // e.g. board ID 'arduino-uno' after switching to 'raspberry-pi-pico')
-            const boardKind = state.boards.find((b) => b.id === boardEndpoint.componentId)?.boardKind
-              ?? boardEndpoint.componentId;
-            const pin = boardPinToNumber(boardKind, boardEndpoint.pinName);
-            if (pin !== null) return pin;
+        // Passive component metadataIds that are electrically transparent.
+        const PASSIVE = new Set(['resistor', 'resistor-us']);
+
+        // Depth-limited BFS: trace from (fromId, fromPin) through wires,
+        // traversing through passive components to reach a board pin.
+        const trace = (fromId: string, fromPin: string, depth: number): number | null => {
+          if (depth > 6) return null;
+
+          const wires = state.wires.filter(
+            w => (w.start.componentId === fromId && w.start.pinName === fromPin) ||
+              (w.end.componentId === fromId && w.end.pinName === fromPin)
+          );
+
+          for (const w of wires) {
+            const selfEp  = (w.start.componentId === fromId && w.start.pinName === fromPin) ? w.start : w.end;
+            const otherEp = selfEp === w.start ? w.end : w.start;
+
+            if (isBoardComponent(otherEp.componentId)) {
+              // Direct board connection
+              const boardKind = state.boards.find((b) => b.id === otherEp.componentId)?.boardKind
+                ?? otherEp.componentId;
+              const pin = boardPinToNumber(boardKind, otherEp.pinName);
+              if (pin !== null) return pin;
+            } else {
+              // Intermediate passive component — traverse through it
+              const comp = state.components.find(c => c.id === otherEp.componentId);
+              if (comp && PASSIVE.has(comp.metadataId)) {
+                // Resistors have two pins; find the other one to continue tracing
+                const otherPin = otherEp.pinName === '1' ? '2' : '1';
+                const result = trace(otherEp.componentId, otherPin, depth + 1);
+                if (result !== null) return result;
+              }
+            }
           }
-        }
-        return null;
+          return null;
+        };
+
+        return trace(id, componentPinName, 0);
       };
 
       cleanupSimulationEvents = logic.attachEvents(el, simulator, getArduinoPin, id);
@@ -228,7 +259,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       el.removeEventListener('button-press', onButtonPress);
       el.removeEventListener('button-release', onButtonRelease);
     };
-  }, [id, handleComponentEvent, metadata.id, simulator, hexEpoch]);
+  }, [id, handleComponentEvent, metadata.id, simulator, hexEpoch, wireFingerprint]);
 
   return (
     <div
@@ -266,11 +297,31 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
           marginTop: '4px',
           color: '#666',
           pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '4px',
         }}
       >
         {properties.pin !== undefined
           ? `Pin ${properties.pin}`
           : metadata.name}
+        {properties.protocol && (
+          <span
+            style={{
+              fontSize: '9px',
+              padding: '1px 4px',
+              borderRadius: '3px',
+              backgroundColor: properties.protocol === 'spi' ? '#e67e22' : '#3498db',
+              color: '#fff',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              lineHeight: '1.2',
+            }}
+          >
+            {String(properties.protocol)}
+          </span>
+        )}
       </div>
     </div>
   );

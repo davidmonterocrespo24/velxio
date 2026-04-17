@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import type { BoardKind } from '../../types/board';
-import { BOARD_KIND_FQBN, BOARD_KIND_LABELS } from '../../types/board';
+import type { BoardKind, LanguageMode } from '../../types/board';
+import { BOARD_KIND_FQBN, BOARD_KIND_LABELS, BOARD_SUPPORTS_MICROPYTHON } from '../../types/board';
 import { compileCode } from '../../services/compilation';
 import { CompileAllProgress } from './CompileAllProgress';
 import type { BoardCompileStatus } from './CompileAllProgress';
@@ -11,6 +11,7 @@ import { InstallLibrariesModal } from '../simulator/InstallLibrariesModal';
 import { parseCompileResult } from '../../utils/compilationLogger';
 import type { CompilationLog } from '../../utils/compilationLogger';
 import { exportToWokwiZip, importFromWokwiZip } from '../../utils/wokwiZip';
+import { readFirmwareFile } from '../../utils/firmwareLoader';
 import { trackCompileCode, trackRunSimulation, trackStopSimulation, trackResetSimulation, trackOpenLibraryManager } from '../../utils/analytics';
 import './EditorToolbar.css';
 
@@ -44,11 +45,14 @@ const BOARD_PILL_COLOR: Record<BoardKind, string> = {
 };
 
 export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compileLogs, setCompileLogs }: EditorToolbarProps) => {
-  const { files } = useEditorStore();
+  const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
   const {
     boards,
     activeBoardId,
     compileBoardProgram,
+    loadMicroPythonProgram,
+    setBoardLanguageMode,
+    updateBoard,
     startBoard,
     stopBoard,
     resetBoard,
@@ -67,6 +71,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const [pendingLibraries, setPendingLibraries] = useState<string[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const firmwareInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
@@ -112,6 +117,25 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       return;
     }
 
+    // MicroPython mode — no backend compilation needed
+    if (activeBoard?.languageMode === 'micropython' && activeBoardId) {
+      addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+      try {
+        const groupFiles = useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId);
+        const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
+        await loadMicroPythonProgram(activeBoardId, pyFiles);
+        addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded successfully' });
+        setMessage({ type: 'success', text: 'MicroPython ready' });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+        addLog({ timestamp: new Date(), type: 'error', message: errMsg });
+        setMessage({ type: 'error', text: errMsg });
+      } finally {
+        setCompiling(false);
+      }
+      return;
+    }
+
     const fqbn = kind ? BOARD_KIND_FQBN[kind] : null;
     const boardLabel = kind ? BOARD_KIND_LABELS[kind] : 'Unknown';
 
@@ -135,8 +159,12 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         const program = result.hex_content ?? result.binary_content ?? null;
         if (program && activeBoardId) {
           compileBoardProgram(activeBoardId, program);
+          if (result.has_wifi !== undefined) {
+            updateBoard(activeBoardId, { hasWifi: result.has_wifi });
+          }
         }
         setMessage({ type: 'success', text: 'Compiled successfully' });
+        markCompiled();
         setMissingLibHint(false);
       } else {
         const errText = result.error || result.stderr || 'Compile failed';
@@ -155,24 +183,111 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     }
   };
 
-  const handleRun = () => {
+  // Track whether we should auto-run after compilation completes
+  const autoRunAfterCompile = useRef(false);
+
+  const handleRun = async () => {
     if (activeBoardId) {
       const board = boards.find((b) => b.id === activeBoardId);
+
+      // MicroPython mode: stop any running session first, then reload firmware + start
+      if (board?.languageMode === 'micropython') {
+        trackRunSimulation(board.boardKind);
+
+        // Always stop the current session so the new run gets a clean QEMU boot.
+        // This also prevents the double start_esp32 that occurs when the bridge
+        // is already connected and startBoard() is called again.
+        if (board.running) {
+          stopBoard(activeBoardId);
+          // Give the WebSocket a moment to close cleanly before reconnecting.
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        setCompiling(true);
+        setMessage(null);
+        addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+        try {
+          const groupFiles = useEditorStore.getState().getGroupFiles(board.activeFileGroupId);
+          const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
+          await loadMicroPythonProgram(activeBoardId, pyFiles);
+          addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded' });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+          addLog({ timestamp: new Date(), type: 'error', message: errMsg });
+          setMessage({ type: 'error', text: errMsg });
+          setCompiling(false);
+          return;
+        }
+        setCompiling(false);
+        startBoard(activeBoardId);
+        setMessage(null);
+        return;
+      }
+
       const isQemuBoard = board?.boardKind === 'raspberry-pi-3' || board?.boardKind === 'esp32' || board?.boardKind === 'esp32-s3';
-      if (isQemuBoard || board?.compiledProgram) {
+
+      // QEMU boards: auto-compile if no firmware available yet
+      if (isQemuBoard) {
+        if (!board?.compiledProgram || codeChangedSinceLastCompile) {
+          autoRunAfterCompile.current = true;
+          await handleCompile();
+          const updatedBoard = useSimulatorStore.getState().boards.find((b) => b.id === activeBoardId);
+          if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
+            autoRunAfterCompile.current = false;
+            trackRunSimulation(updatedBoard.boardKind);
+            startBoard(activeBoardId);
+            setMessage(null);
+          } else {
+            autoRunAfterCompile.current = false;
+          }
+          return;
+        }
         trackRunSimulation(board?.boardKind);
         startBoard(activeBoardId);
         setMessage(null);
         return;
       }
+
+      // Auto-compile if no program or code changed since last compile
+      if (!board?.compiledProgram || codeChangedSinceLastCompile) {
+        autoRunAfterCompile.current = true;
+        await handleCompile();
+        // After compile, check if it succeeded and run
+        const updatedBoard = useSimulatorStore.getState().boards.find((b) => b.id === activeBoardId);
+        if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
+          autoRunAfterCompile.current = false;
+          trackRunSimulation(updatedBoard.boardKind);
+          startBoard(activeBoardId);
+          setMessage(null);
+        } else {
+          autoRunAfterCompile.current = false;
+        }
+        return;
+      }
+
+      trackRunSimulation(board?.boardKind);
+      startBoard(activeBoardId);
+      setMessage(null);
+      return;
     }
-    // legacy fallback
-    if (compiledHex) {
+
+    // Legacy fallback
+    if (!compiledHex || codeChangedSinceLastCompile) {
+      autoRunAfterCompile.current = true;
+      await handleCompile();
+      const hex = useSimulatorStore.getState().compiledHex;
+      if (autoRunAfterCompile.current && hex) {
+        autoRunAfterCompile.current = false;
+        trackRunSimulation();
+        startSimulation();
+        setMessage(null);
+      } else {
+        autoRunAfterCompile.current = false;
+      }
+    } else {
       trackRunSimulation();
       startSimulation();
       setMessage(null);
-    } else {
-      setMessage({ type: 'error', text: 'Compile first' });
     }
   };
 
@@ -226,7 +341,12 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
         if (result.success) {
           const program = result.hex_content ?? result.binary_content ?? null;
-          if (program) compileBoardProgram(board.id, program);
+          if (program) {
+            compileBoardProgram(board.id, program);
+            if (result.has_wifi !== undefined) {
+              updateBoard(board.id, { hasWifi: result.has_wifi });
+            }
+          }
           updateStatus({ state: 'success' });
         } else {
           updateStatus({ state: 'error', error: result.stderr || result.error || 'Compilation failed' });
@@ -259,6 +379,47 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       await exportToWokwiZip(files, components, wires, legacyBoardType, projectName, boardPosition);
     } catch (err) {
       setMessage({ type: 'error', text: 'Export failed.' });
+    }
+  };
+
+  const handleFirmwareUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (firmwareInputRef.current) firmwareInputRef.current.value = '';
+    if (!file) return;
+
+    setConsoleOpen(true);
+    addLog({ timestamp: new Date(), type: 'info', message: `Loading firmware: ${file.name}...` });
+
+    try {
+      const boardKind = activeBoard?.boardKind;
+      if (!boardKind) {
+        setMessage({ type: 'error', text: 'No board selected' });
+        return;
+      }
+
+      const result = await readFirmwareFile(file, boardKind);
+
+      // Architecture mismatch warning for ELF files
+      if (result.elfInfo?.suggestedBoard && result.elfInfo.suggestedBoard !== boardKind) {
+        const detected = result.elfInfo.architectureName;
+        const current = activeBoard ? BOARD_KIND_LABELS[activeBoard.boardKind] : boardKind;
+        addLog({
+          timestamp: new Date(),
+          type: 'info',
+          message: `Note: Detected ${detected} architecture, but current board is ${current}. Loading anyway.`,
+        });
+      }
+
+      if (activeBoardId) {
+        compileBoardProgram(activeBoardId, result.program);
+        markCompiled();
+        addLog({ timestamp: new Date(), type: 'info', message: result.message });
+        setMessage({ type: 'success', text: `Firmware loaded: ${file.name}` });
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to load firmware';
+      addLog({ timestamp: new Date(), type: 'error', message: errMsg });
+      setMessage({ type: 'error', text: errMsg });
     }
   };
 
@@ -302,14 +463,39 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       <div className="editor-toolbar" ref={toolbarRef}>
         {/* Active board context pill */}
         {activeBoard && (
-          <div
-            className="tb-board-pill"
-            style={{ borderColor: BOARD_PILL_COLOR[activeBoard.boardKind], color: BOARD_PILL_COLOR[activeBoard.boardKind] }}
-            title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
-          >
-            <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
-            <span className="tb-board-pill-label">{BOARD_KIND_LABELS[activeBoard.boardKind]}</span>
-            {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div
+              className="tb-board-pill"
+              style={{ borderColor: BOARD_PILL_COLOR[activeBoard.boardKind], color: BOARD_PILL_COLOR[activeBoard.boardKind] }}
+              title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
+            >
+              <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
+              <span className="tb-board-pill-label">{BOARD_KIND_LABELS[activeBoard.boardKind]}</span>
+              {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+            </div>
+            {BOARD_SUPPORTS_MICROPYTHON.has(activeBoard.boardKind) && (
+              <select
+                className="tb-lang-select"
+                value={activeBoard.languageMode ?? 'arduino'}
+                onChange={(e) => {
+                  if (activeBoardId) setBoardLanguageMode(activeBoardId, e.target.value as LanguageMode);
+                }}
+                title="Language mode"
+                style={{
+                  background: '#2d2d2d',
+                  color: '#ccc',
+                  border: '1px solid #444',
+                  borderRadius: 4,
+                  padding: '2px 4px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                <option value="arduino">Arduino C++</option>
+                <option value="micropython">MicroPython</option>
+              </select>
+            )}
           </div>
         )}
 
@@ -319,7 +505,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             onClick={handleCompile}
             disabled={compiling}
             className="tb-btn tb-btn-compile"
-            title={compiling ? 'Compiling…' : 'Compile (Ctrl+B)'}
+            title={compiling ? 'Loading…' : activeBoard?.languageMode === 'micropython' ? 'Load MicroPython' : 'Compile (Ctrl+B)'}
           >
             {compiling ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin">
@@ -337,9 +523,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
           {/* Run */}
           <button
             onClick={handleRun}
-            disabled={running || (!['raspberry-pi-3','esp32','esp32-s3'].includes(activeBoard?.boardKind ?? '') && !compiledHex && !activeBoard?.compiledProgram)}
+            disabled={running || compiling || (
+              !['raspberry-pi-3','esp32','esp32-s3'].includes(activeBoard?.boardKind ?? '')
+              && activeBoard?.languageMode !== 'micropython'
+              && !compiledHex
+              && !activeBoard?.compiledProgram
+            )}
             className="tb-btn tb-btn-run"
-            title="Run"
+            title={activeBoard?.languageMode === 'micropython' ? 'Run MicroPython' : 'Run'}
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
               <polygon points="5,3 19,12 5,21" />
@@ -405,23 +596,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         </div>
 
         <div className="toolbar-group toolbar-group-right">
-          {/* Status message */}
-          {message && (
-            <span className={`tb-status tb-status-${message.type}`} title={message.text}>
-              {message.type === 'success' ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-              )}
-              <span className="tb-status-text">{message.text}</span>
-            </span>
-          )}
+         
 
           {/* Hidden file input for import (always present) */}
           <input
@@ -430,6 +605,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             accept=".zip"
             style={{ display: 'none' }}
             onChange={handleImportFile}
+          />
+          {/* Hidden file input for firmware upload */}
+          <input
+            ref={firmwareInputRef}
+            type="file"
+            accept=".hex,.bin,.elf,.ihex"
+            style={{ display: 'none' }}
+            onChange={handleFirmwareUpload}
           />
 
           {/* Library Manager — always visible with label */}
@@ -483,6 +666,18 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
                     <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
                   Export zip
+                </button>
+                <div style={{ borderTop: '1px solid #3c3c3c', margin: '4px 0' }} />
+                <button
+                  className="tb-overflow-item"
+                  onClick={() => { firmwareInputRef.current?.click(); setOverflowOpen(false); }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                    <line x1="12" y1="15" x2="12" y2="22" />
+                    <polyline points="8 18 12 22 16 18" />
+                  </svg>
+                  Upload firmware (.hex, .bin, .elf)
                 </button>
               </div>
             )}

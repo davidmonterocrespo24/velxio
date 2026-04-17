@@ -257,10 +257,10 @@ describe('VirtualBMP280 — construction & addresses', () => {
     expect(new VirtualBMP280(0x77).address).toBe(0x77);
   });
 
-  it('chip_id register (0xD0) reads 0x60', () => {
+  it('chip_id register (0xD0) reads 0x58', () => {
     const dev = new VirtualBMP280();
     dev.writeByte(0xD0);
-    expect(dev.readByte()).toBe(0x60);
+    expect(dev.readByte()).toBe(0x58);
   });
 
   it('stop() resets firstByte so register pointer can be re-set', () => {

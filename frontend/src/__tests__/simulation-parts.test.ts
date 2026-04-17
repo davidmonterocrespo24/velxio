@@ -120,26 +120,51 @@ describe('PartSimulationRegistry — registration', () => {
 
 // ─── LED ─────────────────────────────────────────────────────────────────────
 
-describe('LED — onPinStateChange', () => {
-  it('sets element.value = true when anode pin goes HIGH', () => {
+describe('LED — attachEvents (anode + cathode check)', () => {
+  it('LED turns on when anode HIGH and cathode wired to GND', () => {
     const logic = PartSimulationRegistry.get('led')!;
     const el = makeElement({ value: false });
-    logic.onPinStateChange!('A', true, el);
+    const sim = makeSimulator();
+    // A → GPIO pin 13, C → GND (-1)
+    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13, 'C': -1 }), 'led-1');
+
+    // pinManager.onPinChange should be called for anode (pin 13)
+    const calls = sim.pinManager.onPinChange.mock.calls;
+    const anodeCall = calls.find((c: any) => c[0] === 13);
+    expect(anodeCall).toBeDefined();
+
+    // Simulate anode going HIGH
+    anodeCall![1](13, true);
     expect((el as any).value).toBe(true);
   });
 
-  it('sets element.value = false when anode pin goes LOW', () => {
+  it('LED stays off when anode HIGH but cathode not wired', () => {
     const logic = PartSimulationRegistry.get('led')!;
-    const el = makeElement({ value: true });
-    logic.onPinStateChange!('A', false, el);
+    const el = makeElement({ value: false });
+    const sim = makeSimulator();
+    // A → pin 13, C → not wired (null)
+    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13 }), 'led-2');
+
+    const calls = sim.pinManager.onPinChange.mock.calls;
+    const anodeCall = calls.find((c: any) => c[0] === 13);
+    expect(anodeCall).toBeDefined();
+
+    // Simulate anode going HIGH — should NOT light up
+    anodeCall![1](13, true);
     expect((el as any).value).toBe(false);
   });
 
-  it('ignores non-anode pins (e.g. cathode K)', () => {
+  it('LED turns off when anode goes LOW', () => {
     const logic = PartSimulationRegistry.get('led')!;
     const el = makeElement({ value: false });
-    logic.onPinStateChange!('K', true, el);
-    expect((el as any).value).toBe(false); // unchanged
+    const sim = makeSimulator();
+    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13, 'C': -1 }), 'led-3');
+
+    const anodeCall = sim.pinManager.onPinChange.mock.calls.find((c: any) => c[0] === 13);
+    anodeCall![1](13, true);
+    expect((el as any).value).toBe(true);
+    anodeCall![1](13, false);
+    expect((el as any).value).toBe(false);
   });
 });
 

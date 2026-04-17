@@ -4190,6 +4190,771 @@ void loop() {
       { id: 'c3sv-pwm', start: { componentId: 'esp32-c3', pinName: '10'    }, end: { componentId: 'c3-sv1', pinName: 'PWM' }, color: '#ff8800' },
     ],
   },
+
+  // ── ESP32-C3 WiFi & Bluetooth Examples ─────────────────────────────────────
+
+  {
+    id: 'esp32c3-wifi-scan',
+    title: 'ESP32-C3 WiFi Scan',
+    description: 'Scan for available WiFi networks on the ESP32-C3 (RISC-V). The emulated ESP32-C3 will find the "Velxio-GUEST" access point.',
+    category: 'communication',
+    difficulty: 'beginner',
+    boardType: 'esp32-c3',
+    boardFilter: 'esp32-c3',
+    code: `#include <WiFi.h>
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32-C3 WiFi Scanner");
+  Serial.println("=====================");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+
+  Serial.println("Scanning for networks...");
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("No networks found");
+  } else {
+    Serial.printf("Found %d networks:\\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %d: %-20s  %d dBm  %s\\n",
+        i + 1,
+        WiFi.SSID(i).c_str(),
+        WiFi.RSSI(i),
+        WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "Open" : "Encrypted");
+    }
+  }
+  Serial.println("\\nDone! Scan again in 10 seconds...");
+}
+
+void loop() {
+  delay(10000);
+  setup();  // re-scan
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32c3-wifi-connect',
+    title: 'ESP32-C3 WiFi Connect',
+    description: 'Connect the ESP32-C3 to the virtual "Velxio-GUEST" WiFi network and print the assigned IP address. Uses channel 6 for faster connection.',
+    category: 'communication',
+    difficulty: 'beginner',
+    boardType: 'esp32-c3',
+    boardFilter: 'esp32-c3',
+    code: `#include <WiFi.h>
+
+const char* ssid = "Velxio-GUEST";
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32-C3 WiFi Connection Demo");
+  Serial.println("=============================");
+  Serial.printf("Connecting to %s", ssid);
+
+  WiFi.begin(ssid, "", 6);  // channel 6, no password
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println(" Connected!");
+  Serial.printf("IP Address: %s\\n", WiFi.localIP().toString().c_str());
+  Serial.printf("MAC Address: %s\\n", WiFi.macAddress().c_str());
+  Serial.printf("Signal Strength (RSSI): %d dBm\\n", WiFi.RSSI());
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi still connected - IP: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("WiFi disconnected! Reconnecting...");
+    WiFi.begin(ssid, "", 6);
+  }
+  delay(5000);
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32c3-http-server',
+    title: 'ESP32-C3 HTTP Server',
+    description: 'Run a simple web server on the ESP32-C3. After connecting to WiFi, the server responds with an HTML page. Access it via the IoT Gateway link.',
+    category: 'communication',
+    difficulty: 'intermediate',
+    boardType: 'esp32-c3',
+    boardFilter: 'esp32-c3',
+    code: `#include <WiFi.h>
+#include <WebServer.h>
+
+const char* ssid = "Velxio-GUEST";
+WebServer server(80);
+
+int requestCount = 0;
+
+void handleRoot() {
+  requestCount++;
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>ESP32-C3 Web Server</title>";
+  html += "<style>body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 20px;";
+  html += "background:#1a1a2e;color:#e0e0e0}h1{color:#00d4ff}";
+  html += ".card{background:#16213e;padding:20px;border-radius:10px;margin:10px 0}";
+  html += ".stat{color:#00d4ff;font-size:1.2em}</style></head><body>";
+  html += "<h1>Hello from ESP32-C3!</h1>";
+  html += "<div class='card'><p>This page is served by an ESP32-C3 (RISC-V) running in the Velxio simulator.</p>";
+  html += "<p>Requests served: <span class='stat'>" + String(requestCount) + "</span></p>";
+  html += "<p>Uptime: <span class='stat'>" + String(millis() / 1000) + "s</span></p>";
+  html += "<p>Free heap: <span class='stat'>" + String(ESP.getFreeHeap()) + " bytes</span></p>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32-C3 HTTP Server");
+
+  WiFi.begin(ssid, "", 6);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" Connected!");
+
+  server.on("/", handleRoot);
+  server.on("/api/hello", []() {
+    server.send(200, "application/json", "{\\"message\\":\\"Hello from ESP32-C3!\\"}");
+  });
+  server.begin();
+
+  Serial.printf("Server started at: http://%s/\\n", WiFi.localIP().toString().c_str());
+  Serial.println("Open the IoT Gateway link to access it from your browser.");
+}
+
+void loop() {
+  server.handleClient();
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32c3-ble-advertise',
+    title: 'ESP32-C3 BLE Advertise',
+    description: 'Initialize BLE 5.0 and start advertising on the ESP32-C3. Note: The ESP32-C3 only supports BLE (no Classic Bluetooth). BLE initialization is detected but actual communication is not emulated.',
+    category: 'communication',
+    difficulty: 'intermediate',
+    boardType: 'esp32-c3',
+    boardFilter: 'esp32-c3',
+    code: `#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+BLEServer* pServer = nullptr;
+BLECharacteristic* pCharacteristic = nullptr;
+bool deviceConnected = false;
+int counter = 0;
+
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("BLE client connected!");
+  }
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("BLE client disconnected");
+    pServer->startAdvertising();
+  }
+};
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32-C3 BLE Advertise Demo");
+  Serial.println("===========================");
+  Serial.println("Note: ESP32-C3 supports BLE 5.0 only (no Classic BT).");
+  Serial.println("BLE init is detected but communication is not emulated.");
+  Serial.println();
+
+  BLEDevice::init("Velxio-ESP32C3");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+    CHARACTERISTIC_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_WRITE |
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharacteristic->addDescriptor(new BLE2902());
+  pCharacteristic->setValue("Hello from Velxio C3!");
+
+  pService->start();
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->start();
+
+  Serial.println("BLE advertising started!");
+  Serial.println("Device name: Velxio-ESP32C3");
+  Serial.printf("Service UUID: %s\\n", SERVICE_UUID);
+}
+
+void loop() {
+  if (deviceConnected) {
+    counter++;
+    String value = "Count: " + String(counter);
+    pCharacteristic->setValue(value.c_str());
+    pCharacteristic->notify();
+    Serial.printf("Notified: %s\\n", value.c_str());
+  }
+  delay(2000);
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  // ── ESP32 WiFi & Bluetooth Examples ───────────────────────────────────────
+
+  {
+    id: 'esp32-wifi-scan',
+    title: 'ESP32 WiFi Scan',
+    description: 'Scan for available WiFi networks and display them in Serial Monitor. The emulated ESP32 will find the "Velxio-GUEST" access point.',
+    category: 'communication',
+    difficulty: 'beginner',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `#include <WiFi.h>
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32 WiFi Scanner");
+  Serial.println("==================");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+
+  Serial.println("Scanning for networks...");
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("No networks found");
+  } else {
+    Serial.printf("Found %d networks:\\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %d: %-20s  %d dBm  %s\\n",
+        i + 1,
+        WiFi.SSID(i).c_str(),
+        WiFi.RSSI(i),
+        WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "Open" : "Encrypted");
+    }
+  }
+  Serial.println("\\nDone! Scan again in 10 seconds...");
+}
+
+void loop() {
+  delay(10000);
+  setup();  // re-scan
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32-wifi-connect',
+    title: 'ESP32 WiFi Connect',
+    description: 'Connect to the virtual "Velxio-GUEST" WiFi network and print the assigned IP address. Uses channel 6 for faster connection.',
+    category: 'communication',
+    difficulty: 'beginner',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `#include <WiFi.h>
+
+const char* ssid = "Velxio-GUEST";
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32 WiFi Connection Demo");
+  Serial.println("==========================");
+  Serial.printf("Connecting to %s", ssid);
+
+  WiFi.begin(ssid, "", 6);  // channel 6, no password
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println(" Connected!");
+  Serial.printf("IP Address: %s\\n", WiFi.localIP().toString().c_str());
+  Serial.printf("MAC Address: %s\\n", WiFi.macAddress().c_str());
+  Serial.printf("Signal Strength (RSSI): %d dBm\\n", WiFi.RSSI());
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi still connected - IP: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("WiFi disconnected! Reconnecting...");
+    WiFi.begin(ssid, "", 6);
+  }
+  delay(5000);
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32-http-server',
+    title: 'ESP32 HTTP Server',
+    description: 'Run a simple web server on the ESP32. After connecting to WiFi, the server responds with an HTML page. Access it via the IoT Gateway link.',
+    category: 'communication',
+    difficulty: 'intermediate',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `#include <WiFi.h>
+#include <WebServer.h>
+
+const char* ssid = "Velxio-GUEST";
+WebServer server(80);
+
+int requestCount = 0;
+
+void handleRoot() {
+  requestCount++;
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='utf-8'>";
+  html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
+  html += "<title>ESP32 Web Server</title>";
+  html += "<style>body{font-family:sans-serif;max-width:600px;margin:40px auto;padding:0 20px;";
+  html += "background:#1a1a2e;color:#e0e0e0}h1{color:#00d4ff}";
+  html += ".card{background:#16213e;padding:20px;border-radius:10px;margin:10px 0}";
+  html += ".stat{color:#00d4ff;font-size:1.2em}</style></head><body>";
+  html += "<h1>Hello from ESP32!</h1>";
+  html += "<div class='card'><p>This page is served by an ESP32 running in the Velxio simulator.</p>";
+  html += "<p>Requests served: <span class='stat'>" + String(requestCount) + "</span></p>";
+  html += "<p>Uptime: <span class='stat'>" + String(millis() / 1000) + "s</span></p>";
+  html += "<p>Free heap: <span class='stat'>" + String(ESP.getFreeHeap()) + " bytes</span></p>";
+  html += "</div></body></html>";
+  server.send(200, "text/html", html);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32 HTTP Server");
+
+  WiFi.begin(ssid, "", 6);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" Connected!");
+
+  server.on("/", handleRoot);
+  server.on("/api/hello", []() {
+    server.send(200, "application/json", "{\\"message\\":\\"Hello from ESP32!\\"}");
+  });
+  server.begin();
+
+  Serial.printf("Server started at: http://%s/\\n", WiFi.localIP().toString().c_str());
+  Serial.println("Open the IoT Gateway link to access it from your browser.");
+}
+
+void loop() {
+  server.handleClient();
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32-ble-advertise',
+    title: 'ESP32 BLE Advertise',
+    description: 'Initialize BLE and start advertising. Note: BLE initialization is detected but actual BLE communication is not emulated in the current simulator.',
+    category: 'communication',
+    difficulty: 'intermediate',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+BLEServer* pServer = nullptr;
+BLECharacteristic* pCharacteristic = nullptr;
+bool deviceConnected = false;
+int counter = 0;
+
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("BLE client connected!");
+  }
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("BLE client disconnected");
+    // Restart advertising
+    pServer->startAdvertising();
+  }
+};
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32 BLE Advertise Demo");
+  Serial.println("========================");
+  Serial.println("Note: BLE init is detected but communication");
+  Serial.println("is not emulated in the simulator.");
+  Serial.println();
+
+  BLEDevice::init("Velxio-ESP32");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+    CHARACTERISTIC_UUID,
+    BLECharacteristic::PROPERTY_READ |
+    BLECharacteristic::PROPERTY_WRITE |
+    BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharacteristic->addDescriptor(new BLE2902());
+  pCharacteristic->setValue("Hello from Velxio!");
+
+  pService->start();
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->start();
+
+  Serial.println("BLE advertising started!");
+  Serial.println("Device name: Velxio-ESP32");
+  Serial.printf("Service UUID: %s\\n", SERVICE_UUID);
+}
+
+void loop() {
+  if (deviceConnected) {
+    counter++;
+    String value = "Count: " + String(counter);
+    pCharacteristic->setValue(value.c_str());
+    pCharacteristic->notify();
+    Serial.printf("Notified: %s\\n", value.c_str());
+  }
+  delay(2000);
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  // ── ESP32 BMP280 Weather Station ─────────────────────────────────────────────
+  {
+    id: 'esp32-bmp280',
+    title: 'ESP32: BMP280 Weather Station',
+    description: 'Read temperature and pressure from a BMP280 barometric sensor over I2C (SDA=D21, SCL=D22).',
+    libraries: ['Adafruit BMP280 Library', 'Adafruit Unified Sensor'],
+    category: 'sensors',
+    difficulty: 'intermediate',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `// ESP32 — BMP280 Barometric Pressure & Temperature (I2C)
+// Requires: Adafruit BMP280 Library, Adafruit Unified Sensor
+// Wiring: SDA → D21  |  SCL → D22  |  VCC → 3V3  |  GND → GND
+
+#include <Wire.h>
+#include <Adafruit_BMP280.h>
+
+Adafruit_BMP280 bmp;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(21, 22);
+  if (!bmp.begin(0x76)) {
+    Serial.println("BMP280 not found! Check wiring.");
+    while (true) delay(10);
+  }
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
+                  Adafruit_BMP280::SAMPLING_X2,
+                  Adafruit_BMP280::SAMPLING_X16,
+                  Adafruit_BMP280::FILTER_X16,
+                  Adafruit_BMP280::STANDBY_MS_500);
+  Serial.println("BMP280 ready!");
+}
+
+void loop() {
+  float tempC    = bmp.readTemperature();
+  float pressure = bmp.readPressure() / 100.0F; // hPa
+  float altitude = bmp.readAltitude(1013.25);    // m
+
+  Serial.printf("Temp: %.2f C  Pressure: %.2f hPa  Altitude: %.1f m\\n",
+                tempC, pressure, altitude);
+  delay(2000);
+}`,
+    components: [
+      { type: 'wokwi-bmp280', id: 'e32-bmp1', x: 420, y: 150, properties: { temperature: '25', pressure: '1013.25' } },
+    ],
+    wires: [
+      { id: 'e32b-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'e32-bmp1', pinName: 'VCC' }, color: '#ff4444' },
+      { id: 'e32b-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'e32-bmp1', pinName: 'GND' }, color: '#000000' },
+      { id: 'e32b-sda', start: { componentId: 'esp32', pinName: '21'  }, end: { componentId: 'e32-bmp1', pinName: 'SDA' }, color: '#22aaff' },
+      { id: 'e32b-scl', start: { componentId: 'esp32', pinName: '22'  }, end: { componentId: 'e32-bmp1', pinName: 'SCL' }, color: '#ff8800' },
+    ],
+  },
+
+  // ── ESP32 SSD1306 OLED Display ────────────────────────────────────────────────
+  {
+    id: 'esp32-oled',
+    title: 'ESP32: SSD1306 OLED Display',
+    description: 'Display text and graphics on a 128×64 SSD1306 OLED over I2C (SDA=D21, SCL=D22).',
+    libraries: ['Adafruit SSD1306', 'Adafruit GFX Library'],
+    category: 'displays',
+    difficulty: 'intermediate',
+    boardType: 'esp32',
+    boardFilter: 'esp32',
+    code: `// ESP32 — SSD1306 OLED Display (I2C 128×64)
+// Requires: Adafruit SSD1306, Adafruit GFX Library
+// Wiring: SDA → D21  |  SCL → D22  |  VCC → 3V3  |  GND → GND
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+int counter = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(21, 22);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("SSD1306 not found!");
+    while (true) delay(10);
+  }
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Hello");
+  display.println("Velxio!");
+  display.display();
+  Serial.println("OLED ready!");
+}
+
+void loop() {
+  counter++;
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Hello");
+  display.println("Velxio!");
+  display.setTextSize(1);
+  display.setCursor(0, 48);
+  display.printf("Count: %d", counter);
+  display.display();
+  Serial.printf("Frame: %d\\n", counter);
+  delay(1000);
+}`,
+    components: [
+      { type: 'wokwi-ssd1306', id: 'e32-oled1', x: 420, y: 130, properties: {} },
+    ],
+    wires: [
+      { id: 'e32o-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'e32-oled1', pinName: '3V3'  }, color: '#ff4444' },
+      { id: 'e32o-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'e32-oled1', pinName: 'GND'  }, color: '#000000' },
+      { id: 'e32o-sda', start: { componentId: 'esp32', pinName: '21'  }, end: { componentId: 'e32-oled1', pinName: 'DATA' }, color: '#22aaff' },
+      { id: 'e32o-scl', start: { componentId: 'esp32', pinName: '22'  }, end: { componentId: 'e32-oled1', pinName: 'CLK'  }, color: '#ff8800' },
+    ],
+  },
+
+  // ─── ATtiny85 Examples ───────────────────────────────────────────────────────
+
+  {
+    id: 'attiny85-blink',
+    title: 'ATtiny85: Blink LED',
+    description: 'Classic blink on the ATtiny85 built-in LED (PB1). Great first sketch for this tiny 8-bit chip.',
+    category: 'basics',
+    difficulty: 'beginner',
+    boardFilter: 'attiny85',
+    boards: [{ boardKind: 'attiny85', x: 120, y: 160, code: `// ATtiny85 — Blink built-in LED on PB1
+// Pin 1 = PB1 = OC0B/OC1A (also Digispark LED)
+
+void setup() {
+  pinMode(1, OUTPUT);  // PB1 as output
+}
+
+void loop() {
+  digitalWrite(1, HIGH);
+  delay(500);
+  digitalWrite(1, LOW);
+  delay(500);
+}` }],
+    code: '',
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'attiny85-button-led',
+    title: 'ATtiny85: Button + LED',
+    description: 'Press the button on PB0 to light the LED on PB1. Uses internal pull-up resistor — no external resistor needed.',
+    category: 'basics',
+    difficulty: 'beginner',
+    boardFilter: 'attiny85',
+    boards: [{ boardKind: 'attiny85', x: 100, y: 150, code: `// ATtiny85 — Button on PB0, LED on PB1
+// Button wiring: one leg to PB0, other leg to GND
+// INPUT_PULLUP means HIGH = released, LOW = pressed
+
+void setup() {
+  pinMode(0, INPUT_PULLUP);  // PB0 — button with internal pull-up
+  pinMode(1, OUTPUT);         // PB1 — LED
+}
+
+void loop() {
+  bool pressed = (digitalRead(0) == LOW);
+  digitalWrite(1, pressed ? HIGH : LOW);
+}` }],
+    code: '',
+    components: [
+      { type: 'wokwi-pushbutton', id: 'tiny-btn1', x: 380, y: 130, properties: { color: 'green' } },
+      { type: 'wokwi-led',        id: 'tiny-led1', x: 380, y: 240, properties: { color: 'red' } },
+    ],
+    wires: [
+      { id: 'tb-pb0',  start: { componentId: 'attiny85', pinName: 'PB0' }, end: { componentId: 'tiny-btn1', pinName: '1.l' }, color: '#ffcc00' },
+      { id: 'tb-gnd1', start: { componentId: 'attiny85', pinName: 'GND' }, end: { componentId: 'tiny-btn1', pinName: '2.l' }, color: '#000000' },
+      { id: 'tb-pb1',  start: { componentId: 'attiny85', pinName: 'PB1' }, end: { componentId: 'tiny-led1', pinName: 'A'   }, color: '#ff4444' },
+      { id: 'tb-gnd2', start: { componentId: 'attiny85', pinName: 'GND' }, end: { componentId: 'tiny-led1', pinName: 'C'   }, color: '#000000' },
+    ],
+  },
+
+  {
+    id: 'attiny85-pwm-fade',
+    title: 'ATtiny85: PWM LED Fade',
+    description: 'Smoothly fade an LED in and out using analogWrite() on PB1 (OC0B). Shows Timer0 PWM on the ATtiny85.',
+    category: 'basics',
+    difficulty: 'intermediate',
+    boardFilter: 'attiny85',
+    boards: [{ boardKind: 'attiny85', x: 100, y: 150, code: `// ATtiny85 — PWM LED fade on PB1 (OC0B / Timer0)
+// analogWrite() uses Timer0 on the ATtiny85
+
+void setup() {
+  pinMode(1, OUTPUT);  // PB1 = OC0B (PWM capable)
+}
+
+void loop() {
+  // Fade in
+  for (int brightness = 0; brightness <= 255; brightness++) {
+    analogWrite(1, brightness);
+    delay(6);
+  }
+  // Fade out
+  for (int brightness = 255; brightness >= 0; brightness--) {
+    analogWrite(1, brightness);
+    delay(6);
+  }
+  delay(200);
+}` }],
+    code: '',
+    components: [
+      { type: 'wokwi-led',       id: 'tiny-fade-led', x: 380, y: 200, properties: { color: 'yellow' } },
+      { type: 'wokwi-resistor',  id: 'tiny-fade-r1',  x: 380, y: 300, properties: { resistance: '220' } },
+    ],
+    wires: [
+      { id: 'tf-pb1',  start: { componentId: 'attiny85',     pinName: 'PB1' }, end: { componentId: 'tiny-fade-led', pinName: 'A' }, color: '#ffcc00' },
+      { id: 'tf-led-r', start: { componentId: 'tiny-fade-led', pinName: 'C'   }, end: { componentId: 'tiny-fade-r1',  pinName: '1' }, color: '#888888' },
+      { id: 'tf-gnd',  start: { componentId: 'attiny85',     pinName: 'GND'  }, end: { componentId: 'tiny-fade-r1',  pinName: '2' }, color: '#000000' },
+    ],
+  },
+
+  {
+    id: 'attiny85-ntc-sensor',
+    title: 'ATtiny85: NTC Temperature Sensor',
+    description: 'Read temperature from an NTC thermistor on PB3 (ADC3). The LED on PB1 blinks faster as temperature rises.',
+    category: 'sensors',
+    difficulty: 'intermediate',
+    boardFilter: 'attiny85',
+    boards: [{ boardKind: 'attiny85', x: 100, y: 150, code: `// ATtiny85 — NTC Thermistor on PB3 (ADC3)
+// Wiring: NTC between VCC and PB3, 10k resistor between PB3 and GND
+// LED on PB1: blinks faster when temperature increases
+
+#define NTC_PIN  3   // PB3 = ADC3
+#define LED_PIN  1   // PB1
+
+const float VCC        = 5.0;
+const float SERIES_R   = 10000.0;
+const float NOM_R      = 10000.0;   // NTC nominal resistance at 25°C
+const float NOM_TEMP   = 25.0;
+const float B_COEFF    = 3950.0;
+
+float readTemperature() {
+  int raw = analogRead(NTC_PIN);
+  float resistance = SERIES_R * (1023.0 / raw - 1.0);
+  float steinhart = resistance / NOM_R;
+  steinhart = log(steinhart) / B_COEFF;
+  steinhart += 1.0 / (NOM_TEMP + 273.15);
+  return (1.0 / steinhart) - 273.15;
+}
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+  float temp = readTemperature();
+  // Blink delay: 1000ms at 0°C down to 100ms at 100°C
+  int blinkDelay = (int)(1000.0 - temp * 9.0);
+  blinkDelay = constrain(blinkDelay, 100, 1000);
+
+  digitalWrite(LED_PIN, HIGH);
+  delay(blinkDelay / 2);
+  digitalWrite(LED_PIN, LOW);
+  delay(blinkDelay / 2);
+}` }],
+    code: '',
+    components: [
+      { type: 'wokwi-ntc-temperature-sensor', id: 'tiny-ntc1', x: 380, y: 150, properties: { temperature: '25' } },
+      { type: 'wokwi-led',                    id: 'tiny-ntc-led', x: 380, y: 300, properties: { color: 'red' } },
+    ],
+    wires: [
+      { id: 'tn-vcc',  start: { componentId: 'attiny85',    pinName: 'VCC'  }, end: { componentId: 'tiny-ntc1',    pinName: 'VCC' }, color: '#ff4444' },
+      { id: 'tn-gnd',  start: { componentId: 'attiny85',    pinName: 'GND'  }, end: { componentId: 'tiny-ntc1',    pinName: 'GND' }, color: '#000000' },
+      { id: 'tn-out',  start: { componentId: 'attiny85',    pinName: 'PB3'  }, end: { componentId: 'tiny-ntc1',    pinName: 'OUT' }, color: '#aa44ff' },
+      { id: 'tn-led',  start: { componentId: 'attiny85',    pinName: 'PB1'  }, end: { componentId: 'tiny-ntc-led', pinName: 'A'   }, color: '#ff4444' },
+      { id: 'tn-lgnd', start: { componentId: 'attiny85',    pinName: 'GND'  }, end: { componentId: 'tiny-ntc-led', pinName: 'C'   }, color: '#000000' },
+    ],
+  },
+
 ];
 
 // Get examples by category

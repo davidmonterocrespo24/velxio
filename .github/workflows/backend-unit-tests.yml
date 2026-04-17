@@ -1,0 +1,47 @@
+name: Backend Unit Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Cache pip dependencies to speed up repeated runs
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('backend/requirements.txt') }}
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      # Run only UNIT tests (test/backend/unit/).
+      # These tests have zero external dependencies — no QEMU binary, no arduino-cli,
+      # no running backend server.
+      #
+      # NOT included here (must be run manually on Windows with QEMU DLLs):
+      #   test/backend/integration/  — needs arduino-cli + QEMU binary
+      #   test/backend/e2e/          — JS tests, need running backend + QEMU + arduino-cli
+      #   Run e2e tests locally: scripts\run-e2e-tests.bat
+      - name: Run backend unit tests
+        # CI=true is set automatically by GitHub Actions.
+        # Tests decorated with @unittest.skipIf(CI=='true', ...) are skipped here
+        # (e.g. timing-sensitive tests that use busy-wait).
+        run: pytest test/backend/unit/ -v --tb=short

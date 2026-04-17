@@ -289,9 +289,32 @@ docker compose -f docker-compose.prod.yml up -d
 **Prerequisites:** Node.js 18+, Python 3.12+, arduino-cli
 
 ```bash
-git clone https://github.com/davidmonterocrespo24/velxio.git
+git clone --recurse-submodules https://github.com/davidmonterocrespo24/velxio.git
 cd velxio
+```
 
+> **Already cloned without `--recurse-submodules`?** The `wokwi-libs/` directories will be empty. Run:
+> ```bash
+> git submodule update --init --recursive
+> ```
+> If that fails because the submodule pointers are stale, clone the libs fresh:
+> ```bash
+> cd wokwi-libs
+> git clone --depth=1 https://github.com/wokwi/avr8js.git avr8js
+> git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-elements
+> git clone --depth=1 https://github.com/wokwi/rp2040js.git rp2040js
+> cd ..
+> ```
+
+**Build the Wokwi libraries** (required before running the frontend):
+
+```bash
+cd wokwi-libs/avr8js && npm install && npm run build && cd ../..
+cd wokwi-libs/wokwi-elements && npm install && npm run build && cd ../..
+cd wokwi-libs/rp2040js && npm install && npm run build && cd ../..
+```
+
+```bash
 # Backend
 cd backend
 python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate

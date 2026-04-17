@@ -24,8 +24,9 @@
  *     { type: 'gpio_dir',      data: { pin: number, dir: 0 | 1 } }
  *     { type: 'ledc_update',   data: { channel: number, duty: number, duty_pct: number } }
  *     { type: 'ws2812_update', data: { channel: number, pixels: [number, number, number][] } }
- *     { type: 'i2c_event',     data: { addr: number, data: number } }
- *     { type: 'spi_event',     data: { data: number } }
+ *     { type: 'i2c_event',        data: { addr: number, data: number } }
+ *     { type: 'i2c_transaction',  data: { addr: number, data: number[] } }
+ *     { type: 'spi_event',        data: { data: number } }
  *     { type: 'system',        data: { event: string, ... } }
  *     { type: 'error',         data: { message: string } }
  */
@@ -36,7 +37,7 @@ import type { BoardKind } from '../types/board';
  * Map any ESP32-family board kind to the 3 base QEMU machine types understood
  * by the backend esp_qemu_manager.
  */
-function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
+export function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
   if (kind === 'esp32-s3' || kind === 'xiao-esp32-s3' || kind === 'arduino-nano-esp32') return 'esp32-s3';
   if (kind === 'esp32-c3' || kind === 'xiao-esp32-c3' || kind === 'aitewinrobot-esp32c3-supermini') return 'esp32-c3';
   return 'esp32'; // esp32, esp32-devkit-c-v4, esp32-cam, wemos-lolin32-lite
@@ -46,7 +47,7 @@ const API_BASE = (): string =>
   (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
 
 /** Returns a stable UUID for this browser tab (persists across reloads, resets on new tab). */
-function getTabSessionId(): string {
+export function getTabSessionId(): string {
   // sessionStorage is not available in Node/test environments
   if (typeof sessionStorage === 'undefined') return crypto.randomUUID();
   const KEY = 'velxio-tab-id';
@@ -60,10 +61,15 @@ function getTabSessionId(): string {
 
 export interface Ws2812Pixel { r: number; g: number; b: number }
 export interface LedcUpdate  { channel: number; duty: number; duty_pct: number; gpio?: number }
+export interface WifiStatus  { status: string; ssid?: string; ip?: string }
+export interface BleStatus   { status: string }
 
 export class Esp32Bridge {
   readonly boardId: string;
   readonly boardKind: BoardKind;
+
+  /** Set to true before connect() to enable WiFi NIC in QEMU. */
+  wifiEnabled = false;
 
   // Callbacks wired up by useSimulatorStore
   onSerialData:    ((char: string, uart?: number) => void) | null = null;
@@ -71,18 +77,31 @@ export class Esp32Bridge {
   onPinDir:        ((gpioPin: number, dir: 0 | 1) => void) | null = null;
   onLedcUpdate:    ((update: LedcUpdate) => void) | null = null;
   onWs2812Update:  ((channel: number, pixels: Ws2812Pixel[]) => void) | null = null;
-  onI2cEvent:      ((addr: number, data: number) => void) | null = null;
-  onSpiEvent:      ((data: number) => void) | null = null;
+  onI2cEvent:        ((addr: number, data: number) => void) | null = null;
+  onI2cTransaction:  ((addr: number, data: number[]) => void) | null = null;
+  onSpiEvent:        ((data: number) => void) | null = null;
   onConnected:     (() => void) | null = null;
   onDisconnected:  (() => void) | null = null;
   onError:         ((msg: string) => void) | null = null;
   onSystemEvent:   ((event: string, data: Record<string, unknown>) => void) | null = null;
   onCrash:         ((data: Record<string, unknown>) => void) | null = null;
+  onWifiStatus:    ((status: WifiStatus) => void) | null = null;
+  onBleStatus:     ((status: BleStatus) => void) | null = null;
 
   private socket: WebSocket | null = null;
   private _connected = false;
   private _pendingFirmware: string | null = null;
   private _pendingSensors: Array<Record<string, unknown>> = [];
+
+  // MicroPython REPL injection — 4-stage state machine
+  //   idle → banner_seen → prompt_seen → raw_repl_entered → done
+  // Each stage waits for a specific string in the serial buffer before
+  // proceeding.  This avoids the race where code is sent before raw REPL
+  // mode is confirmed and ends up echoed by the normal REPL.
+  private _pendingMicroPythonCode: string | null = null;
+  private _serialBuffer = '';
+  private _replState: 'idle' | 'banner_seen' | 'prompt_seen' | 'raw_repl_entered' = 'idle';
+  micropythonMode = false;
 
   constructor(boardId: string, boardKind: BoardKind) {
     this.boardId   = boardId;
@@ -91,6 +110,10 @@ export class Esp32Bridge {
 
   get connected(): boolean {
     return this._connected;
+  }
+
+  get clientId(): string {
+    return getTabSessionId() + '::' + this.boardId;
   }
 
   connect(): void {
@@ -115,6 +138,7 @@ export class Esp32Bridge {
           board: toQemuBoardType(this.boardKind),
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
           sensors: this._pendingSensors,
+          wifi_enabled: this.wifiEnabled,
         },
       });
     };
@@ -133,6 +157,48 @@ export class Esp32Bridge {
           const uart = msg.data.uart as number | undefined;
           if (this.onSerialData) {
             for (const ch of text) this.onSerialData(ch, uart);
+          }
+          // MicroPython REPL injection — 4-stage state machine.
+          // Each stage waits for a confirmed string in the serial buffer before
+          // advancing, so we never send code before raw REPL mode is verified.
+          if (this._pendingMicroPythonCode || this._replState !== 'idle') {
+            this._serialBuffer += text;
+
+            // Stage 1: banner "Type help()" → poke UART with \r to flush ">>> "
+            // The >>> prompt has no \n so the backend UART buffer holds it until
+            // we send a byte that causes another write.
+            if (this._replState === 'idle' && this._serialBuffer.includes('Type "help()"')) {
+              this._replState = 'banner_seen';
+              console.log('[Esp32Bridge] Stage 1: banner seen → poking UART with \\r');
+              setTimeout(() => {
+                this._send({ type: 'esp32_serial_input', data: { bytes: [0x0D] } });
+              }, 800);
+            }
+
+            // Stage 2: ">>>" → send Ctrl+A to enter raw REPL
+            if (this._replState === 'banner_seen' && this._serialBuffer.includes('>>>')) {
+              this._replState = 'prompt_seen';
+              this._serialBuffer = '';
+              console.log('[Esp32Bridge] Stage 2: >>> seen → sending Ctrl+A');
+              setTimeout(() => {
+                this._send({ type: 'esp32_serial_input', data: { bytes: [0x01] } });
+              }, 200);
+            }
+
+            // Stage 3: "raw REPL" confirmation → now safe to send code
+            if (this._replState === 'prompt_seen' && this._serialBuffer.includes('raw REPL')) {
+              this._replState = 'raw_repl_entered';
+              const code = this._pendingMicroPythonCode!;
+              this._pendingMicroPythonCode = null;
+              this._serialBuffer = '';
+              console.log('[Esp32Bridge] Stage 3: raw REPL confirmed → sending code');
+              setTimeout(() => this._sendCodeInRawRepl(code), 200);
+            }
+
+            // Keep buffer from growing unboundedly
+            if (this._serialBuffer.length > 8192) {
+              this._serialBuffer = this._serialBuffer.slice(-1024);
+            }
           }
           break;
         }
@@ -167,6 +233,12 @@ export class Esp32Bridge {
           this.onI2cEvent?.(addr, data);
           break;
         }
+        case 'i2c_transaction': {
+          const addr = msg.data.addr as number;
+          const data = msg.data.data as number[];
+          this.onI2cTransaction?.(addr, data);
+          break;
+        }
         case 'spi_event': {
           const data = msg.data.data as number;
           this.onSpiEvent?.(data);
@@ -179,6 +251,18 @@ export class Esp32Bridge {
             this.onCrash?.(msg.data);
           }
           this.onSystemEvent?.(evt, msg.data);
+          break;
+        }
+        case 'wifi_status': {
+          const wifiStatus = msg.data as unknown as WifiStatus;
+          console.log(`[Esp32Bridge:${this.boardId}] wifi_status: ${wifiStatus.status} ssid=${wifiStatus.ssid ?? ''} ip=${wifiStatus.ip ?? ''}`);
+          this.onWifiStatus?.(wifiStatus);
+          break;
+        }
+        case 'ble_status': {
+          const bleStatus = msg.data as unknown as BleStatus;
+          console.log(`[Esp32Bridge:${this.boardId}] ble_status: ${bleStatus.status}`);
+          this.onBleStatus?.(bleStatus);
           break;
         }
         case 'error':
@@ -218,6 +302,11 @@ export class Esp32Bridge {
    */
   setSensors(sensors: Array<Record<string, unknown>>): void {
     this._pendingSensors = sensors;
+  }
+
+  /** Returns true if a firmware has been loaded and is ready to send. */
+  hasFirmware(): boolean {
+    return this._pendingFirmware !== null && this._pendingFirmware !== '';
   }
 
   /**
@@ -270,17 +359,122 @@ export class Esp32Bridge {
 
   /** Register a sensor on a GPIO pin — backend handles its protocol */
   sendSensorAttach(sensorType: string, pin: number, properties: Record<string, unknown>): void {
-    this._send({ type: 'esp32_sensor_attach', data: { sensor_type: sensorType, pin, ...properties } });
+    // Buffer into _pendingSensors so it is included in start_esp32 if sent
+    // before the WebSocket opens (the common case when attachEvents fires
+    // before the user clicks Run).
+    const entry = { sensor_type: sensorType, pin, ...properties };
+    const existing = this._pendingSensors.findIndex((s) => s['pin'] === pin);
+    if (existing >= 0) {
+      this._pendingSensors[existing] = entry;
+    } else {
+      this._pendingSensors.push(entry);
+    }
+    // Also send immediately if already connected (re-attach on hot reload)
+    if (this._connected) {
+      this._send({ type: 'esp32_sensor_attach', data: entry });
+    }
   }
 
   /** Update sensor properties (temperature, humidity, distance, etc.) */
   sendSensorUpdate(pin: number, properties: Record<string, unknown>): void {
+    // Keep _pendingSensors in sync so reconnects get current values
+    const idx = this._pendingSensors.findIndex((s) => s['pin'] === pin);
+    if (idx >= 0) {
+      this._pendingSensors[idx] = { ...this._pendingSensors[idx], ...properties };
+    }
     this._send({ type: 'esp32_sensor_update', data: { pin, ...properties } });
   }
 
   /** Detach a sensor from a GPIO pin */
   sendSensorDetach(pin: number): void {
+    this._pendingSensors = this._pendingSensors.filter((s) => s['pin'] !== pin);
     this._send({ type: 'esp32_sensor_detach', data: { pin } });
+  }
+
+  /**
+   * Queue user MicroPython code for injection after the REPL boots.
+   * The code will be sent via raw-paste protocol once `>>>` is detected.
+   */
+  setPendingMicroPythonCode(code: string): void {
+    this._pendingMicroPythonCode = code;
+    this._serialBuffer = '';
+    this._replState = 'idle';
+    this.micropythonMode = true;
+  }
+
+  /** Check if this bridge is in MicroPython mode */
+  isMicroPythonMode(): boolean {
+    return this.micropythonMode;
+  }
+
+  /**
+   * Send code bytes to QEMU UART, then Ctrl+D to execute.
+   * Called ONLY after "raw REPL; CTRL-B to exit" has been confirmed in the
+   * serial buffer (stage 3), so we are guaranteed to be in raw REPL mode.
+   */
+  /**
+   * Sanitize MicroPython source code before sending to the raw REPL.
+   *
+   * MicroPython v1.20 on ESP32 uses a byte-oriented tokenizer that doesn't
+   * handle non-ASCII bytes in source code.  Multi-byte UTF-8 sequences
+   * (e.g. Spanish accents: á=\xC3\xA1, ú=\xC3\xBA) in comments confuse the
+   * tokenizer and produce SyntaxError at the wrong line.
+   *
+   * Safe to strip non-ASCII only from comments because:
+   *  - String literals with non-ASCII would already fail on MicroPython's
+   *    default build (no wide-unicode support on ESP32).
+   *  - Identifiers must be ASCII.
+   */
+  private static _sanitizeForRepl(code: string): string {
+    // 1. Strip UTF-8 BOM if present
+    let s = code.startsWith('\uFEFF') ? code.slice(1) : code;
+    // 2. Normalize line endings to LF
+    s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // 3. Replace non-ASCII in line-comments with '?' so the line is preserved
+    s = s.replace(/^([ \t]*#.*)$/gm, (line) =>
+      line.replace(/[^\x00-\x7F]/g, '?')
+    );
+    // 4. Replace non-ASCII in inline comments (after code on the same line)
+    s = s.replace(/([ \t]+#.*)$/gm, (comment) =>
+      comment.replace(/[^\x00-\x7F]/g, '?')
+    );
+    return s;
+  }
+
+  private _sendCodeInRawRepl(code: string): void {
+    const sanitized = Esp32Bridge._sanitizeForRepl(code);
+    console.log(`[Esp32Bridge:${this.boardId}] Sending ${sanitized.length} bytes to raw REPL + Ctrl+D`);
+    if (sanitized !== code) {
+      console.log(`[Esp32Bridge:${this.boardId}] Code was sanitized (non-ASCII in comments stripped)`);
+    }
+    const codeBytes = Array.from(new TextEncoder().encode(sanitized));
+    console.log(`[Esp32Bridge:${this.boardId}] Sending ${codeBytes.length} bytes in chunks to raw REPL`);
+
+    // The ESP32 UART RX FIFO is 128 bytes in hardware (and in QEMU's emulation).
+    // Sending >128 bytes in one qemu_picsimlab_uart_receive() call overflows the
+    // FIFO — the extra bytes are silently dropped, corrupting the injected code
+    // (e.g. "time.sleep" becomes "ti" causing NameError).
+    // Use ≤64-byte chunks with a 150 ms gap so QEMU drains the FIFO between sends.
+    const CHUNK_SIZE = 64;
+    const CHUNK_DELAY_MS = 150;
+    let offset = 0;
+
+    const sendChunk = () => {
+      if (offset >= codeBytes.length) {
+        // All bytes delivered — wait for QEMU to finish processing the last chunk
+        setTimeout(() => {
+          this.sendSerialBytes([0x04]);   // Ctrl+D → compile & execute
+          this._replState = 'idle';
+          console.log(`[Esp32Bridge:${this.boardId}] Ctrl+D sent — code executing`);
+        }, 300);
+        return;
+      }
+      const chunk = codeBytes.slice(offset, offset + CHUNK_SIZE);
+      this.sendSerialBytes(chunk);
+      offset += CHUNK_SIZE;
+      setTimeout(sendChunk, CHUNK_DELAY_MS);
+    };
+    sendChunk();
   }
 
   private _send(payload: unknown): void {

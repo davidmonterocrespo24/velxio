@@ -125,14 +125,49 @@ PartSimulationRegistry.register('dip-switch-8', {
 });
 
 /**
- * Basic LED implementation
+ * Basic LED implementation.
+ *
+ * An LED lights up only when current can flow: anode HIGH **and** cathode
+ * connected to GND (or a LOW GPIO).  If the cathode is not wired at all the
+ * LED stays off regardless of the anode state.
  */
 PartSimulationRegistry.register('led', {
-    onPinStateChange: (pinName, state, element) => {
-        if (pinName === 'A') { // Anode
-            (element as any).value = state;
+    attachEvents: (element, simulator, getArduinoPinHelper) => {
+        const pinManager = (simulator as any).pinManager;
+        if (!pinManager) return () => {};
+
+        const el = element as any;
+        const unsubs: (() => void)[] = [];
+        let anodeHigh  = false;
+        let cathodeLow = false;
+
+        const update = () => { el.value = anodeHigh && cathodeLow; };
+
+        // Cathode pin: -1 means wired to GND (always LOW), >=0 means GPIO
+        const cathodePin = getArduinoPinHelper('C');
+        if (cathodePin === -1) {
+            // Wired to GND — always LOW
+            cathodeLow = true;
+        } else if (cathodePin !== null && cathodePin >= 0) {
+            // Wired to a GPIO — track its state
+            unsubs.push(pinManager.onPinChange(cathodePin, (_: number, state: boolean) => {
+                cathodeLow = !state; // cathode needs to be LOW for current to flow
+                update();
+            }));
         }
-    }
+        // cathodePin === null → not wired → cathodeLow stays false → LED off
+
+        // Anode pin
+        const anodePin = getArduinoPinHelper('A');
+        if (anodePin !== null && anodePin >= 0) {
+            unsubs.push(pinManager.onPinChange(anodePin, (_: number, state: boolean) => {
+                anodeHigh = state;
+                update();
+            }));
+        }
+
+        return () => { unsubs.forEach(u => u()); };
+    },
 });
 
 /**

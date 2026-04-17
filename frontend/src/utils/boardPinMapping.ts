@@ -293,7 +293,12 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
 
   // ATtiny85 — PORTB only: PB0-PB5 → pins 0-5
   if (boardId === 'attiny85' || boardId.startsWith('attiny85')) {
-    if (/^PB(\d+)$/.test(pinName)) return parseInt(pinName.substring(2), 10);
+    // Power / GND pins — not real GPIOs, skip silently
+    if (pinName === 'GND' || pinName === 'VCC') return -1;
+    if (/^PB(\d+)$/.test(pinName)) {
+      const n = parseInt(pinName.substring(2), 10);
+      return n >= 0 && n <= 5 ? n : null; // PB6/PB7 don't exist on ATtiny85
+    }
     // Numeric fallback
     const num = parseInt(pinName, 10);
     if (!isNaN(num) && num >= 0 && num <= 5) return num;

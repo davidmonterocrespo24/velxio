@@ -75,6 +75,10 @@ app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 from app.api.routes import simulation
 app.include_router(simulation.router, prefix="/api/simulation", tags=["simulation"])
 
+# IoT Gateway — HTTP proxy for ESP32 web servers
+from app.api.routes import iot_gateway
+app.include_router(iot_gateway.router, prefix="/api/gateway", tags=["iot-gateway"])
+
 @app.get("/")
 def root():
     return {
@@ -87,3 +91,4 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+

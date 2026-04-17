@@ -1,6 +1,11 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services.arduino_cli import ArduinoCLIService
+from app.services.espidf_compiler import espidf_compiler
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 arduino_cli = ArduinoCLIService()
@@ -24,6 +29,7 @@ class CompileResponse(BaseModel):
     hex_content: str | None = None
     binary_content: str | None = None  # base64-encoded .bin for RP2040
     binary_type: str | None = None     # 'bin' or 'uf2'
+    has_wifi: bool = False             # True when sketch uses WiFi (ESP32 only)
     stdout: str
     stderr: str
     error: str | None = None
@@ -49,6 +55,22 @@ async def compile_sketch(request: CompileRequest):
         )
 
     try:
+        # ESP32 targets: use ESP-IDF compiler for QEMU-compatible output
+        if request.board_fqbn.startswith("esp32:") and espidf_compiler.available:
+            logger.info(f"[compile] Using ESP-IDF for {request.board_fqbn}")
+            result = await espidf_compiler.compile(files, request.board_fqbn)
+            return CompileResponse(
+                success=result["success"],
+                hex_content=result.get("hex_content"),
+                binary_content=result.get("binary_content"),
+                binary_type=result.get("binary_type"),
+                has_wifi=result.get("has_wifi", False),
+                stdout=result.get("stdout", ""),
+                stderr=result.get("stderr", ""),
+                error=result.get("error"),
+            )
+
+        # AVR, RP2040, and ESP32 fallback: use arduino-cli
         core_status = await arduino_cli.ensure_core_for_board(request.board_fqbn)
         core_log = core_status.get("log", "")
 

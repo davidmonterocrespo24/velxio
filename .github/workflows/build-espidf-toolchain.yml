@@ -1,0 +1,46 @@
+name: Build ESP-IDF Toolchain Image
+
+# Runs when Dockerfile.espidf-toolchain changes, or manually
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Dockerfile.espidf-toolchain'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/velxio-espidf-toolchain
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-toolchain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ESP-IDF toolchain image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.espidf-toolchain
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:idf-4.4.7
+          cache-from: type=gha,scope=espidf
+          cache-to: type=gha,scope=espidf,mode=max

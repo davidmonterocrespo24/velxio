@@ -68,10 +68,13 @@ let generated = 0;
 
 try {
   // Load entry-server.tsx through Vite's transform pipeline
-  const { getPrerenderedRoutes, render } = await vite.ssrLoadModule('/src/entry-server.tsx');
-  const routes = getPrerenderedRoutes();
+  const { getPrerenderedRoutes, render, getPrerenderedExampleRoutes, renderExample } =
+    await vite.ssrLoadModule('/src/entry-server.tsx');
 
-  console.log(`📄 Prerendering ${routes.length} SEO pages...\n`);
+  const routes = getPrerenderedRoutes();
+  const exampleRoutes = getPrerenderedExampleRoutes();
+
+  console.log(`📄 Prerendering ${routes.length} SEO pages + ${exampleRoutes.length} example pages...\n`);
 
   for (const route of routes) {
     const { seoMeta } = route;
@@ -149,6 +152,56 @@ try {
     const ssrStatus = bodyHtml ? '✓' : '⚠ (meta only)';
     console.log(`  ${ssrStatus} ${route.path}`);
   }
+
+  // ── Prerender example detail pages ──────────────────────────────────────────
+  console.log('\n📦 Prerendering example pages...\n');
+  let examplesGenerated = 0;
+
+  for (const exRoute of exampleRoutes) {
+    const exampleId = exRoute.path.split('/').pop();
+    let bodyHtml = renderExample(exampleId);
+
+    let html = baseHtml;
+
+    html = html.replace(/<title>[^<]*<\/title>/, `<title>${exRoute.title}</title>`);
+    html = html.replace(
+      /<meta name="description" content="[^"]*"/,
+      `<meta name="description" content="${exRoute.description}"`
+    );
+
+    const canonicalTag = `<link rel="canonical" href="${exRoute.url}" />`;
+    if (html.includes('<link rel="canonical"')) {
+      html = html.replace(/<link rel="canonical"[^>]*\/>/, canonicalTag);
+    } else {
+      html = html.replace('</head>', `  ${canonicalTag}\n  </head>`);
+    }
+
+    html = html.replace(/<meta property="og:title" content="[^"]*"/, `<meta property="og:title" content="${exRoute.title}"`);
+    html = html.replace(/<meta property="og:description" content="[^"]*"/, `<meta property="og:description" content="${exRoute.description}"`);
+    html = html.replace(/<meta property="og:url" content="[^"]*"/, `<meta property="og:url" content="${exRoute.url}"`);
+    html = html.replace(/<meta name="twitter:title" content="[^"]*"/, `<meta name="twitter:title" content="${exRoute.title}"`);
+    html = html.replace(/<meta name="twitter:description" content="[^"]*"/, `<meta name="twitter:description" content="${exRoute.description}"`);
+
+    const seoBody = bodyHtml || `<h1>${exRoute.title.split(' — ')[0]}</h1><p>${exRoute.description}</p>`;
+    html = html.replace(
+      /<div id="root-seo"[^>]*>[\s\S]*?<\/div>\s*<script/,
+      `<div id="root-seo" aria-hidden="true">${seoBody}</div>\n    <script`
+    );
+
+    const dir = join(distDir, 'examples', exampleId);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'index.html'), html, 'utf-8');
+
+    examplesGenerated++;
+    const ssrStatus = bodyHtml ? '✓' : '⚠ (meta only)';
+    if (examplesGenerated <= 5 || examplesGenerated % 20 === 0) {
+      console.log(`  ${ssrStatus} /examples/${exampleId}`);
+    }
+  }
+  if (exampleRoutes.length > 5) {
+    console.log(`  ... (${examplesGenerated} total)`);
+  }
+  generated += examplesGenerated;
 
   // Also ensure root index.html has a canonical tag
   let rootHtml = readFileSync(join(distDir, 'index.html'), 'utf-8');

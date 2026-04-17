@@ -29,6 +29,7 @@ const CATEGORY_MAP: Record<string, ComponentCategory> = {
   'pir-motion-sensor': 'sensors',
   'mq2-gas-sensor': 'sensors',
   'mpu6050': 'sensors',
+  'bmp280': 'sensors',
   'ds18b20-temp': 'sensors',
   'ntc-temperature-sensor': 'sensors',
   'photoresistor-sensor': 'sensors',
@@ -93,10 +94,12 @@ interface ParsedComponent {
 class MetadataGenerator {
   private wokwiElementsPath: string;
   private outputPath: string;
+  private overridesPath: string;
 
   constructor() {
     this.wokwiElementsPath = path.join(__dirname, '../wokwi-libs/wokwi-elements/src');
     this.outputPath = path.join(__dirname, '../frontend/public/components-metadata.json');
+    this.overridesPath = path.join(__dirname, 'component-overrides.json');
   }
 
   /**
@@ -129,6 +132,9 @@ class MetadataGenerator {
       }
     }
 
+    // Apply custom overrides from component-overrides.json
+    this.applyOverrides(components);
+
     // Sort by category and name
     components.sort((a, b) => {
       if (a.category !== b.category) {
@@ -152,6 +158,58 @@ class MetadataGenerator {
     fs.writeFileSync(this.outputPath, JSON.stringify(output, null, 2));
     console.log(`\n✅ Generated metadata for ${components.length} components`);
     console.log(`📄 Output: ${this.outputPath}`);
+  }
+
+  /**
+   * Apply custom overrides from component-overrides.json.
+   *
+   * Overrides can:
+   *  - Patch existing property fields (e.g. change control from "text" to "select")
+   *  - Add entirely new properties to a component
+   *  - Merge extra defaultValues
+   */
+  private applyOverrides(components: ComponentMetadata[]): void {
+    if (!fs.existsSync(this.overridesPath)) return;
+
+    let overrides: Record<string, any>;
+    try {
+      overrides = JSON.parse(fs.readFileSync(this.overridesPath, 'utf-8'));
+    } catch (e) {
+      console.warn(`⚠️  Could not parse ${this.overridesPath}:`, e);
+      return;
+    }
+
+    let applied = 0;
+    for (const comp of components) {
+      const ov = overrides[comp.id];
+      if (!ov) continue;
+
+      // Merge property-level overrides
+      if (ov.properties) {
+        for (const [propName, patch] of Object.entries<any>(ov.properties)) {
+          const existing = comp.properties.find((p: any) => p.name === propName);
+          if (existing) {
+            // Patch existing property (e.g. change control, add options)
+            Object.assign(existing, patch);
+          } else {
+            // Add new property (e.g. SSD1306 "protocol")
+            comp.properties.push(patch);
+          }
+        }
+      }
+
+      // Merge defaultValues
+      if (ov.defaultValues) {
+        comp.defaultValues = { ...comp.defaultValues, ...ov.defaultValues };
+      }
+
+      applied++;
+      console.log(`  🔧 Applied overrides for ${comp.id}`);
+    }
+
+    if (applied > 0) {
+      console.log(`\n🔧 Applied overrides to ${applied} component(s)`);
+    }
   }
 
   /**

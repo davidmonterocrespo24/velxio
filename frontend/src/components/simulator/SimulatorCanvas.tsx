@@ -8,6 +8,7 @@ import { SENSOR_CONTROLS } from '../../simulation/sensorControlConfig';
 import { DynamicComponent, createComponentFromMetadata } from '../DynamicComponent';
 import { ComponentRegistry } from '../../services/ComponentRegistry';
 import { PinSelector } from './PinSelector';
+import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle } from './WireLayer';
 import { BoardOnCanvas } from './BoardOnCanvas';
@@ -33,6 +34,13 @@ import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { trackSelectBoard, trackAddComponent, trackCreateWire, trackToggleSerialMonitor } from '../../utils/analytics';
 import './SimulatorCanvas.css';
 
+/** Check if a board kind is an ESP32-family board. */
+function isEsp32Kind(kind: BoardKind): boolean {
+  return kind.startsWith('esp32') || kind === 'xiao-esp32-s3' || kind === 'xiao-esp32-c3'
+    || kind === 'arduino-nano-esp32' || kind === 'aitewinrobot-esp32c3-supermini'
+    || kind === 'esp32-cam' || kind === 'wemos-lolin32-lite' || kind === 'esp32-devkit-c-v4';
+}
+
 export const SimulatorCanvas = () => {
   const {
     boards,
@@ -46,10 +54,14 @@ export const SimulatorCanvas = () => {
     updateComponentState,
     addComponent,
     removeComponent,
+    removeBoard,
     updateComponent,
     serialMonitorOpen,
     toggleSerialMonitor,
   } = useSimulatorStore();
+
+  // Active board (for WiFi/BLE status display)
+  const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
   // Legacy derived values for components that still use them
   const boardType = useSimulatorStore((s) => s.boardType);
@@ -103,6 +115,15 @@ export const SimulatorCanvas = () => {
   // Sensor control panel (shown instead of property dialog for sensor components during simulation)
   const [sensorControlComponentId, setSensorControlComponentId] = useState<string | null>(null);
   const [sensorControlMetadataId, setSensorControlMetadataId] = useState<string | null>(null);
+
+  // Board built-in LED states (pin 13 for AVR, GPIO25 for RP2040, etc.)
+  // Tracks directly from pinManager — independent of any led-builtin component.
+  const [boardLedStates, setBoardLedStates] = useState<Record<string, boolean>>({});
+
+  // Board context menu (right-click)
+  const [boardContextMenu, setBoardContextMenu] = useState<{ boardId: string; x: number; y: number } | null>(null);
+  // Board removal confirmation dialog
+  const [boardToRemove, setBoardToRemove] = useState<string | null>(null);
 
   // Click vs drag detection
   const [clickStartTime, setClickStartTime] = useState<number>(0);
@@ -538,7 +559,10 @@ export const SimulatorCanvas = () => {
                 setSensorControlMetadataId(component.metadataId);
               } else {
                 setPropertyDialogComponentId(touchId);
-                setPropertyDialogPosition({ x: component.x, y: component.y });
+                setPropertyDialogPosition({
+                  x: component.x * zoomRef.current + panRef.current.x,
+                  y: component.y * zoomRef.current + panRef.current.y,
+                });
                 setShowPropertyDialog(true);
               }
             }
@@ -609,27 +633,56 @@ export const SimulatorCanvas = () => {
   useEffect(() => {
     const unsubscribers: (() => void)[] = [];
 
+    // Returns true if the component has at least one wire connected to a board
+    // GND or power-rail pin (boardPinToNumber returns -1 for these).
+    // Used to block output components from activating without a ground connection.
+    const componentHasGndWire = (component: any): boolean =>
+      wires.some(w => {
+        const isSelfStart = w.start.componentId === component.id;
+        const isSelfEnd   = w.end.componentId   === component.id;
+        if (!isSelfStart && !isSelfEnd) return false;
+        const otherEndpoint = isSelfStart ? w.end : w.start;
+        if (!isBoardComponent(otherEndpoint.componentId)) return false;
+        const boardInstance = boards.find(b => b.id === otherEndpoint.componentId);
+        const lookupKey = boardInstance ? boardInstance.boardKind : otherEndpoint.componentId;
+        return boardPinToNumber(lookupKey, otherEndpoint.pinName) === -1;
+      });
+
     // Helper to add subscription
-    const subscribeComponentToPin = (component: any, pin: number, componentPinName?: string) => {
+    // wireConnected: true when this call came from the wire-scanning path (not properties.pin).
+    const subscribeComponentToPin = (
+      component: any,
+      pin: number,
+      componentPinName?: string,
+      wireConnected = false,
+    ) => {
       // Components with attachEvents in PartSimulationRegistry manage their own
-      // visual state (e.g. servo, buzzer). Skip generic digital/PWM updates for them
-      // to avoid flickering from raw PWM pulses being misinterpreted as on/off state.
+      // visual state (e.g. LED, servo, buzzer). Skip generic digital/PWM updates for
+      // them — they already handle GND logic internally via getArduinoPinHelper.
       const logic = PartSimulationRegistry.get(component.metadataId);
       const hasSelfManagedVisuals = !!(logic && logic.attachEvents);
+
+      // Generic GND check: for wire-connected output components that don't manage
+      // their own state, require at least one GND wire before activating.
+      // Skip the check for pin-property components (no GND wire to detect) and for
+      // self-managed components (they handle GND themselves via attachEvents).
+      const hasGnd = (!wireConnected || hasSelfManagedVisuals)
+        ? true
+        : componentHasGndWire(component);
 
       const unsubscribe = pinManager.onPinChange(
         pin,
         (_pin, state) => {
           if (!hasSelfManagedVisuals) {
-            // 1. Update React state for standard properties (LEDs, buttons, etc.)
-            updateComponentState(component.id, state);
+            // Update React state — gate on GND for wire-connected components.
+            updateComponentState(component.id, hasGnd && state);
           }
 
-          // 2. Delegate to PartSimulationRegistry for custom visual updates
+          // Delegate to PartSimulationRegistry for custom visual updates
           if (logic && logic.onPinStateChange) {
             const el = document.getElementById(component.id);
             if (el) {
-              logic.onPinStateChange(componentPinName || 'A', state, el);
+              logic.onPinStateChange(componentPinName || 'A', hasGnd && state, el);
             }
           }
         }
@@ -641,6 +694,7 @@ export const SimulatorCanvas = () => {
       // control signal, not a brightness value, so setting opacity would cause flicker.
       if (!hasSelfManagedVisuals) {
         const pwmUnsub = pinManager.onPwmChange(pin, (_p, duty) => {
+          if (!hasGnd) return; // no GND → stay dark even under PWM
           const el = document.getElementById(component.id);
           if (el) el.style.opacity = duty > 0 ? String(duty) : '';
         });
@@ -649,9 +703,9 @@ export const SimulatorCanvas = () => {
     };
 
     components.forEach((component) => {
-      // 1. Subscribe by explicit pin property
+      // 1. Subscribe by explicit pin property (old-style, no wire needed)
       if (component.properties.pin !== undefined) {
-        subscribeComponentToPin(component, component.properties.pin as number, 'A');
+        subscribeComponentToPin(component, component.properties.pin as number, 'A', false);
       } else {
         // 2. Subscribe by finding wires connected to arduino
         const connectedWires = wires.filter(
@@ -675,7 +729,7 @@ export const SimulatorCanvas = () => {
               ` kind=${lookupKey} pinName=${otherEndpoint.pinName} → gpioPin=${pin}`
             );
             if (pin !== null && pin >= 0) {
-              subscribeComponentToPin(component, pin, selfEndpoint.pinName);
+              subscribeComponentToPin(component, pin, selfEndpoint.pinName, true);
             } else if (pin === null) {
               console.warn(`[WirePin] Could not resolve pin "${otherEndpoint.pinName}" on ${lookupKey}`);
             }
@@ -689,6 +743,38 @@ export const SimulatorCanvas = () => {
       unsubscribers.forEach(unsub => unsub());
     };
   }, [components, wires, boards, pinManager, updateComponentState]);
+
+  // Board built-in LED: subscribe directly to pinManager for the LED pin of each board.
+  // This works even when no external led-builtin component exists (e.g. basic Blink example).
+  useEffect(() => {
+    if (!pinManager) return;
+    const unsubs: (() => void)[] = [];
+
+    boards.forEach((board) => {
+      // Determine which GPIO pin drives the board's built-in LED
+      let ledPin: number;
+      switch (board.boardKind) {
+        case 'raspberry-pi-pico':
+        case 'pi-pico-w':
+        case 'nano-rp2040':
+          ledPin = 25; // GPIO25
+          break;
+        default:
+          ledPin = 13; // Pin 13 for Arduino Uno/Nano/Mega, ATtiny85, etc.
+      }
+
+      unsubs.push(
+        pinManager.onPinChange(ledPin, (_pin, state) => {
+          setBoardLedStates((prev) => {
+            if (prev[board.id] === state) return prev;
+            return { ...prev, [board.id]: state };
+          });
+        })
+      );
+    });
+
+    return () => unsubs.forEach((u) => u());
+  }, [boards, pinManager]);
 
   // ESP32 input components: forward button presses and potentiometer values to QEMU
   useEffect(() => {
@@ -754,18 +840,23 @@ export const SimulatorCanvas = () => {
     return () => cleanups.forEach(fn => fn());
   }, [components, wires, boards]);
 
-  // Handle keyboard delete
+  // Handle keyboard delete for components and boards
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedComponentId) {
-        removeComponent(selectedComponentId);
-        setSelectedComponentId(null);
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedComponentId) {
+          removeComponent(selectedComponentId);
+          setSelectedComponentId(null);
+        } else if (activeBoardId && boards.length > 1) {
+          // Only allow deleting boards if more than one exists
+          setBoardToRemove(activeBoardId);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedComponentId, removeComponent]);
+  }, [selectedComponentId, removeComponent, activeBoardId, boards.length]);
 
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
@@ -946,7 +1037,10 @@ export const SimulatorCanvas = () => {
               setSensorControlMetadataId(component.metadataId);
             } else {
               setPropertyDialogComponentId(draggedComponentId);
-              setPropertyDialogPosition({ x: component.x, y: component.y });
+              setPropertyDialogPosition({
+                x: component.x * zoomRef.current + panRef.current.x,
+                y: component.y * zoomRef.current + panRef.current.y,
+              });
               setShowPropertyDialog(true);
             }
           }
@@ -1254,6 +1348,55 @@ export const SimulatorCanvas = () => {
               Serial
             </button>
 
+            {/* WiFi status indicator (ESP32 boards only) */}
+            {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.wifiStatus && (() => {
+              const status = activeBoard.wifiStatus.status;
+              const hasIp = status === 'got_ip';
+              const sessionId = getTabSessionId();
+              const clientId = `${sessionId}::${activeBoard.id}`;
+              const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
+              const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+
+              return (
+                <span
+                  className={`canvas-wifi-badge canvas-wifi-${status}${hasIp ? ' canvas-wifi-clickable' : ''}`}
+                  onClick={() => hasIp && window.open(gatewayUrl, '_blank')}
+                  title={
+                    hasIp
+                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — IP: ${activeBoard.wifiStatus.ip}\nClick to open IoT Gateway ↗`
+                      : status === 'connected'
+                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — Connecting...`
+                      : status === 'initializing'
+                      ? 'WiFi: Initializing...'
+                      : 'WiFi: Disconnected'
+                  }
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                    <circle cx="12" cy="20" r="1" />
+                  </svg>
+                </span>
+              );
+            })()}
+
+            {/* BLE status indicator (ESP32 boards only) */}
+            {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.bleStatus && (
+              <span
+                className={`canvas-ble-badge canvas-ble-${activeBoard.bleStatus.status}`}
+                title={
+                  activeBoard.bleStatus.status === 'advertising'
+                    ? 'BLE: Advertising'
+                    : 'BLE: Initialized'
+                }
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5" />
+                </svg>
+              </span>
+            )}
+
             {/* Oscilloscope toggle */}
             <button
               onClick={toggleOscilloscope}
@@ -1392,13 +1535,18 @@ export const SimulatorCanvas = () => {
                 board={board}
                 running={running}
                 isActive={board.id === activeBoardId}
-                led13={Boolean(components.find((c) => c.id === 'led-builtin')?.properties.state)}
+                led13={Boolean(boardLedStates[board.id])}
                 onMouseDown={(e) => {
                   setClickStartTime(Date.now());
                   setClickStartPos({ x: e.clientX, y: e.clientY });
                   const world = toWorld(e.clientX, e.clientY);
                   setDraggedComponentId(`__board__:${board.id}`);
                   setDragOffset({ x: world.x - board.x, y: world.y - board.y });
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setBoardContextMenu({ boardId: board.id, x: e.clientX, y: e.clientY });
                 }}
                 onPinClick={handlePinClick}
                 zoom={zoom}
@@ -1457,6 +1605,14 @@ export const SimulatorCanvas = () => {
               removeComponent(id);
               setShowPropertyDialog(false);
             }}
+            onPropertyChange={(id, propName, value) => {
+              const comp = components.find((c) => c.id === id);
+              if (comp) {
+                updateComponent(id, {
+                  properties: { ...comp.properties, [propName]: value },
+                });
+              }
+            }}
           />
         );
       })()}
@@ -1477,6 +1633,101 @@ export const SimulatorCanvas = () => {
           void newBoardId;
         }}
       />
+
+      {/* Board right-click context menu */}
+      {boardContextMenu && (() => {
+        const board = boards.find((b) => b.id === boardContextMenu.boardId);
+        const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
+        const connectedWires = wires.filter(
+          (w) => w.start.componentId === boardContextMenu.boardId || w.end.componentId === boardContextMenu.boardId
+        ).length;
+        return (
+          <>
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+              onClick={() => setBoardContextMenu(null)}
+              onContextMenu={(e) => { e.preventDefault(); setBoardContextMenu(null); }}
+            />
+            <div
+              style={{
+                position: 'fixed',
+                left: boardContextMenu.x,
+                top: boardContextMenu.y,
+                background: '#252526',
+                border: '1px solid #3c3c3c',
+                borderRadius: 6,
+                padding: '4px 0',
+                zIndex: 9999,
+                minWidth: 180,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                fontSize: 13,
+              }}
+            >
+              <div style={{ padding: '6px 14px', color: '#888', fontSize: 11, borderBottom: '1px solid #3c3c3c', marginBottom: 2 }}>
+                {label}
+              </div>
+              <button
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '7px 14px', background: 'none', border: 'none',
+                  color: boards.length <= 1 ? '#555' : '#e06c75', cursor: boards.length <= 1 ? 'default' : 'pointer',
+                  fontSize: 13, textAlign: 'left',
+                }}
+                disabled={boards.length <= 1}
+                title={boards.length <= 1 ? 'Cannot remove the last board' : undefined}
+                onMouseEnter={(e) => { if (boards.length > 1) (e.currentTarget.style.background = '#2a2d2e'); }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+                onClick={() => {
+                  setBoardContextMenu(null);
+                  setBoardToRemove(boardContextMenu.boardId);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                Remove board
+                {connectedWires > 0 && <span style={{ color: '#888', fontSize: 11 }}>({connectedWires} wire{connectedWires > 1 ? 's' : ''})</span>}
+              </button>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Board removal confirmation dialog */}
+      {boardToRemove && (() => {
+        const board = boards.find((b) => b.id === boardToRemove);
+        const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
+        const connectedWires = wires.filter(
+          (w) => w.start.componentId === boardToRemove || w.end.componentId === boardToRemove
+        ).length;
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#1e1e1e', border: '1px solid #3c3c3c', borderRadius: 8, padding: '20px 24px', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
+              <h3 style={{ margin: '0 0 10px', color: '#e0e0e0', fontSize: 15 }}>Remove {label}?</h3>
+              <p style={{ margin: '0 0 16px', color: '#999', fontSize: 13, lineHeight: 1.5 }}>
+                This will remove the board from the workspace
+                {connectedWires > 0 && <> and <strong style={{ color: '#e06c75' }}>{connectedWires} connected wire{connectedWires > 1 ? 's' : ''}</strong></>}
+                . This action cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setBoardToRemove(null)}
+                  style={{ padding: '6px 16px', background: '#333', border: '1px solid #555', borderRadius: 4, color: '#ccc', cursor: 'pointer', fontSize: 13 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => { removeBoard(boardToRemove); setBoardToRemove(null); }}
+                  style={{ padding: '6px 16px', background: '#e06c75', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 13 }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

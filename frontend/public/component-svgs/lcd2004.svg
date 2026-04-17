@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+        width="355" height="180"
+        version="1.1"
+        viewBox="0 0 94.05 47.5"
+        style="font-size: 1.5px; font-family: monospace"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern
+            id="characters"
+            width="3.55"
+            height="5.95"
+            patternUnits="userSpaceOnUse"
+            x="12.45"
+            y="12.55"
+          >
+            <rect width="2.95" height="5.55" fill-opacity="0.05" />
+          </pattern>
+          <pattern id="pins" width="2.54" height="3.255" patternUnits="userSpaceOnUse" y="1.1">
+            <path
+              fill="#92926d"
+              d="M0,0.55c0,0 0.21,-0.52 0.87,-0.52 0.67,0 0.81,0.51 0.81,0.51v1.81h-1.869z"
+            />
+            <circle r="0.45" cx="0.827" cy="0.9" color="black" />
+          </pattern>
+        </defs>
+        <rect width="94.05" height="47.5" fill="#087f45" />
+        <rect x="4.95" y="5.7" width="85.25" height="36.7" />
+        <rect
+          x="7.55"
+          y="10.3"
+          width="80.05"
+          height="27.5"
+          rx="1.5"
+          ry="1.5"
+          fill="#6cb201"
+        />
+        <rect
+          x="7.55"
+          y="10.3"
+          width="80.05"
+          height="27.5"
+          rx="1.5"
+          ry="1.5"
+          opacity="0"
+        />
+        
+        
+      <g transform="translate(0, 44.1)">
+        <rect x="7.55" y="1" height="2.5" width="40.64" fill="url(#pins)" />
+        <text fill="white" font-size="1.5px" font-family= "monospace">
+          <tspan x="6" y="2.7">1</tspan>
+          <tspan x="7.2" y="0.7">VSS</tspan>
+          <tspan x="9.9" y="0.7">VDD</tspan>
+          <tspan x="12.7" y="0.7">V0</tspan>
+          <tspan x="15.2" y="0.7">RS</tspan>
+          <tspan x="17.8" y="0.7">RW</tspan>
+          <tspan x="20.8" y="0.7">E</tspan>
+          <tspan x="22.7" y="0.7">D0</tspan>
+          <tspan x="25.3" y="0.7">D1</tspan>
+          <tspan x="27.9" y="0.7">D2</tspan>
+          <tspan x="30.4" y="0.7">D3</tspan>
+          <tspan x="33" y="0.7">D4</tspan>
+          <tspan x="35.6" y="0.7">D5</tspan>
+          <tspan x="38.2" y="0.7">D6</tspan>
+          <tspan x="40.8" y="0.7">D7</tspan>
+          <tspan x="43.6" y="0.7">A</tspan>
+          <tspan x="46.2" y="0.7">K</tspan>
+          <tspan x="48" y="2.7">16</tspan>
+        </text>
+      </g>
+    
+        <rect
+          x="12.45"
+          y="12.55"
+          width="70.25"
+          height="23"
+          fill="url(#characters)"
+        />
+        <path
+          d=""
+          transform="translate(12.45, 12.55)"
+          fill="black"
+        />
+        
+      </svg>

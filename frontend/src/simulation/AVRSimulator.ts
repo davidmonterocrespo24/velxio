@@ -377,10 +377,13 @@ export class AVRSimulator {
     console.log('Setting up pin hooks...');
 
     if (this.boardVariant === 'tiny85') {
-      // ATtiny85: PORTB only, PB0-PB5 → pins 0-5 (offset = 0)
+      // ATtiny85: PORTB only, PB0-PB5 → pins 0-5
+      // Must pass an explicit pinMap so updatePort uses offset 0 instead of the
+      // legacy PORTB offset (8) which would map PB1 → pin 9, etc.
+      const TINY85_PIN_MAP = [0, 1, 2, 3, 4, 5, -1, -1];
       this.portB!.addListener((value) => {
         if (value !== this.lastPortBValue) {
-          this.pinManager.updatePort('PORTB', value, this.lastPortBValue);
+          this.pinManager.updatePort('PORTB', value, this.lastPortBValue, TINY85_PIN_MAP);
           this.firePinChangeWithTime(value, this.lastPortBValue, null, 0);
           this.lastPortBValue = value;
         }

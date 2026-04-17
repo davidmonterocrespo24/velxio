@@ -4,8 +4,9 @@
  * Displays a gallery of example Arduino projects that users can load and run
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { exampleProjects, type ExampleProject } from '../../data/examples';
+import { CircuitPreview } from './CircuitPreview';
 import './ExamplesGallery.css';
 
 interface ExamplesGalleryProps {
@@ -29,6 +30,7 @@ const BOARD_TABS: BoardTab[] = [
   { id: 'raspberry-pi-pico',  label: 'Pico',            color: '#ffffff', bg: '#c11c31' },
   { id: 'esp32',              label: 'ESP32 (Xtensa)',  color: '#ffffff', bg: '#e77d11' },
   { id: 'esp32-c3',           label: 'ESP32-C3 (RISC-V)', color: '#ffffff', bg: '#27ae60' },
+  { id: 'attiny85',           label: 'ATtiny85',         color: '#ffffff', bg: '#5d4037' },
   { id: 'multi',              label: 'Multi-Board',     color: '#ffffff', bg: '#7b2d8b' },
 ];
 
@@ -42,6 +44,16 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
   const [selectedBoard, setSelectedBoard] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<ExampleProject['category'] | 'all'>('all');
   const [selectedDifficulty, setSelectedDifficulty] = useState<ExampleProject['difficulty'] | 'all'>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyLink = useCallback((e: React.MouseEvent, exampleId: string) => {
+    e.stopPropagation(); // Don't trigger card click
+    const url = `${window.location.origin}/examples/${exampleId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(exampleId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }, []);
 
   const filteredExamples = exampleProjects.filter((example) => {
     const boardMatch  = selectedBoard === 'all' || getBoardFilter(example) === selectedBoard;
@@ -198,17 +210,13 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                 {example.thumbnail ? (
                   <img src={example.thumbnail} alt={example.title} className="example-preview-image" />
                 ) : (
-                  <div className="example-placeholder-new">
-                    <div className="placeholder-icon">{getCategoryIcon(example.category)}</div>
-                    <div className="placeholder-text">
-                      <div className="component-count">
-                        {example.components.length} component{example.components.length !== 1 ? 's' : ''}
-                      </div>
-                      <div className="wire-count">
-                        {example.wires.length} wire{example.wires.length !== 1 ? 's' : ''}
-                      </div>
-                    </div>
-                  </div>
+                  <CircuitPreview
+                    example={example}
+                    width={300}
+                    height={180}
+                    background="#0a0a0c"
+                    style={{ width: '100%', height: '100%' }}
+                  />
                 )}
               </div>
               <div className="example-info">
@@ -237,6 +245,22 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                       {boardBadge.label}
                     </span>
                   )}
+                  <button
+                    className="example-copy-link"
+                    onClick={(e) => handleCopyLink(e, example.id)}
+                    title="Copy shareable link"
+                  >
+                    {copiedId === example.id ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>

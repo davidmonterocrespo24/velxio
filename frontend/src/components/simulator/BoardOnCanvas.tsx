@@ -39,6 +39,7 @@ interface BoardOnCanvasProps {
   led13?: boolean;
   isActive?: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onPinClick: (componentId: string, pinName: string, x: number, y: number) => void;
   zoom?: number;
 }
@@ -49,6 +50,7 @@ export const BoardOnCanvas = ({
   led13 = false,
   isActive = false,
   onMouseDown,
+  onContextMenu,
   onPinClick,
   zoom = 1,
 }: BoardOnCanvasProps) => {
@@ -146,6 +148,7 @@ export const BoardOnCanvas = ({
             zIndex: 1,
           }}
           onMouseDown={(e) => { e.stopPropagation(); onMouseDown(e); }}
+          onContextMenu={onContextMenu}
         />
       )}
 

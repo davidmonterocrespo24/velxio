@@ -89,12 +89,42 @@ backend/app/services/esp32-v3-rom.bin
 backend/app/services/esp32-v3-rom-app.bin
 backend/app/services/esp32c3-rom.bin
 
+# Pre-built QEMU .so for Docker (built by build-qemu.sh — ~30MB Linux binaries)
+prebuilt/*
+!prebuilt/qemu/
+prebuilt/qemu/*
+!prebuilt/qemu/.gitkeep
+
 # ESP32 build artifacts (ELF/MAP debug symbols — large, not needed for tests)
 test/esp32-emulator/**/*.elf
 test/esp32-emulator/**/*.map
 test/esp32-emulator/out_*/
+
+# Arduino-cli compilation by-products (not needed for tests)
+**/*.ino.eep
+**/*.ino.with_bootloader.bin
+**/*.ino.with_bootloader.hex
+**/*.ino.map
+**/*.ino.uf2
 .claude/settings.json
 
 # Google Cloud service account credentials
 velxio-ba3355a41944.json
 marketing/*
+docs/github-issues/*
+
+# ESP32 E2E tests that require local QEMU DLLs (not portable to CI)
+backend/tests/debug_qemu_c3.py
+backend/tests/test_esp32c3_wifi_e2e.py
+backend/tests/test_wifi_webserver_e2e.py
+
+# Compiled binary test fixtures (large, should be built not committed)
+frontend/src/__tests__/fixtures/avr-blink/
+frontend/src/__tests__/fixtures/rp2040-blink/
+
+# Arduino compilation byproducts in test fixtures
+**/*.ino.eep
+**/*.ino.with_bootloader.bin
+**/*.ino.with_bootloader.hex
+**/*.ino.map
+**/*.ino.uf2

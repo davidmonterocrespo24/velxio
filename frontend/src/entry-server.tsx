@@ -12,6 +12,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { SEO_ROUTES } from './seoRoutes';
 
 // ── SEO page components ─────────────────────────────────────────────────────
+import { exampleProjects } from './data/examples';
 import { LandingPage } from './pages/LandingPage';
 import { ExamplesPage } from './pages/ExamplesPage';
 import { ArduinoSimulatorPage } from './pages/ArduinoSimulatorPage';
@@ -25,6 +26,7 @@ import { RaspberryPiPicoSimulatorPage } from './pages/RaspberryPiPicoSimulatorPa
 import { RaspberryPiSimulatorPage } from './pages/RaspberryPiSimulatorPage';
 import { Velxio2Page } from './pages/Velxio2Page';
 import { DocsPage } from './pages/DocsPage';
+import { ExampleDetailPage } from './pages/ExampleDetailPage';
 
 // Map route paths to their React component
 const ROUTE_COMPONENTS: Record<string, React.FC> = {
@@ -79,6 +81,34 @@ export function render(path: string): string {
     );
   } catch (err) {
     console.warn(`  ⚠ SSR render failed for ${path}:`, (err as Error).message);
+    return '';
+  }
+}
+
+/**
+ * Returns all example routes to prerender, one per example project.
+ */
+export function getPrerenderedExampleRoutes() {
+  return exampleProjects.map((e) => ({
+    path: `/examples/${e.id}`,
+    title: `${e.title} — Free Arduino Simulator Example | Velxio`,
+    description: `${e.description}. Run this example free in your browser — no install, no account required.`,
+    url: `https://velxio.dev/examples/${e.id}`,
+  }));
+}
+
+/**
+ * Render an example detail page to an HTML string.
+ */
+export function renderExample(exampleId: string): string {
+  try {
+    return renderToString(
+      <MemoryRouter initialEntries={[`/examples/${exampleId}`]}>
+        <ExampleDetailPage />
+      </MemoryRouter>
+    );
+  } catch (err) {
+    console.warn(`  ⚠ SSR render failed for /examples/${exampleId}:`, (err as Error).message);
     return '';
   }
 }
