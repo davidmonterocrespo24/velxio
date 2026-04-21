@@ -394,7 +394,7 @@ describe('ATtiny85 — end-to-end compilation', () => {
     return coreCheck.stdout?.includes('ATTinyCore') ?? false;
   }
 
-  it('compiles blink sketch and PB1 goes HIGH after setup()', () => {
+  it('compiles blink sketch and PB1 goes HIGH after setup()', { timeout: 90_000 }, () => {
     if (!isATTinyCoreAvailable()) {
       console.log('ATTinyCore not installed — skipping E2E compilation test');
       return;
