@@ -17,7 +17,7 @@ export interface ProjectResponse {
   is_public: boolean;
   board_type: string;
   files: SketchFile[];
-  code: string;           // legacy fallback
+  code: string; // legacy fallback
   components_json: string;
   wires_json: string;
   owner_username: string;
@@ -31,7 +31,7 @@ export interface ProjectSaveData {
   is_public: boolean;
   board_type: string;
   files: SketchFile[];
-  code?: string;          // legacy fallback
+  code?: string; // legacy fallback
   components_json: string;
   wires_json: string;
 }
@@ -61,7 +61,10 @@ export async function createProject(data: ProjectSaveData): Promise<ProjectRespo
   return result;
 }
 
-export async function updateProject(id: string, data: Partial<ProjectSaveData>): Promise<ProjectResponse> {
+export async function updateProject(
+  id: string,
+  data: Partial<ProjectSaveData>,
+): Promise<ProjectResponse> {
   const { data: result } = await api.put<ProjectResponse>(`/projects/${id}`, data);
   return result;
 }

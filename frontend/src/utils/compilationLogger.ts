@@ -32,7 +32,10 @@ export function parseCompileResult(result: CompileResult, board: string): Compil
       if (!line.trim()) continue;
       const stripped = line.trim();
       // Ninja FAILED block start
-      if (stripped.startsWith('FAILED:') || stripped === 'ninja: build stopped: subcommand failed.') {
+      if (
+        stripped.startsWith('FAILED:') ||
+        stripped === 'ninja: build stopped: subcommand failed.'
+      ) {
         inFailedBlock = true;
         logs.push({ timestamp: now, type: 'error', message: line });
         continue;
@@ -65,7 +68,12 @@ export function parseCompileResult(result: CompileResult, board: string): Compil
       const lower = line.toLowerCase();
       if (lower.includes('warning:') || lower.includes('warn ')) {
         type = 'warning';
-      } else if (lower.includes('note:') || lower.includes('in file included') || lower.startsWith('using ') || lower.startsWith('libraries ')) {
+      } else if (
+        lower.includes('note:') ||
+        lower.includes('in file included') ||
+        lower.startsWith('using ') ||
+        lower.startsWith('libraries ')
+      ) {
         type = 'info';
       }
       logs.push({ timestamp: now, type, message: line });

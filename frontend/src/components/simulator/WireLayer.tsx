@@ -3,7 +3,8 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { WireRenderer } from './WireRenderer';
 import { WireInProgressRenderer } from './WireInProgressRenderer';
 
-const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+const isTouchDevice =
+  typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
 export interface SegmentHandle {
   segIndex: number;
@@ -56,9 +57,7 @@ export const WireLayer: React.FC<WireLayerProps> = ({
           isSelected={wire.id === selectedWireId}
           isHovered={wire.id === hoveredWireId}
           overridePath={
-            segmentDragPreview?.wireId === wire.id
-              ? segmentDragPreview.overridePath
-              : undefined
+            segmentDragPreview?.wireId === wire.id ? segmentDragPreview.overridePath : undefined
           }
         />
       ))}
@@ -73,15 +72,17 @@ export const WireLayer: React.FC<WireLayerProps> = ({
           fill="white"
           stroke="#007acc"
           strokeWidth={2}
-          style={{ pointerEvents: 'all', cursor: handle.axis === 'horizontal' ? 'ns-resize' : 'ew-resize', touchAction: 'none' }}
+          style={{
+            pointerEvents: 'all',
+            cursor: handle.axis === 'horizontal' ? 'ns-resize' : 'ew-resize',
+            touchAction: 'none',
+          }}
           onMouseDown={(e) => onHandleMouseDown(e, handle.segIndex)}
           onTouchStart={(e) => onHandleTouchStart?.(e, handle.segIndex)}
         />
       ))}
 
-      {wireInProgress && (
-        <WireInProgressRenderer wireInProgress={wireInProgress} />
-      )}
+      {wireInProgress && <WireInProgressRenderer wireInProgress={wireInProgress} />}
     </svg>
   );
 };

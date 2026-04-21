@@ -13,12 +13,12 @@ export interface VfsNode {
   id: string;
   name: string;
   type: 'file' | 'directory';
-  content?: string;      // undefined for directories
-  children?: string[];   // child node IDs, undefined for files
+  content?: string; // undefined for directories
+  children?: string[]; // child node IDs, undefined for files
   parentId: string | null;
 }
 
-type VfsTree = Record<string, VfsNode>;  // nodeId → VfsNode
+type VfsTree = Record<string, VfsNode>; // nodeId → VfsNode
 
 const DEFAULT_PY_CONTENT = `#!/usr/bin/env python3
 # Raspberry Pi script — runs on the emulated Pi
@@ -46,9 +46,27 @@ function makeDefaultTree(): { tree: VfsTree; rootId: string } {
   const tree: VfsTree = {
     [rootId]: { id: rootId, name: '/', type: 'directory', children: [homeId], parentId: null },
     [homeId]: { id: homeId, name: 'home', type: 'directory', children: [piId], parentId: rootId },
-    [piId]:   { id: piId,   name: 'pi',   type: 'directory', children: [scriptId, shellId], parentId: homeId },
-    [scriptId]: { id: scriptId, name: 'script.py', type: 'file', content: DEFAULT_PY_CONTENT, parentId: piId },
-    [shellId]:  { id: shellId,  name: 'hello.sh',  type: 'file', content: DEFAULT_SH_CONTENT, parentId: piId },
+    [piId]: {
+      id: piId,
+      name: 'pi',
+      type: 'directory',
+      children: [scriptId, shellId],
+      parentId: homeId,
+    },
+    [scriptId]: {
+      id: scriptId,
+      name: 'script.py',
+      type: 'file',
+      content: DEFAULT_PY_CONTENT,
+      parentId: piId,
+    },
+    [shellId]: {
+      id: shellId,
+      name: 'hello.sh',
+      type: 'file',
+      content: DEFAULT_SH_CONTENT,
+      parentId: piId,
+    },
   };
 
   return { tree, rootId };
@@ -67,7 +85,12 @@ interface VfsState {
   setSelectedNode: (boardId: string, nodeId: string | null) => void;
   getSelectedNode: (boardId: string) => VfsNode | null;
 
-  createNode: (boardId: string, parentId: string, name: string, type: 'file' | 'directory') => string | null;
+  createNode: (
+    boardId: string,
+    parentId: string,
+    name: string,
+    type: 'file' | 'directory',
+  ) => string | null;
   deleteNode: (boardId: string, nodeId: string) => void;
   renameNode: (boardId: string, nodeId: string, newName: string) => void;
   setContent: (boardId: string, nodeId: string, content: string) => void;
@@ -180,7 +203,7 @@ export const useVfsStore = create<VfsState>((set, get) => ({
     const newTree = Object.fromEntries(
       Object.entries(board.tree)
         .filter(([id]) => !toRemove.has(id))
-        .map(([id, n]) => id === node.parentId ? [id, updatedParent] : [id, n])
+        .map(([id, n]) => (id === node.parentId ? [id, updatedParent] : [id, n])),
     ) as VfsTree;
 
     set((s) => ({

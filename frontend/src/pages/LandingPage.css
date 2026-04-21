@@ -63,7 +63,9 @@
   font-size: 13px;
   font-weight: 400;
   border-radius: var(--radius-pill);
-  transition: color 0.2s, background 0.2s;
+  transition:
+    color 0.2s,
+    background 0.2s;
 }
 
 .nav-link svg {
@@ -84,7 +86,9 @@
   font-size: 13px;
   font-weight: 500;
   border-radius: var(--radius-pill);
-  transition: background 0.2s, filter 0.2s;
+  transition:
+    background 0.2s,
+    filter 0.2s;
 }
 
 .nav-btn-primary:hover {
@@ -101,8 +105,13 @@
 }
 
 @keyframes skeleton-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* ── User menu ────────────────────────────────────────── */
@@ -218,7 +227,9 @@
   border: none;
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .user-menu-item:hover {
@@ -310,7 +321,9 @@
   font-size: 15px;
   font-weight: 500;
   border-radius: var(--radius-pill);
-  transition: filter 0.2s, transform 0.2s;
+  transition:
+    filter 0.2s,
+    transform 0.2s;
   border: none;
   letter-spacing: -0.1px;
 }
@@ -337,7 +350,9 @@
   font-size: 15px;
   font-weight: 500;
   border-radius: var(--radius-pill);
-  transition: background 0.2s, transform 0.2s;
+  transition:
+    background 0.2s,
+    transform 0.2s;
   letter-spacing: -0.1px;
 }
 
@@ -515,8 +530,9 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  transition: transform 0.32s cubic-bezier(0.34, 1.46, 0.64, 1),
-              box-shadow 0.32s ease;
+  transition:
+    transform 0.32s cubic-bezier(0.34, 1.46, 0.64, 1),
+    box-shadow 0.32s ease;
   cursor: default;
   position: relative;
 }
@@ -599,7 +615,9 @@
   flex-direction: column;
   align-items: center;
   gap: 16px;
-  transition: border-color 0.25s, box-shadow 0.25s;
+  transition:
+    border-color 0.25s,
+    box-shadow 0.25s;
   position: relative;
 }
 
@@ -656,14 +674,46 @@
 }
 
 /* Compact sizes for board-card-sm (130-160px wide) */
-.board-card-sm .board-element-uno  { width: 120px; height: 88px; overflow: hidden; }
-.board-card-sm .board-element-uno > wokwi-arduino-uno  { display: block; transform: scale(0.44); transform-origin: top left; }
-.board-card-sm .board-element-nano { width: 120px; height: 48px; overflow: hidden; }
-.board-card-sm .board-element-nano > wokwi-arduino-nano { display: block; transform: scale(0.71); transform-origin: top left; }
-.board-card-sm .board-element-mega { width: 120px; height: 59px; overflow: hidden; }
-.board-card-sm .board-element-mega > wokwi-arduino-mega { display: block; transform: scale(0.31); transform-origin: top left; }
-.board-card-sm .board-element-esp32 { width: 60px; height: 112px; overflow: hidden; }
-.board-card-sm .board-element-esp32 > wokwi-esp32-devkit-v1 { display: block; transform: scale(0.56); transform-origin: top left; }
+.board-card-sm .board-element-uno {
+  width: 120px;
+  height: 88px;
+  overflow: hidden;
+}
+.board-card-sm .board-element-uno > wokwi-arduino-uno {
+  display: block;
+  transform: scale(0.44);
+  transform-origin: top left;
+}
+.board-card-sm .board-element-nano {
+  width: 120px;
+  height: 48px;
+  overflow: hidden;
+}
+.board-card-sm .board-element-nano > wokwi-arduino-nano {
+  display: block;
+  transform: scale(0.71);
+  transform-origin: top left;
+}
+.board-card-sm .board-element-mega {
+  width: 120px;
+  height: 59px;
+  overflow: hidden;
+}
+.board-card-sm .board-element-mega > wokwi-arduino-mega {
+  display: block;
+  transform: scale(0.31);
+  transform-origin: top left;
+}
+.board-card-sm .board-element-esp32 {
+  width: 60px;
+  height: 112px;
+  overflow: hidden;
+}
+.board-card-sm .board-element-esp32 > wokwi-esp32-devkit-v1 {
+  display: block;
+  transform: scale(0.56);
+  transform-origin: top left;
+}
 
 .board-info {
   display: flex;
@@ -741,7 +791,10 @@
   padding: 36px 30px 32px;
   display: flex;
   flex-direction: column;
-  transition: border-color 0.25s, transform 0.28s, box-shadow 0.28s;
+  transition:
+    border-color 0.25s,
+    transform 0.28s,
+    box-shadow 0.28s;
 }
 
 .feature-card:hover {
@@ -843,7 +896,9 @@
   font-weight: 500;
   border-radius: var(--radius-pill);
   text-decoration: none;
-  transition: filter 0.2s, transform 0.2s;
+  transition:
+    filter 0.2s,
+    transform 0.2s;
   letter-spacing: -0.2px;
 }
 

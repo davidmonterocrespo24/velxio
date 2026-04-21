@@ -89,9 +89,10 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({ boar
     }
   };
 
-  const activeFileNode = typeof activePane === 'string' && activePane !== 'terminal'
-    ? getNode(boardId, activePane)
-    : null;
+  const activeFileNode =
+    typeof activePane === 'string' && activePane !== 'terminal'
+      ? getNode(boardId, activePane)
+      : null;
 
   return (
     <div style={styles.container}>
@@ -107,16 +108,14 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({ boar
           <span style={styles.toolbarTitle}>Raspberry Pi 3B</span>
           <div style={styles.toolbarActions}>
             {/* Status indicator */}
-            <span style={{
-              ...styles.statusDot,
-              background: board?.running
-                ? (bridgeConnected ? '#4caf50' : '#f59e0b')
-                : '#6b7280',
-            }} />
+            <span
+              style={{
+                ...styles.statusDot,
+                background: board?.running ? (bridgeConnected ? '#4caf50' : '#f59e0b') : '#6b7280',
+              }}
+            />
             <span style={styles.statusLabel}>
-              {board?.running
-                ? (bridgeConnected ? 'Connected' : 'Starting…')
-                : 'Offline'}
+              {board?.running ? (bridgeConnected ? 'Connected' : 'Starting…') : 'Offline'}
             </span>
 
             {!board?.running ? (
@@ -176,7 +175,10 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({ boar
               {f.filename}
               <span
                 style={styles.tabClose}
-                onClick={(e) => { e.stopPropagation(); handleCloseFile(f.nodeId); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCloseFile(f.nodeId);
+                }}
                 title="Close"
               >
                 ×
@@ -196,14 +198,12 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({ boar
                 <div style={styles.offlineSubtitle}>
                   Start the Pi to open a terminal and interact with the Linux system.
                 </div>
-                <button
-                  style={styles.startBtn}
-                  onClick={() => startBoard(boardId)}
-                >
+                <button style={styles.startBtn} onClick={() => startBoard(boardId)}>
                   ▶ Start Pi
                 </button>
                 <div style={styles.offlineNote}>
-                  Note: The file explorer shows a staging area.<br />
+                  Note: The file explorer shows a staging area.
+                  <br />
                   Use "Upload to Pi" after starting to transfer files to the running Pi.
                 </div>
               </div>

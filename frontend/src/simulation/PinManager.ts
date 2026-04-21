@@ -56,7 +56,7 @@ export class PinManager {
    *                  PORTB→8, PORTC→14, PORTD→0.
    */
   updatePort(portName: string, newValue: number, oldValue: number = 0, pinMap?: number[]) {
-    const legacyOffsets: Record<string, number> = { 'PORTB': 8, 'PORTC': 14, 'PORTD': 0 };
+    const legacyOffsets: Record<string, number> = { PORTB: 8, PORTC: 14, PORTD: 0 };
 
     for (let bit = 0; bit < 8; bit++) {
       const mask = 1 << bit;
@@ -71,7 +71,7 @@ export class PinManager {
 
         const callbacks = this.listeners.get(arduinoPin);
         if (callbacks) {
-          callbacks.forEach(cb => cb(arduinoPin, newState));
+          callbacks.forEach((cb) => cb(arduinoPin, newState));
         }
       }
     }
@@ -99,7 +99,7 @@ export class PinManager {
     this.pinStates.set(pin, state);
     const callbacks = this.listeners.get(pin);
     if (callbacks) {
-      callbacks.forEach(cb => cb(pin, state));
+      callbacks.forEach((cb) => cb(pin, state));
     }
   }
 
@@ -126,7 +126,7 @@ export class PinManager {
     this.pwmValues.set(pin, dutyCycle);
     const callbacks = this.pwmListeners.get(pin);
     if (callbacks) {
-      callbacks.forEach(cb => cb(pin, dutyCycle));
+      callbacks.forEach((cb) => cb(pin, dutyCycle));
     }
   }
 
@@ -138,7 +138,7 @@ export class PinManager {
   broadcastPwm(dutyCycle: number): void {
     this.pwmListeners.forEach((callbacks, pin) => {
       this.pwmValues.set(pin, dutyCycle);
-      callbacks.forEach(cb => cb(pin, dutyCycle));
+      callbacks.forEach((cb) => cb(pin, dutyCycle));
     });
   }
 
@@ -168,7 +168,7 @@ export class PinManager {
   setAnalogVoltage(arduinoPin: number, voltage: number): void {
     const callbacks = this.analogListeners.get(arduinoPin);
     if (callbacks) {
-      callbacks.forEach(cb => cb(arduinoPin, voltage));
+      callbacks.forEach((cb) => cb(arduinoPin, voltage));
     }
   }
 
@@ -176,7 +176,7 @@ export class PinManager {
 
   getListenersCount(): number {
     let count = 0;
-    this.listeners.forEach(set => count += set.size);
+    this.listeners.forEach((set) => (count += set.size));
     return count;
   }
 

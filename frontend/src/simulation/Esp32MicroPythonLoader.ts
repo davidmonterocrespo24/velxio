@@ -16,7 +16,7 @@ interface FirmwareConfig {
 }
 
 const FIRMWARE_MAP: Record<string, FirmwareConfig> = {
-  'esp32': {
+  esp32: {
     remote: 'https://micropython.org/resources/firmware/ESP32_GENERIC-20230426-v1.20.0.bin',
     cacheKey: 'micropython-esp32-v1.20.0',
     fallback: '/firmware/micropython-esp32.bin',
@@ -35,10 +35,18 @@ const FIRMWARE_MAP: Record<string, FirmwareConfig> = {
 
 /** Map any ESP32-family board kind to firmware variant key */
 function toFirmwareVariant(boardKind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
-  if (boardKind === 'esp32-s3' || boardKind === 'xiao-esp32-s3' || boardKind === 'arduino-nano-esp32') {
+  if (
+    boardKind === 'esp32-s3' ||
+    boardKind === 'xiao-esp32-s3' ||
+    boardKind === 'arduino-nano-esp32'
+  ) {
     return 'esp32-s3';
   }
-  if (boardKind === 'esp32-c3' || boardKind === 'xiao-esp32-c3' || boardKind === 'aitewinrobot-esp32c3-supermini') {
+  if (
+    boardKind === 'esp32-c3' ||
+    boardKind === 'xiao-esp32-c3' ||
+    boardKind === 'aitewinrobot-esp32c3-supermini'
+  ) {
     return 'esp32-c3';
   }
   return 'esp32';
@@ -93,27 +101,43 @@ export async function getEsp32Firmware(
           offset += chunk.length;
         }
 
-        try { await idbSet(config.cacheKey, firmware); } catch { /* non-fatal */ }
+        try {
+          await idbSet(config.cacheKey, firmware);
+        } catch {
+          /* non-fatal */
+        }
 
-        console.log(`[ESP32-MicroPython] Firmware downloaded (${variant}, ${firmware.length} bytes)`);
+        console.log(
+          `[ESP32-MicroPython] Firmware downloaded (${variant}, ${firmware.length} bytes)`,
+        );
         return firmware;
       }
     }
   } catch {
-    console.warn(`[ESP32-MicroPython] Remote download failed for ${variant}, trying bundled fallback`);
+    console.warn(
+      `[ESP32-MicroPython] Remote download failed for ${variant}, trying bundled fallback`,
+    );
   }
 
   // 3. Fallback to bundled firmware
   const response = await fetch(config.fallback);
   if (!response.ok) {
-    throw new Error(`MicroPython firmware not available for ${variant} (remote and bundled both failed)`);
+    throw new Error(
+      `MicroPython firmware not available for ${variant} (remote and bundled both failed)`,
+    );
   }
   const buffer = await response.arrayBuffer();
   const firmware = new Uint8Array(buffer);
 
-  try { await idbSet(config.cacheKey, firmware); } catch { /* non-fatal */ }
+  try {
+    await idbSet(config.cacheKey, firmware);
+  } catch {
+    /* non-fatal */
+  }
 
-  console.log(`[ESP32-MicroPython] Firmware loaded from bundled fallback (${variant}, ${firmware.length} bytes)`);
+  console.log(
+    `[ESP32-MicroPython] Firmware loaded from bundled fallback (${variant}, ${firmware.length} bytes)`,
+  );
   return firmware;
 }
 
@@ -139,12 +163,16 @@ export function padToFlashSize(firmware: Uint8Array, boardKind?: BoardKind): Uin
   // so the firmware header declares 4 MB. Using a smaller image makes the SPI
   // flash driver fail ("Detected size smaller than binary image header").
   const MIN_BYTES = variant === 'esp32' ? 4 * 1024 * 1024 : 2 * 1024 * 1024;
-  const VALID_BYTES = [2, 4, 8, 16].map(mb => mb * 1024 * 1024);
-  const target = VALID_BYTES.find(size => size >= Math.max(firmware.length + flashOffset, MIN_BYTES));
+  const VALID_BYTES = [2, 4, 8, 16].map((mb) => mb * 1024 * 1024);
+  const target = VALID_BYTES.find(
+    (size) => size >= Math.max(firmware.length + flashOffset, MIN_BYTES),
+  );
   if (!target) {
-    throw new Error(`MicroPython firmware too large for QEMU: ${firmware.length} bytes (max 16 MB)`);
+    throw new Error(
+      `MicroPython firmware too large for QEMU: ${firmware.length} bytes (max 16 MB)`,
+    );
   }
-  const padded = new Uint8Array(target).fill(0xFF);
+  const padded = new Uint8Array(target).fill(0xff);
   padded.set(firmware, flashOffset);
   return padded;
 }

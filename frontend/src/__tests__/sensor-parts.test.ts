@@ -42,20 +42,22 @@ function makeADC() {
 
 function makeSimulator(adc?: ReturnType<typeof makeADC> | null) {
   const pinManager = {
-    onPinChange:  vi.fn().mockReturnValue(() => {}),
-    onPwmChange:  vi.fn().mockReturnValue(() => {}),
+    onPinChange: vi.fn().mockReturnValue(() => {}),
+    onPwmChange: vi.fn().mockReturnValue(() => {}),
     triggerPinChange: vi.fn(),
   };
   return {
     pinManager,
-    getADC:      vi.fn().mockReturnValue(adc ?? null),
+    getADC: vi.fn().mockReturnValue(adc ?? null),
     setPinState: vi.fn(),
     cpu: { data: new Uint8Array(512).fill(0), cycles: 0 },
   };
 }
 
-const pinMap = (map: Record<string, number>) => (name: string): number | null =>
-  name in map ? map[name] : null;
+const pinMap =
+  (map: Record<string, number>) =>
+  (name: string): number | null =>
+    name in map ? map[name] : null;
 
 const noPins = (_name: string): number | null => null;
 
@@ -95,7 +97,7 @@ describe('tilt-switch — attachEvents', () => {
     (element.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
       (event: string, handler: (...args: any[]) => void) => {
         listeners[event] = handler;
-      }
+      },
     );
 
     logic.attachEvents!(element, sim as any, pinMap({ OUT: 14 }));
@@ -282,8 +284,10 @@ describe('big-sound-sensor — attachEvents', () => {
 
     expect(sim.pinManager.onPinChange).toHaveBeenCalledWith(9, expect.any(Function));
     const handler = sim.pinManager.onPinChange.mock.calls[0][1];
-    handler(9, true);  expect(el.led1).toBe(true);
-    handler(9, false); expect(el.led1).toBe(false);
+    handler(9, true);
+    expect(el.led1).toBe(true);
+    handler(9, false);
+    expect(el.led1).toBe(false);
   });
 });
 
@@ -310,8 +314,10 @@ describe('small-sound-sensor — attachEvents', () => {
     logic.attachEvents!(el, sim as any, pinMap({ DOUT: 10 }));
 
     const handler = sim.pinManager.onPinChange.mock.calls[0][1];
-    handler(10, true);  expect(el.ledSignal).toBe(true);
-    handler(10, false); expect(el.ledSignal).toBe(false);
+    handler(10, true);
+    expect(el.ledSignal).toBe(true);
+    handler(10, false);
+    expect(el.ledSignal).toBe(false);
   });
 });
 
@@ -348,11 +354,11 @@ describe('stepper-motor — attachEvents', () => {
     }
 
     // Step 0: A+ = HIGH (others LOW)
-    handlers[5]?.(5, true);  // A+
+    handlers[5]?.(5, true); // A+
 
     // Step 1: B+ = HIGH, A+ = LOW → should advance angle
     handlers[5]?.(5, false); // A+ LOW
-    handlers[6]?.(6, true);  // B+ HIGH
+    handlers[6]?.(6, true); // B+ HIGH
 
     expect(el.angle).toBeCloseTo(1.8, 1);
   });

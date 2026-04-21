@@ -25,13 +25,13 @@ beforeAll(() => {
 
       constructor(widthOrData: number | Uint8ClampedArray, height: number) {
         if (typeof widthOrData === 'number') {
-          this.width  = widthOrData;
+          this.width = widthOrData;
           this.height = height;
-          this.data   = new Uint8ClampedArray(widthOrData * height * 4);
+          this.data = new Uint8ClampedArray(widthOrData * height * 4);
         } else {
-          this.width  = widthOrData.length / 4 / height;
+          this.width = widthOrData.length / 4 / height;
           this.height = height;
-          this.data   = new Uint8ClampedArray(widthOrData);
+          this.data = new Uint8ClampedArray(widthOrData);
         }
       }
     }
@@ -93,46 +93,51 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   });
 
   it('creates a VirtualSSD1306 device at address 0x3C', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     expect(sim.addI2CDevice).toHaveBeenCalledOnce();
-    expect(sim._devices[0].address).toBe(0x3C);
+    expect(sim._devices[0].address).toBe(0x3c);
   });
 
   it('calls element.redraw() after a STOP', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
     // Simple data write — fill first byte
-    sendDataStream(device, [0xFF]);
+    sendDataStream(device, [0xff]);
 
     expect(el.redraw).toHaveBeenCalled();
   });
 
   it('renders a fully-lit column 0 of page 0 (0xFF → top 8 pixels lit)', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
     // Set horizontal addressing, col 0–127, page 0–7
     sendCommandStream(device, [
-      0x20, 0x00,        // horizontal addressing mode
-      0x21, 0x00, 0x7F,  // col 0–127
-      0x22, 0x00, 0x07,  // page 0–7
+      0x20,
+      0x00, // horizontal addressing mode
+      0x21,
+      0x00,
+      0x7f, // col 0–127
+      0x22,
+      0x00,
+      0x07, // page 0–7
     ]);
 
     // Write 0xFF to column 0 of page 0 → all 8 bits set → rows 0–7, col 0 lit
-    sendDataStream(device, [0xFF]);
+    sendDataStream(device, [0xff]);
 
     const px = el.imageData.data; // RGBA
 
     // Row 0, col 0 → pixel index 0
     const idx = (0 * 128 + 0) * 4;
-    expect(px[idx + 3]).toBe(255);             // alpha = 255 (opaque)
+    expect(px[idx + 3]).toBe(255); // alpha = 255 (opaque)
     expect(px[idx] + px[idx + 1] + px[idx + 2]).toBeGreaterThan(0); // not black
 
     // Row 7, col 0 → pixel index (7 * 128 + 0) * 4
@@ -142,12 +147,12 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   });
 
   it('renders an unlit pixel as black (RGB = 0)', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
-    sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7F, 0x22, 0x00, 0x07]);
+    sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07]);
     // 0x01 → only bit 0 set → only row 0 of page 0 is lit; row 1 is off
     sendDataStream(device, [0x01]);
 
@@ -165,16 +170,16 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   });
 
   it('fills all 1024 GDDRAM bytes via horizontal addressing', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
-    sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7F, 0x22, 0x00, 0x07]);
+    sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07]);
 
     // Fill all 1024 GDDRAM bytes with a checkerboard pattern (0xAA / 0x55)
     const data: number[] = [];
-    for (let i = 0; i < 1024; i++) data.push(i % 2 === 0 ? 0xAA : 0x55);
+    for (let i = 0; i < 1024; i++) data.push(i % 2 === 0 ? 0xaa : 0x55);
     sendDataStream(device, data);
 
     // Spot-check: page 7, col 127 = index 7*128+127 = 1023
@@ -184,7 +189,10 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
     const px = el.imageData.data;
     let allOpaque = true;
     for (let i = 3; i < px.length; i += 4) {
-      if (px[i] !== 255) { allOpaque = false; break; }
+      if (px[i] !== 255) {
+        allOpaque = false;
+        break;
+      }
     }
     expect(allOpaque).toBe(true);
   });
@@ -201,40 +209,49 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
-    expect(() => sendDataStream(device, [0xFF])).not.toThrow();
+    expect(() => sendDataStream(device, [0xff])).not.toThrow();
   });
 
   it('Adafruit SSD1306 init sequence: processes multi-byte commands without crashing', () => {
-    const el  = makeOLEDElement();
+    const el = makeOLEDElement();
     const sim = makeSim();
     PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
     const device = sim._devices[0];
 
     // Minimal Adafruit init (from Adafruit_SSD1306.cpp begin())
     const initCmds = [
-      0xAE,        // Display OFF
-      0xD5, 0x80,  // Set display clock divide
-      0xA8, 0x3F,  // Set multiplex ratio (64-1)
-      0xD3, 0x00,  // Set display offset
-      0x40,        // Set start line
-      0x8D, 0x14,  // Charge pump ON
-      0x20, 0x00,  // Horizontal addressing
-      0xA1,        // Segment remap
-      0xC8,        // COM output scan direction
-      0xDA, 0x12,  // COM pins hardware config
-      0x81, 0xCF,  // Contrast
-      0xD9, 0xF1,  // Pre-charge period
-      0xDB, 0x40,  // VCOMH deselect level
-      0xA4,        // Display from RAM
-      0xA6,        // Normal display
-      0x2E,        // Deactivate scroll
-      0xAF,        // Display ON
+      0xae, // Display OFF
+      0xd5,
+      0x80, // Set display clock divide
+      0xa8,
+      0x3f, // Set multiplex ratio (64-1)
+      0xd3,
+      0x00, // Set display offset
+      0x40, // Set start line
+      0x8d,
+      0x14, // Charge pump ON
+      0x20,
+      0x00, // Horizontal addressing
+      0xa1, // Segment remap
+      0xc8, // COM output scan direction
+      0xda,
+      0x12, // COM pins hardware config
+      0x81,
+      0xcf, // Contrast
+      0xd9,
+      0xf1, // Pre-charge period
+      0xdb,
+      0x40, // VCOMH deselect level
+      0xa4, // Display from RAM
+      0xa6, // Normal display
+      0x2e, // Deactivate scroll
+      0xaf, // Display ON
     ];
 
     expect(() => {
       sendCommandStream(device, initCmds);
       // After init, write one page of data
-      sendCommandStream(device, [0x21, 0x00, 0x7F, 0x22, 0x00, 0x07]);
+      sendCommandStream(device, [0x21, 0x00, 0x7f, 0x22, 0x00, 0x07]);
       sendDataStream(device, new Array(1024).fill(0x00));
     }).not.toThrow();
 

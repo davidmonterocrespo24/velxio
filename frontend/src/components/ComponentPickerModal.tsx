@@ -15,9 +15,15 @@ import type { ComponentMetadata, ComponentCategory } from '../types/component-me
 import type { BoardKind } from '../types/board';
 import { BOARD_KIND_LABELS } from '../types/board';
 import raspberryPi3Svg from '../assets/Raspberry_Pi_3_illustration.svg';
-import { Attiny85 } from './components-wokwi/Attiny85';
-import './components-wokwi/Esp32Element';        // registers wokwi-esp32
-import './components-wokwi/PiPicoWElement';      // registers wokwi-pi-pico-w
+import { Attiny85 } from './velxio-components/Attiny85';
+import './velxio-components/Esp32Element'; // registers velxio-esp32
+import './velxio-components/PiPicoWElement'; // registers velxio-pi-pico-w
+// Register every wokwi tag that the picker might try to instantiate as a
+// thumbnail. The picker calls `document.createElement(tagName)`, so any tag
+// that isn't already a registered custom element renders as an empty
+// HTMLUnknownElement (blank card preview).
+import '@wokwi/elements';
+import '../velxio-elements';
 import './ComponentPickerModal.css';
 
 interface ComponentPickerModalProps {
@@ -28,31 +34,42 @@ interface ComponentPickerModalProps {
 }
 
 const BOARD_DESCRIPTIONS: Record<BoardKind, string> = {
-  'arduino-uno':        '8-bit AVR, 32KB flash, 14 digital I/O',
-  'arduino-nano':       'Compact 8-bit AVR, same as Uno',
-  'arduino-mega':       '8-bit AVR, 256KB flash, 54 digital I/O',
-  'raspberry-pi-pico':  'RP2040 dual-core Cortex-M0+',
-  'pi-pico-w':          'RP2040 + WiFi/BT, same emulator as Pico',
-  'raspberry-pi-3':     'ARM64 Cortex-A53 quad-core, Linux/Python (QEMU)',
-  'esp32':              'Xtensa LX6 dual-core, WiFi+BT, 38 GPIO (QEMU)',
-  'esp32-devkit-c-v4':  'ESP32 DevKit C V4, official Espressif (QEMU)',
-  'esp32-cam':          'ESP32 + 2MP camera, microSD (QEMU)',
+  'arduino-uno': '8-bit AVR, 32KB flash, 14 digital I/O',
+  'arduino-nano': 'Compact 8-bit AVR, same as Uno',
+  'arduino-mega': '8-bit AVR, 256KB flash, 54 digital I/O',
+  'raspberry-pi-pico': 'RP2040 dual-core Cortex-M0+',
+  'pi-pico-w': 'RP2040 + WiFi/BT, same emulator as Pico',
+  'raspberry-pi-3': 'ARM64 Cortex-A53 quad-core, Linux/Python (QEMU)',
+  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 38 GPIO (QEMU)',
+  'esp32-devkit-c-v4': 'ESP32 DevKit C V4, official Espressif (QEMU)',
+  'esp32-cam': 'ESP32 + 2MP camera, microSD (QEMU)',
   'wemos-lolin32-lite': 'Compact ESP32, LiPo battery support (QEMU)',
-  'esp32-s3':           'Xtensa LX7 dual-core, WiFi+BT, AI accel (QEMU)',
-  'xiao-esp32-s3':      'Seeed XIAO tiny form, 8MB flash+PSRAM (QEMU)',
+  'esp32-s3': 'Xtensa LX7 dual-core, WiFi+BT, AI accel (QEMU)',
+  'xiao-esp32-s3': 'Seeed XIAO tiny form, 8MB flash+PSRAM (QEMU)',
   'arduino-nano-esp32': 'Nano form-factor, ESP32-S3, RGB LED (QEMU)',
-  'esp32-c3':           'RISC-V single-core, WiFi+BLE, 22 GPIO (QEMU)',
-  'xiao-esp32-c3':      'Seeed XIAO ESP32-C3 mini board (QEMU)',
+  'esp32-c3': 'RISC-V single-core, WiFi+BLE, 22 GPIO (QEMU)',
+  'xiao-esp32-c3': 'Seeed XIAO ESP32-C3 mini board (QEMU)',
   'aitewinrobot-esp32c3-supermini': 'ESP32-C3 SuperMini (QEMU)',
-  'attiny85':           '8-bit AVR, 8KB flash, 6 GPIO (browser)',
+  attiny85: '8-bit AVR, 8KB flash, 6 GPIO (browser)',
 };
 
 const ALL_BOARDS: BoardKind[] = [
-  'arduino-uno', 'arduino-nano', 'arduino-mega',
-  'raspberry-pi-pico', 'pi-pico-w', 'raspberry-pi-3',
-  'esp32', 'esp32-devkit-c-v4', 'esp32-cam', 'wemos-lolin32-lite',
-  'esp32-s3', 'xiao-esp32-s3', 'arduino-nano-esp32',
-  'esp32-c3', 'xiao-esp32-c3', 'aitewinrobot-esp32c3-supermini',
+  'arduino-uno',
+  'arduino-nano',
+  'arduino-mega',
+  'raspberry-pi-pico',
+  'pi-pico-w',
+  'raspberry-pi-3',
+  'esp32',
+  'esp32-devkit-c-v4',
+  'esp32-cam',
+  'wemos-lolin32-lite',
+  'esp32-s3',
+  'xiao-esp32-s3',
+  'arduino-nano-esp32',
+  'esp32-c3',
+  'xiao-esp32-c3',
+  'aitewinrobot-esp32c3-supermini',
   'attiny85',
 ];
 
@@ -63,7 +80,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   onSelectBoard,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ComponentCategory | 'all' | 'boards'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<ComponentCategory | 'all' | 'boards'>(
+    'all',
+  );
   const [registry] = useState(() => ComponentRegistry.getInstance());
   const [isLoading, setIsLoading] = useState(true);
 
@@ -80,12 +99,10 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   const filteredComponents = useMemo(() => {
     if (isLoading) return [];
 
-    let components = searchQuery
-      ? registry.search(searchQuery)
-      : registry.getAllComponents();
+    let components = searchQuery ? registry.search(searchQuery) : registry.getAllComponents();
 
     if (selectedCategory !== 'all') {
-      components = components.filter(c => c.category === selectedCategory);
+      components = components.filter((c) => c.category === selectedCategory);
     }
 
     return components;
@@ -153,15 +170,17 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
           >
             All Components
           </button>
-          {categories.filter((c) => c !== 'boards').map((category) => (
-            <button
-              key={category}
-              className={`category-tab ${selectedCategory === category ? 'active' : ''}`}
-              onClick={() => setSelectedCategory(category)}
-            >
-              {ComponentRegistry.getCategoryDisplayName(category)}
-            </button>
-          ))}
+          {categories
+            .filter((c) => c !== 'boards')
+            .map((category) => (
+              <button
+                key={category}
+                className={`category-tab ${selectedCategory === category ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(category)}
+              >
+                {ComponentRegistry.getCategoryDisplayName(category)}
+              </button>
+            ))}
           {onSelectBoard && (
             <button
               className={`category-tab ${selectedCategory === 'boards' ? 'active' : ''}`}
@@ -179,64 +198,79 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
               <BoardCard
                 key={kind}
                 kind={kind}
-                onSelect={() => { onSelectBoard?.(kind); onClose(); }}
+                onSelect={() => {
+                  onSelectBoard?.(kind);
+                  onClose();
+                }}
               />
             ))}
           </div>
         ) : (
           <>
-            {/* Boards row in "All Components" view */}
-            {selectedCategory === 'all' && onSelectBoard && (
-              <div className="components-grid" style={{ borderBottom: '1px solid #333', paddingBottom: 8, marginBottom: 4 }}>
-                {ALL_BOARDS.filter((k) =>
-                  !searchQuery || BOARD_KIND_LABELS[k].toLowerCase().includes(searchQuery.toLowerCase())
-                ).map((kind) => (
-                  <BoardCard
-                    key={kind}
-                    kind={kind}
-                    onSelect={() => { onSelectBoard(kind); onClose(); }}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Components Grid */}
-            <div className="components-grid">
-              {isLoading ? (
-                <div className="loading-state">
-                  <div className="spinner"></div>
-                  <p>Loading components...</p>
-                </div>
-              ) : filteredComponents.length === 0 ? (
-                <div className="no-results">
-                  <p>No components found</p>
-                  {searchQuery && (
-                    <button
-                      className="clear-filters-btn"
-                      onClick={() => {
-                        setSearchQuery('');
-                        setSelectedCategory('all');
+            {/* Single scrollable area wrapping both the boards row (only in
+                "All Components" view) and the components grid, so the modal
+                shows ONE scrollbar instead of two stacked ones. */}
+            <div className="components-scroll">
+              {selectedCategory === 'all' && onSelectBoard && (
+                <div
+                  className="components-grid components-grid--inline"
+                  style={{ borderBottom: '1px solid #333', paddingBottom: 8, marginBottom: 4 }}
+                >
+                  {ALL_BOARDS.filter(
+                    (k) =>
+                      !searchQuery ||
+                      BOARD_KIND_LABELS[k].toLowerCase().includes(searchQuery.toLowerCase()),
+                  ).map((kind) => (
+                    <BoardCard
+                      key={kind}
+                      kind={kind}
+                      onSelect={() => {
+                        onSelectBoard(kind);
+                        onClose();
                       }}
-                    >
-                      Clear filters
-                    </button>
-                  )}
+                    />
+                  ))}
                 </div>
-              ) : (
-                filteredComponents.map((component) => (
-                  <ComponentCard
-                    key={component.id}
-                    component={component}
-                    onSelect={() => onSelectComponent(component)}
-                  />
-                ))
               )}
+
+              <div className="components-grid components-grid--inline">
+                {isLoading ? (
+                  <div className="loading-state">
+                    <div className="spinner"></div>
+                    <p>Loading components...</p>
+                  </div>
+                ) : filteredComponents.length === 0 ? (
+                  <div className="no-results">
+                    <p>No components found</p>
+                    {searchQuery && (
+                      <button
+                        className="clear-filters-btn"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedCategory('all');
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  filteredComponents.map((component) => (
+                    <ComponentCard
+                      key={component.id}
+                      component={component}
+                      onSelect={() => onSelectComponent(component)}
+                    />
+                  ))
+                )}
+              </div>
             </div>
 
             {/* Footer Info */}
             <div className="modal-footer">
               <span className="component-count">
-                {filteredComponents.length} component{filteredComponents.length !== 1 ? 's' : ''} available
+                {filteredComponents.length} component{filteredComponents.length !== 1 ? 's' : ''}{' '}
+                available
               </span>
             </div>
           </>
@@ -254,12 +288,30 @@ interface ComponentCardProps {
   onSelect: () => void;
 }
 
+// Passive components (resistor / capacitor / inductor) come with metadata
+// thumbnails that already encode the preset value (color bands for resistors,
+// value labels for caps/inductors). The live wokwi elements either ignore
+// `value` visually or render it identically across presets, so for these we
+// short-circuit to the SVG. Everything else still uses the live element so
+// LEDs, displays, etc. preview correctly.
+const PASSIVE_TAGS = new Set([
+  'wokwi-resistor',
+  'wokwi-capacitor',
+  'velxio-capacitor-electrolytic',
+  'wokwi-inductor',
+]);
+
 const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect }) => {
   const thumbnailRef = React.useRef<HTMLDivElement>(null);
+  const usePresetSvg =
+    PASSIVE_TAGS.has(component.tagName) &&
+    typeof component.thumbnail === 'string' &&
+    component.thumbnail.trim().startsWith('<svg');
 
   // Render actual web component as thumbnail
   React.useEffect(() => {
     if (!thumbnailRef.current) return;
+    if (usePresetSvg) return; // SVG is rendered via dangerouslySetInnerHTML below
 
     // Create the actual wokwi element
     const element = document.createElement(component.tagName);
@@ -274,6 +326,12 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect }) =>
 
     (element as HTMLElement).style.transform = `scale(${scale})`;
     (element as HTMLElement).style.transformOrigin = 'center center';
+
+    // Pass the preset's default value through so value-sensitive elements
+    // (e.g. wokwi-resistor color bands) render the right look in the picker.
+    if (component.defaultValues?.value !== undefined) {
+      (element as any).value = component.defaultValues.value;
+    }
 
     // Set default properties for better preview appearance
     if (component.tagName === 'wokwi-led') {
@@ -297,23 +355,26 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect }) =>
         thumbnailRef.current.innerHTML = '';
       }
     };
-  }, [component.tagName, component.defaultValues]);
+  }, [component.tagName, component.defaultValues, usePresetSvg]);
 
   return (
     <button className="component-card" onClick={onSelect}>
       <div className="card-thumbnail">
-        <div ref={thumbnailRef} className="component-preview" />
+        {usePresetSvg ? (
+          <div
+            className="component-preview"
+            dangerouslySetInnerHTML={{ __html: component.thumbnail }}
+          />
+        ) : (
+          <div ref={thumbnailRef} className="component-preview" />
+        )}
       </div>
       <div className="card-content">
         <div className="card-name">{component.name}</div>
-        {component.description && (
-          <div className="card-description">{component.description}</div>
-        )}
+        {component.description && <div className="card-description">{component.description}</div>}
         <div className="card-meta">
           <span className="card-category">{component.category}</span>
-          {component.pinCount > 0 && (
-            <span className="card-pins">{component.pinCount} pins</span>
-          )}
+          {component.pinCount > 0 && <span className="card-pins">{component.pinCount} pins</span>}
         </div>
       </div>
     </button>
@@ -323,21 +384,21 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect }) =>
 // Tag name used to render a thumbnail for each board kind.
 // Boards without a tag will show a generic chip icon.
 const BOARD_TAG: Partial<Record<BoardKind, string>> = {
-  'arduino-uno':        'wokwi-arduino-uno',
-  'arduino-nano':       'wokwi-arduino-nano',
-  'arduino-mega':       'wokwi-arduino-mega',
-  'raspberry-pi-pico':  'wokwi-nano-rp2040-connect',
-  'pi-pico-w':          'wokwi-pi-pico-w',
-  'esp32':              'wokwi-esp32',
-  'esp32-devkit-c-v4':  'wokwi-esp32',
-  'esp32-cam':          'wokwi-esp32',
-  'wemos-lolin32-lite': 'wokwi-esp32',
-  'esp32-s3':           'wokwi-esp32',
-  'xiao-esp32-s3':      'wokwi-esp32',
-  'arduino-nano-esp32': 'wokwi-esp32',
-  'esp32-c3':           'wokwi-esp32',
-  'xiao-esp32-c3':      'wokwi-esp32',
-  'aitewinrobot-esp32c3-supermini': 'wokwi-esp32',
+  'arduino-uno': 'wokwi-arduino-uno',
+  'arduino-nano': 'wokwi-arduino-nano',
+  'arduino-mega': 'wokwi-arduino-mega',
+  'raspberry-pi-pico': 'wokwi-nano-rp2040-connect',
+  'pi-pico-w': 'velxio-pi-pico-w',
+  esp32: 'velxio-esp32',
+  'esp32-devkit-c-v4': 'velxio-esp32',
+  'esp32-cam': 'velxio-esp32',
+  'wemos-lolin32-lite': 'velxio-esp32',
+  'esp32-s3': 'velxio-esp32',
+  'xiao-esp32-s3': 'velxio-esp32',
+  'arduino-nano-esp32': 'velxio-esp32',
+  'esp32-c3': 'velxio-esp32',
+  'xiao-esp32-c3': 'velxio-esp32',
+  'aitewinrobot-esp32c3-supermini': 'velxio-esp32',
 };
 
 interface BoardCardProps {
@@ -365,12 +426,18 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect }) => {
     thumbnailRef.current.innerHTML = '';
     thumbnailRef.current.appendChild(el);
 
-    return () => { if (thumbnailRef.current) thumbnailRef.current.innerHTML = ''; };
+    return () => {
+      if (thumbnailRef.current) thumbnailRef.current.innerHTML = '';
+    };
   }, [kind]);
 
   const reactThumbnail =
     kind === 'raspberry-pi-3' ? (
-      <img src={raspberryPi3Svg} alt="Raspberry Pi 3" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+      <img
+        src={raspberryPi3Svg}
+        alt="Raspberry Pi 3"
+        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+      />
     ) : kind === 'attiny85' ? (
       <div style={{ transform: 'scale(0.55)', transformOrigin: 'center center' }}>
         <Attiny85 />
@@ -380,11 +447,7 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect }) => {
   return (
     <button className="component-card" onClick={onSelect}>
       <div className="card-thumbnail">
-        {reactThumbnail ? (
-          reactThumbnail
-        ) : (
-          <div ref={thumbnailRef} className="component-preview" />
-        )}
+        {reactThumbnail ? reactThumbnail : <div ref={thumbnailRef} className="component-preview" />}
       </div>
       <div className="card-content">
         <div className="card-name">{BOARD_KIND_LABELS[kind]}</div>

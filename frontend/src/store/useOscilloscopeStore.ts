@@ -116,7 +116,9 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
   clearSamples: () => {
     const { channels } = get();
     const fresh: Record<string, OscSample[]> = {};
-    channels.forEach((c) => { fresh[c.id] = []; });
+    channels.forEach((c) => {
+      fresh[c.id] = [];
+    });
     set({ samples: fresh });
   },
 }));

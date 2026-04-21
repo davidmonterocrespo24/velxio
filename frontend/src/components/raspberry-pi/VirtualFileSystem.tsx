@@ -13,10 +13,11 @@ import { getBoardBridge } from '../../store/useSimulatorStore';
 
 const IcoFolder = ({ open }: { open: boolean }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill={open ? '#f0c040' : '#c8a040'} stroke="none">
-    {open
-      ? <path d="M2 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
-      : <path d="M2 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
-    }
+    {open ? (
+      <path d="M2 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
+    ) : (
+      <path d="M2 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
+    )}
   </svg>
 );
 
@@ -33,9 +34,19 @@ const IcoFile = ({ name }: { name: string }) => {
 
 const IcoChevron = ({ open }: { open: boolean }) => (
   <svg
-    width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-    style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s', flexShrink: 0 }}
+    width="10"
+    height="10"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{
+      transform: open ? 'rotate(90deg)' : 'none',
+      transition: 'transform 0.12s',
+      flexShrink: 0,
+    }}
   >
     <polyline points="9 18 15 12 9 6" />
   </svg>
@@ -51,7 +62,12 @@ const IcoUpload = () => (
 
 // ── Context menu ───────────────────────────────────
 
-interface CtxMenu { nodeId: string; x: number; y: number; isDir: boolean }
+interface CtxMenu {
+  nodeId: string;
+  x: number;
+  y: number;
+  isDir: boolean;
+}
 
 // ── Single node renderer ────────────────────────────
 
@@ -78,9 +94,25 @@ interface NodeRowProps {
 }
 
 const NodeRow: React.FC<NodeRowProps> = ({
-  boardId, nodeId, depth, selectedNodeId, onSelect, onContext,
-  renamingId, renameValue, renameInputRef, onRenameChange, onRenameCommit, onRenameCancel,
-  creatingIn, newNodeName, newNodeType, newNodeInputRef, onNewNameChange, onNewNameCommit, onNewNameCancel,
+  boardId,
+  nodeId,
+  depth,
+  selectedNodeId,
+  onSelect,
+  onContext,
+  renamingId,
+  renameValue,
+  renameInputRef,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+  creatingIn,
+  newNodeName,
+  newNodeType,
+  newNodeInputRef,
+  onNewNameChange,
+  onNewNameCommit,
+  onNewNameCancel,
 }) => {
   const node = useVfsStore((s) => s.getNode(boardId, nodeId));
   const [open, setOpen] = useState(true);
@@ -100,7 +132,10 @@ const NodeRow: React.FC<NodeRowProps> = ({
           if (isDir) setOpen((v) => !v);
           onSelect(nodeId);
         }}
-        onContextMenu={(e) => { e.preventDefault(); onContext(e, nodeId, isDir); }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContext(e, nodeId, isDir);
+        }}
         title={isRoot ? '/' : node.name}
       >
         {isDir && <IcoChevron open={open} />}
@@ -116,7 +151,10 @@ const NodeRow: React.FC<NodeRowProps> = ({
             value={renameValue}
             onChange={(e) => onRenameChange(e.target.value)}
             onBlur={onRenameCommit}
-            onKeyDown={(e) => { if (e.key === 'Enter') onRenameCommit(); if (e.key === 'Escape') onRenameCancel(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onRenameCommit();
+              if (e.key === 'Escape') onRenameCancel();
+            }}
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
@@ -156,7 +194,11 @@ const NodeRow: React.FC<NodeRowProps> = ({
             <div className="vfs-row" style={{ paddingLeft: (depth + 1) * 14 + 6 }}>
               <span style={{ width: 10, flexShrink: 0 }} />
               <span style={{ marginLeft: 4, flexShrink: 0 }}>
-                {newNodeType === 'directory' ? <IcoFolder open={false} /> : <IcoFile name={newNodeName || 'newfile'} />}
+                {newNodeType === 'directory' ? (
+                  <IcoFolder open={false} />
+                ) : (
+                  <IcoFile name={newNodeName || 'newfile'} />
+                )}
               </span>
               <input
                 ref={newNodeInputRef}
@@ -165,7 +207,10 @@ const NodeRow: React.FC<NodeRowProps> = ({
                 placeholder={newNodeType === 'directory' ? 'folder' : 'file.py'}
                 onChange={(e) => onNewNameChange(e.target.value)}
                 onBlur={onNewNameCommit}
-                onKeyDown={(e) => { if (e.key === 'Enter') onNewNameCommit(); if (e.key === 'Escape') onNewNameCancel(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') onNewNameCommit();
+                  if (e.key === 'Escape') onNewNameCancel();
+                }}
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
@@ -184,10 +229,21 @@ interface VirtualFileSystemProps {
 }
 
 export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, onFileSelect }) => {
-  const { initBoardVfs, getRootId, getNode, setSelectedNode, selectedNodeId: selectedMap,
-    createNode, deleteNode, renameNode, serializeForUpload } = useVfsStore();
+  const {
+    initBoardVfs,
+    getRootId,
+    getNode,
+    setSelectedNode,
+    selectedNodeId: selectedMap,
+    createNode,
+    deleteNode,
+    renameNode,
+    serializeForUpload,
+  } = useVfsStore();
 
-  useEffect(() => { initBoardVfs(boardId); }, [boardId, initBoardVfs]);
+  useEffect(() => {
+    initBoardVfs(boardId);
+  }, [boardId, initBoardVfs]);
 
   const rootId = getRootId(boardId);
   const selectedNodeId = selectedMap[boardId] ?? null;
@@ -205,7 +261,8 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
 
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
-      renameInputRef.current.focus(); renameInputRef.current.select();
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
     }
   }, [renamingId]);
 
@@ -221,13 +278,16 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
     return () => document.removeEventListener('click', h);
   }, [ctxMenu]);
 
-  const handleSelect = useCallback((nodeId: string) => {
-    setSelectedNode(boardId, nodeId);
-    const node = getNode(boardId, nodeId);
-    if (node?.type === 'file') {
-      onFileSelect(nodeId, node.content ?? '', node.name);
-    }
-  }, [boardId, setSelectedNode, getNode, onFileSelect]);
+  const handleSelect = useCallback(
+    (nodeId: string) => {
+      setSelectedNode(boardId, nodeId);
+      const node = getNode(boardId, nodeId);
+      if (node?.type === 'file') {
+        onFileSelect(nodeId, node.content ?? '', node.name);
+      }
+    },
+    [boardId, setSelectedNode, getNode, onFileSelect],
+  );
 
   const handleContext = useCallback((e: React.MouseEvent, nodeId: string, isDir: boolean) => {
     setCtxMenu({ nodeId, x: e.clientX, y: e.clientY, isDir });
@@ -281,8 +341,7 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
     setUploadStatus('uploading');
 
     const enc = new TextEncoder();
-    const send = (text: string) =>
-      bridge.sendSerialBytes(Array.from(enc.encode(text)));
+    const send = (text: string) => bridge.sendSerialBytes(Array.from(enc.encode(text)));
 
     // Ensure clean prompt and root filesystem is mounted read-write
     // (init=/bin/sh boots with rootfs read-only; 'rw' in cmdline fixes it but
@@ -330,10 +389,14 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
           <button
             style={{
               ...styles.headerBtn,
-              color: uploadStatus === 'done' ? '#4caf50'
-                : uploadStatus === 'error' ? '#ef5350'
-                : uploadStatus === 'uploading' ? '#f59e0b'
-                : '#4fc3f7',
+              color:
+                uploadStatus === 'done'
+                  ? '#4caf50'
+                  : uploadStatus === 'error'
+                    ? '#ef5350'
+                    : uploadStatus === 'uploading'
+                      ? '#f59e0b'
+                      : '#4fc3f7',
               opacity: uploadStatus === 'uploading' ? 0.7 : 1,
             }}
             onClick={handleUpload}
@@ -342,7 +405,11 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
           >
             <IcoUpload />
             <span style={{ marginLeft: 4, fontSize: 10 }}>
-              {uploadStatus === 'done' ? 'Done!' : uploadStatus === 'uploading' ? 'Sending…' : 'Upload'}
+              {uploadStatus === 'done'
+                ? 'Done!'
+                : uploadStatus === 'uploading'
+                  ? 'Sending…'
+                  : 'Upload'}
             </span>
           </button>
         </div>
@@ -381,15 +448,29 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({ boardId, o
         >
           {ctxMenu.isDir && (
             <>
-              <button style={styles.ctxBtn} onClick={() => startCreate(ctxMenu.nodeId, 'file')}>New File</button>
-              <button style={styles.ctxBtn} onClick={() => startCreate(ctxMenu.nodeId, 'directory')}>New Folder</button>
+              <button style={styles.ctxBtn} onClick={() => startCreate(ctxMenu.nodeId, 'file')}>
+                New File
+              </button>
+              <button
+                style={styles.ctxBtn}
+                onClick={() => startCreate(ctxMenu.nodeId, 'directory')}
+              >
+                New Folder
+              </button>
               <div style={styles.ctxSep} />
             </>
           )}
           {getNode(boardId, ctxMenu.nodeId)?.parentId !== null && (
             <>
-              <button style={styles.ctxBtn} onClick={() => startRename(ctxMenu.nodeId)}>Rename</button>
-              <button style={{ ...styles.ctxBtn, color: '#ef5350' }} onClick={() => handleDelete(ctxMenu.nodeId)}>Delete</button>
+              <button style={styles.ctxBtn} onClick={() => startRename(ctxMenu.nodeId)}>
+                Rename
+              </button>
+              <button
+                style={{ ...styles.ctxBtn, color: '#ef5350' }}
+                onClick={() => handleDelete(ctxMenu.nodeId)}
+              >
+                Delete
+              </button>
             </>
           )}
         </div>

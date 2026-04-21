@@ -53,15 +53,7 @@ export const WireInProgressRenderer: React.FC<Props> = ({ wireInProgress }) => {
 
       {/* Waypoint markers (locked-in corners) */}
       {waypoints.map((wp, i) => (
-        <circle
-          key={i}
-          cx={wp.x}
-          cy={wp.y}
-          r="3"
-          fill={color}
-          stroke="white"
-          strokeWidth="1"
-        />
+        <circle key={i} cx={wp.x} cy={wp.y} r="3" fill={color} stroke="white" strokeWidth="1" />
       ))}
 
       {/* Cursor marker */}

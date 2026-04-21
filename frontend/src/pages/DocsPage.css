@@ -74,7 +74,9 @@
   text-decoration: none;
   font-size: 13px;
   border-radius: var(--radius);
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .docs-nav-link svg {
@@ -95,7 +97,9 @@
   text-decoration: none;
   font-size: 13px;
   border-radius: var(--radius);
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .docs-nav-btn:hover {
@@ -173,7 +177,9 @@
   font-size: 13.5px;
   border-radius: var(--radius);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
   text-decoration: none;
 }
 
@@ -400,7 +406,10 @@
   border-radius: var(--radius);
   padding: 9px 16px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
   text-decoration: none;
 }
 

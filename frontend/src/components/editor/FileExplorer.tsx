@@ -7,14 +7,32 @@ import './FileExplorer.css';
 
 // SVG icons — same style as EditorToolbar (stroke-based, 16x16)
 const IcoFile = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
   </svg>
 );
 
 const IcoHeader = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="9" y1="13" x2="15" y2="13" />
@@ -23,7 +41,16 @@ const IcoHeader = () => (
 );
 
 const IcoNewFile = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
     <polyline points="14 2 14 8 20 8" />
     <line x1="12" y1="18" x2="12" y2="12" />
@@ -32,7 +59,16 @@ const IcoNewFile = () => (
 );
 
 const IcoSave = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
     <polyline points="17 21 17 13 7 13 7 21" />
     <polyline points="7 3 7 8 15 8" />
@@ -41,8 +77,14 @@ const IcoSave = () => (
 
 const IcoChevron = ({ open }: { open: boolean }) => (
   <svg
-    width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
   >
     <polyline points="9 18 15 12 9 6" />
@@ -51,24 +93,24 @@ const IcoChevron = ({ open }: { open: boolean }) => (
 
 // Board emoji icons — mirrors BoardPickerModal
 const BOARD_ICON: Record<BoardKind, string> = {
-  'arduino-uno':       '⬤',
-  'arduino-nano':      '▪',
-  'arduino-mega':      '▬',
+  'arduino-uno': '⬤',
+  'arduino-nano': '▪',
+  'arduino-mega': '▬',
   'raspberry-pi-pico': '◆',
-  'raspberry-pi-3':    '⬛',
-  'esp32':    '⬡',
+  'raspberry-pi-3': '⬛',
+  esp32: '⬡',
   'esp32-s3': '⬡',
   'esp32-c3': '⬡',
 };
 
 // Color accent per board family
 const BOARD_COLOR: Record<BoardKind, string> = {
-  'arduino-uno':       '#4fc3f7',
-  'arduino-nano':      '#4fc3f7',
-  'arduino-mega':      '#4fc3f7',
+  'arduino-uno': '#4fc3f7',
+  'arduino-nano': '#4fc3f7',
+  'arduino-mega': '#4fc3f7',
   'raspberry-pi-pico': '#ce93d8',
-  'raspberry-pi-3':    '#ef9a9a',
-  'esp32':    '#a5d6a7',
+  'raspberry-pi-3': '#ef9a9a',
+  esp32: '#a5d6a7',
   'esp32-s3': '#a5d6a7',
   'esp32-c3': '#a5d6a7',
 };
@@ -91,8 +133,16 @@ interface FileExplorerProps {
 }
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
-  const { fileGroups, activeFileId, activeGroupId, openFile, createFile, deleteFile, renameFile, setActiveGroup } =
-    useEditorStore();
+  const {
+    fileGroups,
+    activeFileId,
+    activeGroupId,
+    openFile,
+    createFile,
+    deleteFile,
+    renameFile,
+    setActiveGroup,
+  } = useEditorStore();
   const boards = useSimulatorStore((s) => s.boards);
   const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
   const setActiveBoardId = useSimulatorStore((s) => s.setActiveBoardId);
@@ -130,19 +180,25 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
     return () => document.removeEventListener('click', handler);
   }, [contextMenu]);
 
-  const switchToBoard = useCallback((boardId: string, groupId: string) => {
-    setActiveBoardId(boardId);
-    // setActiveBoardId already calls setActiveGroup internally via the store
-    // but we make sure the editor group is also in sync
-    setActiveGroup(groupId);
-  }, [setActiveBoardId, setActiveGroup]);
+  const switchToBoard = useCallback(
+    (boardId: string, groupId: string) => {
+      setActiveBoardId(boardId);
+      // setActiveBoardId already calls setActiveGroup internally via the store
+      // but we make sure the editor group is also in sync
+      setActiveGroup(groupId);
+    },
+    [setActiveBoardId, setActiveGroup],
+  );
 
-  const handleFileClick = useCallback((fileId: string, boardId: string, groupId: string) => {
-    if (boardId !== activeBoardId) {
-      switchToBoard(boardId, groupId);
-    }
-    openFile(fileId);
-  }, [activeBoardId, switchToBoard, openFile]);
+  const handleFileClick = useCallback(
+    (fileId: string, boardId: string, groupId: string) => {
+      if (boardId !== activeBoardId) {
+        switchToBoard(boardId, groupId);
+      }
+      openFile(fileId);
+    },
+    [activeBoardId, switchToBoard, openFile],
+  );
 
   const handleContextMenu = (e: React.MouseEvent, fileId: string, boardGroupId: string) => {
     e.preventDefault();
@@ -220,8 +276,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
           const statusColor = board.running
             ? '#22c55e'
             : board.compiledProgram
-            ? '#f59e0b'
-            : '#6b7280';
+              ? '#f59e0b'
+              : '#6b7280';
 
           return (
             <div key={board.id} className="fe-board-section">
@@ -236,7 +292,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
               >
                 <button
                   className="fe-collapse-btn"
-                  onClick={(e) => { e.stopPropagation(); toggleCollapse(board.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCollapse(board.id);
+                  }}
                   title={isOpen ? 'Collapse' : 'Expand'}
                 >
                   <IcoChevron open={isOpen} />
@@ -258,7 +317,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
                 <button
                   className="fe-board-new-btn"
                   title="New file in this board"
-                  onClick={(e) => { e.stopPropagation(); startCreateFile(board.id, groupId); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startCreateFile(board.id, groupId);
+                  }}
                 >
                   <IcoNewFile />
                 </button>
@@ -275,7 +337,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick }) => {
                         className={`file-explorer-item fe-file-item${isActiveFile ? ' file-explorer-item-active' : ''}`}
                         onClick={() => handleFileClick(file.id, board.id, groupId)}
                         onContextMenu={(e) => handleContextMenu(e, file.id, groupId)}
-                        onDoubleClick={() => { switchToBoard(board.id, groupId); startRename(file.id, groupId); }}
+                        onDoubleClick={() => {
+                          switchToBoard(board.id, groupId);
+                          startRename(file.id, groupId);
+                        }}
                         title={`${file.name}${file.modified ? ' (unsaved)' : ''}`}
                       >
                         <span className="file-explorer-icon">

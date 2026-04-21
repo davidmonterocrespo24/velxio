@@ -105,7 +105,7 @@ class TestBMP280Slave(unittest.TestCase):
 
     def test_chip_id_register_0xd0(self):
         chip_id = i2c_read_seq(self.slave, 0xD0, 1)[0]
-        self.assertEqual(chip_id, 0x60, 'chip_id must be 0x60 for BMP280')
+        self.assertEqual(chip_id, 0x58, 'chip_id must be 0x58 for BMP280')
 
     # ── Calibration registers ──────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ class TestBMP280Slave(unittest.TestCase):
         self.slave.handle_event(I2C_FINISH)
         self.slave.handle_event(I2C_START_RECV)
         val = self.slave.handle_event(I2C_READ)
-        self.assertEqual(val, 0x60)
+        self.assertEqual(val, 0x58)
 
     def test_finish_resets_first_byte_flag(self):
         """After FINISH, the next transaction's first WRITE must set reg_ptr."""
@@ -191,7 +191,7 @@ class TestBMP280Slave(unittest.TestCase):
         self.slave.handle_event(I2C_FINISH)
         self.slave.handle_event(I2C_START_RECV)
         val = self.slave.handle_event(I2C_READ)
-        self.assertEqual(val, 0x60, 'chip_id should still be 0x60 after FINISH + new transaction')
+        self.assertEqual(val, 0x58, 'chip_id should still be 0x58 after FINISH + new transaction')
 
 
 # ══════════════════════════════════════════════════════════════════════════════

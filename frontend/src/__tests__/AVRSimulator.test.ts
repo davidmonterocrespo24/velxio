@@ -43,9 +43,7 @@ afterEach(() => vi.unstubAllGlobals());
 //   RJMP .-2            ; FF CF  — infinite loop (jump to self)
 //
 // Checksum verified manually.
-const BLINK_HEX =
-  ':0A0000000FEF04B900E205B9FFCFCD\n' +
-  ':00000001FF\n';
+const BLINK_HEX = ':0A0000000FEF04B900E205B9FFCFCD\n' + ':00000001FF\n';
 
 // EOF-only HEX — minimal valid file, empty program
 const EMPTY_HEX = ':00000001FF\n';
@@ -132,10 +130,10 @@ describe('AVRSimulator — ADC', () => {
     expect(adc).not.toBeNull();
 
     // channelValues is an array of floats (0..5V)
-    adc!.channelValues[0] = 2.5;  // A0
+    adc!.channelValues[0] = 2.5; // A0
     expect(adc!.channelValues[0]).toBe(2.5);
 
-    adc!.channelValues[3] = 5.0;  // A3
+    adc!.channelValues[3] = 5.0; // A3
     expect(adc!.channelValues[3]).toBe(5.0);
   });
 
@@ -160,11 +158,11 @@ describe('AVRSimulator — PWM OCR monitoring', () => {
     sim.loadHex(EMPTY_HEX);
 
     const pwmCb = vi.fn();
-    pm.onPwmChange(9, pwmCb);  // D9 = OCR1AL (0x88)
+    pm.onPwmChange(9, pwmCb); // D9 = OCR1AL (0x88)
 
     // Directly write a value to the OCR1AL register in CPU data memory
     const cpu = (sim as any).cpu;
-    cpu.data[0x88] = 128;  // 50% duty cycle
+    cpu.data[0x88] = 128; // 50% duty cycle
 
     // Simulate a frame tick to trigger OCR polling
     sim.start();
@@ -176,12 +174,12 @@ describe('AVRSimulator — PWM OCR monitoring', () => {
   it('PWM covers all six Arduino PWM pins', () => {
     // OCR addr → Arduino pin mapping
     const PWM_MAP = [
-      { addr: 0x47, pin: 6  },  // OCR0A
-      { addr: 0x48, pin: 5  },  // OCR0B
-      { addr: 0x88, pin: 9  },  // OCR1A
-      { addr: 0x8A, pin: 10 },  // OCR1B
-      { addr: 0xB3, pin: 11 },  // OCR2A
-      { addr: 0xB4, pin: 3  },  // OCR2B
+      { addr: 0x47, pin: 6 }, // OCR0A
+      { addr: 0x48, pin: 5 }, // OCR0B
+      { addr: 0x88, pin: 9 }, // OCR1A
+      { addr: 0x8a, pin: 10 }, // OCR1B
+      { addr: 0xb3, pin: 11 }, // OCR2A
+      { addr: 0xb4, pin: 3 }, // OCR2B
     ];
 
     const pm = new PinManager();
@@ -230,7 +228,7 @@ describe('AVRSimulator — external pin driving', () => {
     sim.loadHex(EMPTY_HEX);
 
     const cb = vi.fn();
-    pm.onPinChange(13, cb);  // D13 = PORTB bit 5
+    pm.onPinChange(13, cb); // D13 = PORTB bit 5
 
     sim.setPinState(13, true);
     // Note: setPinState calls portB.setPin which may not immediately update the
@@ -242,7 +240,7 @@ describe('AVRSimulator — external pin driving', () => {
     const pm = new PinManager();
     const sim = new AVRSimulator(pm);
     sim.loadHex(EMPTY_HEX);
-    expect(() => sim.setPinState(14, true)).not.toThrow();  // A0
+    expect(() => sim.setPinState(14, true)).not.toThrow(); // A0
     expect(() => sim.setPinState(19, false)).not.toThrow(); // A5
   });
 });

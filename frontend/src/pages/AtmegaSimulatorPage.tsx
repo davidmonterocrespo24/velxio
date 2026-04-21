@@ -20,7 +20,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Can I simulate ATmega328P register-level code?',
-    a: 'Yes. Velxio\'s AVR8 emulation faithfully executes all ATmega328P registers: DDRB/C/D, PORTB/C/D, PINB/C/D, TCCR0/1/2, OCR0/1/2, UBRR, UDR, ADCL/ADCH, and all interrupt vectors — including direct register manipulation without the Arduino abstraction layer.',
+    a: "Yes. Velxio's AVR8 emulation faithfully executes all ATmega328P registers: DDRB/C/D, PORTB/C/D, PINB/C/D, TCCR0/1/2, OCR0/1/2, UBRR, UDR, ADCL/ADCH, and all interrupt vectors — including direct register manipulation without the Arduino abstraction layer.",
   },
   {
     q: 'Does it emulate ATmega328P timers correctly?',
@@ -64,7 +64,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'ATmega328P Simulator', item: 'https://velxio.dev/atmega328p-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'ATmega328P Simulator',
+        item: 'https://velxio.dev/atmega328p-simulator',
+      },
     ],
   },
 ];
@@ -79,51 +84,82 @@ export const AtmegaSimulatorPage: React.FC = () => {
         {/* Hero */}
         <section className="seo-hero">
           <h1>
-            ATmega328P Simulator<br />
+            ATmega328P Simulator
+            <br />
             <span className="accent">Free AVR8 Emulation in Your Browser</span>
           </h1>
           <p className="subtitle">
-            Simulate ATmega328P firmware exactly as it runs on Arduino Uno and Nano — real AVR8 instruction execution at
-            16 MHz with full GPIO, timer, ADC, and USART emulation. No hardware, no install.
+            Simulate ATmega328P firmware exactly as it runs on Arduino Uno and Nano — real AVR8
+            instruction execution at 16 MHz with full GPIO, timer, ADC, and USART emulation. No
+            hardware, no install.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('atmega-simulator', '/editor')}>Open ATmega328P Simulator →</Link>
-            <Link to="/docs/emulator" className="seo-btn-secondary">Technical Details</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('atmega-simulator', '/editor')}
+            >
+              Open ATmega328P Simulator →
+            </Link>
+            <Link to="/docs/emulator" className="seo-btn-secondary">
+              Technical Details
+            </Link>
           </div>
-          <p className="seo-trust">Free &amp; open-source · Genuine AVR8 emulation · Runs 100% in your browser</p>
+          <p className="seo-trust">
+            Free &amp; open-source · Genuine AVR8 emulation · Runs 100% in your browser
+          </p>
         </section>
 
         {/* ATmega328P specs */}
         <section className="seo-section">
           <h2>ATmega328P specification — fully emulated</h2>
           <p className="lead">
-            Everything about the ATmega328P is emulated: registers, peripherals, interrupts, and timing. Write bare-metal
-            firmware or use the Arduino core library — both work identically in the simulator.
+            Everything about the ATmega328P is emulated: registers, peripherals, interrupts, and
+            timing. Write bare-metal firmware or use the Arduino core library — both work
+            identically in the simulator.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>CPU Core</h3>
-              <p>AVR8 (8-bit RISC), 16 MHz, 135 instructions, 32 general-purpose registers, 2-stage pipeline.</p>
+              <p>
+                AVR8 (8-bit RISC), 16 MHz, 135 instructions, 32 general-purpose registers, 2-stage
+                pipeline.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Flash Memory</h3>
-              <p>32 KB program flash. Upload any sketch compiled by arduino-cli. Supports self-programming via SPM instruction.</p>
+              <p>
+                32 KB program flash. Upload any sketch compiled by arduino-cli. Supports
+                self-programming via SPM instruction.
+              </p>
             </div>
             <div className="seo-card">
               <h3>GPIO Ports</h3>
-              <p>PORTB (pins 8–13), PORTC (A0–A5), PORTD (0–7). DDR, PORT, PIN registers all emulated. Interrupt-on-change via PCINT.</p>
+              <p>
+                PORTB (pins 8–13), PORTC (A0–A5), PORTD (0–7). DDR, PORT, PIN registers all
+                emulated. Interrupt-on-change via PCINT.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Timers 0 / 1 / 2</h3>
-              <p>8-bit Timer0 &amp; Timer2, 16-bit Timer1. All PWM modes. Prescaler 1–1024. CTC, Fast PWM, Phase-correct PWM.</p>
+              <p>
+                8-bit Timer0 &amp; Timer2, 16-bit Timer1. All PWM modes. Prescaler 1–1024. CTC, Fast
+                PWM, Phase-correct PWM.
+              </p>
             </div>
             <div className="seo-card">
               <h3>10-bit ADC</h3>
-              <p>6 analog input channels (A0–A5). Single conversion and free-running modes. Analog voltage from simulated components.</p>
+              <p>
+                6 analog input channels (A0–A5). Single conversion and free-running modes. Analog
+                voltage from simulated components.
+              </p>
             </div>
             <div className="seo-card">
               <h3>USART0</h3>
-              <p>Full duplex serial with configurable baud rate. TX, RX, and UDRE interrupts. Works with the built-in Serial Monitor.</p>
+              <p>
+                Full duplex serial with configurable baud rate. TX, RX, and UDRE interrupts. Works
+                with the built-in Serial Monitor.
+              </p>
             </div>
           </div>
         </section>
@@ -131,27 +167,45 @@ export const AtmegaSimulatorPage: React.FC = () => {
         {/* Compatible boards */}
         <section className="seo-section">
           <h2>ATmega328P boards in Velxio</h2>
-          <p className="lead">The ATmega328P powers several popular Arduino boards — all selectable in Velxio. The broader AVR8 family also includes ATmega2560 (Mega) and ATtiny85.</p>
+          <p className="lead">
+            The ATmega328P powers several popular Arduino boards — all selectable in Velxio. The
+            broader AVR8 family also includes ATmega2560 (Mega) and ATtiny85.
+          </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Arduino Uno R3</h3>
-              <p>The classic board. 14 digital I/O pins (6 PWM), 6 analog inputs, 32 KB flash. The most widely used ATmega328P board.</p>
+              <p>
+                The classic board. 14 digital I/O pins (6 PWM), 6 analog inputs, 32 KB flash. The
+                most widely used ATmega328P board.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Arduino Nano</h3>
-              <p>Same ATmega328P in a compact 45×18mm form factor with mini-USB. Same pin count as Uno.</p>
+              <p>
+                Same ATmega328P in a compact 45×18mm form factor with mini-USB. Same pin count as
+                Uno.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Arduino Pro Mini</h3>
-              <p>Bare-bones ATmega328P without USB chip. Available at 3.3 V/8 MHz and 5 V/16 MHz variants.</p>
+              <p>
+                Bare-bones ATmega328P without USB chip. Available at 3.3 V/8 MHz and 5 V/16 MHz
+                variants.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ATtiny85</h3>
-              <p>Ultra-compact 8-pin AVR. 8 KB flash, 6 I/O pins (PB0–PB5), USI (Wire), Timer0/1, 10-bit ADC. Ideal for embedded minimal projects.</p>
+              <p>
+                Ultra-compact 8-pin AVR. 8 KB flash, 6 I/O pins (PB0–PB5), USI (Wire), Timer0/1,
+                10-bit ADC. Ideal for embedded minimal projects.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Arduino Mega 2560</h3>
-              <p>ATmega2560 with 256 KB flash, 54 digital pins, 16 analog inputs, and 4 hardware USART channels.</p>
+              <p>
+                ATmega2560 with 256 KB flash, 54 digital pins, 16 analog inputs, and 4 hardware
+                USART channels.
+              </p>
             </div>
           </div>
         </section>
@@ -172,8 +226,17 @@ export const AtmegaSimulatorPage: React.FC = () => {
         {/* Bottom CTA */}
         <div className="seo-bottom">
           <h2>Simulate your ATmega328P code now</h2>
-          <p>Open the editor, paste your sketch, and click Simulate — no setup, no hardware purchase required.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('atmega-simulator', '/editor')}>Launch ATmega328P Simulator →</Link>
+          <p>
+            Open the editor, paste your sketch, and click Simulate — no setup, no hardware purchase
+            required.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('atmega-simulator', '/editor')}
+          >
+            Launch ATmega328P Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/arduino-simulator">Arduino Simulator</Link>
             <Link to="/arduino-emulator">Arduino Emulator</Link>

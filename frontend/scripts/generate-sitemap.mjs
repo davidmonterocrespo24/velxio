@@ -47,9 +47,15 @@ const routes = new Function('DOMAIN', `return [${arrayStr}]`)(DOMAIN);
 
 const indexable = routes.filter((r) => !r.noindex);
 
-// Parse example project IDs and add /examples/:id URLs
+// Parse example project IDs and add /examples/:id URLs.
+// Reads both examples.ts (legacy) and examples-circuits.ts (analog/digital/
+// electromech examples added in circuitExamples).
 const examplesSource = readFileSync(resolve(__dirname, '../src/data/examples.ts'), 'utf-8');
-const exampleIds = parseExampleIds(examplesSource);
+const circuitSource  = readFileSync(resolve(__dirname, '../src/data/examples-circuits.ts'), 'utf-8');
+const exampleIds = [
+  ...parseExampleIds(examplesSource),
+  ...parseExampleIds(circuitSource),
+];
 
 const exampleUrls = exampleIds.map((id) => ({
   loc: `${DOMAIN}/examples/${id}`,

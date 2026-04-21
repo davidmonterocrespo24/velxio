@@ -62,7 +62,11 @@ function EditUserModal({
         {error && <div style={modalStyles.error}>{error}</div>}
 
         <label style={modalStyles.label}>Username</label>
-        <input style={modalStyles.input} value={username} onChange={(e) => setUsername(e.target.value)} />
+        <input
+          style={modalStyles.input}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
 
         <label style={modalStyles.label}>Email</label>
         <input style={modalStyles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -83,7 +87,9 @@ function EditUserModal({
             checked={isAdmin}
             onChange={(e) => setIsAdmin(e.target.checked)}
           />
-          <label htmlFor="is_admin" style={modalStyles.checkLabel}>Admin</label>
+          <label htmlFor="is_admin" style={modalStyles.checkLabel}>
+            Admin
+          </label>
         </div>
 
         <div style={modalStyles.checkRow}>
@@ -93,11 +99,15 @@ function EditUserModal({
             checked={isActive}
             onChange={(e) => setIsActive(e.target.checked)}
           />
-          <label htmlFor="is_active" style={modalStyles.checkLabel}>Active</label>
+          <label htmlFor="is_active" style={modalStyles.checkLabel}>
+            Active
+          </label>
         </div>
 
         <div style={modalStyles.actions}>
-          <button style={modalStyles.cancelBtn} onClick={onClose} disabled={saving}>Cancel</button>
+          <button style={modalStyles.cancelBtn} onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
           <button style={modalStyles.saveBtn} onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -109,33 +119,63 @@ function EditUserModal({
 
 const modalStyles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
   },
   box: {
-    background: '#252526', border: '1px solid #3c3c3c', borderRadius: 8,
-    padding: '1.5rem', width: 400, display: 'flex', flexDirection: 'column', gap: 10,
+    background: '#252526',
+    border: '1px solid #3c3c3c',
+    borderRadius: 8,
+    padding: '1.5rem',
+    width: 400,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 10,
   },
   title: { color: '#ccc', margin: 0, fontSize: 18, fontWeight: 600 },
   label: { color: '#9d9d9d', fontSize: 13 },
   input: {
-    background: '#3c3c3c', border: '1px solid #555', borderRadius: 4,
-    padding: '7px 10px', color: '#ccc', fontSize: 14, outline: 'none',
+    background: '#3c3c3c',
+    border: '1px solid #555',
+    borderRadius: 4,
+    padding: '7px 10px',
+    color: '#ccc',
+    fontSize: 14,
+    outline: 'none',
   },
   checkRow: { display: 'flex', alignItems: 'center', gap: 8 },
   checkLabel: { color: '#ccc', fontSize: 14 },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
   cancelBtn: {
-    background: '#3c3c3c', border: 'none', borderRadius: 4,
-    color: '#ccc', padding: '7px 16px', fontSize: 14, cursor: 'pointer',
+    background: '#3c3c3c',
+    border: 'none',
+    borderRadius: 4,
+    color: '#ccc',
+    padding: '7px 16px',
+    fontSize: 14,
+    cursor: 'pointer',
   },
   saveBtn: {
-    background: '#0e639c', border: 'none', borderRadius: 4,
-    color: '#fff', padding: '7px 16px', fontSize: 14, cursor: 'pointer',
+    background: '#0e639c',
+    border: 'none',
+    borderRadius: 4,
+    color: '#fff',
+    padding: '7px 16px',
+    fontSize: 14,
+    cursor: 'pointer',
   },
   error: {
-    background: '#5a1d1d', border: '1px solid #f44747', borderRadius: 4,
-    color: '#f44747', padding: '7px 12px', fontSize: 13,
+    background: '#5a1d1d',
+    border: '1px solid #f44747',
+    borderRadius: 4,
+    color: '#f44747',
+    padding: '7px 12px',
+    fontSize: 13,
   },
 };
 
@@ -261,7 +301,8 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
   };
 
   const handleDelete = async (user: AdminUserResponse) => {
-    if (!confirm(`Delete user "${user.username}" and all their projects? This cannot be undone.`)) return;
+    if (!confirm(`Delete user "${user.username}" and all their projects? This cannot be undone.`))
+      return;
     try {
       await adminDeleteUser(user.id);
       setUsers((prev) => prev.filter((u) => u.id !== user.id));
@@ -286,7 +327,9 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span style={s.muted}>{filtered.length} user{filtered.length !== 1 ? 's' : ''}</span>
+        <span style={s.muted}>
+          {filtered.length} user{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       {loading ? (
@@ -310,9 +353,7 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
                 <tr key={u.id} style={s.tr}>
                   <td style={s.td}>
                     <span style={s.username}>{u.username}</span>
-                    {u.id === currentUserId && (
-                      <span style={s.youBadge}>you</span>
-                    )}
+                    {u.id === currentUserId && <span style={s.youBadge}>you</span>}
                   </td>
                   <td style={s.td}>{u.email}</td>
                   <td style={s.td}>
@@ -328,9 +369,13 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
                   <td style={s.td}>{u.project_count}</td>
                   <td style={s.td}>{new Date(u.created_at).toLocaleDateString()}</td>
                   <td style={s.td}>
-                    <button style={s.editBtn} onClick={() => setEditUser(u)}>Edit</button>
+                    <button style={s.editBtn} onClick={() => setEditUser(u)}>
+                      Edit
+                    </button>
                     {u.id !== currentUserId && (
-                      <button style={s.deleteBtn} onClick={() => handleDelete(u)}>Delete</button>
+                      <button style={s.deleteBtn} onClick={() => handleDelete(u)}>
+                        Delete
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -348,11 +393,7 @@ function UsersTab({ currentUserId }: { currentUserId: string }) {
       )}
 
       {editUser && (
-        <EditUserModal
-          user={editUser}
-          onClose={() => setEditUser(null)}
-          onSave={handleSave}
-        />
+        <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSave={handleSave} />
       )}
     </div>
   );
@@ -399,7 +440,9 @@ function ProjectsTab() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span style={s.muted}>{filtered.length} project{filtered.length !== 1 ? 's' : ''}</span>
+        <span style={s.muted}>
+          {filtered.length} project{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       {loading ? (
@@ -446,7 +489,9 @@ function ProjectsTab() {
                   </td>
                   <td style={s.td}>{new Date(p.updated_at).toLocaleDateString()}</td>
                   <td style={s.td}>
-                    <button style={s.deleteBtn} onClick={() => handleDelete(p)}>Delete</button>
+                    <button style={s.deleteBtn} onClick={() => handleDelete(p)}>
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -482,21 +527,22 @@ function AdminDashboard() {
     <div style={s.dashboard}>
       <div style={s.header}>
         <div style={s.headerLeft}>
-          <Link to="/" style={s.backLink}>Velxio</Link>
+          <Link to="/" style={s.backLink}>
+            Velxio
+          </Link>
           <span style={s.headerSep}>/</span>
           <span style={s.headerTitle}>Admin panel</span>
         </div>
         <div style={s.headerRight}>
           <span style={s.adminLabel}>{user?.username}</span>
-          <button style={s.logoutBtn} onClick={handleLogout}>Logout</button>
+          <button style={s.logoutBtn} onClick={handleLogout}>
+            Logout
+          </button>
         </div>
       </div>
 
       <div style={s.tabs}>
-        <button
-          style={tab === 'users' ? s.tabActive : s.tabBtn}
-          onClick={() => setTab('users')}
-        >
+        <button style={tab === 'users' ? s.tabActive : s.tabBtn} onClick={() => setTab('users')}>
           Users
         </button>
         <button
@@ -566,24 +612,74 @@ export const AdminPage: React.FC = () => {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', background: '#1e1e1e', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' },
-  card: { background: '#252526', border: '1px solid #3c3c3c', borderRadius: 8, padding: '2rem', width: 380, display: 'flex', flexDirection: 'column', gap: 12 },
+  page: {
+    minHeight: '100vh',
+    background: '#1e1e1e',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '2rem',
+  },
+  card: {
+    background: '#252526',
+    border: '1px solid #3c3c3c',
+    borderRadius: 8,
+    padding: '2rem',
+    width: 380,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
   cardTitle: { color: '#ccc', margin: 0, fontSize: 22, fontWeight: 600 },
   muted: { color: '#777', fontSize: 13, margin: 0 },
   form: { display: 'flex', flexDirection: 'column', gap: 8 },
   label: { color: '#9d9d9d', fontSize: 13 },
-  input: { background: '#3c3c3c', border: '1px solid #555', borderRadius: 4, padding: '8px 10px', color: '#ccc', fontSize: 14, outline: 'none' },
-  primaryBtn: {
-    display: 'block', textAlign: 'center', textDecoration: 'none',
-    marginTop: 8, background: '#0e639c', border: 'none', borderRadius: 4,
-    color: '#fff', padding: '9px', fontSize: 14, cursor: 'pointer', fontWeight: 500,
+  input: {
+    background: '#3c3c3c',
+    border: '1px solid #555',
+    borderRadius: 4,
+    padding: '8px 10px',
+    color: '#ccc',
+    fontSize: 14,
+    outline: 'none',
   },
-  error: { background: '#5a1d1d', border: '1px solid #f44747', borderRadius: 4, color: '#f44747', padding: '8px 12px', fontSize: 13 },
+  primaryBtn: {
+    display: 'block',
+    textAlign: 'center',
+    textDecoration: 'none',
+    marginTop: 8,
+    background: '#0e639c',
+    border: 'none',
+    borderRadius: 4,
+    color: '#fff',
+    padding: '9px',
+    fontSize: 14,
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  error: {
+    background: '#5a1d1d',
+    border: '1px solid #f44747',
+    borderRadius: 4,
+    color: '#f44747',
+    padding: '8px 12px',
+    fontSize: 13,
+  },
   // Dashboard
-  dashboard: { minHeight: '100vh', background: '#1e1e1e', display: 'flex', flexDirection: 'column' },
+  dashboard: {
+    minHeight: '100vh',
+    background: '#1e1e1e',
+    display: 'flex',
+    flexDirection: 'column',
+  },
   header: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    background: '#252526', borderBottom: '1px solid #3c3c3c', padding: '0 1.5rem', height: 48,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    background: '#252526',
+    borderBottom: '1px solid #3c3c3c',
+    padding: '0 1.5rem',
+    height: 48,
   },
   headerLeft: { display: 'flex', alignItems: 'center', gap: 8 },
   backLink: { color: '#4fc3f7', textDecoration: 'none', fontSize: 14, fontWeight: 600 },
@@ -591,24 +687,117 @@ const s: Record<string, React.CSSProperties> = {
   headerTitle: { color: '#ccc', fontSize: 14 },
   headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
   adminLabel: { color: '#9d9d9d', fontSize: 13 },
-  logoutBtn: { background: 'transparent', border: '1px solid #555', borderRadius: 4, color: '#ccc', padding: '4px 12px', fontSize: 13, cursor: 'pointer' },
+  logoutBtn: {
+    background: 'transparent',
+    border: '1px solid #555',
+    borderRadius: 4,
+    color: '#ccc',
+    padding: '4px 12px',
+    fontSize: 13,
+    cursor: 'pointer',
+  },
   tabs: { display: 'flex', gap: 0, borderBottom: '1px solid #3c3c3c', padding: '0 1.5rem' },
-  tabBtn: { background: 'transparent', border: 'none', borderBottom: '2px solid transparent', color: '#9d9d9d', padding: '10px 16px', fontSize: 14, cursor: 'pointer' },
-  tabActive: { background: 'transparent', border: 'none', borderBottom: '2px solid #0e639c', color: '#fff', padding: '10px 16px', fontSize: 14, cursor: 'pointer' },
+  tabBtn: {
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    color: '#9d9d9d',
+    padding: '10px 16px',
+    fontSize: 14,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    background: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid #0e639c',
+    color: '#fff',
+    padding: '10px 16px',
+    fontSize: 14,
+    cursor: 'pointer',
+  },
   tabContent: { padding: '1.5rem', flex: 1 },
   searchRow: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 },
-  searchInput: { background: '#3c3c3c', border: '1px solid #555', borderRadius: 4, padding: '7px 10px', color: '#ccc', fontSize: 14, outline: 'none', width: 300 },
+  searchInput: {
+    background: '#3c3c3c',
+    border: '1px solid #555',
+    borderRadius: 4,
+    padding: '7px 10px',
+    color: '#ccc',
+    fontSize: 14,
+    outline: 'none',
+    width: 300,
+  },
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', color: '#9d9d9d', padding: '8px 12px', borderBottom: '1px solid #3c3c3c', fontWeight: 500, whiteSpace: 'nowrap' },
+  th: {
+    textAlign: 'left',
+    color: '#9d9d9d',
+    padding: '8px 12px',
+    borderBottom: '1px solid #3c3c3c',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+  },
   tr: { borderBottom: '1px solid #2d2d2d' },
   td: { color: '#ccc', padding: '10px 12px', verticalAlign: 'middle' },
   username: { fontWeight: 500 },
-  youBadge: { marginLeft: 6, background: '#2d4a2d', color: '#73c991', border: '1px solid #4a7a4a', borderRadius: 4, padding: '1px 6px', fontSize: 11 },
-  adminBadge: { background: '#2d3a5a', color: '#9cdcfe', border: '1px solid #4a6a9a', borderRadius: 4, padding: '2px 8px', fontSize: 11 },
-  userBadge: { background: '#3a3a3a', color: '#9d9d9d', border: '1px solid #555', borderRadius: 4, padding: '2px 8px', fontSize: 11 },
-  activeBadge: { background: '#2d4a2d', color: '#73c991', border: '1px solid #4a7a4a', borderRadius: 4, padding: '2px 8px', fontSize: 11 },
-  inactiveBadge: { background: '#4a2d2d', color: '#f14c4c', border: '1px solid #7a4a4a', borderRadius: 4, padding: '2px 8px', fontSize: 11 },
-  editBtn: { background: '#3c3c3c', border: 'none', borderRadius: 4, color: '#ccc', padding: '4px 10px', fontSize: 12, cursor: 'pointer', marginRight: 4 },
-  deleteBtn: { background: '#5a1d1d', border: 'none', borderRadius: 4, color: '#f44747', padding: '4px 10px', fontSize: 12, cursor: 'pointer' },
+  youBadge: {
+    marginLeft: 6,
+    background: '#2d4a2d',
+    color: '#73c991',
+    border: '1px solid #4a7a4a',
+    borderRadius: 4,
+    padding: '1px 6px',
+    fontSize: 11,
+  },
+  adminBadge: {
+    background: '#2d3a5a',
+    color: '#9cdcfe',
+    border: '1px solid #4a6a9a',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+  },
+  userBadge: {
+    background: '#3a3a3a',
+    color: '#9d9d9d',
+    border: '1px solid #555',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+  },
+  activeBadge: {
+    background: '#2d4a2d',
+    color: '#73c991',
+    border: '1px solid #4a7a4a',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+  },
+  inactiveBadge: {
+    background: '#4a2d2d',
+    color: '#f14c4c',
+    border: '1px solid #7a4a4a',
+    borderRadius: 4,
+    padding: '2px 8px',
+    fontSize: 11,
+  },
+  editBtn: {
+    background: '#3c3c3c',
+    border: 'none',
+    borderRadius: 4,
+    color: '#ccc',
+    padding: '4px 10px',
+    fontSize: 12,
+    cursor: 'pointer',
+    marginRight: 4,
+  },
+  deleteBtn: {
+    background: '#5a1d1d',
+    border: 'none',
+    borderRadius: 4,
+    color: '#f44747',
+    padding: '4px 10px',
+    fontSize: 12,
+    cursor: 'pointer',
+  },
 };

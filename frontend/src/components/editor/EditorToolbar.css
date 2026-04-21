@@ -43,7 +43,9 @@
   cursor: pointer;
   background: transparent;
   color: #9d9d9d;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   flex-shrink: 0;
 }
 
@@ -103,7 +105,10 @@
   font-weight: 500;
   font-family: inherit;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
   flex-shrink: 0;
 }
 .tb-btn-libraries:hover {
@@ -189,7 +194,9 @@
 
 /* ── Spin animation (compiling) ─────────────────── */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .spin {
   animation: spin 0.8s linear infinite;
@@ -280,8 +287,13 @@
 }
 
 @keyframes pulse-run {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 /* ── Overflow (…) menu ──────────────────────────── */
@@ -332,7 +344,9 @@
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .tb-overflow-item:hover {

@@ -23,15 +23,16 @@ interface BoardTab {
 }
 
 const BOARD_TABS: BoardTab[] = [
-  { id: 'all',                label: 'All Boards',      color: '#ffffff', bg: '#444444' },
-  { id: 'arduino-uno',        label: 'Arduino Uno',     color: '#ffffff', bg: '#007acc' },
-  { id: 'arduino-nano',       label: 'Arduino Nano',    color: '#ffffff', bg: '#0055aa' },
-  { id: 'arduino-mega',       label: 'Arduino Mega',    color: '#ffffff', bg: '#003388' },
-  { id: 'raspberry-pi-pico',  label: 'Pico',            color: '#ffffff', bg: '#c11c31' },
-  { id: 'esp32',              label: 'ESP32 (Xtensa)',  color: '#ffffff', bg: '#e77d11' },
-  { id: 'esp32-c3',           label: 'ESP32-C3 (RISC-V)', color: '#ffffff', bg: '#27ae60' },
-  { id: 'attiny85',           label: 'ATtiny85',         color: '#ffffff', bg: '#5d4037' },
-  { id: 'multi',              label: 'Multi-Board',     color: '#ffffff', bg: '#7b2d8b' },
+  { id: 'all', label: 'All', color: '#ffffff', bg: '#444444' },
+  { id: 'arduino-uno', label: 'Arduino Uno', color: '#ffffff', bg: '#007acc' },
+  { id: 'arduino-nano', label: 'Arduino Nano', color: '#ffffff', bg: '#0055aa' },
+  { id: 'arduino-mega', label: 'Arduino Mega', color: '#ffffff', bg: '#003388' },
+  { id: 'raspberry-pi-pico', label: 'Pico', color: '#ffffff', bg: '#c11c31' },
+  { id: 'esp32', label: 'ESP32 (Xtensa)', color: '#ffffff', bg: '#e77d11' },
+  { id: 'esp32-c3', label: 'ESP32-C3 (RISC-V)', color: '#ffffff', bg: '#27ae60' },
+  { id: 'attiny85', label: 'ATtiny85', color: '#ffffff', bg: '#5d4037' },
+  { id: 'multi', label: 'Multi-Board', color: '#ffffff', bg: '#7b2d8b' },
+  { id: 'analog', label: 'Analog', color: '#ffffff', bg: '#0ea5a5' },
 ];
 
 function getBoardFilter(example: ExampleProject): string {
@@ -42,8 +43,12 @@ function getBoardFilter(example: ExampleProject): string {
 
 export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample }) => {
   const [selectedBoard, setSelectedBoard] = useState<string>('all');
-  const [selectedCategory, setSelectedCategory] = useState<ExampleProject['category'] | 'all'>('all');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<ExampleProject['difficulty'] | 'all'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<ExampleProject['category'] | 'all'>(
+    'all',
+  );
+  const [selectedDifficulty, setSelectedDifficulty] = useState<
+    ExampleProject['difficulty'] | 'all'
+  >('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const handleCopyLink = useCallback((e: React.MouseEvent, exampleId: string) => {
@@ -56,9 +61,9 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
   }, []);
 
   const filteredExamples = exampleProjects.filter((example) => {
-    const boardMatch  = selectedBoard === 'all' || getBoardFilter(example) === selectedBoard;
-    const catMatch    = selectedCategory === 'all' || example.category === selectedCategory;
-    const diffMatch   = selectedDifficulty === 'all' || example.difficulty === selectedDifficulty;
+    const boardMatch = selectedBoard === 'all' || getBoardFilter(example) === selectedBoard;
+    const catMatch = selectedCategory === 'all' || example.category === selectedCategory;
+    const diffMatch = selectedDifficulty === 'all' || example.difficulty === selectedDifficulty;
     return boardMatch && catMatch && diffMatch;
   });
 
@@ -71,16 +76,22 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
 
   const getCategoryIcon = (category: ExampleProject['category']): React.ReactNode => {
     const svgProps = {
-      width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none',
-      stroke: 'currentColor', strokeWidth: 2,
-      strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+      width: 16,
+      height: 16,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 2,
+      strokeLinecap: 'round' as const,
+      strokeLinejoin: 'round' as const,
       style: { display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 },
     };
     const icons: Record<ExampleProject['category'], React.ReactNode> = {
       basics: (
         <svg {...svgProps}>
           <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
-          <path d="M9 18h6" /><path d="M10 22h4" />
+          <path d="M9 18h6" />
+          <path d="M10 22h4" />
         </svg>
       ),
       sensors: (
@@ -120,19 +131,31 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
         <svg {...svgProps}>
           <path d="M12 8V4H8" />
           <rect width="16" height="12" x="4" y="8" rx="2" />
-          <path d="M2 14h2" /><path d="M20 14h2" />
-          <path d="M15 13v2" /><path d="M9 13v2" />
+          <path d="M2 14h2" />
+          <path d="M20 14h2" />
+          <path d="M15 13v2" />
+          <path d="M9 13v2" />
+        </svg>
+      ),
+      circuits: (
+        <svg {...svgProps}>
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
         </svg>
       ),
     };
     return icons[category];
   };
 
-  const getDifficultyColor = (difficulty: ExampleProject['difficulty']): string => ({
-    beginner: '#4ade80', intermediate: '#fbbf24', advanced: '#f87171',
-  }[difficulty]);
+  const getDifficultyColor = (difficulty: ExampleProject['difficulty']): string =>
+    ({
+      beginner: '#4ade80',
+      intermediate: '#fbbf24',
+      advanced: '#f87171',
+    })[difficulty];
 
-  const getBoardBadge = (example: ExampleProject): { label: string; color: string; bg: string } | null => {
+  const getBoardBadge = (
+    example: ExampleProject,
+  ): { label: string; color: string; bg: string } | null => {
     const bf = getBoardFilter(example);
     const tab = BOARD_TABS.find((t) => t.id === bf);
     if (!tab || tab.id === 'all') return null;
@@ -152,7 +175,11 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
           <button
             key={tab.id}
             className={`board-tab ${selectedBoard === tab.id ? 'active' : ''}`}
-            style={selectedBoard === tab.id ? { backgroundColor: tab.bg, color: tab.color, borderColor: tab.bg } : {}}
+            style={
+              selectedBoard === tab.id
+                ? { backgroundColor: tab.bg, color: tab.color, borderColor: tab.bg }
+                : {}
+            }
             onClick={() => setSelectedBoard(tab.id)}
           >
             {tab.label}
@@ -168,13 +195,25 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
         <div className="filter-group">
           <label>Category:</label>
           <div className="filter-buttons">
-            {(['all', 'basics', 'sensors', 'displays', 'communication', 'games', 'robotics'] as const).map((cat) => (
+            {(
+              [
+                'all',
+                'basics',
+                'sensors',
+                'displays',
+                'communication',
+                'games',
+                'robotics',
+                'circuits',
+              ] as const
+            ).map((cat) => (
               <button
                 key={cat}
                 className={`filter-button ${selectedCategory === cat ? 'active' : ''}`}
                 onClick={() => setSelectedCategory(cat)}
               >
-                {cat !== 'all' && getCategoryIcon(cat as ExampleProject['category'])} {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                {cat !== 'all' && getCategoryIcon(cat as ExampleProject['category'])}{' '}
+                {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
               </button>
             ))}
           </div>
@@ -201,14 +240,14 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
         {filteredExamples.map((example) => {
           const boardBadge = getBoardBadge(example);
           return (
-            <div
-              key={example.id}
-              className="example-card"
-              onClick={() => onLoadExample(example)}
-            >
+            <div key={example.id} className="example-card" onClick={() => onLoadExample(example)}>
               <div className="example-thumbnail">
                 {example.thumbnail ? (
-                  <img src={example.thumbnail} alt={example.title} className="example-preview-image" />
+                  <img
+                    src={example.thumbnail}
+                    alt={example.title}
+                    className="example-preview-image"
+                  />
                 ) : (
                   <CircuitPreview
                     example={example}
@@ -233,15 +272,18 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                     {getCategoryIcon(example.category)} {example.category}
                   </span>
                   {boardBadge && (
-                    <span className="example-board-badge" style={{
-                      backgroundColor: boardBadge.bg + '33',
-                      color: boardBadge.bg,
-                      border: `1px solid ${boardBadge.bg}66`,
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                    }}>
+                    <span
+                      className="example-board-badge"
+                      style={{
+                        backgroundColor: boardBadge.bg + '33',
+                        color: boardBadge.bg,
+                        border: `1px solid ${boardBadge.bg}66`,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                      }}
+                    >
                       {boardBadge.label}
                     </span>
                   )}
@@ -251,11 +293,29 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                     title="Copy shareable link"
                   >
                     {copiedId === example.id ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#4ade80"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                       </svg>

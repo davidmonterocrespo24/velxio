@@ -14,9 +14,9 @@ import { hexToUint8Array } from '../utils/hexParser';
 
 // CH32V003 memory map
 const FLASH_BASE = 0x08000000;
-const RAM_BASE   = 0x20000000;
-const FLASH_SIZE = 16 * 1024;   // 16 KB
-const RAM_SIZE   =  2 * 1024;   //  2 KB
+const RAM_BASE = 0x20000000;
+const FLASH_SIZE = 16 * 1024; // 16 KB
+const RAM_SIZE = 2 * 1024; //  2 KB
 
 // Combined flat buffer: flash first, then RAM
 const MEM_SIZE = FLASH_SIZE + RAM_SIZE;
@@ -28,18 +28,18 @@ const CYCLES_PER_FRAME = Math.round(CPU_HZ / 60);
 // ── CH32V003 UART1 MMIO (0x40013800) ────────────────────────────────────────
 // STATR offset 0x00 — status register (bit 7 = TXE, bit 5 = RXNE, bit 6 = TC)
 // DATAR offset 0x04 — data register (write = TX, read = RX)
-const UART1_BASE  = 0x40013800;
-const UART1_SIZE  = 0x400;
+const UART1_BASE = 0x40013800;
+const UART1_SIZE = 0x400;
 const UART1_STATR = 0x00;
 const UART1_DATAR = 0x04;
 
 // ── CH32V003 GPIO MMIO ───────────────────────────────────────────────────────
 // Each GPIO bank: CRL=0x00, CRH=0x04, INDR=0x08, OUTDR=0x0C, BSHR=0x10, BCR=0x14, LCKR=0x18
 const GPIOA_BASE = 0x40010800;
-const GPIOC_BASE = 0x40010C00;
+const GPIOC_BASE = 0x40010c00;
 const GPIOD_BASE = 0x40011400;
-const GPIO_SIZE  = 0x400;
-const GPIO_OUTDR = 0x0c;  // Output data register
+const GPIO_SIZE = 0x400;
+const GPIO_OUTDR = 0x0c; // Output data register
 
 // Pin offsets: PA0-7 → simulator pins 0-7, PC0-7 → 8-15, PD0-7 → 16-23
 const GPIO_PIN_OFFSET: Record<number, number> = {
@@ -80,16 +80,22 @@ export class RiscVSimulator {
     // To make RAM work we extend by adding a second MMIO region that redirects
     // to the same flat buffer at offset FLASH_SIZE.
     const ramOffset = FLASH_SIZE;
-    this.core.addMmio(RAM_BASE, RAM_SIZE,
+    this.core.addMmio(
+      RAM_BASE,
+      RAM_SIZE,
       (addr) => mem[ramOffset + (addr - RAM_BASE)],
-      (addr, val) => { mem[ramOffset + (addr - RAM_BASE)] = val; },
+      (addr, val) => {
+        mem[ramOffset + (addr - RAM_BASE)] = val;
+      },
     );
   }
 
   // ── MMIO registration ──────────────────────────────────────────────────────
 
   private _registerUart(): void {
-    this.core.addMmio(UART1_BASE, UART1_SIZE,
+    this.core.addMmio(
+      UART1_BASE,
+      UART1_SIZE,
       (addr) => {
         const off = addr - UART1_BASE;
         if (off === UART1_STATR) {
@@ -112,7 +118,9 @@ export class RiscVSimulator {
 
   private _registerGpio(base: number): void {
     const pinOffset = GPIO_PIN_OFFSET[base];
-    this.core.addMmio(base, GPIO_SIZE,
+    this.core.addMmio(
+      base,
+      GPIO_SIZE,
       (addr) => {
         const off = addr - base;
         if (off === GPIO_OUTDR) return this.gpioOutdr[base];

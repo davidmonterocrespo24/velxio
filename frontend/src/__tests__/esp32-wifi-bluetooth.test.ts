@@ -60,20 +60,28 @@ vi.mock('../store/useOscilloscopeStore', () => ({
 
 // WebSocket mock
 class MockWebSocket {
-  static OPEN    = 1;
+  static OPEN = 1;
   static CLOSING = 2;
-  static CLOSED  = 3;
+  static CLOSED = 3;
 
   readyState = MockWebSocket.OPEN;
-  onopen:    (() => void) | null = null;
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onclose:   (() => void) | null = null;
-  onerror:   (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
   sent: string[] = [];
 
-  send(data: string)  { this.sent.push(data); }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.(); }
-  open()  { this.readyState = MockWebSocket.OPEN;   this.onopen?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
   receive(payload: object) {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
@@ -262,7 +270,10 @@ describe('Esp32Bridge — WiFi/BLE status events', () => {
 
     ws.receive({ type: 'wifi_status', data: { status: 'initializing' } });
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
-    ws.receive({ type: 'wifi_status', data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' } });
+    ws.receive({
+      type: 'wifi_status',
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+    });
 
     expect(received).toHaveLength(3);
     expect(received[0].status).toBe('initializing');
@@ -283,10 +294,11 @@ describe('WiFi auto-detection', () => {
 void setup() { WiFi.begin("Velxio-GUEST", ""); }
 void loop() {}
 `;
-    const hasWifi = content.includes('#include <WiFi.h>') ||
-                    content.includes('#include <esp_wifi.h>') ||
-                    content.includes('#include "WiFi.h"') ||
-                    content.includes('WiFi.begin(');
+    const hasWifi =
+      content.includes('#include <WiFi.h>') ||
+      content.includes('#include <esp_wifi.h>') ||
+      content.includes('#include "WiFi.h"') ||
+      content.includes('WiFi.begin(');
     expect(hasWifi).toBe(true);
   });
 
@@ -296,10 +308,11 @@ void loop() {}
 void setup() { esp_wifi_init(); }
 void loop() {}
 `;
-    const hasWifi = content.includes('#include <WiFi.h>') ||
-                    content.includes('#include <esp_wifi.h>') ||
-                    content.includes('#include "WiFi.h"') ||
-                    content.includes('WiFi.begin(');
+    const hasWifi =
+      content.includes('#include <WiFi.h>') ||
+      content.includes('#include <esp_wifi.h>') ||
+      content.includes('#include "WiFi.h"') ||
+      content.includes('WiFi.begin(');
     expect(hasWifi).toBe(true);
   });
 
@@ -308,10 +321,11 @@ void loop() {}
 void setup() { WiFi.begin("ssid", "pass"); }
 void loop() {}
 `;
-    const hasWifi = content.includes('#include <WiFi.h>') ||
-                    content.includes('#include <esp_wifi.h>') ||
-                    content.includes('#include "WiFi.h"') ||
-                    content.includes('WiFi.begin(');
+    const hasWifi =
+      content.includes('#include <WiFi.h>') ||
+      content.includes('#include <esp_wifi.h>') ||
+      content.includes('#include "WiFi.h"') ||
+      content.includes('WiFi.begin(');
     expect(hasWifi).toBe(true);
   });
 
@@ -320,19 +334,21 @@ void loop() {}
 void setup() { Serial.begin(115200); }
 void loop() { delay(1000); }
 `;
-    const hasWifi = content.includes('#include <WiFi.h>') ||
-                    content.includes('#include <esp_wifi.h>') ||
-                    content.includes('#include "WiFi.h"') ||
-                    content.includes('WiFi.begin(');
+    const hasWifi =
+      content.includes('#include <WiFi.h>') ||
+      content.includes('#include <esp_wifi.h>') ||
+      content.includes('#include "WiFi.h"') ||
+      content.includes('WiFi.begin(');
     expect(hasWifi).toBe(false);
   });
 
   it('detects #include "WiFi.h" (quotes) in sketch', () => {
     const content = '#include "WiFi.h"\nvoid setup() {}\nvoid loop() {}';
-    const hasWifi = content.includes('#include <WiFi.h>') ||
-                    content.includes('#include <esp_wifi.h>') ||
-                    content.includes('#include "WiFi.h"') ||
-                    content.includes('WiFi.begin(');
+    const hasWifi =
+      content.includes('#include <WiFi.h>') ||
+      content.includes('#include <esp_wifi.h>') ||
+      content.includes('#include "WiFi.h"') ||
+      content.includes('WiFi.begin(');
     expect(hasWifi).toBe(true);
   });
 });
@@ -344,17 +360,19 @@ void loop() { delay(1000); }
 describe('BLE detection in sketches', () => {
   it('detects BLEDevice.h include', () => {
     const content = '#include <BLEDevice.h>\nvoid setup() { BLEDevice::init("test"); }';
-    const hasBLE = content.includes('#include <BLEDevice.h>') ||
-                   content.includes('#include <esp_bt.h>') ||
-                   content.includes('BLEDevice::init(');
+    const hasBLE =
+      content.includes('#include <BLEDevice.h>') ||
+      content.includes('#include <esp_bt.h>') ||
+      content.includes('BLEDevice::init(');
     expect(hasBLE).toBe(true);
   });
 
   it('returns false for non-BLE sketches', () => {
     const content = 'void setup() { Serial.begin(115200); }\nvoid loop() {}';
-    const hasBLE = content.includes('#include <BLEDevice.h>') ||
-                   content.includes('#include <esp_bt.h>') ||
-                   content.includes('BLEDevice::init(');
+    const hasBLE =
+      content.includes('#include <BLEDevice.h>') ||
+      content.includes('#include <esp_bt.h>') ||
+      content.includes('BLEDevice::init(');
     expect(hasBLE).toBe(false);
   });
 });

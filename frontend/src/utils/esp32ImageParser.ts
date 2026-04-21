@@ -23,9 +23,9 @@
  */
 
 export const ESP32_APP_FLASH_OFFSET = 0x10000;
-const ESP32_MAGIC    = 0xE9;
-const HEADER_SIZE    = 24;
-const SEG_HDR_SIZE   = 8;
+const ESP32_MAGIC = 0xe9;
+const HEADER_SIZE = 24;
+const SEG_HDR_SIZE = 8;
 
 export interface Esp32Segment {
   loadAddr: number;
@@ -43,12 +43,12 @@ function parseAppAt(img: Uint8Array, base: number): Esp32ParsedImage {
   if (view.getUint8(base) !== ESP32_MAGIC) {
     throw new Error(
       `Bad ESP32 magic at 0x${base.toString(16)}: ` +
-      `expected 0xE9, got 0x${view.getUint8(base).toString(16)}`
+        `expected 0xE9, got 0x${view.getUint8(base).toString(16)}`,
     );
   }
 
-  const segCount   = view.getUint8(base + 1);
-  const entryPoint = view.getUint32(base + 4, /*littleEndian=*/true);
+  const segCount = view.getUint8(base + 1);
+  const entryPoint = view.getUint32(base + 4, /*littleEndian=*/ true);
 
   const segments: Esp32Segment[] = [];
   let pos = base + HEADER_SIZE;
@@ -56,8 +56,8 @@ function parseAppAt(img: Uint8Array, base: number): Esp32ParsedImage {
   for (let i = 0; i < segCount; i++) {
     if (pos + SEG_HDR_SIZE > img.length) break;
 
-    const loadAddr = view.getUint32(pos,     true);
-    const dataLen  = view.getUint32(pos + 4, true);
+    const loadAddr = view.getUint32(pos, true);
+    const dataLen = view.getUint32(pos + 4, true);
     pos += SEG_HDR_SIZE;
 
     if (pos + dataLen > img.length) {
@@ -83,7 +83,10 @@ function parseAppAt(img: Uint8Array, base: number): Esp32ParsedImage {
  */
 export function parseMergedFlashImage(data: Uint8Array): Esp32ParsedImage {
   // Standard merged image: app at offset 0x10000
-  if (data.length >= ESP32_APP_FLASH_OFFSET + HEADER_SIZE && data[ESP32_APP_FLASH_OFFSET] === ESP32_MAGIC) {
+  if (
+    data.length >= ESP32_APP_FLASH_OFFSET + HEADER_SIZE &&
+    data[ESP32_APP_FLASH_OFFSET] === ESP32_MAGIC
+  ) {
     return parseAppAt(data, ESP32_APP_FLASH_OFFSET);
   }
 
@@ -94,6 +97,6 @@ export function parseMergedFlashImage(data: Uint8Array): Esp32ParsedImage {
 
   throw new Error(
     `No valid ESP32 image magic found ` +
-    `(tried offsets 0x10000 and 0x0, image size ${data.length} bytes)`
+      `(tried offsets 0x10000 and 0x0, image size ${data.length} bytes)`,
   );
 }

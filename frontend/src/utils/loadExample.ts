@@ -62,8 +62,15 @@ export async function loadExample(
   }
 
   const {
-    setComponents, setWires, setBoardType,
-    activeBoardId, boards, addBoard, removeBoard, setActiveBoardId,
+    setComponents,
+    setWires,
+    setBoardType,
+    activeBoardId,
+    boards,
+    addBoard,
+    removeBoard,
+    setActiveBoardId,
+    recalculateAllWirePositions,
   } = useSimulatorStore.getState();
 
   if (example.boards && example.boards.length > 0) {
@@ -83,7 +90,7 @@ export async function loadExample(
 
       if (eb.code) {
         const AVR_BOARDS = ['arduino-uno', 'arduino-nano', 'arduino-mega', 'attiny85'];
-      const filename = AVR_BOARDS.includes(boardId) ? 'sketch.ino' : 'main.cpp';
+        const filename = AVR_BOARDS.includes(boardId) ? 'sketch.ino' : 'main.cpp';
         useEditorStore.getState().setActiveGroup(board.activeFileGroupId);
         useEditorStore.getState().loadFiles([{ name: filename, content: eb.code }]);
       }
@@ -120,7 +127,7 @@ export async function loadExample(
     setComponents(
       componentsWithoutBoard.map((comp) => ({
         id: comp.id,
-        metadataId: comp.type.replace('wokwi-', ''),
+        metadataId: comp.type.replace(/^(wokwi|velxio)-/, ''),
         x: comp.x,
         y: comp.y,
         properties: comp.properties,
@@ -136,10 +143,20 @@ export async function loadExample(
         waypoints: [],
       })),
     );
+    recalculateAllWirePositions();
   } else {
     // ── Single-board loading ─────────────────────────────────────────────
-    const targetBoard = example.boardType || 'arduino-uno';
-    setBoardType(targetBoard);
+    // Analog-only SPICE examples are board-less. Remove every existing board
+    // so the canvas opens with just the analog circuit (boards are now
+    // optional — you can have 0, 1, or many at any time).
+    const isAnalogOnly = (example as any).boardFilter === 'analog';
+    if (isAnalogOnly) {
+      const currentIds = boards.map((b) => b.id);
+      currentIds.forEach((id) => removeBoard(id));
+    } else {
+      const targetBoard = example.boardType || 'arduino-uno';
+      setBoardType(targetBoard);
+    }
     useEditorStore.getState().setCode(example.code);
 
     const componentsWithoutBoard = example.components.filter(
@@ -151,24 +168,41 @@ export async function loadExample(
     setComponents(
       componentsWithoutBoard.map((comp) => ({
         id: comp.id,
-        metadataId: comp.type.replace('wokwi-', ''),
+        metadataId: comp.type.replace(/^(wokwi|velxio)-/, ''),
         x: comp.x,
         y: comp.y,
         properties: comp.properties,
       })),
     );
 
-    const boardInstanceId = activeBoardId ?? 'arduino-uno';
-    const remapBoardId = (id: string) => (isBoardComponent(id) ? boardInstanceId : id);
+    // After possibly removing every board, re-read activeBoardId.
+    const liveActiveBoardId = useSimulatorStore.getState().activeBoardId;
+    // For analog (board-less) examples we leave any 'arduino-uno' references
+    // in wires untouched — there shouldn't be any, but if there are we'd
+    // rather emit a dangling endpoint than silently graft them onto a board
+    // that no longer exists.
+    const remapBoardId = (id: string) =>
+      isBoardComponent(id) && liveActiveBoardId ? liveActiveBoardId : id;
 
     setWires(
       example.wires.map((wire) => ({
         id: wire.id,
-        start: { componentId: remapBoardId(wire.start.componentId), pinName: wire.start.pinName, x: 0, y: 0 },
-        end: { componentId: remapBoardId(wire.end.componentId), pinName: wire.end.pinName, x: 0, y: 0 },
+        start: {
+          componentId: remapBoardId(wire.start.componentId),
+          pinName: wire.start.pinName,
+          x: 0,
+          y: 0,
+        },
+        end: {
+          componentId: remapBoardId(wire.end.componentId),
+          pinName: wire.end.pinName,
+          x: 0,
+          y: 0,
+        },
         color: wire.color,
         waypoints: [],
       })),
     );
+    recalculateAllWirePositions();
   }
 }

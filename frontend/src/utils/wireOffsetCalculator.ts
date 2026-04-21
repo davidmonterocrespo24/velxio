@@ -35,7 +35,7 @@ interface SegmentGroup {
   isVertical: boolean;
   centerLine: number;
   overlapStart: number; // Start of overlapping region
-  overlapEnd: number;   // End of overlapping region
+  overlapEnd: number; // End of overlapping region
 }
 
 /**
@@ -53,7 +53,8 @@ function extractSegments(wire: Wire): WireSegment[] {
       const nextPoint = { x: controlPoint.x, y: controlPoint.y };
 
       // Determine if segment is vertical or horizontal
-      const isVertical = Math.abs(nextPoint.x - currentPoint.x) < Math.abs(nextPoint.y - currentPoint.y);
+      const isVertical =
+        Math.abs(nextPoint.x - currentPoint.x) < Math.abs(nextPoint.y - currentPoint.y);
       const centerLine = isVertical ? currentPoint.x : currentPoint.y;
 
       segments.push({
@@ -138,7 +139,7 @@ function groupOverlappingSegments(segments: WireSegment[]): SegmentGroup[] {
       if (processed.has(key2)) continue;
 
       // Check if seg2 overlaps with any segment in the current group
-      if (group.some(seg => segmentsOverlap(seg, seg2))) {
+      if (group.some((seg) => segmentsOverlap(seg, seg2))) {
         group.push(seg2);
         processed.add(key2);
       }
@@ -154,11 +155,11 @@ function groupOverlappingSegments(segments: WireSegment[]): SegmentGroup[] {
       let overlapEnd: number;
 
       if (isVertical) {
-        overlapStart = Math.max(...group.map(seg => Math.min(seg.start.y, seg.end.y)));
-        overlapEnd = Math.min(...group.map(seg => Math.max(seg.start.y, seg.end.y)));
+        overlapStart = Math.max(...group.map((seg) => Math.min(seg.start.y, seg.end.y)));
+        overlapEnd = Math.min(...group.map((seg) => Math.max(seg.start.y, seg.end.y)));
       } else {
-        overlapStart = Math.max(...group.map(seg => Math.min(seg.start.x, seg.end.x)));
-        overlapEnd = Math.min(...group.map(seg => Math.max(seg.start.x, seg.end.x)));
+        overlapStart = Math.max(...group.map((seg) => Math.min(seg.start.x, seg.end.x)));
+        overlapEnd = Math.min(...group.map((seg) => Math.max(seg.start.x, seg.end.x)));
       }
 
       groups.push({
@@ -181,11 +182,11 @@ export function calculateWireOffsets(wires: Wire[]): Map<string, number> {
   const offsets = new Map<string, number>();
 
   // Initialize all offsets to 0
-  wires.forEach(wire => offsets.set(wire.id, 0));
+  wires.forEach((wire) => offsets.set(wire.id, 0));
 
   // Extract all segments from all wires
   const allSegments: WireSegment[] = [];
-  wires.forEach(wire => {
+  wires.forEach((wire) => {
     allSegments.push(...extractSegments(wire));
   });
 
@@ -193,11 +194,11 @@ export function calculateWireOffsets(wires: Wire[]): Map<string, number> {
   const groups = groupOverlappingSegments(allSegments);
 
   // Calculate offsets for each group
-  groups.forEach(group => {
+  groups.forEach((group) => {
     const numWires = group.segments.length;
 
     // Get unique wire IDs in this group
-    const wireIds = [...new Set(group.segments.map(seg => seg.wireId))];
+    const wireIds = [...new Set(group.segments.map((seg) => seg.wireId))];
 
     // Calculate offset for each wire
     wireIds.forEach((wireId, index) => {
@@ -235,23 +236,20 @@ export function applyOffsetToWire(wire: Wire, offset: number): Wire {
 
   // Determine primary direction from the first segment of the path
   const firstControlOrEnd =
-    wire.controlPoints && wire.controlPoints.length > 0
-      ? wire.controlPoints[0]
-      : wire.end;
+    wire.controlPoints && wire.controlPoints.length > 0 ? wire.controlPoints[0] : wire.end;
 
   const isHorizontalFirst =
-    Math.abs(firstControlOrEnd.x - wire.start.x) >=
-    Math.abs(firstControlOrEnd.y - wire.start.y);
+    Math.abs(firstControlOrEnd.x - wire.start.x) >= Math.abs(firstControlOrEnd.y - wire.start.y);
 
   // True pin positions (never moved)
   const pinStart = { x: wire.start.x, y: wire.start.y };
-  const pinEnd   = { x: wire.end.x,   y: wire.end.y   };
+  const pinEnd = { x: wire.end.x, y: wire.end.y };
 
   // Offset intermediate points perpendicular to the primary direction
-  const shiftedControlPoints = (wire.controlPoints || []).map(cp => ({
+  const shiftedControlPoints = (wire.controlPoints || []).map((cp) => ({
     ...cp,
-    x: isHorizontalFirst ? cp.x           : cp.x + offset,
-    y: isHorizontalFirst ? cp.y + offset  : cp.y,
+    x: isHorizontalFirst ? cp.x : cp.x + offset,
+    y: isHorizontalFirst ? cp.y + offset : cp.y,
   }));
 
   // Compute where the offset path actually starts/ends
@@ -287,7 +285,7 @@ export function applyOffsetToWire(wire: Wire, offset: number): Wire {
   return {
     ...wire,
     start: { ...wire.start, x: pinStart.x, y: pinStart.y },
-    end:   { ...wire.end,   x: pinEnd.x,   y: pinEnd.y   },
+    end: { ...wire.end, x: pinEnd.x, y: pinEnd.y },
     controlPoints: newControlPoints,
   };
 }

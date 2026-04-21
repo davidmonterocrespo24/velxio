@@ -74,20 +74,28 @@ vi.mock('../store/useOscilloscopeStore', () => ({
 
 // WebSocket mock
 class MockWebSocket {
-  static OPEN    = 1;
+  static OPEN = 1;
   static CLOSING = 2;
-  static CLOSED  = 3;
+  static CLOSED = 3;
 
   readyState = MockWebSocket.OPEN;
-  onopen:    (() => void) | null = null;
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onclose:   ((e?: any) => void) | null = null;
-  onerror:   ((e?: any) => void) | null = null;
+  onclose: ((e?: any) => void) | null = null;
+  onerror: ((e?: any) => void) | null = null;
   sent: string[] = [];
 
-  send(data: string)  { this.sent.push(data); }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.({ code: 1000 }); }
-  open()  { this.readyState = MockWebSocket.OPEN;   this.onopen?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.({ code: 1000 });
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
   receive(payload: object) {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
@@ -116,9 +124,9 @@ import '../simulation/parts/ProtocolParts';
 
 function makeElement(props: Record<string, unknown> = {}): HTMLElement {
   return {
-    addEventListener:    vi.fn(),
+    addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
-    dispatchEvent:       vi.fn(),
+    dispatchEvent: vi.fn(),
     ...props,
   } as unknown as HTMLElement;
 }
@@ -137,7 +145,7 @@ function makeEsp32Shim() {
       onPwmChange: vi.fn().mockReturnValue(() => {}),
     },
     setPinState: vi.fn(),
-    isRunning:   vi.fn().mockReturnValue(true),
+    isRunning: vi.fn().mockReturnValue(true),
     registerSensor(type: string, pin: number, properties: Record<string, unknown>): boolean {
       bridge.sendSensorAttach(type, pin, properties);
       return true;
@@ -159,7 +167,7 @@ function makeAVRSim() {
       onPwmChange: vi.fn().mockReturnValue(() => {}),
     },
     setPinState: vi.fn(),
-    isRunning:   vi.fn().mockReturnValue(true),
+    isRunning: vi.fn().mockReturnValue(true),
     registerSensor: vi.fn().mockReturnValue(false),
     updateSensor: vi.fn(),
     unregisterSensor: vi.fn(),
@@ -183,17 +191,16 @@ describe('Esp32BridgeShim — sensor registration', () => {
     const shim = makeEsp32Shim();
     const result = shim.registerSensor('dht22', 4, { temperature: 28, humidity: 65 });
     expect(result).toBe(true);
-    expect(shim.bridge.sendSensorAttach).toHaveBeenCalledWith(
-      'dht22', 4, { temperature: 28, humidity: 65 }
-    );
+    expect(shim.bridge.sendSensorAttach).toHaveBeenCalledWith('dht22', 4, {
+      temperature: 28,
+      humidity: 65,
+    });
   });
 
   it('updateSensor calls bridge.sendSensorUpdate', () => {
     const shim = makeEsp32Shim();
     shim.updateSensor(4, { temperature: 30, humidity: 70 });
-    expect(shim.bridge.sendSensorUpdate).toHaveBeenCalledWith(
-      4, { temperature: 30, humidity: 70 }
-    );
+    expect(shim.bridge.sendSensorUpdate).toHaveBeenCalledWith(4, { temperature: 30, humidity: 70 });
   });
 
   it('unregisterSensor calls bridge.sendSensorDetach', () => {
@@ -216,9 +223,10 @@ describe('dht22 — ESP32 shim detection', () => {
     logic().attachEvents!(el, shim as any, pinMap({ SDA: 4 }), 'dht22-1');
 
     // Should have called registerSensor → sendSensorAttach
-    expect(shim.bridge.sendSensorAttach).toHaveBeenCalledWith(
-      'dht22', 4, { temperature: 28, humidity: 65 }
-    );
+    expect(shim.bridge.sendSensorAttach).toHaveBeenCalledWith('dht22', 4, {
+      temperature: 28,
+      humidity: 65,
+    });
 
     // Should NOT register onPinChange (local protocol) — ESP32 backend handles it
     expect(shim.pinManager.onPinChange).not.toHaveBeenCalled();
@@ -289,7 +297,7 @@ describe('dht22 — sensor update via SensorUpdateRegistry', () => {
     // Should have forwarded the update to the bridge
     expect(shim.bridge.sendSensorUpdate).toHaveBeenCalledWith(
       4,
-      expect.objectContaining({ temperature: 35 })
+      expect.objectContaining({ temperature: 35 }),
     );
   });
 });
@@ -353,9 +361,7 @@ describe('Esp32Bridge — sensor WebSocket protocol', () => {
 describe('Esp32Bridge — sensor pre-registration', () => {
   it('includes sensors in start_esp32 payload when setSensors is called before connect', () => {
     const bridge = new Esp32Bridge('test-esp32', 'esp32');
-    bridge.setSensors([
-      { sensor_type: 'dht22', pin: 4, temperature: 28, humidity: 65 },
-    ]);
+    bridge.setSensors([{ sensor_type: 'dht22', pin: 4, temperature: 28, humidity: 65 }]);
     bridge.loadFirmware('AAAA'); // base64 firmware
 
     bridge.connect();
@@ -389,9 +395,7 @@ describe('Esp32Bridge — sensor pre-registration', () => {
 describe('Race condition fix — sensors arrive before firmware', () => {
   it('sensor_attach message is part of start_esp32, not a separate later message', () => {
     const bridge = new Esp32Bridge('test-esp32', 'esp32');
-    bridge.setSensors([
-      { sensor_type: 'dht22', pin: 4, temperature: 28, humidity: 65 },
-    ]);
+    bridge.setSensors([{ sensor_type: 'dht22', pin: 4, temperature: 28, humidity: 65 }]);
     bridge.loadFirmware('AAAA');
 
     bridge.connect();

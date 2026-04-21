@@ -33,7 +33,7 @@ function makeElement(): HTMLElement {
 
 function makeSimulator() {
   const pinManager = {
-    onPinChange:      vi.fn().mockReturnValue(() => {}),
+    onPinChange: vi.fn().mockReturnValue(() => {}),
     triggerPinChange: vi.fn(),
   };
   return {
@@ -50,11 +50,7 @@ const pinMap =
     name in map ? map[name] : null;
 
 /** Simulate changing a pin by invoking the recorded onPinChange callback */
-function firePin(
-  sim: ReturnType<typeof makeSimulator>,
-  callIndex: number,
-  state: boolean,
-) {
+function firePin(sim: ReturnType<typeof makeSimulator>, callIndex: number, state: boolean) {
   const cb = sim.pinManager.onPinChange.mock.calls[callIndex][1] as (
     pin: number,
     state: boolean,
@@ -122,9 +118,7 @@ describe('logic-gate-and — truth table', () => {
     const sim = makeSimulator();
     const unsub1 = vi.fn();
     const unsub2 = vi.fn();
-    sim.pinManager.onPinChange
-      .mockReturnValueOnce(unsub1)
-      .mockReturnValueOnce(unsub2);
+    sim.pinManager.onPinChange.mockReturnValueOnce(unsub1).mockReturnValueOnce(unsub2);
     const logic = PartSimulationRegistry.get('logic-gate-and')!;
     const cleanup = logic.attachEvents(makeElement(), sim as any, pinMap({ A: 1, B: 2, Y: 3 }));
     cleanup();

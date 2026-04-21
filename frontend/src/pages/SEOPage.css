@@ -4,7 +4,11 @@
   min-height: 100vh;
   background: #0d0d0f;
   color: #e6edf3;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -56,7 +60,9 @@
   font-size: 15px;
   font-weight: 500;
   border-radius: 9999px;
-  transition: filter 0.2s, transform 0.2s;
+  transition:
+    filter 0.2s,
+    transform 0.2s;
   border: none;
   cursor: pointer;
   letter-spacing: -0.1px;
@@ -78,7 +84,9 @@
   font-size: 15px;
   font-weight: 500;
   border-radius: 9999px;
-  transition: background 0.2s, transform 0.2s;
+  transition:
+    background 0.2s,
+    transform 0.2s;
   border: none;
   cursor: pointer;
 }

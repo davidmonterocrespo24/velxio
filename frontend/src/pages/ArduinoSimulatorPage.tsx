@@ -64,7 +64,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'Arduino Simulator', item: 'https://velxio.dev/arduino-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Arduino Simulator',
+        item: 'https://velxio.dev/arduino-simulator',
+      },
     ],
   },
 ];
@@ -79,51 +84,80 @@ export const ArduinoSimulatorPage: React.FC = () => {
         {/* Hero */}
         <section className="seo-hero">
           <h1>
-            Free Online Arduino Simulator<br />
+            Free Online Arduino Simulator
+            <br />
             <span className="accent">Run Sketches in Your Browser</span>
           </h1>
           <p className="subtitle">
-            Write Arduino code and simulate it instantly — real AVR8 emulation at 16 MHz with 48+ interactive
-            electronic components. No install, no cloud, no account required.
+            Write Arduino code and simulate it instantly — real AVR8 emulation at 16 MHz with 48+
+            interactive electronic components. No install, no cloud, no account required.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('arduino-simulator', '/editor')}>Open Arduino Simulator →</Link>
-            <Link to="/examples" className="seo-btn-secondary">Browse Examples</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('arduino-simulator', '/editor')}
+            >
+              Open Arduino Simulator →
+            </Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              Browse Examples
+            </Link>
           </div>
-          <p className="seo-trust">Free &amp; open-source · No signup required · Runs 100% in your browser</p>
+          <p className="seo-trust">
+            Free &amp; open-source · No signup required · Runs 100% in your browser
+          </p>
         </section>
 
         {/* What you can simulate */}
         <section className="seo-section">
           <h2>What can you simulate?</h2>
           <p className="lead">
-            Velxio simulates Arduino programs with full AVR8 CPU accuracy — including GPIO ports, hardware timers,
-            USART, ADC, PWM, SPI, and I2C. No approximations, no shortcuts.
+            Velxio simulates Arduino programs with full AVR8 CPU accuracy — including GPIO ports,
+            hardware timers, USART, ADC, PWM, SPI, and I2C. No approximations, no shortcuts.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Arduino Uno &amp; Nano</h3>
-              <p>Full ATmega328P simulation at 16 MHz. PORTB, PORTC, PORTD register emulation. All 14 digital and 6 analog pins.</p>
+              <p>
+                Full ATmega328P simulation at 16 MHz. PORTB, PORTC, PORTD register emulation. All 14
+                digital and 6 analog pins.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Arduino Mega 2560</h3>
-              <p>ATmega2560 with 256 KB flash, 54 digital pins, 16 analog inputs, and 4 hardware USART channels.</p>
+              <p>
+                ATmega2560 with 256 KB flash, 54 digital pins, 16 analog inputs, and 4 hardware
+                USART channels.
+              </p>
             </div>
             <div className="seo-card">
               <h3>48+ Electronic Components</h3>
-              <p>LEDs, resistors, buttons, buzzer, servo, ultrasonic sensor, ILI9341 TFT, 16×2 LCD, NeoPixel, DHT22, and more.</p>
+              <p>
+                LEDs, resistors, buttons, buzzer, servo, ultrasonic sensor, ILI9341 TFT, 16×2 LCD,
+                NeoPixel, DHT22, and more.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Serial Monitor</h3>
-              <p>Real-time TX/RX with auto baud-rate detection. Send commands and view <code>Serial.print()</code> output live.</p>
+              <p>
+                Real-time TX/RX with auto baud-rate detection. Send commands and view{' '}
+                <code>Serial.print()</code> output live.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Multi-file Sketches</h3>
-              <p>Write .ino, .h, and .cpp files in a VS Code-style Monaco editor — full multi-file Arduino project support.</p>
+              <p>
+                Write .ino, .h, and .cpp files in a VS Code-style Monaco editor — full multi-file
+                Arduino project support.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Library Manager</h3>
-              <p>Search and install any library from the full Arduino library index directly inside the simulator.</p>
+              <p>
+                Search and install any library from the full Arduino library index directly inside
+                the simulator.
+              </p>
             </div>
           </div>
         </section>
@@ -132,21 +166,31 @@ export const ArduinoSimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>How the simulator works</h2>
           <p className="lead">
-            Velxio uses <strong style={{ color: '#e6edf3' }}>avr8js</strong> — the battle-tested open-source AVR8 emulation
-            library — to execute your compiled firmware byte-for-byte, exactly as it would run on physical hardware.
+            Velxio uses <strong style={{ color: '#e6edf3' }}>avr8js</strong> — the battle-tested
+            open-source AVR8 emulation library — to execute your compiled firmware byte-for-byte,
+            exactly as it would run on physical hardware.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>1. Write</h3>
-              <p>Write your Arduino sketch in the Monaco editor with C++ syntax highlighting and autocomplete.</p>
+              <p>
+                Write your Arduino sketch in the Monaco editor with C++ syntax highlighting and
+                autocomplete.
+              </p>
             </div>
             <div className="seo-card">
               <h3>2. Compile</h3>
-              <p>Click Compile. arduino-cli produces a real .hex file — the same output as the Arduino IDE.</p>
+              <p>
+                Click Compile. arduino-cli produces a real .hex file — the same output as the
+                Arduino IDE.
+              </p>
             </div>
             <div className="seo-card">
               <h3>3. Simulate</h3>
-              <p>The .hex is loaded into the AVR8 emulator. Your program executes at 16 MHz and drives the visual components.</p>
+              <p>
+                The .hex is loaded into the AVR8 emulator. Your program executes at 16 MHz and
+                drives the visual components.
+              </p>
             </div>
           </div>
         </section>
@@ -167,8 +211,16 @@ export const ArduinoSimulatorPage: React.FC = () => {
         {/* Bottom CTA */}
         <div className="seo-bottom">
           <h2>Ready to simulate your Arduino?</h2>
-          <p>Open the editor and start coding in seconds — no setup, no install, no account needed.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('arduino-simulator', '/editor')}>Launch Arduino Simulator →</Link>
+          <p>
+            Open the editor and start coding in seconds — no setup, no install, no account needed.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('arduino-simulator', '/editor')}
+          >
+            Launch Arduino Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/examples">Example Projects</Link>
             <Link to="/arduino-emulator">Arduino Emulator</Link>

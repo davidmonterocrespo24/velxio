@@ -64,7 +64,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'Raspberry Pi Simulator', item: 'https://velxio.dev/raspberry-pi-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Raspberry Pi Simulator',
+        item: 'https://velxio.dev/raspberry-pi-simulator',
+      },
     ],
   },
 ];
@@ -77,18 +82,32 @@ export const RaspberryPiSimulatorPage: React.FC = () => {
       <AppHeader />
       <main>
         <section className="seo-hero">
-          <img src={raspberryPi3Svg} alt="Raspberry Pi 3 board illustration" style={{ height: 140, marginBottom: 24 }} />
+          <img
+            src={raspberryPi3Svg}
+            alt="Raspberry Pi 3 board illustration"
+            style={{ height: 140, marginBottom: 24 }}
+          />
           <h1>
-            Free Raspberry Pi 3 Simulator<br />
+            Free Raspberry Pi 3 Simulator
+            <br />
             <span className="accent">Full Linux · Python · GPIO — In Your Browser</span>
           </h1>
           <p className="subtitle">
-            Run a full Raspberry Pi 3B with Raspberry Pi OS directly in your browser — ARM Cortex-A53 quad-core emulation via QEMU.
-            Write Python, control GPIO, install packages. No hardware needed.
+            Run a full Raspberry Pi 3B with Raspberry Pi OS directly in your browser — ARM
+            Cortex-A53 quad-core emulation via QEMU. Write Python, control GPIO, install packages.
+            No hardware needed.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('rpi-simulator', '/editor')}>Open Pi 3 Simulator →</Link>
-            <Link to="/docs/raspberry-pi3-emulation" className="seo-btn-secondary">Read the Docs</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('rpi-simulator', '/editor')}
+            >
+              Open Pi 3 Simulator →
+            </Link>
+            <Link to="/docs/raspberry-pi3-emulation" className="seo-btn-secondary">
+              Read the Docs
+            </Link>
           </div>
           <p className="seo-trust">Free &amp; open-source · QEMU ARM64 · Full Raspberry Pi OS</p>
         </section>
@@ -96,33 +115,51 @@ export const RaspberryPiSimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>What can you do with the Pi 3 simulator?</h2>
           <p className="lead">
-            Velxio emulates a complete Raspberry Pi 3B — not just GPIO pins, but the entire Linux operating system.
-            It's a full computer in your browser.
+            Velxio emulates a complete Raspberry Pi 3B — not just GPIO pins, but the entire Linux
+            operating system. It's a full computer in your browser.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Run Python Scripts</h3>
-              <p>Python 3 pre-installed on Raspberry Pi OS. Run scripts, use pip, import libraries — full Python environment.</p>
+              <p>
+                Python 3 pre-installed on Raspberry Pi OS. Run scripts, use pip, import libraries —
+                full Python environment.
+              </p>
             </div>
             <div className="seo-card">
               <h3>GPIO Control</h3>
-              <p>Use RPi.GPIO or gpiozero to control LEDs, read buttons, drive motors — real GPIO emulation in QEMU.</p>
+              <p>
+                Use RPi.GPIO or gpiozero to control LEDs, read buttons, drive motors — real GPIO
+                emulation in QEMU.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Linux Terminal</h3>
-              <p>Full bash terminal with apt, nano, git, and all standard Linux tools. Install packages, edit files, run services.</p>
+              <p>
+                Full bash terminal with apt, nano, git, and all standard Linux tools. Install
+                packages, edit files, run services.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ARM Cortex-A53</h3>
-              <p>Quad-core 64-bit ARM CPU at 1.2 GHz via QEMU raspi3b machine. Runs the official Raspberry Pi OS image.</p>
+              <p>
+                Quad-core 64-bit ARM CPU at 1.2 GHz via QEMU raspi3b machine. Runs the official
+                Raspberry Pi OS image.
+              </p>
             </div>
             <div className="seo-card">
               <h3>No SD Card Needed</h3>
-              <p>The OS image is pre-loaded. No flashing, no SD card, no power supply — just open the browser and start coding.</p>
+              <p>
+                The OS image is pre-loaded. No flashing, no SD card, no power supply — just open the
+                browser and start coding.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Multi-Board Canvas</h3>
-              <p>Mix Raspberry Pi 3 with Arduino and ESP32 on the same simulation canvas. Control Arduino from Pi via serial.</p>
+              <p>
+                Mix Raspberry Pi 3 with Arduino and ESP32 on the same simulation canvas. Control
+                Arduino from Pi via serial.
+              </p>
             </div>
           </div>
         </section>
@@ -132,11 +169,18 @@ export const RaspberryPiSimulatorPage: React.FC = () => {
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Raspberry Pi Pico (RP2040)</h3>
-              <p>Microcontroller. ARM Cortex-M0+ at 133 MHz. Runs Arduino C++ code. No OS, bare-metal. Best for embedded, IoT, sensors. <Link to="/raspberry-pi-pico-simulator">Try Pico Simulator →</Link></p>
+              <p>
+                Microcontroller. ARM Cortex-M0+ at 133 MHz. Runs Arduino C++ code. No OS,
+                bare-metal. Best for embedded, IoT, sensors.{' '}
+                <Link to="/raspberry-pi-pico-simulator">Try Pico Simulator →</Link>
+              </p>
             </div>
             <div className="seo-card">
               <h3>Raspberry Pi 3 (ARM Cortex-A53)</h3>
-              <p>Full Linux computer. Quad-core at 1.2 GHz. Runs Python, Node.js, bash. Best for automation, servers, GPIO scripting, education.</p>
+              <p>
+                Full Linux computer. Quad-core at 1.2 GHz. Runs Python, Node.js, bash. Best for
+                automation, servers, GPIO scripting, education.
+              </p>
             </div>
           </div>
         </section>
@@ -155,8 +199,16 @@ export const RaspberryPiSimulatorPage: React.FC = () => {
 
         <div className="seo-bottom">
           <h2>Ready to simulate Raspberry Pi 3?</h2>
-          <p>Open the editor, select Raspberry Pi 3, and boot into Linux — right in your browser.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('rpi-simulator', '/editor')}>Launch Pi 3 Simulator →</Link>
+          <p>
+            Open the editor, select Raspberry Pi 3, and boot into Linux — right in your browser.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('rpi-simulator', '/editor')}
+          >
+            Launch Pi 3 Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/raspberry-pi-pico-simulator">Pico Simulator</Link>
             <Link to="/esp32-simulator">ESP32 Simulator</Link>

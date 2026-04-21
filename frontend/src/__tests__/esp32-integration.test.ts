@@ -61,20 +61,28 @@ vi.mock('../store/useOscilloscopeStore', () => ({
 
 // WebSocket mock
 class MockWebSocket {
-  static OPEN    = 1;
+  static OPEN = 1;
   static CLOSING = 2;
-  static CLOSED  = 3;
+  static CLOSED = 3;
 
   readyState = MockWebSocket.OPEN;
-  onopen:    (() => void) | null = null;
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onclose:   (() => void) | null = null;
-  onerror:   (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
   sent: string[] = [];
 
-  send(data: string)  { this.sent.push(data); }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.(); }
-  open()  { this.readyState = MockWebSocket.OPEN;   this.onopen?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
   receive(payload: object) {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
@@ -138,7 +146,7 @@ describe('boardPinMapping — ESP32', () => {
     expect(isBoardComponent('esp32')).toBe(true);
     expect(isBoardComponent('esp32-s3')).toBe(true);
     expect(isBoardComponent('esp32-c3')).toBe(true);
-    expect(isBoardComponent('esp32-2')).toBe(true);   // second ESP32 board
+    expect(isBoardComponent('esp32-2')).toBe(true); // second ESP32 board
     expect(isBoardComponent('unknown-chip')).toBe(false);
   });
 });
@@ -171,7 +179,7 @@ describe('Esp32Bridge — WebSocket protocol', () => {
 
   it('includes firmware_b64 in start_esp32 when pre-loaded', () => {
     const bridge2 = new Esp32Bridge('fw-esp32', 'esp32');
-    bridge2.loadFirmware('AAEC');  // set before connect
+    bridge2.loadFirmware('AAEC'); // set before connect
     bridge2.connect();
     const ws2 = (bridge2 as any).socket as MockWebSocket;
     ws2.open();
@@ -240,8 +248,12 @@ describe('Esp32Bridge — WebSocket protocol', () => {
   });
 
   it('fires onPinChange for gpio_change events', () => {
-    let gotPin = -1, gotState = false;
-    bridge.onPinChange = (pin, state) => { gotPin = pin; gotState = state; };
+    let gotPin = -1,
+      gotState = false;
+    bridge.onPinChange = (pin, state) => {
+      gotPin = pin;
+      gotState = state;
+    };
 
     ws.receive({ type: 'gpio_change', data: { pin: 2, state: 1 } });
     expect(gotPin).toBe(2);
@@ -253,14 +265,18 @@ describe('Esp32Bridge — WebSocket protocol', () => {
 
   it('fires onSystemEvent for system events', () => {
     let lastEvent = '';
-    bridge.onSystemEvent = (event) => { lastEvent = event; };
+    bridge.onSystemEvent = (event) => {
+      lastEvent = event;
+    };
     ws.receive({ type: 'system', data: { event: 'booted' } });
     expect(lastEvent).toBe('booted');
   });
 
   it('fires onError for error events', () => {
     let errMsg = '';
-    bridge.onError = (msg) => { errMsg = msg; };
+    bridge.onError = (msg) => {
+      errMsg = msg;
+    };
     ws.receive({ type: 'error', data: { message: 'QEMU not found' } });
     expect(errMsg).toBe('QEMU not found');
   });
@@ -309,9 +325,7 @@ describe('Esp32Bridge — WebSocket protocol', () => {
 describe('useSimulatorStore — ESP32 boards', () => {
   beforeEach(() => {
     // Reset store between tests
-    useSimulatorStore.setState(
-      (useSimulatorStore as any).getInitialState?.() ?? {}
-    );
+    useSimulatorStore.setState((useSimulatorStore as any).getInitialState?.() ?? {});
   });
 
   it('addBoard("esp32") creates an Esp32Bridge + a shim in simulatorMap', () => {

@@ -22,7 +22,11 @@ import type { PinManager } from '../simulation/PinManager';
 let rafDepth = 0;
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
   // Allow a bounded number of recursive RAF calls to test the loop
-  if (rafDepth < 2) { rafDepth++; cb(0); rafDepth--; }
+  if (rafDepth < 2) {
+    rafDepth++;
+    cb(0);
+    rafDepth--;
+  }
   return 1;
 });
 vi.stubGlobal('cancelAnimationFrame', () => {});
@@ -30,15 +34,15 @@ vi.stubGlobal('cancelAnimationFrame', () => {});
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function writeWord(mem: Uint8Array, offset: number, val: number): void {
-  mem[offset]     =  val        & 0xFF;
-  mem[offset + 1] = (val >>  8) & 0xFF;
-  mem[offset + 2] = (val >> 16) & 0xFF;
-  mem[offset + 3] = (val >> 24) & 0xFF;
+  mem[offset] = val & 0xff;
+  mem[offset + 1] = (val >> 8) & 0xff;
+  mem[offset + 2] = (val >> 16) & 0xff;
+  mem[offset + 3] = (val >> 24) & 0xff;
 }
 
 function writeHalf(mem: Uint8Array, offset: number, val: number): void {
-  mem[offset]     =  val       & 0xFF;
-  mem[offset + 1] = (val >> 8) & 0xFF;
+  mem[offset] = val & 0xff;
+  mem[offset + 1] = (val >> 8) & 0xff;
 }
 
 /** Run exactly n steps on a core */
@@ -49,9 +53,9 @@ function runSteps(core: RiscVCore, n: number): void {
 /** Create a minimal mock PinManager */
 function mockPinManager(): PinManager {
   return {
-    setPinState:  vi.fn(),
-    getPinState:  vi.fn(() => false),
-    registerPin:  vi.fn(),
+    setPinState: vi.fn(),
+    getPinState: vi.fn(() => false),
+    registerPin: vi.fn(),
     unregisterPin: vi.fn(),
   } as unknown as PinManager;
 }
@@ -73,84 +77,84 @@ describe('RV32M — multiply/divide extension', () => {
   let core: RiscVCore;
 
   beforeEach(() => {
-    mem  = new Uint8Array(64);
+    mem = new Uint8Array(64);
     core = new RiscVCore(mem, 0);
     core.reset(0);
   });
 
   it('MUL: 6 × 7 = 42', () => {
-    writeWord(mem, 0, 0x00600093);  // ADDI x1, x0, 6
-    writeWord(mem, 4, 0x00700113);  // ADDI x2, x0, 7
-    writeWord(mem, 8, 0x022081B3);  // MUL  x3, x1, x2
+    writeWord(mem, 0, 0x00600093); // ADDI x1, x0, 6
+    writeWord(mem, 4, 0x00700113); // ADDI x2, x0, 7
+    writeWord(mem, 8, 0x022081b3); // MUL  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(42);
   });
 
   it('MUL: negative × positive = negative', () => {
-    writeWord(mem, 0, 0xFFF00093);  // ADDI x1, x0, -1
-    writeWord(mem, 4, 0x00300113);  // ADDI x2, x0, 3
-    writeWord(mem, 8, 0x022081B3);  // MUL  x3, x1, x2
+    writeWord(mem, 0, 0xfff00093); // ADDI x1, x0, -1
+    writeWord(mem, 4, 0x00300113); // ADDI x2, x0, 3
+    writeWord(mem, 8, 0x022081b3); // MUL  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(-3);
   });
 
   it('MULH: signed upper — (-1) × (-1) upper 32 bits = 0', () => {
     // (-1) * (-1) = 1; upper 32 bits of 64-bit result = 0
-    writeWord(mem, 0, 0xFFF00093);  // ADDI x1, x0, -1
-    writeWord(mem, 4, 0xFFF00113);  // ADDI x2, x0, -1
-    writeWord(mem, 8, 0x022091B3);  // MULH x3, x1, x2
+    writeWord(mem, 0, 0xfff00093); // ADDI x1, x0, -1
+    writeWord(mem, 4, 0xfff00113); // ADDI x2, x0, -1
+    writeWord(mem, 8, 0x022091b3); // MULH x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(0);
   });
 
   it('MULHU: unsigned upper — 0xFFFFFFFF × 0xFFFFFFFF upper 32 bits', () => {
     // 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE_00000001; upper = 0xFFFFFFFE
-    writeWord(mem, 0, 0xFFF00093);  // ADDI x1, x0, -1  (= 0xFFFFFFFF unsigned)
-    writeWord(mem, 4, 0xFFF00113);  // ADDI x2, x0, -1
-    writeWord(mem, 8, 0x022081B3 | (3 << 12));  // MULHU x3, x1, x2  (funct3=3)
+    writeWord(mem, 0, 0xfff00093); // ADDI x1, x0, -1  (= 0xFFFFFFFF unsigned)
+    writeWord(mem, 4, 0xfff00113); // ADDI x2, x0, -1
+    writeWord(mem, 8, 0x022081b3 | (3 << 12)); // MULHU x3, x1, x2  (funct3=3)
     runSteps(core, 3);
-    expect(core.regs[3] >>> 0).toBe(0xFFFFFFFE);
+    expect(core.regs[3] >>> 0).toBe(0xfffffffe);
   });
 
   it('DIV: 42 / 7 = 6', () => {
-    writeWord(mem, 0, 0x02A00093);  // ADDI x1, x0, 42
-    writeWord(mem, 4, 0x00700113);  // ADDI x2, x0, 7
+    writeWord(mem, 0, 0x02a00093); // ADDI x1, x0, 42
+    writeWord(mem, 4, 0x00700113); // ADDI x2, x0, 7
     // DIV x3, x1, x2: opcode=0x33, rd=3, funct3=4, rs1=1, rs2=2, funct7=1
     // = (1<<25)|(2<<20)|(1<<15)|(4<<12)|(3<<7)|0x33 = 0x0220C1B3
-    writeWord(mem, 8, 0x0220C1B3);  // DIV  x3, x1, x2
+    writeWord(mem, 8, 0x0220c1b3); // DIV  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(6);
   });
 
   it('DIV: signed — -7 / 2 = -3 (truncate toward zero)', () => {
-    writeWord(mem, 0, 0xFF900093);  // ADDI x1, x0, -7
-    writeWord(mem, 4, 0x00200113);  // ADDI x2, x0, 2
-    writeWord(mem, 8, 0x0220C1B3);  // DIV  x3, x1, x2
+    writeWord(mem, 0, 0xff900093); // ADDI x1, x0, -7
+    writeWord(mem, 4, 0x00200113); // ADDI x2, x0, 2
+    writeWord(mem, 8, 0x0220c1b3); // DIV  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(-3);
   });
 
   it('DIV: divide by zero returns -1 (0xFFFFFFFF)', () => {
-    writeWord(mem, 0, 0x00500093);  // ADDI x1, x0, 5
-    writeWord(mem, 4, 0x00000113);  // ADDI x2, x0, 0
-    writeWord(mem, 8, 0x0220C1B3);  // DIV  x3, x1, x2
+    writeWord(mem, 0, 0x00500093); // ADDI x1, x0, 5
+    writeWord(mem, 4, 0x00000113); // ADDI x2, x0, 0
+    writeWord(mem, 8, 0x0220c1b3); // DIV  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(-1);
   });
 
   it('REM: 10 % 3 = 1', () => {
-    writeWord(mem, 0, 0x00A00093);  // ADDI x1, x0, 10
-    writeWord(mem, 4, 0x00300113);  // ADDI x2, x0, 3
+    writeWord(mem, 0, 0x00a00093); // ADDI x1, x0, 10
+    writeWord(mem, 4, 0x00300113); // ADDI x2, x0, 3
     // REM x3, x1, x2: funct3=6 → (1<<25)|(2<<20)|(1<<15)|(6<<12)|(3<<7)|0x33 = 0x0220E1B3
-    writeWord(mem, 8, 0x0220E1B3);  // REM  x3, x1, x2
+    writeWord(mem, 8, 0x0220e1b3); // REM  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(1);
   });
 
   it('REM: divide by zero returns dividend', () => {
-    writeWord(mem, 0, 0x00700093);  // ADDI x1, x0, 7
-    writeWord(mem, 4, 0x00000113);  // ADDI x2, x0, 0
-    writeWord(mem, 8, 0x0220E1B3);  // REM  x3, x1, x2
+    writeWord(mem, 0, 0x00700093); // ADDI x1, x0, 7
+    writeWord(mem, 4, 0x00000113); // ADDI x2, x0, 0
+    writeWord(mem, 8, 0x0220e1b3); // REM  x3, x1, x2
     runSteps(core, 3);
     expect(core.regs[3]).toBe(7);
   });
@@ -163,7 +167,7 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
   let core: RiscVCore;
 
   beforeEach(() => {
-    mem  = new Uint8Array(64);
+    mem = new Uint8Array(64);
     core = new RiscVCore(mem, 0);
     core.reset(0);
   });
@@ -209,7 +213,7 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
     // But (0x517D>>7) = 0101 0001 0 = 162, 162&31=162-160=2 ✓ (I miscalculated before)
     // bits[6:2]: bit6=1,bit5=1,bit4=1,bit3=1,bit2=1 = 11111 = 31 ✓
     // imm6 = sext((1<<5)|(31), 6) = sext(63, 6) = sext(0b111111, 6) = -1 ✓
-    writeHalf(mem, 0, 0x517D);
+    writeHalf(mem, 0, 0x517d);
     core.step();
     expect(core.regs[2]).toBe(-1);
     expect(core.pc).toBe(2);
@@ -217,11 +221,11 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
 
   it('C.ADDI x1, 3: adds immediate to register', () => {
     // Preset x1=10
-    writeWord(mem, 0, 0x00A00093);  // ADDI x1, x0, 10  (32-bit)
+    writeWord(mem, 0, 0x00a00093); // ADDI x1, x0, 10  (32-bit)
     // C.ADDI x1, 3: funct3=000, imm[5]=0, rd=x1, imm[4:0]=00011, op=01
     // bit12=0, bits[11:7]=00001, bits[6:2]=00011, bits[1:0]=01
     // = 0000 0000 1000 1101 = 0x008D
-    writeHalf(mem, 4, 0x008D);
+    writeHalf(mem, 4, 0x008d);
     runSteps(core, 2);
     expect(core.regs[1]).toBe(13);
     expect(core.pc).toBe(6);
@@ -229,7 +233,7 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
 
   it('C.MV x5, x1: copies register (ADD x5, x0, x1)', () => {
     // Preset x1=42
-    writeWord(mem, 0, 0x02A00093);  // ADDI x1, x0, 42
+    writeWord(mem, 0, 0x02a00093); // ADDI x1, x0, 42
     // C.MV x5, x1: funct3=100, bit12=0, rd=x5(00101), rs2=x1(00001), op=10
     // bit15=1,14=0,13=0,12=0,bits[11:7]=00101=5,bits[6:2]=00001=1,bits[1:0]=10
     // = 1000 0010 1000 0110 = 0x8286
@@ -239,12 +243,12 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
   });
 
   it('C.ADD x1, x2: adds two registers', () => {
-    writeWord(mem, 0, 0x00300093);  // ADDI x1, x0, 3
-    writeWord(mem, 4, 0x00400113);  // ADDI x2, x0, 4
+    writeWord(mem, 0, 0x00300093); // ADDI x1, x0, 3
+    writeWord(mem, 4, 0x00400113); // ADDI x2, x0, 4
     // C.ADD x1, x2: funct3=100, bit12=1, rd=x1(00001), rs2=x2(00010), op=10
     // bit15=1,14=0,13=0,12=1,bits[11:7]=00001,bits[6:2]=00010,bits[1:0]=10
     // = 1001 0000 1000 1010 = 0x908A
-    writeHalf(mem, 8, 0x908A);
+    writeHalf(mem, 8, 0x908a);
     runSteps(core, 3);
     expect(core.regs[1]).toBe(7);
   });
@@ -253,9 +257,9 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
     // C.J with offset=4, starting at PC=0
     // CJ format: funct3=101, imm[3:1]=010 → bits[5:3]=010 → bit4=1, bits[1:0]=01
     // = 1010_0000_0001_0001 = 0xA011
-    writeHalf(mem, 0, 0xA011);
+    writeHalf(mem, 0, 0xa011);
     core.step();
-    expect(core.pc).toBe(4);  // 0 + 4
+    expect(core.pc).toBe(4); // 0 + 4
   });
 
   it('C.BEQZ x8, offset: branch taken when register is zero', () => {
@@ -269,22 +273,22 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
     //     bits[6:5]=imm[7:6]=00, bits[4:3]=imm[2:1]=10, bit[2]=imm[5]=0, bits[1:0]=01
     // For offset=4: imm[2:1]=10 → bits[4:3]=10 → bit4=1, bit3=0
     // = 1100_0000_0001_0001 = 0xC011
-    writeHalf(mem, 0, 0xC011);
+    writeHalf(mem, 0, 0xc011);
     core.step();
     expect(core.pc).toBe(4);
   });
 
   it('C.BEQZ x8, offset: branch NOT taken when register is non-zero', () => {
     core.regs[8] = 5;
-    writeHalf(mem, 0, 0xC011);  // C.BEQZ x8, +4
+    writeHalf(mem, 0, 0xc011); // C.BEQZ x8, +4
     core.step();
-    expect(core.pc).toBe(2);  // falls through
+    expect(core.pc).toBe(2); // falls through
   });
 
   it('C.SWSP + C.LWSP: stack round-trip', () => {
     // Set sp (x2) to offset 32 within our buffer (so stack writes stay in bounds)
     core.regs[2] = 32;
-    core.regs[1] = 0xDEAD;
+    core.regs[1] = 0xdead;
 
     // C.SWSP rs2=x1, offset=0:
     // CSS: funct3=110, uimm[5:2]=bits[12:9]=0000, uimm[7:6]=bits[8:7]=00, rs2=bits[6:2]=00001, op=10
@@ -299,15 +303,15 @@ describe('RV32C — 16-bit compressed instruction extension', () => {
     // bits[6:2]=00001 → bit6=0,bit5=0,bit4=0,bit3=0,bit2=1
     // bits[1:0]=10
     // = 1100 0000 0000 0110 = 0xC006
-    writeHalf(mem, 0, 0xC006);   // C.SWSP x1, 0(sp)
+    writeHalf(mem, 0, 0xc006); // C.SWSP x1, 0(sp)
 
     // C.LWSP rd=x3, offset=0:
     // CI: funct3=010, bit12=uimm[5]=0, rd=x3=00011, bits[6:4]=uimm[4:2]=000, bits[3:2]=uimm[7:6]=00, op=10
     // = 0100 0001 1000 0010 = 0x4182
-    writeHalf(mem, 2, 0x4182);   // C.LWSP x3, 0(sp)
+    writeHalf(mem, 2, 0x4182); // C.LWSP x3, 0(sp)
 
     runSteps(core, 2);
-    expect(core.regs[3]).toBe(0xDEAD);
+    expect(core.regs[3]).toBe(0xdead);
   });
 });
 
@@ -329,15 +333,15 @@ describe('Esp32C3Simulator — UART0 serial output', () => {
     sim.onSerialData = (ch) => received.push(ch);
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     // Program at IROM offset 0 (= address 0x42000000):
     // LUI a1, 0x60000   → a1 = 0x60000000  (UART0_BASE)
     // ADDI a0, x0, 72   → a0 = 72 = 'H'
     // SB a0, 0(a1)       → write byte to UART0 FIFO
-    writeWord(flash, 0, 0x600005B7);  // LUI a1, 0x60000
-    writeWord(flash, 4, 0x04800513);  // ADDI a0, x0, 72
-    writeWord(flash, 8, 0x00A58023);  // SB a0, 0(a1)
+    writeWord(flash, 0, 0x600005b7); // LUI a1, 0x60000
+    writeWord(flash, 4, 0x04800513); // ADDI a0, x0, 72
+    writeWord(flash, 8, 0x00a58023); // SB a0, 0(a1)
 
     core.reset(0x42000000);
     runSteps(core, 3);
@@ -350,18 +354,18 @@ describe('Esp32C3Simulator — UART0 serial output', () => {
     sim.onSerialData = (ch) => received.push(ch);
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     // LUI a1, 0x60000        → a1 = UART0_BASE
     // ADDI a0, x0, 65 ('A')
     // SB a0, 0(a1)
     // ADDI a0, x0, 66 ('B')
     // SB a0, 0(a1)
-    writeWord(flash, 0,  0x600005B7);  // LUI a1, 0x60000
-    writeWord(flash, 4,  0x04100513);  // ADDI a0, x0, 65 ('A')
-    writeWord(flash, 8,  0x00A58023);  // SB a0, 0(a1)
-    writeWord(flash, 12, 0x04200513);  // ADDI a0, x0, 66 ('B')
-    writeWord(flash, 16, 0x00A58023);  // SB a0, 0(a1)
+    writeWord(flash, 0, 0x600005b7); // LUI a1, 0x60000
+    writeWord(flash, 4, 0x04100513); // ADDI a0, x0, 65 ('A')
+    writeWord(flash, 8, 0x00a58023); // SB a0, 0(a1)
+    writeWord(flash, 12, 0x04200513); // ADDI a0, x0, 66 ('B')
+    writeWord(flash, 16, 0x00a58023); // SB a0, 0(a1)
 
     core.reset(0x42000000);
     runSteps(core, 5);
@@ -371,20 +375,20 @@ describe('Esp32C3Simulator — UART0 serial output', () => {
 
   it('serialWrite injects bytes into RX FIFO, firmware can read them', () => {
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     sim.serialWrite('X');
 
     // Program: LB a0, 0(a1) — reads from UART0_FIFO
     // LUI a1, 0x60000        → a1 = 0x60000000
     // LBU a0, 0(a1)          → a0 = UART0_FIFO read
-    writeWord(flash, 0, 0x600005B7);  // LUI a1, 0x60000
-    writeWord(flash, 4, 0x00058503);  // LBU a0, 0(a1)
+    writeWord(flash, 0, 0x600005b7); // LUI a1, 0x60000
+    writeWord(flash, 4, 0x00058503); // LBU a0, 0(a1)
 
     core.reset(0x42000000);
     runSteps(core, 2);
 
-    expect(core.regs[10]).toBe('X'.charCodeAt(0));  // a0 = 88 = 'X'
+    expect(core.regs[10]).toBe('X'.charCodeAt(0)); // a0 = 88 = 'X'
   });
 });
 
@@ -406,14 +410,14 @@ describe('Esp32C3Simulator — GPIO pin toggling', () => {
     sim.onPinChangeWithTime = (pin, state) => pinChanges.push({ pin, state });
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     // LUI t1, 0x60004        → t1 = 0x60004000 (GPIO_BASE)
     // ADDI t0, x0, 1         → t0 = 1 (bit 0 = GPIO0)
     // SW t0, 8(t1)            → write to GPIO_OUT_W1TS
-    writeWord(flash, 0, 0x60004337);  // LUI t1, 0x60004
-    writeWord(flash, 4, 0x00100293);  // ADDI t0, x0, 1
-    writeWord(flash, 8, 0x00532423);  // SW t0, 8(t1)   [offset 8 = W1TS]
+    writeWord(flash, 0, 0x60004337); // LUI t1, 0x60004
+    writeWord(flash, 4, 0x00100293); // ADDI t0, x0, 1
+    writeWord(flash, 8, 0x00532423); // SW t0, 8(t1)   [offset 8 = W1TS]
 
     core.reset(0x42000000);
     runSteps(core, 3);
@@ -426,32 +430,34 @@ describe('Esp32C3Simulator — GPIO pin toggling', () => {
     sim.onPinChangeWithTime = (pin, state) => pinChanges.push({ pin, state });
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     // First set GPIO0 high via W1TS, then clear via W1TC
-    writeWord(flash, 0,  0x60004337);  // LUI t1, 0x60004
-    writeWord(flash, 4,  0x00100293);  // ADDI t0, x0, 1
-    writeWord(flash, 8,  0x00532423);  // SW t0, 8(t1)   — set bit 0 (W1TS)
-    writeWord(flash, 12, 0x00532623);  // SW t0, 12(t1)  — clear bit 0 (W1TC)
+    writeWord(flash, 0, 0x60004337); // LUI t1, 0x60004
+    writeWord(flash, 4, 0x00100293); // ADDI t0, x0, 1
+    writeWord(flash, 8, 0x00532423); // SW t0, 8(t1)   — set bit 0 (W1TS)
+    writeWord(flash, 12, 0x00532623); // SW t0, 12(t1)  — clear bit 0 (W1TC)
 
     core.reset(0x42000000);
     runSteps(core, 4);
 
-    expect(pinChanges).toContainEqual({ pin: 0, state: true  });
+    expect(pinChanges).toContainEqual({ pin: 0, state: true });
     expect(pinChanges).toContainEqual({ pin: 0, state: false });
   });
 
   it('SW to GPIO_OUT sets multiple pins via direct write', () => {
     const setPins: number[] = [];
-    sim.onPinChangeWithTime = (pin, state) => { if (state) setPins.push(pin); };
+    sim.onPinChangeWithTime = (pin, state) => {
+      if (state) setPins.push(pin);
+    };
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
 
     // Write 0b101 (bits 0 and 2) to GPIO_OUT (offset +4)
-    writeWord(flash, 0, 0x60004337);  // LUI t1, 0x60004
-    writeWord(flash, 4, 0x00500293);  // ADDI t0, x0, 5  (0b101)
-    writeWord(flash, 8, 0x00532223);  // SW t0, 4(t1)    — GPIO_OUT
+    writeWord(flash, 0, 0x60004337); // LUI t1, 0x60004
+    writeWord(flash, 4, 0x00500293); // ADDI t0, x0, 5  (0b101)
+    writeWord(flash, 8, 0x00532223); // SW t0, 4(t1)    — GPIO_OUT
 
     core.reset(0x42000000);
     runSteps(core, 3);
@@ -463,13 +469,13 @@ describe('Esp32C3Simulator — GPIO pin toggling', () => {
 
   it('pinManager.setPinState is called on GPIO change', () => {
     const pm = mockPinManager();
-    const s  = new Esp32C3Simulator(pm);
+    const s = new Esp32C3Simulator(pm);
     const flash = getFlash(s);
-    const core  = getCore(s);
+    const core = getCore(s);
 
-    writeWord(flash, 0, 0x60004337);  // LUI t1, 0x60004
-    writeWord(flash, 4, 0x00100293);  // ADDI t0, x0, 1
-    writeWord(flash, 8, 0x00532423);  // SW t0, 8(t1)
+    writeWord(flash, 0, 0x60004337); // LUI t1, 0x60004
+    writeWord(flash, 4, 0x00100293); // ADDI t0, x0, 1
+    writeWord(flash, 8, 0x00532423); // SW t0, 8(t1)
 
     core.reset(0x42000000);
     runSteps(core, 3);
@@ -497,7 +503,7 @@ describe('Esp32C3Simulator — lifecycle', () => {
   });
 
   it('reset() stops simulator and clears register state', () => {
-    const sim  = new Esp32C3Simulator(mockPinManager());
+    const sim = new Esp32C3Simulator(mockPinManager());
     const core = getCore(sim);
     core.regs[1] = 999;
     sim.start();
@@ -513,7 +519,7 @@ describe('Esp32C3Simulator — lifecycle', () => {
     sim.onPinChangeWithTime = (pin, state) => pinChanges.push({ pin, state });
 
     const flash = getFlash(sim);
-    const core  = getCore(sim);
+    const core = getCore(sim);
     writeWord(flash, 0, 0x60004337);
     writeWord(flash, 4, 0x00100293);
     writeWord(flash, 8, 0x00532423);
@@ -536,7 +542,7 @@ describe('Esp32C3Simulator — lifecycle', () => {
 
     const sim = new Esp32C3Simulator(mockPinManager());
     sim.start();
-    sim.start();  // second call should be ignored
+    sim.start(); // second call should be ignored
     expect(rafCalls).toBe(1);
     sim.stop();
   });

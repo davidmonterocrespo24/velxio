@@ -64,7 +64,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'ESP32-S3 Simulator', item: 'https://velxio.dev/esp32-s3-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'ESP32-S3 Simulator',
+        item: 'https://velxio.dev/esp32-s3-simulator',
+      },
     ],
   },
 ];
@@ -77,18 +82,31 @@ export const Esp32S3SimulatorPage: React.FC = () => {
       <AppHeader />
       <main>
         <section className="seo-hero">
-          <img src={esp32S3SvgUrl} alt="ESP32-S3 DevKitC-1 board" style={{ height: 120, marginBottom: 24 }} />
+          <img
+            src={esp32S3SvgUrl}
+            alt="ESP32-S3 DevKitC-1 board"
+            style={{ height: 120, marginBottom: 24 }}
+          />
           <h1>
-            Free ESP32-S3 Simulator<br />
+            Free ESP32-S3 Simulator
+            <br />
             <span className="accent">Xtensa LX7 · Dual-Core · 240 MHz</span>
           </h1>
           <p className="subtitle">
-            Simulate ESP32-S3 firmware in your browser — real Xtensa LX7 dual-core emulation via QEMU.
-            USB OTG, vector extensions, 45 GPIOs. Write, compile, and run in seconds.
+            Simulate ESP32-S3 firmware in your browser — real Xtensa LX7 dual-core emulation via
+            QEMU. USB OTG, vector extensions, 45 GPIOs. Write, compile, and run in seconds.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-s3-simulator', '/editor')}>Open ESP32-S3 Simulator →</Link>
-            <Link to="/examples" className="seo-btn-secondary">Browse Examples</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('esp32-s3-simulator', '/editor')}
+            >
+              Open ESP32-S3 Simulator →
+            </Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              Browse Examples
+            </Link>
           </div>
           <p className="seo-trust">Free &amp; open-source · QEMU Xtensa LX7 · No account needed</p>
         </section>
@@ -96,20 +114,30 @@ export const Esp32S3SimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>Supported ESP32-S3 boards</h2>
           <p className="lead">
-            Velxio emulates three ESP32-S3 boards. Each runs the official ESP32 Arduino core compiled via arduino-cli.
+            Velxio emulates three ESP32-S3 boards. Each runs the official ESP32 Arduino core
+            compiled via arduino-cli.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>ESP32-S3 DevKitC-1</h3>
-              <p>Official Espressif development board. Dual-core Xtensa LX7 at 240 MHz, 45 GPIO, USB OTG, 512 KB SRAM.</p>
+              <p>
+                Official Espressif development board. Dual-core Xtensa LX7 at 240 MHz, 45 GPIO, USB
+                OTG, 512 KB SRAM.
+              </p>
             </div>
             <div className="seo-card">
               <h3>XIAO ESP32-S3</h3>
-              <p>Seeed Studio ultra-compact board (21×17.5 mm). 11 GPIO, USB-C, ideal for wearables and IoT.</p>
+              <p>
+                Seeed Studio ultra-compact board (21×17.5 mm). 11 GPIO, USB-C, ideal for wearables
+                and IoT.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Arduino Nano ESP32</h3>
-              <p>ESP32-S3 in Arduino Nano form factor. USB-C, 14 digital + 8 analog pins, Arduino ecosystem compatibility.</p>
+              <p>
+                ESP32-S3 in Arduino Nano form factor. USB-C, 14 digital + 8 analog pins, Arduino
+                ecosystem compatibility.
+              </p>
             </div>
           </div>
         </section>
@@ -119,19 +147,31 @@ export const Esp32S3SimulatorPage: React.FC = () => {
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Xtensa LX7 CPU</h3>
-              <p>Newer architecture with improved performance per clock. Same 240 MHz dual-core, but more efficient instruction pipeline.</p>
+              <p>
+                Newer architecture with improved performance per clock. Same 240 MHz dual-core, but
+                more efficient instruction pipeline.
+              </p>
             </div>
             <div className="seo-card">
               <h3>USB OTG</h3>
-              <p>Native USB device and host support — no external USB-to-UART chip needed. HID, CDC, MSC device classes.</p>
+              <p>
+                Native USB device and host support — no external USB-to-UART chip needed. HID, CDC,
+                MSC device classes.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Vector Instructions</h3>
-              <p>Hardware-accelerated vector operations for AI/ML inference at the edge. TensorFlow Lite Micro optimized.</p>
+              <p>
+                Hardware-accelerated vector operations for AI/ML inference at the edge. TensorFlow
+                Lite Micro optimized.
+              </p>
             </div>
             <div className="seo-card">
               <h3>More GPIO</h3>
-              <p>45 programmable GPIOs (vs 34 on ESP32). More ADC channels, touch pins, and peripheral options.</p>
+              <p>
+                45 programmable GPIOs (vs 34 on ESP32). More ADC channels, touch pins, and
+                peripheral options.
+              </p>
             </div>
           </div>
         </section>
@@ -151,7 +191,13 @@ export const Esp32S3SimulatorPage: React.FC = () => {
         <div className="seo-bottom">
           <h2>Ready to simulate ESP32-S3?</h2>
           <p>Open the editor, select an ESP32-S3 board, and run your code instantly.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-s3-simulator', '/editor')}>Launch ESP32-S3 Simulator →</Link>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('esp32-s3-simulator', '/editor')}
+          >
+            Launch ESP32-S3 Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/esp32-simulator">ESP32 Simulator</Link>
             <Link to="/esp32-c3-simulator">ESP32-C3 Simulator</Link>

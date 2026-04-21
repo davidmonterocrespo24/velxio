@@ -14,6 +14,9 @@ export type ComponentCategory =
   | 'motors'
   | 'communication'
   | 'passive'
+  | 'logic'
+  | 'analog'
+  | 'electromech'
   | 'other';
 
 export interface PropertyDescriptor {
@@ -28,20 +31,20 @@ export interface PropertyDescriptor {
 }
 
 export interface ComponentMetadata {
-  id: string;                    // "led", "dht22", "arduino-uno"
-  tagName: string;               // "wokwi-led", "wokwi-dht22"
-  name: string;                  // "LED", "DHT22 Sensor"
-  category: ComponentCategory;   // "sensors", "displays", etc.
+  id: string; // "led", "dht22", "arduino-uno"
+  tagName: string; // "wokwi-led", "wokwi-dht22"
+  name: string; // "LED", "DHT22 Sensor"
+  category: ComponentCategory; // "sensors", "displays", etc.
   description?: string;
-  thumbnail: string;             // SVG inline or path
+  thumbnail: string; // SVG inline or path
   properties: PropertyDescriptor[];
   defaultValues: Record<string, any>;
   pinCount: number;
-  tags: string[];                // For search functionality
+  tags: string[]; // For search functionality
 }
 
 export interface ComponentMetadataCollection {
   version: string;
-  generatedAt: string;
+  generatedAt?: string;
   components: ComponentMetadata[];
 }

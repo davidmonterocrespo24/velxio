@@ -101,7 +101,10 @@ interface EditorState {
   loadFiles: (files: { name: string; content: string }[]) => void;
 
   // File group management
-  createFileGroup: (groupId: string, languageModeOrFiles?: string | { name: string; content: string }[]) => void;
+  createFileGroup: (
+    groupId: string,
+    languageModeOrFiles?: string | { name: string; content: string }[],
+  ) => void;
   deleteFileGroup: (groupId: string) => void;
   setActiveGroup: (groupId: string) => void;
   getGroupFiles: (groupId: string) => WorkspaceFile[];
@@ -152,7 +155,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         activeFileId: id,
         // Group-aware state
         fileGroups: { ...s.fileGroups, [groupId]: groupFiles },
-        openGroupFileIds: { ...s.openGroupFileIds, [groupId]: [...(s.openGroupFileIds[groupId] ?? []), id] },
+        openGroupFileIds: {
+          ...s.openGroupFileIds,
+          [groupId]: [...(s.openGroupFileIds[groupId] ?? []), id],
+        },
         activeGroupFileId: { ...s.activeGroupFileId, [groupId]: id },
       };
     });
@@ -168,11 +174,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (activeFileId === id) {
         const idx = s.openFileIds.indexOf(id);
         activeFileId =
-          openFileIds[idx] ??
-          openFileIds[idx - 1] ??
-          openFileIds[0] ??
-          files[0]?.id ??
-          '';
+          openFileIds[idx] ?? openFileIds[idx - 1] ?? openFileIds[0] ?? files[0]?.id ?? '';
       }
       const groupFiles = (s.fileGroups[groupId] ?? []).filter((f) => f.id !== id);
       const groupOpenIds = (s.openGroupFileIds[groupId] ?? []).filter((fid) => fid !== id);
@@ -202,8 +204,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setFileContent: (id: string, content: string) => {
     set((s) => {
       const groupId = s.activeGroupId;
-      const mapper = (f: WorkspaceFile) =>
-        f.id === id ? { ...f, content, modified: true } : f;
+      const mapper = (f: WorkspaceFile) => (f.id === id ? { ...f, content, modified: true } : f);
       return {
         files: s.files.map(mapper),
         fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
@@ -215,8 +216,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   markFileSaved: (id: string) => {
     set((s) => {
       const groupId = s.activeGroupId;
-      const mapper = (f: WorkspaceFile) =>
-        f.id === id ? { ...f, modified: false } : f;
+      const mapper = (f: WorkspaceFile) => (f.id === id ? { ...f, modified: false } : f);
       return {
         files: s.files.map(mapper),
         fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
@@ -247,8 +247,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       let activeFileId = s.activeFileId;
       if (activeFileId === id) {
         const idx = s.openFileIds.indexOf(id);
-        activeFileId =
-          openFileIds[idx] ?? openFileIds[idx - 1] ?? openFileIds[0] ?? '';
+        activeFileId = openFileIds[idx] ?? openFileIds[idx - 1] ?? openFileIds[0] ?? '';
       }
       const groupOpenIds = (s.openGroupFileIds[groupId] ?? []).filter((fid) => fid !== id);
       return {
@@ -293,13 +292,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   // ── File group management ─────────────────────────────────────────────────
 
-  createFileGroup: (groupId: string, languageModeOrFiles?: string | { name: string; content: string }[]) => {
+  createFileGroup: (
+    groupId: string,
+    languageModeOrFiles?: string | { name: string; content: string }[],
+  ) => {
     set((s) => {
       if (s.fileGroups[groupId]) return s; // already exists
 
       // Resolve overloaded parameter
       const initialFiles = Array.isArray(languageModeOrFiles) ? languageModeOrFiles : undefined;
-      const languageMode = typeof languageModeOrFiles === 'string' ? languageModeOrFiles : undefined;
+      const languageMode =
+        typeof languageModeOrFiles === 'string' ? languageModeOrFiles : undefined;
 
       let files: WorkspaceFile[];
       if (initialFiles && initialFiles.length > 0) {
@@ -376,7 +379,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   updateGroupFile: (groupId: string, fileId: string, content: string) => {
     set((s) => {
       const groupFiles = (s.fileGroups[groupId] ?? []).map((f) =>
-        f.id === fileId ? { ...f, content, modified: true } : f
+        f.id === fileId ? { ...f, content, modified: true } : f,
       );
       return { fileGroups: { ...s.fileGroups, [groupId]: groupFiles } };
     });

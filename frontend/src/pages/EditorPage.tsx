@@ -3,6 +3,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, lazy, Suspense } from 'react';
+import { wireElectricalSolver } from '../simulation/spice/subscribeToStore';
 import { useSEO } from '../utils/useSEO';
 import { CodeEditor } from '../components/editor/CodeEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
@@ -11,7 +12,9 @@ import { FileExplorer } from '../components/editor/FileExplorer';
 
 // Lazy-load Pi workspace so xterm.js isn't in the main bundle
 const RaspberryPiWorkspace = lazy(() =>
-  import('../components/raspberry-pi/RaspberryPiWorkspace').then((m) => ({ default: m.RaspberryPiWorkspace }))
+  import('../components/raspberry-pi/RaspberryPiWorkspace').then((m) => ({
+    default: m.RaspberryPiWorkspace,
+  })),
 );
 import { CompilationConsole } from '../components/editor/CompilationConsole';
 import { SimulatorCanvas } from '../components/simulator/SimulatorCanvas';
@@ -59,8 +62,8 @@ export const EditorPage: React.FC = () => {
   const resizingRef = useRef(false);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
   const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
-  const activeBoardKind = useSimulatorStore((s) =>
-    s.boards.find((b) => b.id === s.activeBoardId)?.boardKind
+  const activeBoardKind = useSimulatorStore(
+    (s) => s.boards.find((b) => b.id === s.activeBoardId)?.boardKind,
   );
   const isRaspberryPi3 = activeBoardKind === 'raspberry-pi-3';
   const oscilloscopeOpen = useOscilloscopeStore((s) => s.open);
@@ -70,6 +73,12 @@ export const EditorPage: React.FC = () => {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [showStarBanner, setShowStarBanner] = useState(false);
+
+  // ── Electrical simulation subscriber (one-time, idempotent) ───────────────
+  useEffect(() => {
+    const unsub = wireElectricalSolver();
+    return unsub;
+  }, []);
 
   // ── GitHub star prompt (show once: 2nd visit OR after 3 min) ──────────────
   useEffect(() => {
@@ -111,7 +120,9 @@ export const EditorPage: React.FC = () => {
   };
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT);
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
+  const [isMobile, setIsMobile] = useState(
+    () => window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches,
+  );
   // Default to 'code' on mobile — show the editor so users can write/view code
   const [mobileView, setMobileView] = useState<'code' | 'circuit'>('code');
   const user = useAuthStore((s) => s.user);
@@ -187,47 +198,55 @@ export const EditorPage: React.FC = () => {
     document.addEventListener('mouseup', handleMouseUp);
   }, []);
 
-  const handleBottomPanelResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = bottomPanelHeight;
+  const handleBottomPanelResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startHeight = bottomPanelHeight;
 
-    const onMove = (ev: MouseEvent) => {
-      const delta = startY - ev.clientY;
-      setBottomPanelHeight(Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, startHeight + delta)));
-    };
-    const onUp = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [bottomPanelHeight]);
+      const onMove = (ev: MouseEvent) => {
+        const delta = startY - ev.clientY;
+        setBottomPanelHeight(
+          Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, startHeight + delta)),
+        );
+      };
+      const onUp = () => {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [bottomPanelHeight],
+  );
 
-  const handleExplorerResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = explorerWidth;
+  const handleExplorerResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = explorerWidth;
 
-    const onMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX;
-      setExplorerWidth(Math.max(EXPLORER_MIN, Math.min(EXPLORER_MAX, startWidth + delta)));
-    };
-    const onUp = () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [explorerWidth]);
+      const onMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX;
+        setExplorerWidth(Math.max(EXPLORER_MIN, Math.min(EXPLORER_MAX, startWidth + delta)));
+      };
+      const onUp = () => {
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [explorerWidth],
+  );
 
   return (
     <div className="app">
@@ -240,7 +259,16 @@ export const EditorPage: React.FC = () => {
             className={`mobile-tab-btn${mobileView === 'code' ? ' mobile-tab-btn--active' : ''}`}
             onClick={() => setMobileView('code')}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="16 18 22 12 16 6" />
               <polyline points="8 6 2 12 8 18" />
             </svg>
@@ -250,7 +278,16 @@ export const EditorPage: React.FC = () => {
             className={`mobile-tab-btn${mobileView === 'circuit' ? ' mobile-tab-btn--active' : ''}`}
             onClick={() => setMobileView('circuit')}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <rect x="2" y="7" width="20" height="14" rx="2" />
               <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
               <line x1="12" y1="12" x2="12" y2="16" />
@@ -274,17 +311,30 @@ export const EditorPage: React.FC = () => {
           {/* File explorer sidebar + resize handle */}
           {explorerOpen && (
             <>
-              <div style={{ width: explorerWidth, flexShrink: 0, display: 'flex', overflow: 'hidden' }}>
+              <div
+                style={{ width: explorerWidth, flexShrink: 0, display: 'flex', overflow: 'hidden' }}
+              >
                 <FileExplorer onSaveClick={handleSaveClick} />
               </div>
               {!isMobile && (
-                <div className="explorer-resize-handle" onMouseDown={handleExplorerResizeMouseDown} />
+                <div
+                  className="explorer-resize-handle"
+                  onMouseDown={handleExplorerResizeMouseDown}
+                />
               )}
             </>
           )}
 
           {/* Editor main area */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              minWidth: 0,
+            }}
+          >
             {/* Explorer toggle + toolbar */}
             <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
               <button
@@ -292,7 +342,16 @@ export const EditorPage: React.FC = () => {
                 onClick={() => setExplorerOpen((v) => !v)}
                 title={explorerOpen ? 'Hide file explorer' : 'Show file explorer'}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
@@ -312,7 +371,13 @@ export const EditorPage: React.FC = () => {
             {/* Editor area: Pi workspace or Monaco editor */}
             <div className="editor-wrapper" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
               {isRaspberryPi3 && activeBoardId ? (
-                <Suspense fallback={<div style={{ color: '#666', padding: 16, fontSize: 12 }}>Loading Pi workspace…</div>}>
+                <Suspense
+                  fallback={
+                    <div style={{ color: '#666', padding: 16, fontSize: 12 }}>
+                      Loading Pi workspace…
+                    </div>
+                  }
+                >
                   <RaspberryPiWorkspace boardId={activeBoardId} />
                 </Suspense>
               ) : (

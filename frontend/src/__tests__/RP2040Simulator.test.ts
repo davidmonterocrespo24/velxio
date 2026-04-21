@@ -149,7 +149,7 @@ describe('RP2040Simulator — GPIO listeners', () => {
     sim.loadBinary(minimalBinary());
 
     const cb = vi.fn();
-    pm.onPinChange(25, cb);  // LED_BUILTIN = GPIO25
+    pm.onPinChange(25, cb); // LED_BUILTIN = GPIO25
 
     sim.setPinState(25, true);
     // setPinState uses gpio.setInputValue — the GPIO listener fires via rp2040js
@@ -230,9 +230,9 @@ describe('RP2040Simulator — binary loading', () => {
 
     // Create a binary with a known pattern
     const bytes = new Uint8Array(256);
-    bytes[0] = 0xAA;
-    bytes[1] = 0xBB;
-    bytes[255] = 0xFF;
+    bytes[0] = 0xaa;
+    bytes[1] = 0xbb;
+    bytes[255] = 0xff;
     let binary = '';
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     const b64 = btoa(binary);
@@ -241,9 +241,9 @@ describe('RP2040Simulator — binary loading', () => {
     sim.reset();
 
     const rp2040 = (sim as any).rp2040;
-    expect(rp2040.flash[0]).toBe(0xAA);
-    expect(rp2040.flash[1]).toBe(0xBB);
-    expect(rp2040.flash[255]).toBe(0xFF);
+    expect(rp2040.flash[0]).toBe(0xaa);
+    expect(rp2040.flash[1]).toBe(0xbb);
+    expect(rp2040.flash[255]).toBe(0xff);
   });
 });
 
@@ -373,7 +373,7 @@ describe('RP2040Simulator — I2C', () => {
     const device: RP2040I2CDevice = {
       address: 0x50,
       writeByte: () => true,
-      readByte: () => 0xFF,
+      readByte: () => 0xff,
     };
     expect(() => sim.addI2CDevice(device, 1)).not.toThrow();
   });
@@ -458,14 +458,14 @@ describe('RP2040Simulator — SPI', () => {
   });
 
   it('setSPIHandler() replaces the default handler for SPI0', () => {
-    const handler = vi.fn((value: number) => value ^ 0xFF); // invert bits
+    const handler = vi.fn((value: number) => value ^ 0xff); // invert bits
     sim.setSPIHandler(0, handler);
 
     const mcu = sim.getMCU()!;
     // Manually trigger onTransmit to test the handler wiring
-    mcu.spi[0].onTransmit(0xAA);
+    mcu.spi[0].onTransmit(0xaa);
     // The handler should have been called
-    expect(handler).toHaveBeenCalledWith(0xAA);
+    expect(handler).toHaveBeenCalledWith(0xaa);
   });
 
   it('setSPIHandler() works for SPI1', () => {
@@ -525,7 +525,7 @@ describe('RP2040Simulator — ADC value injection', () => {
 
   it('setADCValue() ignores out-of-range channels', () => {
     const before = sim.getADC().channelValues[0];
-    sim.setADCValue(5, 1000);  // ch5 doesn't exist
+    sim.setADCValue(5, 1000); // ch5 doesn't exist
     sim.setADCValue(-1, 1000); // negative
     expect(sim.getADC().channelValues[0]).toBe(before); // unchanged
   });

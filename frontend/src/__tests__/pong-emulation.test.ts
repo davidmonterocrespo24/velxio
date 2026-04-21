@@ -21,7 +21,15 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, readdirSync } from 'fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  readdirSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -37,9 +45,9 @@ if (typeof globalThis.ImageData === 'undefined') {
     readonly height: number;
     readonly data: Uint8ClampedArray;
     constructor(w: number, h: number) {
-      this.width  = w;
+      this.width = w;
       this.height = h;
-      this.data   = new Uint8ClampedArray(w * h * 4);
+      this.data = new Uint8ClampedArray(w * h * 4);
     }
   }
   (globalThis as any).ImageData = ImageDataPoly;
@@ -76,7 +84,7 @@ function compileSketch(): string {
 
   // arduino-cli requires: folder name === sketch name (pong/pong.ino)
   // Create a temp PARENT, then a "pong" subdirectory inside it
-  const workDir   = mkdtempSync(join(tmpdir(), 'velxio-pong-'));
+  const workDir = mkdtempSync(join(tmpdir(), 'velxio-pong-'));
   const sketchDir = join(workDir, 'pong');
   mkdirSync(sketchDir);
   writeFileSync(join(sketchDir, 'pong.ino'), readFileSync(PONG_INO, 'utf-8'));
@@ -86,13 +94,8 @@ function compileSketch(): string {
 
   const result = spawnSync(
     'arduino-cli',
-    [
-      'compile',
-      '--fqbn', 'arduino:avr:nano:cpu=atmega328old',
-      '--build-path', buildDir,
-      sketchDir,
-    ],
-    { encoding: 'utf-8', timeout: 120_000 }
+    ['compile', '--fqbn', 'arduino:avr:nano:cpu=atmega328old', '--build-path', buildDir, sketchDir],
+    { encoding: 'utf-8', timeout: 120_000 },
   );
 
   if (result.error) {
@@ -108,18 +111,23 @@ function compileSketch(): string {
   let hexPath: string | null = null;
   for (const f of ['pong.ino.hex', 'sketch.ino.hex', 'pong.hex']) {
     const p = join(buildDir, f);
-    if (existsSync(p)) { hexPath = p; break; }
+    if (existsSync(p)) {
+      hexPath = p;
+      break;
+    }
   }
   if (!hexPath) {
     const files = readdirSync(buildDir, { recursive: true }) as string[];
-    const found = files.find((f) => typeof f === 'string' && f.endsWith('.hex') && !f.includes('bootloader'));
+    const found = files.find(
+      (f) => typeof f === 'string' && f.endsWith('.hex') && !f.includes('bootloader'),
+    );
     if (!found) throw new Error('No .hex found in build output');
     hexPath = join(buildDir, found);
   }
 
   const hex = readFileSync(hexPath, 'utf-8');
-  writeFileSync(HEX_CACHE, hex);           // cache for next run
-  rmSync(workDir, { recursive: true });    // cleanup
+  writeFileSync(HEX_CACHE, hex); // cache for next run
+  rmSync(workDir, { recursive: true }); // cleanup
   console.log('[compile] Done. Hex size:', hex.length, 'chars');
   return hex;
 }
@@ -127,31 +135,34 @@ function compileSketch(): string {
 // ─── Minimal VirtualSSD1306 (standalone — no DOM/PartRegistry needed) ────────
 
 class HeadlessSSD1306 implements I2CDevice {
-  address     = 0x3C;
-  buffer      = new Uint8Array(128 * 8);   // GDDRAM 1-bit
+  address = 0x3c;
+  buffer = new Uint8Array(128 * 8); // GDDRAM 1-bit
   renderCount = 0;
 
-  private ctrlByte  = true;
-  private isData    = false;
-  private col       = 0; page = 0;
-  private colStart  = 0; colEnd  = 127;
-  private pageStart = 0; pageEnd = 7;
-  private memMode   = 0;
+  private ctrlByte = true;
+  private isData = false;
+  private col = 0;
+  page = 0;
+  private colStart = 0;
+  colEnd = 127;
+  private pageStart = 0;
+  pageEnd = 7;
+  private memMode = 0;
   private cmdBuf: number[] = [];
-  private cmdWant  = 0;
+  private cmdWant = 0;
 
   private static cmdParams(cmd: number): number {
-    if ([0x20, 0x81, 0x8D, 0xA8, 0xD3, 0xD5, 0xD8, 0xD9, 0xDA, 0xDB].includes(cmd)) return 1;
+    if ([0x20, 0x81, 0x8d, 0xa8, 0xd3, 0xd5, 0xd8, 0xd9, 0xda, 0xdb].includes(cmd)) return 1;
     if (cmd === 0x21 || cmd === 0x22) return 2;
     return 0;
   }
 
   writeByte(value: number): boolean {
     if (this.ctrlByte) {
-      this.isData   = (value & 0x40) !== 0;
+      this.isData = (value & 0x40) !== 0;
       this.ctrlByte = false;
-      this.cmdBuf   = [];
-      this.cmdWant  = 0;
+      this.cmdBuf = [];
+      this.cmdWant = 0;
       return true;
     }
     if (this.isData) {
@@ -160,11 +171,12 @@ class HeadlessSSD1306 implements I2CDevice {
       return true;
     }
     if (this.cmdWant > 0) {
-      this.cmdBuf.push(value); this.cmdWant--;
+      this.cmdBuf.push(value);
+      this.cmdWant--;
       if (this.cmdWant === 0) this.applyCmd();
       return true;
     }
-    this.cmdBuf  = [value];
+    this.cmdBuf = [value];
     this.cmdWant = HeadlessSSD1306.cmdParams(value);
     if (this.cmdWant === 0) this.applyCmd();
     return true;
@@ -172,22 +184,38 @@ class HeadlessSSD1306 implements I2CDevice {
 
   private applyCmd(): void {
     const [cmd, p1, p2] = this.cmdBuf;
-    if (cmd === 0x20) { this.memMode = p1 & 0x03; }
-    else if (cmd === 0x21) { this.colStart = p1 & 0x7F; this.colEnd = p2 & 0x7F; this.col = this.colStart; }
-    else if (cmd === 0x22) { this.pageStart = p1 & 0x07; this.pageEnd = p2 & 0x07; this.page = this.pageStart; }
+    if (cmd === 0x20) {
+      this.memMode = p1 & 0x03;
+    } else if (cmd === 0x21) {
+      this.colStart = p1 & 0x7f;
+      this.colEnd = p2 & 0x7f;
+      this.col = this.colStart;
+    } else if (cmd === 0x22) {
+      this.pageStart = p1 & 0x07;
+      this.pageEnd = p2 & 0x07;
+      this.page = this.pageStart;
+    }
   }
 
   private advance(): void {
     if (this.memMode === 0) {
-      if (++this.col > this.colEnd) { this.col = this.colStart; if (++this.page > this.pageEnd) this.page = this.pageStart; }
+      if (++this.col > this.colEnd) {
+        this.col = this.colStart;
+        if (++this.page > this.pageEnd) this.page = this.pageStart;
+      }
     } else if (this.memMode === 1) {
-      if (++this.page > this.pageEnd) { this.page = this.pageStart; if (++this.col > this.colEnd) this.col = this.colStart; }
+      if (++this.page > this.pageEnd) {
+        this.page = this.pageStart;
+        if (++this.col > this.colEnd) this.col = this.colStart;
+      }
     } else {
       if (++this.col > this.colEnd) this.col = this.colStart;
     }
   }
 
-  readByte(): number { return 0xFF; }
+  readByte(): number {
+    return 0xff;
+  }
 
   stop(): void {
     this.ctrlByte = true;
@@ -204,7 +232,10 @@ class HeadlessSSD1306 implements I2CDevice {
     let n = 0;
     for (let i = 0; i < this.buffer.length; i++) {
       let b = this.buffer[i];
-      while (b) { n += b & 1; b >>= 1; }
+      while (b) {
+        n += b & 1;
+        b >>= 1;
+      }
     }
     return n;
   }
@@ -212,12 +243,13 @@ class HeadlessSSD1306 implements I2CDevice {
   /** Render the GDDRAM as ASCII art (# = lit, space = off) */
   toAsciiArt(): string {
     const lines: string[] = [];
-    for (let row = 0; row < 64; row += 2) { // 2 rows per line to keep compact
+    for (let row = 0; row < 64; row += 2) {
+      // 2 rows per line to keep compact
       let line = '';
       for (let col = 0; col < 128; col++) {
         const page = Math.floor(row / 8);
-        const bit  = row % 8;
-        const lit  = (this.buffer[page * 128 + col] >> bit) & 1;
+        const bit = row % 8;
+        const lit = (this.buffer[page * 128 + col] >> bit) & 1;
         line += lit ? '█' : ' ';
       }
       lines.push(line);
@@ -245,13 +277,17 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Pong emulation — full end-to-end', ()
   });
 
   afterAll(() => {
-    try { sim?.stop(); } catch { /* ignore */ }
+    try {
+      sim?.stop();
+    } catch {
+      /* ignore */
+    }
     vi.unstubAllGlobals();
   });
 
   it('🔧 compiles pong.ino successfully', () => {
     expect(hexContent).toBeTruthy();
-    expect(hexContent).toContain(':');  // valid Intel HEX starts with ':'
+    expect(hexContent).toContain(':'); // valid Intel HEX starts with ':'
     console.log('[hex] First line:', hexContent.split('\n')[0]);
   });
 
@@ -272,7 +308,7 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Pong emulation — full end-to-end', ()
     expect(oled.renderCount).toBeGreaterThan(20); // init commands alone = ~25+
   });
 
-  it('🎮 game loop starts after pong\'s 2-second setup wait (~35M more cycles)', () => {
+  it("🎮 game loop starts after pong's 2-second setup wait (~35M more cycles)", () => {
     // pong.ino setup(): while(millis() - start < 2000) { } — pure spinning.
     // At 16MHz: 2000ms × 16,000 cycles/ms = 32,000,000 cycles to wait through.
     // After that, game loop runs: ball updated every 16ms, paddle every 64ms.
@@ -302,9 +338,9 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Pong emulation — full end-to-end', ()
 
     // Press UP button (D2 = pin 2, active LOW INPUT_PULLUP).
     // Run 3M cycles while held (~188ms simulated = ~11 paddle updates @ 64ms each).
-    sim.setPinState(2, false);  // pressed
+    sim.setPinState(2, false); // pressed
     runCycles(sim, 3_000_000);
-    sim.setPinState(2, true);   // released
+    sim.setPinState(2, true); // released
     runCycles(sim, 500_000);
 
     const pixelsAfter = oled.litPixelCount();
@@ -318,9 +354,9 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Pong emulation — full end-to-end', ()
   it('🕹️  DOWN button press (D3 LOW) also triggers display updates', () => {
     const rendersBefore = oled.renderCount;
 
-    sim.setPinState(3, false);  // DOWN pressed
+    sim.setPinState(3, false); // DOWN pressed
     runCycles(sim, 3_000_000);
-    sim.setPinState(3, true);   // released
+    sim.setPinState(3, true); // released
     runCycles(sim, 500_000);
 
     console.log(`[DOWN btn] new renders: ${oled.renderCount - rendersBefore}`);

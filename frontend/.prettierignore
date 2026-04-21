@@ -1,0 +1,13 @@
+dist
+build
+coverage
+node_modules
+
+public/components-metadata.json
+public/sitemap.xml
+public/manifest.webmanifest
+
+src/assets
+*.svg
+
+package-lock.json

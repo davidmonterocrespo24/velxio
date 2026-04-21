@@ -41,19 +41,20 @@ echo "🚀 Starting Velxio Backend..."
 uvicorn app.main:app --host 127.0.0.1 --port 8001 &
 UVICORN_PID=$!
 
-# Wait for backend to be healthy (optional but good practice)
+# Wait for backend to be healthy before starting nginx
 sleep 2
 
-# Start Nginx in the background so we can monitor both processes
+# Start Nginx in the background (not exec — we need to monitor both)
 echo "🌐 Starting Nginx Web Server on port 80..."
 nginx -g "daemon off;" &
 NGINX_PID=$!
 
-# If either process dies, exit so Docker's restart policy can recover the
-# container. Previously uvicorn could crash silently while nginx kept the
-# container "up", leaving every /api/* request returning 502 Bad Gateway.
-wait -n "$UVICORN_PID" "$NGINX_PID"
+# Exit as soon as either process dies so Docker can restart the container.
+# wait -n requires bash 4.3+ (standard on Debian Bullseye / Ubuntu 20.04+).
+wait -n $UVICORN_PID $NGINX_PID
 EXIT_CODE=$?
-echo "⚠️  A core process exited (code=$EXIT_CODE). Shutting down container so Docker can restart it."
-kill "$UVICORN_PID" "$NGINX_PID" 2>/dev/null || true
-exit "$EXIT_CODE"
+
+echo "⚠️  A process exited (code $EXIT_CODE) — shutting down container"
+kill $UVICORN_PID $NGINX_PID 2>/dev/null || true
+wait $UVICORN_PID $NGINX_PID 2>/dev/null || true
+exit $EXIT_CODE

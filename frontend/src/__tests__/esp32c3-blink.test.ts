@@ -23,14 +23,17 @@ import { Esp32C3Simulator } from '../simulation/Esp32C3Simulator';
 import type { PinManager } from '../simulation/PinManager';
 
 // ── Mocks (Node has no requestAnimationFrame) ─────────────────────────────────
-vi.stubGlobal('requestAnimationFrame', (cb: () => void) => { cb(); return 0; });
+vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+  cb();
+  return 0;
+});
 vi.stubGlobal('cancelAnimationFrame', () => {});
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 const FIXTURE_DIR = join(__dirname, 'fixtures/esp32c3-blink');
-const BIN_PATH    = join(FIXTURE_DIR, 'blink.bin');
-const DIS_PATH    = join(FIXTURE_DIR, 'blink.dis');
-const BUILD_SH    = join(FIXTURE_DIR, 'build.sh');
+const BIN_PATH = join(FIXTURE_DIR, 'blink.bin');
+const DIS_PATH = join(FIXTURE_DIR, 'blink.dis');
+const BUILD_SH = join(FIXTURE_DIR, 'build.sh');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function mockPinManager(): PinManager {
@@ -56,7 +59,7 @@ beforeAll(() => {
     execSync(`bash "${BUILD_SH}"`, { stdio: 'pipe' });
   } catch (err: unknown) {
     buildError = String((err as NodeJS.ErrnoException).stderr ?? err);
-    if (!existsSync(BIN_PATH)) return;  // binary missing AND build failed
+    if (!existsSync(BIN_PATH)) return; // binary missing AND build failed
     // Binary exists from a previous build — use it but warn
     console.warn('[esp32c3-blink] Build script failed; using existing binary.\n' + buildError);
     buildError = null;
@@ -67,7 +70,6 @@ beforeAll(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ESP32-C3 bare-metal blink (compiled with riscv32-esp-elf-gcc)', () => {
-
   it('build.sh produces a non-empty blink.bin', () => {
     if (buildError) throw new Error('Build failed:\n' + buildError);
     expect(binData.byteLength).toBeGreaterThan(0);
@@ -78,7 +80,8 @@ describe('ESP32-C3 bare-metal blink (compiled with riscv32-esp-elf-gcc)', () => 
   it('binary starts with a valid RV32 instruction at 0x42000000', () => {
     if (buildError) throw new Error('Build failed:\n' + buildError);
     // First 4 bytes must decode as a valid 32-bit or 16-bit RISC-V instruction
-    const b0 = binData[0], b1 = binData[1];
+    const b0 = binData[0],
+      b1 = binData[1];
     const half = b0 | (b1 << 8);
     const is32bit = (half & 0x3) === 0x3;
     const is16bit = (half & 0x3) !== 0x3;
@@ -111,9 +114,9 @@ describe('ESP32-C3 bare-metal blink (compiled with riscv32-esp-elf-gcc)', () => 
     // The blink program writes GPIO_W1TS within the first ~10 instructions
     runSteps(sim, 20);
 
-    const gpio8Events = pinEvents.filter(e => e.pin === 8);
+    const gpio8Events = pinEvents.filter((e) => e.pin === 8);
     expect(gpio8Events.length).toBeGreaterThan(0);
-    expect(gpio8Events[0].state).toBe(true);        // first event is LED ON
+    expect(gpio8Events[0].state).toBe(true); // first event is LED ON
     expect(gpio8Events[0].timeMs).toBeGreaterThan(0); // has a meaningful timestamp
 
     console.log(`GPIO 8 went HIGH at ${gpio8Events[0].timeMs.toFixed(4)} ms (simulated)`);
@@ -131,19 +134,21 @@ describe('ESP32-C3 bare-metal blink (compiled with riscv32-esp-elf-gcc)', () => 
     // Run 2000 steps → ~4 complete blink cycles
     runSteps(sim, 2000);
 
-    const gpio8 = pinEvents.filter(e => e.pin === 8);
-    const highEvents = gpio8.filter(e => e.state === true);
-    const lowEvents  = gpio8.filter(e => e.state === false);
+    const gpio8 = pinEvents.filter((e) => e.pin === 8);
+    const highEvents = gpio8.filter((e) => e.state === true);
+    const lowEvents = gpio8.filter((e) => e.state === false);
 
     expect(highEvents.length).toBeGreaterThanOrEqual(2); // at least 2 ON events
-    expect(lowEvents.length).toBeGreaterThanOrEqual(2);  // at least 2 OFF events
+    expect(lowEvents.length).toBeGreaterThanOrEqual(2); // at least 2 OFF events
 
     // Events should strictly alternate: HIGH, LOW, HIGH, LOW ...
     for (let i = 0; i < gpio8.length - 1; i++) {
       expect(gpio8[i].state).not.toBe(gpio8[i + 1].state);
     }
 
-    console.log(`GPIO 8 toggled ${gpio8.length} times in 2000 steps (${highEvents.length} ON, ${lowEvents.length} OFF)`);
+    console.log(
+      `GPIO 8 toggled ${gpio8.length} times in 2000 steps (${highEvents.length} ON, ${lowEvents.length} OFF)`,
+    );
   });
 
   it('PinManager.setPinState is called with correct pin and state', () => {

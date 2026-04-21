@@ -30,23 +30,41 @@ import {
 /** Minimal mock of AVRTWI used by I2CBusManager */
 function makeTWI() {
   const calls: string[] = [];
-  let   readResult = 0xFF;
-  let   writeAck   = true;
-  let   connectAck = true;
+  let readResult = 0xff;
+  let writeAck = true;
+  let connectAck = true;
 
   return {
     calls,
-    _setReadResult : (v: number)  => { readResult  = v; },
-    _setWriteAck   : (v: boolean) => { writeAck    = v; },
-    _setConnectAck : (v: boolean) => { connectAck  = v; },
+    _setReadResult: (v: number) => {
+      readResult = v;
+    },
+    _setWriteAck: (v: boolean) => {
+      writeAck = v;
+    },
+    _setConnectAck: (v: boolean) => {
+      connectAck = v;
+    },
 
     // --- AVRTWI API ---
-    set eventHandler(_: any) { /* set by I2CBusManager constructor */ },
-    completeStart   ()                   { calls.push('start'); },
-    completeStop    ()                   { calls.push('stop'); },
-    completeConnect (ack: boolean)       { calls.push(`connect:${ack}`); },
-    completeWrite   (ack: boolean)       { calls.push(`write:${ack}`); },
-    completeRead    (value: number)      { calls.push(`read:${value}`); },
+    set eventHandler(_: any) {
+      /* set by I2CBusManager constructor */
+    },
+    completeStart() {
+      calls.push('start');
+    },
+    completeStop() {
+      calls.push('stop');
+    },
+    completeConnect(ack: boolean) {
+      calls.push(`connect:${ack}`);
+    },
+    completeWrite(ack: boolean) {
+      calls.push(`write:${ack}`);
+    },
+    completeRead(value: number) {
+      calls.push(`read:${value}`);
+    },
   };
 }
 
@@ -76,26 +94,26 @@ describe('I2CBusManager — routing', () => {
   });
 
   it('routes writeByte to active device and returns ACK', () => {
-    const twi    = makeTWI();
-    const bus    = new I2CBusManager(twi as any);
+    const twi = makeTWI();
+    const bus = new I2CBusManager(twi as any);
     const device = new I2CMemoryDevice(0x50);
     bus.addDevice(device);
     bus.connectToSlave(0x50, true);
-    bus.writeByte(0x10);   // set register pointer
+    bus.writeByte(0x10); // set register pointer
     expect(twi.calls).toContain('write:true');
   });
 
   it('routes readByte to active device', () => {
-    const twi    = makeTWI();
-    const bus    = new I2CBusManager(twi as any);
+    const twi = makeTWI();
+    const bus = new I2CBusManager(twi as any);
     const device = new I2CMemoryDevice(0x50);
-    device.registers[0x00] = 0xAB;
+    device.registers[0x00] = 0xab;
     bus.addDevice(device);
     bus.connectToSlave(0x50, true);
-    bus.writeByte(0x00);   // set register pointer to 0
+    bus.writeByte(0x00); // set register pointer to 0
     bus.connectToSlave(0x50, false); // repeated start, read mode
     bus.readByte(true);
-    const readCall = twi.calls.find(c => c.startsWith('read:'));
+    const readCall = twi.calls.find((c) => c.startsWith('read:'));
     expect(readCall).toBe('read:171'); // 0xAB = 171
   });
 
@@ -123,14 +141,16 @@ describe('I2CBusManager — routing', () => {
   });
 
   it('calls device.stop() on stop condition', () => {
-    const twi    = makeTWI();
-    const bus    = new I2CBusManager(twi as any);
-    let   stopped = false;
+    const twi = makeTWI();
+    const bus = new I2CBusManager(twi as any);
+    let stopped = false;
     const device: any = {
-      address   : 0x42,
-      writeByte : () => true,
-      readByte  : () => 0,
-      stop      : () => { stopped = true; },
+      address: 0x42,
+      writeByte: () => true,
+      readByte: () => 0,
+      stop: () => {
+        stopped = true;
+      },
     };
     bus.addDevice(device);
     bus.connectToSlave(0x42, true);
@@ -145,16 +165,16 @@ describe('I2CBusManager — routing', () => {
 describe('I2CMemoryDevice', () => {
   it('first byte sets register pointer, subsequent bytes write data', () => {
     const dev = new I2CMemoryDevice(0x50);
-    dev.writeByte(0x05);  // register pointer
-    dev.writeByte(0xAB);  // write data to register 5
-    expect(dev.registers[0x05]).toBe(0xAB);
+    dev.writeByte(0x05); // register pointer
+    dev.writeByte(0xab); // write data to register 5
+    expect(dev.registers[0x05]).toBe(0xab);
   });
 
   it('reads back written data starting at register pointer', () => {
     const dev = new I2CMemoryDevice(0x50);
-    dev.registers[0x02] = 0xCC;
-    dev.writeByte(0x02);           // set pointer
-    expect(dev.readByte()).toBe(0xCC);
+    dev.registers[0x02] = 0xcc;
+    dev.writeByte(0x02); // set pointer
+    expect(dev.readByte()).toBe(0xcc);
   });
 
   it('auto-increments register pointer on read', () => {
@@ -170,17 +190,17 @@ describe('I2CMemoryDevice', () => {
     const dev = new I2CMemoryDevice(0x50);
     const log: [number, number][] = [];
     dev.onRegisterWrite = (r, v) => log.push([r, v]);
-    dev.writeByte(0x0A);  // pointer
-    dev.writeByte(0xFF);  // data → register 0x0A
-    expect(log).toEqual([[0x0A, 0xFF]]);
+    dev.writeByte(0x0a); // pointer
+    dev.writeByte(0xff); // data → register 0x0A
+    expect(log).toEqual([[0x0a, 0xff]]);
   });
 
   it('resets firstByte on stop()', () => {
     const dev = new I2CMemoryDevice(0x50);
-    dev.writeByte(0x03);  // pointer set, firstByte = false
-    dev.stop();           // reset
-    dev.writeByte(0x07);  // new pointer
-    dev.writeByte(0x55);  // write to register 7
+    dev.writeByte(0x03); // pointer set, firstByte = false
+    dev.stop(); // reset
+    dev.writeByte(0x07); // new pointer
+    dev.writeByte(0x55); // write to register 7
     expect(dev.registers[0x07]).toBe(0x55);
   });
 });
@@ -194,17 +214,17 @@ describe('VirtualDS1307', () => {
 
   it('readByte for reg 0 returns valid BCD seconds (0–59)', () => {
     const dev = new VirtualDS1307();
-    dev.writeByte(0x00);  // set pointer to seconds
-    const raw   = dev.readByte();
-    const tens  = (raw >> 4) & 0xF;
-    const units =  raw       & 0xF;
+    dev.writeByte(0x00); // set pointer to seconds
+    const raw = dev.readByte();
+    const tens = (raw >> 4) & 0xf;
+    const units = raw & 0xf;
     expect(tens).toBeLessThanOrEqual(5);
     expect(units).toBeLessThanOrEqual(9);
   });
 
   it('reads 7 consecutive BCD time registers', () => {
     const dev = new VirtualDS1307();
-    dev.writeByte(0x00);  // start at seconds
+    dev.writeByte(0x00); // start at seconds
     for (let i = 0; i < 7; i++) {
       const byte = dev.readByte();
       expect(byte).toBeGreaterThanOrEqual(0x00);
@@ -214,12 +234,12 @@ describe('VirtualDS1307', () => {
 
   it('stop() resets firstByte so next write is a new pointer', () => {
     const dev = new VirtualDS1307();
-    dev.writeByte(0x02);  // set pointer to hours
+    dev.writeByte(0x02); // set pointer to hours
     dev.stop();
-    dev.writeByte(0x00);  // new pointer (seconds)
+    dev.writeByte(0x00); // new pointer (seconds)
     const raw = dev.readByte();
     // raw should be seconds BCD (tens ≤ 5)
-    expect((raw >> 4) & 0xF).toBeLessThanOrEqual(5);
+    expect((raw >> 4) & 0xf).toBeLessThanOrEqual(5);
   });
 });
 
@@ -232,17 +252,17 @@ describe('VirtualTempSensor', () => {
 
   it('reads temperature high byte (register 0) correctly', () => {
     const dev = new VirtualTempSensor();
-    dev.temperature = 2350;  // 23.50°C
+    dev.temperature = 2350; // 23.50°C
     dev.writeByte(0x00);
-    expect(dev.readByte()).toBe((2350 >> 8) & 0xFF);
+    expect(dev.readByte()).toBe((2350 >> 8) & 0xff);
   });
 
   it('reads humidity bytes from registers 2–3', () => {
     const dev = new VirtualTempSensor();
-    dev.humidity = 5500;  // 55.00%
+    dev.humidity = 5500; // 55.00%
     dev.writeByte(0x02);
-    expect(dev.readByte()).toBe((5500 >> 8) & 0xFF);
-    expect(dev.readByte()).toBe(5500 & 0xFF);
+    expect(dev.readByte()).toBe((5500 >> 8) & 0xff);
+    expect(dev.readByte()).toBe(5500 & 0xff);
   });
 });
 
@@ -259,16 +279,16 @@ describe('VirtualBMP280 — construction & addresses', () => {
 
   it('chip_id register (0xD0) reads 0x58', () => {
     const dev = new VirtualBMP280();
-    dev.writeByte(0xD0);
+    dev.writeByte(0xd0);
     expect(dev.readByte()).toBe(0x58);
   });
 
   it('stop() resets firstByte so register pointer can be re-set', () => {
     const dev = new VirtualBMP280();
-    dev.writeByte(0xD0);
+    dev.writeByte(0xd0);
     dev.stop();
-    dev.writeByte(0xF3);  // new pointer → status register
-    expect(dev.readByte()).toBe(0x00);  // status = 0 (ready)
+    dev.writeByte(0xf3); // new pointer → status register
+    expect(dev.readByte()).toBe(0x00); // status = 0 (ready)
   });
 });
 
@@ -287,7 +307,7 @@ describe('VirtualBMP280 — calibration registers', () => {
 
   function readS16LE(dev: VirtualBMP280, regAddr: number): number {
     const u = readU16LE(dev, regAddr);
-    return u > 0x7FFF ? u - 0x10000 : u;
+    return u > 0x7fff ? u - 0x10000 : u;
   }
 
   it('dig_T1 (0x88) equals 27504', () => {
@@ -296,15 +316,15 @@ describe('VirtualBMP280 — calibration registers', () => {
   });
 
   it('dig_T2 (0x8A) equals 26435', () => {
-    expect(readS16LE(new VirtualBMP280(), 0x8A)).toBe(26435);
+    expect(readS16LE(new VirtualBMP280(), 0x8a)).toBe(26435);
   });
 
   it('dig_T3 (0x8C) equals -1000', () => {
-    expect(readS16LE(new VirtualBMP280(), 0x8C)).toBe(-1000);
+    expect(readS16LE(new VirtualBMP280(), 0x8c)).toBe(-1000);
   });
 
   it('dig_P1 (0x8E) equals 36477', () => {
-    expect(readU16LE(new VirtualBMP280(), 0x8E)).toBe(36477);
+    expect(readU16LE(new VirtualBMP280(), 0x8e)).toBe(36477);
   });
 
   it('dig_P2 (0x90) equals -10685', () => {
@@ -318,12 +338,12 @@ describe('VirtualBMP280 — temperature compensation', () => {
    * the two 20-bit raw ADC values.  Returns { adcP, adcT }.
    */
   function readRawAdc(dev: VirtualBMP280): { adcP: number; adcT: number } {
-    dev.writeByte(0xF7);
-    const pMsb  = dev.readByte();
-    const pLsb  = dev.readByte();
+    dev.writeByte(0xf7);
+    const pMsb = dev.readByte();
+    const pLsb = dev.readByte();
     const pXlsb = dev.readByte();
-    const tMsb  = dev.readByte();
-    const tLsb  = dev.readByte();
+    const tMsb = dev.readByte();
+    const tLsb = dev.readByte();
     const tXlsb = dev.readByte();
     dev.stop();
     const adcP = (pMsb << 12) | (pLsb << 4) | (pXlsb >> 4);
@@ -337,8 +357,8 @@ describe('VirtualBMP280 — temperature compensation', () => {
    */
   function compensateT(adcT: number, digT1 = 27504, digT2 = 26435, digT3 = -1000): number {
     const var1 = (((adcT >> 3) - (digT1 << 1)) * digT2) >> 11;
-    const sub  = (adcT >> 4) - digT1;
-    const var2 = ((sub * sub >> 12) * digT3) >> 14;
+    const sub = (adcT >> 4) - digT1;
+    const var2 = (((sub * sub) >> 12) * digT3) >> 14;
     const tFine = var1 + var2;
     return (tFine * 5 + 128) >> 8;
   }
@@ -348,27 +368,36 @@ describe('VirtualBMP280 — temperature compensation', () => {
    * Returns pressure in Pa.
    */
   function compensateP(
-    adcP: number, adcT: number,
-    digT1 = 27504, digT2 = 26435, digT3 = -1000,
-    digP1 = 36477, digP2 = -10685, digP3 = 3024,
-    digP4 = 2855,  digP5 = 140,    digP6 = -7,
-    digP7 = 15500, digP8 = -14600, digP9 = 6000,
+    adcP: number,
+    adcT: number,
+    digT1 = 27504,
+    digT2 = 26435,
+    digT3 = -1000,
+    digP1 = 36477,
+    digP2 = -10685,
+    digP3 = 3024,
+    digP4 = 2855,
+    digP5 = 140,
+    digP6 = -7,
+    digP7 = 15500,
+    digP8 = -14600,
+    digP9 = 6000,
   ): number {
     const var1 = (((adcT >> 3) - (digT1 << 1)) * digT2) >> 11;
-    const sub  = (adcT >> 4) - digT1;
-    const var2 = ((sub * sub >> 12) * digT3) >> 14;
-    const tf   = var1 + var2;
+    const sub = (adcT >> 4) - digT1;
+    const var2 = (((sub * sub) >> 12) * digT3) >> 14;
+    const tf = var1 + var2;
 
     let v1 = tf / 2.0 - 64000.0;
-    let v2 = v1 * v1 * digP6 / 32768.0;
+    let v2 = (v1 * v1 * digP6) / 32768.0;
     v2 = v2 + v1 * digP5 * 2.0;
     v2 = v2 / 4.0 + digP4 * 65536.0;
-    v1 = (digP3 * v1 * v1 / 524288.0 + digP2 * v1) / 524288.0;
+    v1 = ((digP3 * v1 * v1) / 524288.0 + digP2 * v1) / 524288.0;
     v1 = (1.0 + v1 / 32768.0) * digP1;
     if (v1 === 0) return 0;
     let p = 1048576.0 - adcP;
-    p = (p - v2 / 4096.0) * 6250.0 / v1;
-    return p + (digP9 * p * p / 2147483648.0 + p * digP8 / 32768.0 + digP7) / 16.0;
+    p = ((p - v2 / 4096.0) * 6250.0) / v1;
+    return p + ((digP9 * p * p) / 2147483648.0 + (p * digP8) / 32768.0 + digP7) / 16.0;
   }
 
   it('default 25°C produces compensated temperature within ±0.5°C', () => {
@@ -402,9 +431,13 @@ describe('VirtualBMP280 — temperature compensation', () => {
 
 describe('VirtualBMP280 — pressure compensation', () => {
   function readRawAdc(dev: VirtualBMP280): { adcP: number; adcT: number } {
-    dev.writeByte(0xF7);
-    const pMsb = dev.readByte(), pLsb = dev.readByte(), pXlsb = dev.readByte();
-    const tMsb = dev.readByte(), tLsb = dev.readByte(), tXlsb = dev.readByte();
+    dev.writeByte(0xf7);
+    const pMsb = dev.readByte(),
+      pLsb = dev.readByte(),
+      pXlsb = dev.readByte();
+    const tMsb = dev.readByte(),
+      tLsb = dev.readByte(),
+      tXlsb = dev.readByte();
     dev.stop();
     return {
       adcP: (pMsb << 12) | (pLsb << 4) | (pXlsb >> 4),
@@ -413,24 +446,32 @@ describe('VirtualBMP280 — pressure compensation', () => {
   }
 
   function compensateP(adcP: number, adcT: number): number {
-    const digT1 = 27504, digT2 = 26435, digT3 = -1000;
-    const digP1 = 36477, digP2 = -10685, digP3 = 3024;
-    const digP4 = 2855,  digP5 = 140,    digP6 = -7;
-    const digP7 = 15500, digP8 = -14600, digP9 = 6000;
+    const digT1 = 27504,
+      digT2 = 26435,
+      digT3 = -1000;
+    const digP1 = 36477,
+      digP2 = -10685,
+      digP3 = 3024;
+    const digP4 = 2855,
+      digP5 = 140,
+      digP6 = -7;
+    const digP7 = 15500,
+      digP8 = -14600,
+      digP9 = 6000;
     const var1 = (((adcT >> 3) - (digT1 << 1)) * digT2) >> 11;
-    const sub  = (adcT >> 4) - digT1;
-    const var2 = ((sub * sub >> 12) * digT3) >> 14;
-    const tf   = var1 + var2;
+    const sub = (adcT >> 4) - digT1;
+    const var2 = (((sub * sub) >> 12) * digT3) >> 14;
+    const tf = var1 + var2;
     let v1 = tf / 2.0 - 64000.0;
-    let v2 = v1 * v1 * digP6 / 32768.0;
+    let v2 = (v1 * v1 * digP6) / 32768.0;
     v2 = v2 + v1 * digP5 * 2.0;
     v2 = v2 / 4.0 + digP4 * 65536.0;
-    v1 = (digP3 * v1 * v1 / 524288.0 + digP2 * v1) / 524288.0;
+    v1 = ((digP3 * v1 * v1) / 524288.0 + digP2 * v1) / 524288.0;
     v1 = (1.0 + v1 / 32768.0) * digP1;
     if (v1 === 0) return 0;
     let p = 1048576.0 - adcP;
-    p = (p - v2 / 4096.0) * 6250.0 / v1;
-    return p + (digP9 * p * p / 2147483648.0 + p * digP8 / 32768.0 + digP7) / 16.0;
+    p = ((p - v2 / 4096.0) * 6250.0) / v1;
+    return p + ((digP9 * p * p) / 2147483648.0 + (p * digP8) / 32768.0 + digP7) / 16.0;
   }
 
   it('default 1013.25 hPa produces compensated pressure within ±5 hPa', () => {
@@ -459,10 +500,10 @@ describe('VirtualBMP280 — ctrl_meas register is writable', () => {
   it('can write and read back ctrl_meas (0xF4)', () => {
     const dev = new VirtualBMP280();
     // Set reg pointer via normal write
-    dev.writeByte(0xF4);   // pointer → 0xF4
-    dev.writeByte(0x57);   // write 0x57 (forced mode + oversampling)
+    dev.writeByte(0xf4); // pointer → 0xF4
+    dev.writeByte(0x57); // write 0x57 (forced mode + oversampling)
     dev.stop();
-    dev.writeByte(0xF4);   // read back
+    dev.writeByte(0xf4); // read back
     expect(dev.readByte()).toBe(0x57);
   });
 });
@@ -477,9 +518,9 @@ describe('VirtualDS3231 — time registers', () => {
   it('register 0x00 returns valid BCD seconds (0–59)', () => {
     const dev = new VirtualDS3231();
     dev.writeByte(0x00);
-    const raw   = dev.readByte();
-    const tens  = (raw >> 4) & 0xF;
-    const units =  raw       & 0xF;
+    const raw = dev.readByte();
+    const tens = (raw >> 4) & 0xf;
+    const units = raw & 0xf;
     expect(tens).toBeLessThanOrEqual(5);
     expect(units).toBeLessThanOrEqual(9);
   });
@@ -487,9 +528,9 @@ describe('VirtualDS3231 — time registers', () => {
   it('register 0x02 (hours) returns valid BCD 0–23', () => {
     const dev = new VirtualDS3231();
     dev.writeByte(0x02);
-    const raw   = dev.readByte();
-    const tens  = (raw >> 4) & 0xF;
-    const units =  raw       & 0xF;
+    const raw = dev.readByte();
+    const tens = (raw >> 4) & 0xf;
+    const units = raw & 0xf;
     const hours = tens * 10 + units;
     expect(hours).toBeGreaterThanOrEqual(0);
     expect(hours).toBeLessThanOrEqual(23);
@@ -505,13 +546,13 @@ describe('VirtualDS3231 — time registers', () => {
 
   it('register 0x0E (control) reads 0x00', () => {
     const dev = new VirtualDS3231();
-    dev.writeByte(0x0E);
+    dev.writeByte(0x0e);
     expect(dev.readByte()).toBe(0x00);
   });
 
   it('register 0x0F (status) reads 0x00 (OSF cleared)', () => {
     const dev = new VirtualDS3231();
-    dev.writeByte(0x0F);
+    dev.writeByte(0x0f);
     expect(dev.readByte()).toBe(0x00);
   });
 });
@@ -521,7 +562,7 @@ describe('VirtualDS3231 — temperature registers', () => {
     const dev = new VirtualDS3231();
     dev.temperatureC = 25.0;
     dev.writeByte(0x11);
-    expect(dev.readByte()).toBe(25);  // 25 = 0x19
+    expect(dev.readByte()).toBe(25); // 25 = 0x19
   });
 
   it('register 0x12 returns 0x00 for integer temperature (no fractional)', () => {
@@ -544,18 +585,18 @@ describe('VirtualDS3231 — temperature registers', () => {
     dev.temperatureC = -5.0;
     dev.writeByte(0x11);
     // trunc(-5) & 0xFF = 251
-    expect(dev.readByte()).toBe((-5) & 0xFF);
+    expect(dev.readByte()).toBe(-5 & 0xff);
   });
 });
 
 describe('VirtualDS3231 — stop/firstByte reset', () => {
   it('stop() resets pointer acquisition', () => {
     const dev = new VirtualDS3231();
-    dev.writeByte(0x11);   // set pointer
+    dev.writeByte(0x11); // set pointer
     dev.stop();
-    dev.writeByte(0x00);   // new pointer → seconds
+    dev.writeByte(0x00); // new pointer → seconds
     const raw = dev.readByte();
-    expect((raw >> 4) & 0xF).toBeLessThanOrEqual(5); // valid BCD tens digit
+    expect((raw >> 4) & 0xf).toBeLessThanOrEqual(5); // valid BCD tens digit
   });
 });
 
@@ -568,13 +609,13 @@ describe('VirtualPCF8574 — construction', () => {
 
   it('accepts custom address', () => {
     expect(new VirtualPCF8574(0x20).address).toBe(0x20);
-    expect(new VirtualPCF8574(0x3F).address).toBe(0x3F);
+    expect(new VirtualPCF8574(0x3f).address).toBe(0x3f);
   });
 
   it('default portState and outputLatch are both 0xFF', () => {
     const dev = new VirtualPCF8574();
-    expect(dev.portState).toBe(0xFF);
-    expect(dev.outputLatch).toBe(0xFF);
+    expect(dev.portState).toBe(0xff);
+    expect(dev.outputLatch).toBe(0xff);
   });
 });
 
@@ -588,14 +629,14 @@ describe('VirtualPCF8574 — write', () => {
   it('writeByte fires onWrite callback with the written value', () => {
     const dev = new VirtualPCF8574();
     const log: number[] = [];
-    dev.onWrite = v => log.push(v);
+    dev.onWrite = (v) => log.push(v);
     dev.writeByte(0x42);
     expect(log).toEqual([0x42]);
   });
 
   it('multiple writes update outputLatch each time', () => {
     const dev = new VirtualPCF8574();
-    dev.writeByte(0xAA);
+    dev.writeByte(0xaa);
     dev.writeByte(0x55);
     expect(dev.outputLatch).toBe(0x55);
   });
@@ -604,27 +645,27 @@ describe('VirtualPCF8574 — write', () => {
 describe('VirtualPCF8574 — read (open-drain model)', () => {
   it('readByte returns portState & outputLatch (both 0xFF → 0xFF)', () => {
     const dev = new VirtualPCF8574();
-    expect(dev.readByte()).toBe(0xFF);
+    expect(dev.readByte()).toBe(0xff);
   });
 
   it('readByte: pin driven LOW by Arduino (outputLatch=0) → reads 0 regardless of portState', () => {
     const dev = new VirtualPCF8574();
-    dev.portState    = 0xFF;
-    dev.writeByte(0x00);   // drive all LOW
+    dev.portState = 0xff;
+    dev.writeByte(0x00); // drive all LOW
     expect(dev.readByte()).toBe(0x00);
   });
 
   it('readByte: external input LOW overrides Hi-Z output (open-drain)', () => {
     const dev = new VirtualPCF8574();
-    dev.portState    = 0b00001111;  // lower 4 pins pulled low by external device
-    dev.outputLatch  = 0xFF;        // Arduino released all pins
+    dev.portState = 0b00001111; // lower 4 pins pulled low by external device
+    dev.outputLatch = 0xff; // Arduino released all pins
     expect(dev.readByte()).toBe(0b00001111);
   });
 
   it('readByte reflects mix of output-low and external-low', () => {
     const dev = new VirtualPCF8574();
-    dev.outputLatch = 0b11110000;  // Arduino drives lower 4 LOW, upper 4 Hi-Z
-    dev.portState   = 0b10101010;  // external: alternate HIGH/LOW
+    dev.outputLatch = 0b11110000; // Arduino drives lower 4 LOW, upper 4 Hi-Z
+    dev.portState = 0b10101010; // external: alternate HIGH/LOW
     // result: upper 4 from portState masked, lower 4 forced LOW by outputLatch
     expect(dev.readByte()).toBe(0b10100000);
   });
@@ -634,6 +675,6 @@ describe('VirtualPCF8574 — writeByte returns ACK', () => {
   it('always returns true (ACK)', () => {
     const dev = new VirtualPCF8574();
     expect(dev.writeByte(0x00)).toBe(true);
-    expect(dev.writeByte(0xFF)).toBe(true);
+    expect(dev.writeByte(0xff)).toBe(true);
   });
 });

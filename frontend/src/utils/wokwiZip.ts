@@ -55,7 +55,10 @@ export interface ImportResult {
 // ── Board mappings ────────────────────────────────────────────────────────────
 
 // Wokwi board type → Velxio boardType
-const WOKWI_TYPE_TO_BOARD: Record<string, 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico'> = {
+const WOKWI_TYPE_TO_BOARD: Record<
+  string,
+  'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico'
+> = {
   'wokwi-arduino-uno': 'arduino-uno',
   'wokwi-arduino-nano': 'arduino-nano',
   'wokwi-arduino-mega': 'arduino-mega',
@@ -83,10 +86,10 @@ const BOARD_TO_WOKWI_ID: Record<string, string> = {
 // Maps Wokwi connection "signal" pin names to wokwi-element physical pin names.
 // Wokwi boards (e.g. board-ssd1306) use different naming than the bare elements.
 const COMPONENT_PIN_ALIASES: Record<string, Record<string, string>> = {
-  'ssd1306': {
-    'SDA': 'DATA',
-    'SCL': 'CLK',
-    'VCC': 'VIN',
+  ssd1306: {
+    SDA: 'DATA',
+    SCL: 'CLK',
+    VCC: 'VIN',
   },
 };
 
@@ -97,17 +100,41 @@ function normalizePinName(metadataId: string, pinName: string): string {
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
 const COLOR_NAME_TO_HEX: Record<string, string> = {
-  red: '#ff0000', black: '#000000', green: '#00c800', blue: '#0000ff',
-  yellow: '#ffff00', orange: '#ff8800', white: '#ffffff', gray: '#808080',
-  grey: '#808080', purple: '#800080', pink: '#ff69b4', cyan: '#00ffff',
-  gold: '#ffd700', brown: '#8b4513', magenta: '#ff00ff', lime: '#00ff00',
-  violet: '#ee82ee', maroon: '#800000', navy: '#000080', teal: '#008080',
+  red: '#ff0000',
+  black: '#000000',
+  green: '#00c800',
+  blue: '#0000ff',
+  yellow: '#ffff00',
+  orange: '#ff8800',
+  white: '#ffffff',
+  gray: '#808080',
+  grey: '#808080',
+  purple: '#800080',
+  pink: '#ff69b4',
+  cyan: '#00ffff',
+  gold: '#ffd700',
+  brown: '#8b4513',
+  magenta: '#ff00ff',
+  lime: '#00ff00',
+  violet: '#ee82ee',
+  maroon: '#800000',
+  navy: '#000080',
+  teal: '#008080',
 };
 
 const HEX_TO_COLOR_NAME: Record<string, string> = {
-  '#ff0000': 'red', '#000000': 'black', '#00ff00': 'green', '#00c800': 'green',
-  '#0000ff': 'blue', '#ffff00': 'yellow', '#ff8800': 'orange', '#ffffff': 'white',
-  '#808080': 'gray', '#800080': 'purple', '#00ffff': 'cyan', '#ffd700': 'gold',
+  '#ff0000': 'red',
+  '#000000': 'black',
+  '#00ff00': 'green',
+  '#00c800': 'green',
+  '#0000ff': 'blue',
+  '#ffff00': 'yellow',
+  '#ff8800': 'orange',
+  '#ffffff': 'white',
+  '#808080': 'gray',
+  '#800080': 'purple',
+  '#00ffff': 'cyan',
+  '#ffd700': 'gold',
 };
 
 function colorToHex(color: string): string {
@@ -180,8 +207,14 @@ export async function exportToWokwiZip(
 
   // Build connections
   const connections: [string, string, string, string[]][] = wires.map((w) => {
-    const isBoardStart = w.start.componentId === 'arduino-uno' || w.start.componentId === 'arduino-nano' || w.start.componentId === 'nano-rp2040';
-    const isBoardEnd = w.end.componentId === 'arduino-uno' || w.end.componentId === 'arduino-nano' || w.end.componentId === 'nano-rp2040';
+    const isBoardStart =
+      w.start.componentId === 'arduino-uno' ||
+      w.start.componentId === 'arduino-nano' ||
+      w.start.componentId === 'nano-rp2040';
+    const isBoardEnd =
+      w.end.componentId === 'arduino-uno' ||
+      w.end.componentId === 'arduino-nano' ||
+      w.end.componentId === 'nano-rp2040';
     const startId = isBoardStart ? boardId : w.start.componentId;
     const endId = isBoardEnd ? boardId : w.end.componentId;
     return [
@@ -201,7 +234,10 @@ export async function exportToWokwiZip(
   };
 
   zip.file('diagram.json', JSON.stringify(diagram, null, 2));
-  zip.file('wokwi-project.txt', `Exported from Velxio\n\nSimulate this project on https://velxio.dev\n`);
+  zip.file(
+    'wokwi-project.txt',
+    `Exported from Velxio\n\nSimulate this project on https://velxio.dev\n`,
+  );
 
   for (const f of files) {
     zip.file(f.name, f.content);

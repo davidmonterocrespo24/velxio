@@ -11,8 +11,7 @@ function getLanguage(filename: string): string {
 }
 
 export const CodeEditor = () => {
-  const { files, activeFileId, setFileContent, theme, fontSize } =
-    useEditorStore();
+  const { files, activeFileId, setFileContent, theme, fontSize } = useEditorStore();
   const activeFile = files.find((f) => f.id === activeFileId);
 
   return (

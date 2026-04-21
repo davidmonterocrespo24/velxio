@@ -18,9 +18,7 @@ export const GitHubStarBanner: React.FC<Props> = ({ onClose }) => (
 
     <div className="gh-star-banner__body">
       <strong>Enjoying Velxio?</strong>
-      <p>
-        A ⭐ on GitHub helps more developers discover the project — it only takes 2 seconds!
-      </p>
+      <p>A ⭐ on GitHub helps more developers discover the project — it only takes 2 seconds!</p>
       <a
         href={GITHUB_URL}
         target="_blank"

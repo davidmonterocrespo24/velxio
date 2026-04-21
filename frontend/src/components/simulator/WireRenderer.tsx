@@ -41,23 +41,11 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
 
       {/* Hover highlight (below wire) */}
       {isHovered && !isSelected && (
-        <path
-          d={path}
-          stroke="#ffffff"
-          strokeWidth="6"
-          fill="none"
-          opacity="0.2"
-        />
+        <path d={path} stroke="#ffffff" strokeWidth="6" fill="none" opacity="0.2" />
       )}
 
       {/* Visible wire */}
-      <path
-        d={path}
-        stroke={color}
-        strokeWidth={strokeW}
-        fill="none"
-        opacity={opacity}
-      />
+      <path d={path} stroke={color} strokeWidth={strokeW} fill="none" opacity={opacity} />
 
       {/* Selection dashed highlight */}
       {isSelected && (
@@ -72,7 +60,14 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
       )}
 
       {/* Endpoint dots */}
-      <circle cx={wire.start.x} cy={wire.start.y} r="3" fill={color} stroke="#1a1a1a" strokeWidth="1" />
+      <circle
+        cx={wire.start.x}
+        cy={wire.start.y}
+        r="3"
+        fill={color}
+        stroke="#1a1a1a"
+        strokeWidth="1"
+      />
       <circle cx={wire.end.x} cy={wire.end.y} r="3" fill={color} stroke="#1a1a1a" strokeWidth="1" />
 
       {/* Waypoint dots */}

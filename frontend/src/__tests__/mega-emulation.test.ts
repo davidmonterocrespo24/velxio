@@ -23,8 +23,13 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'child_process';
 import {
-  mkdtempSync, writeFileSync, readFileSync, existsSync,
-  rmSync, mkdirSync, readdirSync,
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  readdirSync,
 } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
@@ -47,9 +52,7 @@ vi.stubGlobal('cancelAnimationFrame', vi.fn());
 //   OUT PORTB, r16  ; 05 B9  — PORTB (I/O 0x05)
 //   RJMP .-2        ; FF CF  — loop
 //
-const MEGA_PORTB_HEX =
-  ':0A0000000FEF04B900E805B9FFCFC7\n' +
-  ':00000001FF\n';
+const MEGA_PORTB_HEX = ':0A0000000FEF04B900E805B9FFCFC7\n' + ':00000001FF\n';
 
 // MEGA_PORTB_PIN53_HEX — sets pin 53 HIGH (PORTB bit 0 = 0x01 on Mega)
 //   LDI r16, 0xFF   ; 0F EF
@@ -58,9 +61,7 @@ const MEGA_PORTB_HEX =
 //   OUT PORTB, r16  ; 05 B9
 //   RJMP .-2        ; FF CF
 //
-const MEGA_PORTB_PIN53_HEX =
-  ':0A0000000FEF04B901E005B9FFCFC6\n' +
-  ':00000001FF\n';
+const MEGA_PORTB_PIN53_HEX = ':0A0000000FEF04B901E005B9FFCFC6\n' + ':00000001FF\n';
 
 // MEGA_PORTA_HEX — PORTA test: sets all pins 22–29 HIGH (all bits of PORTA)
 //   LDI r16, 0xFF   ; 0F EF
@@ -68,9 +69,7 @@ const MEGA_PORTB_PIN53_HEX =
 //   OUT PORTA, r16  ; 02 B9  — PORTA (I/O 0x02)
 //   RJMP .-2        ; FF CF
 //
-const MEGA_PORTA_HEX =
-  ':080000000FEF01B902B9FFCFB7\n' +
-  ':00000001FF\n';
+const MEGA_PORTA_HEX = ':080000000FEF01B902B9FFCFB7\n' + ':00000001FF\n';
 
 // MEGA_PORTA_PIN22_HEX — sets only pin 22 HIGH (PORTA bit 0 = 0x01)
 //   LDI r16, 0xFF   ; 0F EF
@@ -79,9 +78,7 @@ const MEGA_PORTA_HEX =
 //   OUT PORTA, r16  ; 02 B9
 //   RJMP .-2        ; FF CF
 //
-const MEGA_PORTA_PIN22_HEX =
-  ':0A0000000FEF01B901E002B9FFCFD4\n' +
-  ':00000001FF\n';
+const MEGA_PORTA_PIN22_HEX = ':0A0000000FEF01B901E002B9FFCFD4\n' + ':00000001FF\n';
 
 // Empty HEX — minimal valid file, no-op program
 const EMPTY_HEX = ':00000001FF\n';
@@ -118,7 +115,7 @@ describe('AVRSimulator Mega — initialisation', () => {
   let sim: AVRSimulator;
 
   beforeEach(() => {
-    pm  = new PinManager();
+    pm = new PinManager();
     sim = new AVRSimulator(pm, 'mega');
   });
   afterEach(() => sim.stop());
@@ -143,7 +140,19 @@ describe('AVRSimulator Mega — initialisation', () => {
     const ports = (sim as any).megaPorts as Map<string, unknown>;
     expect(ports).toBeDefined();
     expect(ports.size).toBe(11);
-    const expected = ['PORTA','PORTB','PORTC','PORTD','PORTE','PORTF','PORTG','PORTH','PORTJ','PORTK','PORTL'];
+    const expected = [
+      'PORTA',
+      'PORTB',
+      'PORTC',
+      'PORTD',
+      'PORTE',
+      'PORTF',
+      'PORTG',
+      'PORTH',
+      'PORTJ',
+      'PORTK',
+      'PORTL',
+    ];
     for (const name of expected) {
       expect(ports.has(name)).toBe(true);
     }
@@ -154,7 +163,7 @@ describe('AVRSimulator Mega — initialisation', () => {
 
 describe('AVRSimulator Mega — PORTB pin mapping', () => {
   it('pin 13 (PORTB bit 7) fires HIGH when 0x80 is written to PORTB', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(MEGA_PORTB_HEX);
 
@@ -170,7 +179,7 @@ describe('AVRSimulator Mega — PORTB pin mapping', () => {
   });
 
   it('pin 53 (PORTB bit 0) fires HIGH when 0x01 is written to PORTB', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(MEGA_PORTB_PIN53_HEX);
 
@@ -185,9 +194,9 @@ describe('AVRSimulator Mega — PORTB pin mapping', () => {
   });
 
   it('pin 12 (PORTB bit 6) does NOT fire when only bit 7 is set', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
-    sim.loadHex(MEGA_PORTB_HEX);  // sets only bit 7 (pin 13)
+    sim.loadHex(MEGA_PORTB_HEX); // sets only bit 7 (pin 13)
 
     const pin12Changes: boolean[] = [];
     pm.onPinChange(12, (_pin, state) => pin12Changes.push(state));
@@ -204,13 +213,15 @@ describe('AVRSimulator Mega — PORTB pin mapping', () => {
 
 describe('AVRSimulator Mega — PORTA pin mapping (pins 22–29)', () => {
   it('all PORTA pins (22–29) fire HIGH when 0xFF is written to PORTA', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(MEGA_PORTA_HEX);
 
     const fired = new Set<number>();
     for (let pin = 22; pin <= 29; pin++) {
-      pm.onPinChange(pin, (p, state) => { if (state) fired.add(p); });
+      pm.onPinChange(pin, (p, state) => {
+        if (state) fired.add(p);
+      });
     }
 
     runCycles(sim, 20);
@@ -223,13 +234,15 @@ describe('AVRSimulator Mega — PORTA pin mapping (pins 22–29)', () => {
   });
 
   it('only pin 22 (PORTA bit 0) fires when 0x01 is written to PORTA', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(MEGA_PORTA_PIN22_HEX);
 
     const firedHigh = new Set<number>();
     for (let pin = 22; pin <= 29; pin++) {
-      pm.onPinChange(pin, (p, state) => { if (state) firedHigh.add(p); });
+      pm.onPinChange(pin, (p, state) => {
+        if (state) firedHigh.add(p);
+      });
     }
 
     runCycles(sim, 20);
@@ -247,23 +260,35 @@ describe('AVRSimulator Mega — PORTA pin mapping (pins 22–29)', () => {
 
 describe('AVRSimulator Mega — setPinState (Mega pins)', () => {
   it('setPinState does not throw for various Mega pins', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(EMPTY_HEX);
 
     // Pins from different Mega ports
     const megaPins = [
-      22, 29,   // PORTA
-      53, 13,   // PORTB
-      37, 30,   // PORTC
-      21, 38,   // PORTD
-      0, 1, 5,  // PORTE
-      54, 61,   // PORTF (A0, A7)
-      41, 4,    // PORTG
-      6, 9,     // PORTH
-      15, 14,   // PORTJ
-      62, 69,   // PORTK (A8, A15)
-      42, 49,   // PORTL
+      22,
+      29, // PORTA
+      53,
+      13, // PORTB
+      37,
+      30, // PORTC
+      21,
+      38, // PORTD
+      0,
+      1,
+      5, // PORTE
+      54,
+      61, // PORTF (A0, A7)
+      41,
+      4, // PORTG
+      6,
+      9, // PORTH
+      15,
+      14, // PORTJ
+      62,
+      69, // PORTK (A8, A15)
+      42,
+      49, // PORTL
     ];
 
     for (const pin of megaPins) {
@@ -278,12 +303,12 @@ describe('AVRSimulator Mega — setPinState (Mega pins)', () => {
 
 describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
   it('OCR0A (addr 0x47) maps to pin 13 on Mega (not pin 6 as on Uno)', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(EMPTY_HEX);
 
     const cb = vi.fn();
-    pm.onPwmChange(13, cb);  // Mega: OCR0A → D13
+    pm.onPwmChange(13, cb); // Mega: OCR0A → D13
 
     const cpu = (sim as any).cpu;
     cpu.data[0x47] = 128;
@@ -296,7 +321,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
   });
 
   it('OCR3AL (addr 0x98) maps to pin 5 on Mega', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(EMPTY_HEX);
 
@@ -313,7 +338,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
   });
 
   it('OCR4AL (addr 0xA8) maps to pin 6 on Mega', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(EMPTY_HEX);
 
@@ -321,7 +346,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
     pm.onPwmChange(6, cb);
 
     const cpu = (sim as any).cpu;
-    cpu.data[0xA8] = 100;
+    cpu.data[0xa8] = 100;
 
     (sim as any).pollPwmRegisters();
 
@@ -334,7 +359,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
 
 const SKETCH_DIR = resolve(__dirname, '../../../example_zip/extracted/mega-blink-test');
 const SKETCH_INO = join(SKETCH_DIR, 'mega-blink-test.ino');
-const HEX_CACHE  = join(tmpdir(), 'velxio-mega-blink-v2.hex');
+const HEX_CACHE = join(tmpdir(), 'velxio-mega-blink-v2.hex');
 
 // ─── arduino-cli availability ─────────────────────────────────────────────────
 
@@ -351,25 +376,17 @@ function compileSketch(): string {
 
   console.log('[compile] Compiling mega-blink-test.ino for arduino:avr:mega:cpu=atmega2560…');
 
-  const workDir   = mkdtempSync(join(tmpdir(), 'velxio-mega-'));
+  const workDir = mkdtempSync(join(tmpdir(), 'velxio-mega-'));
   const sketchDir = join(workDir, 'mega-blink-test');
   mkdirSync(sketchDir);
-  writeFileSync(
-    join(sketchDir, 'mega-blink-test.ino'),
-    readFileSync(SKETCH_INO, 'utf-8'),
-  );
+  writeFileSync(join(sketchDir, 'mega-blink-test.ino'), readFileSync(SKETCH_INO, 'utf-8'));
 
   const buildDir = join(workDir, 'build');
   mkdirSync(buildDir);
 
   const result = spawnSync(
     'arduino-cli',
-    [
-      'compile',
-      '--fqbn', 'arduino:avr:mega:cpu=atmega2560',
-      '--build-path', buildDir,
-      sketchDir,
-    ],
+    ['compile', '--fqbn', 'arduino:avr:mega:cpu=atmega2560', '--build-path', buildDir, sketchDir],
     { encoding: 'utf-8', timeout: 120_000 },
   );
 
@@ -386,7 +403,10 @@ function compileSketch(): string {
   let hexPath: string | null = null;
   for (const candidate of ['mega-blink-test.ino.hex', 'sketch.ino.hex']) {
     const p = join(buildDir, candidate);
-    if (existsSync(p)) { hexPath = p; break; }
+    if (existsSync(p)) {
+      hexPath = p;
+      break;
+    }
   }
   if (!hexPath) {
     const files = readdirSync(buildDir, { recursive: true }) as string[];
@@ -414,7 +434,11 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Arduino Mega 2560 — end-to-end emulat
   });
 
   afterAll(() => {
-    try { sim?.stop(); } catch { /* ignore */ }
+    try {
+      sim?.stop();
+    } catch {
+      /* ignore */
+    }
     vi.unstubAllGlobals();
   });
 
@@ -422,11 +446,11 @@ describe.skipIf(!ARDUINO_CLI_AVAILABLE)('Arduino Mega 2560 — end-to-end emulat
     expect(hexContent).toBeTruthy();
     expect(hexContent).toContain(':');
     console.log('[hex] First line:', hexContent.split('\n')[0]);
-    console.log('[hex] Size:',       hexContent.length, 'chars');
+    console.log('[hex] Size:', hexContent.length, 'chars');
   });
 
   it('🟢 pin 13 (LED_BUILTIN, PORTB bit 7) goes HIGH in setup()', () => {
-    pm  = new PinManager();
+    pm = new PinManager();
     sim = new AVRSimulator(pm, 'mega');
     sim.loadHex(hexContent);
 

@@ -18,7 +18,16 @@ const DISCORD_URL = 'https://discord.gg/3mARjJrh4E';
 
 /* ── SVG Icons (no emojis) ─────────────────────────────── */
 const IcoRocket = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
     <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
     <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
@@ -27,7 +36,16 @@ const IcoRocket = () => (
 );
 
 const IcoChip = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="5" y="5" width="14" height="14" rx="2" />
     <rect x="9" y="9" width="6" height="6" />
     <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
@@ -35,7 +53,16 @@ const IcoChip = () => (
 );
 
 const IcoCpu = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="4" y="4" width="16" height="16" rx="2" />
     <rect x="8" y="8" width="8" height="8" />
     <path d="M10 2v2M14 2v2M10 20v2M14 20v2M2 10h2M2 14h2M20 10h2M20 14h2" />
@@ -43,21 +70,48 @@ const IcoCpu = () => (
 );
 
 const IcoSensor = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
     <circle cx="12" cy="12" r="3" />
   </svg>
 );
 
 const IcoTerminal = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="4 17 10 11 4 5" />
     <line x1="12" y1="19" x2="20" y2="19" />
   </svg>
 );
 
 const IcoTestTube = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14.5 2v17.5c0 1.4-1.1 2.5-2.5 2.5s-2.5-1.1-2.5-2.5V2" />
     <path d="M8.5 2h7" />
     <path d="M14.5 16h-5" />
@@ -65,21 +119,48 @@ const IcoTestTube = () => (
 );
 
 const IcoPaintbrush = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M18.37 2.63L14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3z" />
     <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7" />
   </svg>
 );
 
 const IcoBook = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
   </svg>
 );
 
 const IcoWrench = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
   </svg>
 );
@@ -97,13 +178,31 @@ const IcoDiscord = () => (
 );
 
 const IcoStar = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
 );
 
 const IcoMultiBoard = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <rect x="2" y="3" width="8" height="7" rx="1.5" />
     <rect x="14" y="3" width="8" height="7" rx="1.5" />
     <rect x="8" y="14" width="8" height="7" rx="1.5" />
@@ -113,7 +212,16 @@ const IcoMultiBoard = () => (
 );
 
 const IcoRefresh = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M21.5 2v6h-6" />
     <path d="M2.5 22v-6h6" />
     <path d="M2 11.5a10 10 0 0 1 18.8-4.3" />
@@ -257,31 +365,62 @@ export const Velxio2Page: React.FC = () => {
             <IcoRocket /> Version 2.0
           </div>
           <h1>
-            Velxio 2.0<br />
+            Velxio 2.0
+            <br />
             <span className="accent">Multi-Platform Embedded Simulator</span>
           </h1>
           <p className="subtitle">
-            Simulate Arduino, ESP32, Raspberry Pi Pico, and Raspberry Pi 3 in your browser.
-            19 boards, 68+ ready-to-run examples, realistic sensor simulation.
-            Free, open-source, no install needed.
+            Simulate Arduino, ESP32, Raspberry Pi Pico, and Raspberry Pi 3 in your browser. 19
+            boards, 68+ ready-to-run examples, realistic sensor simulation. Free, open-source, no
+            install needed.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('velxio-v2', '/editor')}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('velxio-v2', '/editor')}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
               Try Velxio 2.0
             </Link>
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="seo-btn-secondary">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="seo-btn-secondary"
+            >
               <IcoGitHub /> View on GitHub
             </a>
           </div>
 
           {/* Community CTAs */}
           <div className="v2-community-row">
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="v2-community-btn v2-star-btn">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-community-btn v2-star-btn"
+            >
               <IcoStar />
               <span>Star on GitHub</span>
             </a>
-            <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" className="v2-community-btn v2-discord-btn">
+            <a
+              href={DISCORD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-community-btn v2-discord-btn"
+            >
               <IcoDiscord />
               <span>Join Discord</span>
             </a>
@@ -292,7 +431,8 @@ export const Velxio2Page: React.FC = () => {
         <section className="seo-section">
           <h2>19 boards. 5 architectures. One tool.</h2>
           <p className="lead">
-            From 8-bit AVR to quad-core ARM Linux — Velxio 2.0 emulates every major embedded platform in a single browser tab.
+            From 8-bit AVR to quad-core ARM Linux — Velxio 2.0 emulates every major embedded
+            platform in a single browser tab.
           </p>
 
           {/* AVR8 */}
@@ -417,7 +557,13 @@ export const Velxio2Page: React.FC = () => {
               </div>
               <div className="v2-mb-wire">
                 <svg width="60" height="24" viewBox="0 0 60 24">
-                  <path d="M0 12 H20 Q30 12 30 4 Q30 12 40 12 H60" stroke="#484848" strokeWidth="2" fill="none" strokeDasharray="4 3" />
+                  <path
+                    d="M0 12 H20 Q30 12 30 4 Q30 12 40 12 H60"
+                    stroke="#484848"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeDasharray="4 3"
+                  />
                 </svg>
               </div>
               <div className="v2-mb-node" style={{ borderColor: '#a8192a' }}>
@@ -426,7 +572,13 @@ export const Velxio2Page: React.FC = () => {
               </div>
               <div className="v2-mb-wire">
                 <svg width="60" height="24" viewBox="0 0 60 24">
-                  <path d="M0 12 H20 Q30 12 30 20 Q30 12 40 12 H60" stroke="#484848" strokeWidth="2" fill="none" strokeDasharray="4 3" />
+                  <path
+                    d="M0 12 H20 Q30 12 30 20 Q30 12 40 12 H60"
+                    stroke="#484848"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeDasharray="4 3"
+                  />
                 </svg>
               </div>
               <div className="v2-mb-node" style={{ borderColor: '#0071e3' }}>
@@ -437,15 +589,24 @@ export const Velxio2Page: React.FC = () => {
             <div className="seo-grid" style={{ marginTop: 24 }}>
               <div className="seo-card">
                 <h3>Mix architectures</h3>
-                <p>Connect an ESP32 to a Raspberry Pi 3, wire three Arduinos together, or combine a Pico with an ESP32-C3. Any combination works.</p>
+                <p>
+                  Connect an ESP32 to a Raspberry Pi 3, wire three Arduinos together, or combine a
+                  Pico with an ESP32-C3. Any combination works.
+                </p>
               </div>
               <div className="seo-card">
                 <h3>Real inter-board communication</h3>
-                <p>Boards communicate through wired connections — UART, I2C, SPI, or simple GPIO signals, just like real hardware.</p>
+                <p>
+                  Boards communicate through wired connections — UART, I2C, SPI, or simple GPIO
+                  signals, just like real hardware.
+                </p>
               </div>
               <div className="seo-card">
                 <h3>No other simulator does this</h3>
-                <p>Traditional simulators emulate one board in isolation. Velxio simulates entire systems with multiple boards running simultaneously.</p>
+                <p>
+                  Traditional simulators emulate one board in isolation. Velxio simulates entire
+                  systems with multiple boards running simultaneously.
+                </p>
               </div>
             </div>
           </div>
@@ -455,7 +616,8 @@ export const Velxio2Page: React.FC = () => {
         <section className="seo-section">
           <h2>What's new in 2.0</h2>
           <p className="lead">
-            A complete transformation into a multi-platform embedded systems simulator — more boards, more accurate emulation, better developer experience.
+            A complete transformation into a multi-platform embedded systems simulator — more
+            boards, more accurate emulation, better developer experience.
           </p>
 
           <div className="v2-changelog">
@@ -479,20 +641,30 @@ export const Velxio2Page: React.FC = () => {
         <section className="seo-section">
           <h2>68+ ready-to-run examples</h2>
           <p className="lead">
-            From basic LED blink to multi-board communication — examples for every platform and skill level.
+            From basic LED blink to multi-board communication — examples for every platform and
+            skill level.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Arduino (17 examples)</h3>
-              <p>Blink, traffic light, button, fade, RGB LED, Simon Says game, TFT display, LCD, I2C scanner, SPI loopback, and more.</p>
+              <p>
+                Blink, traffic light, button, fade, RGB LED, Simon Says game, TFT display, LCD, I2C
+                scanner, SPI loopback, and more.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Raspberry Pi Pico (18 examples)</h3>
-              <p>Blink, serial, I2C (scanner, RTC, EEPROM), SPI, ADC read, DHT22, HC-SR04, servo, joystick, NTC sensor.</p>
+              <p>
+                Blink, serial, I2C (scanner, RTC, EEPROM), SPI, ADC read, DHT22, HC-SR04, servo,
+                joystick, NTC sensor.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32 (9 examples)</h3>
-              <p>Blink, serial echo, 7-segment, DHT22, HC-SR04, MPU6050 IMU, PIR motion, servo, joystick.</p>
+              <p>
+                Blink, serial echo, 7-segment, DHT22, HC-SR04, MPU6050 IMU, PIR motion, servo,
+                joystick.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32-C3 RISC-V (9 examples)</h3>
@@ -508,7 +680,9 @@ export const Velxio2Page: React.FC = () => {
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: 24 }}>
-            <Link to="/examples" className="seo-btn-secondary">Browse All Examples</Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              Browse All Examples
+            </Link>
           </div>
         </section>
 
@@ -516,20 +690,30 @@ export const Velxio2Page: React.FC = () => {
         <section className="seo-section">
           <h2>The outcome</h2>
           <p className="lead">
-            Velxio 2.0 transforms the project into a complete, scalable multi-platform embedded systems simulator.
+            Velxio 2.0 transforms the project into a complete, scalable multi-platform embedded
+            systems simulator.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>More realistic emulation</h3>
-              <p>QEMU-based Xtensa and ARM emulation. Browser-native RISC-V. Cycle-accurate AVR8 via avr8js. Real firmware execution, not approximations.</p>
+              <p>
+                QEMU-based Xtensa and ARM emulation. Browser-native RISC-V. Cycle-accurate AVR8 via
+                avr8js. Real firmware execution, not approximations.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Broader hardware support</h3>
-              <p>19 boards across 5 CPU architectures. From 8-bit ATtiny85 to quad-core Raspberry Pi 3B running full Linux.</p>
+              <p>
+                19 boards across 5 CPU architectures. From 8-bit ATtiny85 to quad-core Raspberry Pi
+                3B running full Linux.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Better developer experience</h3>
-              <p>Monaco editor, multi-file workspace, library manager, oscilloscope, sensor control panel, mobile-responsive design.</p>
+              <p>
+                Monaco editor, multi-file workspace, library manager, oscilloscope, sensor control
+                panel, mobile-responsive design.
+              </p>
             </div>
           </div>
         </section>
@@ -538,59 +722,102 @@ export const Velxio2Page: React.FC = () => {
         <section className="seo-section">
           <h2>Built on open-source</h2>
           <p className="lead">
-            Velxio is powered by these open-source projects. Without them, none of this would be possible.
+            Velxio is powered by these open-source projects. Without them, none of this would be
+            possible.
           </p>
           <div className="v2-repos">
-            <a href="https://github.com/wokwi/avr8js" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/wokwi/avr8js"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>avr8js</h3>
                 <p>AVR8 CPU emulator in JavaScript — powers Arduino Uno, Nano, Mega simulation</p>
               </div>
             </a>
-            <a href="https://github.com/wokwi/rp2040js" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/wokwi/rp2040js"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>rp2040js</h3>
                 <p>RP2040 emulator — powers Raspberry Pi Pico and Pico W simulation</p>
               </div>
             </a>
-            <a href="https://github.com/wokwi/wokwi-elements" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/wokwi/wokwi-elements"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>wokwi-elements</h3>
-                <p>Web Components for electronic parts — LEDs, buttons, sensors, displays, and more</p>
+                <p>
+                  Web Components for electronic parts — LEDs, buttons, sensors, displays, and more
+                </p>
               </div>
             </a>
-            <a href="https://github.com/wokwi/wokwi-boards" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/wokwi/wokwi-boards"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>wokwi-boards</h3>
                 <p>SVG board definitions for Arduino, ESP32, Raspberry Pi Pico, and other boards</p>
               </div>
             </a>
-            <a href="https://github.com/lcgamboa/qemu" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/lcgamboa/qemu"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>QEMU (lcgamboa fork)</h3>
                 <p>QEMU fork with ESP32 Xtensa LX6/LX7 emulation support</p>
               </div>
             </a>
-            <a href="https://github.com/espressif/qemu" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/espressif/qemu"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>QEMU (Espressif)</h3>
                 <p>Official Espressif QEMU fork for ESP32 development and testing</p>
               </div>
             </a>
-            <a href="https://github.com/wokwi/wokwi-features" target="_blank" rel="noopener noreferrer" className="v2-repo-card">
+            <a
+              href="https://github.com/wokwi/wokwi-features"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card"
+            >
               <IcoGitHub />
               <div>
                 <h3>wokwi-features</h3>
                 <p>Feature tracking and component specifications for the Wokwi ecosystem</p>
               </div>
             </a>
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="v2-repo-card v2-repo-card--primary">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-repo-card v2-repo-card--primary"
+            >
               <IcoGitHub />
               <div>
                 <h3>Velxio</h3>
@@ -604,14 +831,30 @@ export const Velxio2Page: React.FC = () => {
         <div className="seo-bottom">
           <h2>Try Velxio 2.0 now</h2>
           <p>Open the editor and start simulating — 19 boards, 68+ examples, zero setup.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('velxio-v2', '/editor')}>Launch Simulator</Link>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('velxio-v2', '/editor')}
+          >
+            Launch Simulator
+          </Link>
 
           <div className="v2-bottom-community">
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="v2-community-btn v2-star-btn">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-community-btn v2-star-btn"
+            >
               <IcoStar />
               <span>Star on GitHub</span>
             </a>
-            <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer" className="v2-community-btn v2-discord-btn">
+            <a
+              href={DISCORD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="v2-community-btn v2-discord-btn"
+            >
               <IcoDiscord />
               <span>Join Discord</span>
             </a>

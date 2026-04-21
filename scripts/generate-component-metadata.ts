@@ -72,6 +72,7 @@ const CATEGORY_MAP: Record<string, ComponentCategory> = {
   // Passive Components
   'resistor': 'passive',
   'capacitor': 'passive',
+  'inductor': 'passive',
   'diode': 'passive',
   'analog-multiplexer': 'passive',
   'ir-receiver': 'passive',
@@ -143,9 +144,10 @@ class MetadataGenerator {
       return a.name.localeCompare(b.name);
     });
 
+    // Note: no `generatedAt` timestamp — it would change on every run and
+    // break the CI drift check (git diff --quiet on the committed JSON).
     const output = {
       version: '1.0.0',
-      generatedAt: new Date().toISOString(),
       components,
     };
 
@@ -167,6 +169,9 @@ class MetadataGenerator {
    *  - Patch existing property fields (e.g. change control from "text" to "select")
    *  - Add entirely new properties to a component
    *  - Merge extra defaultValues
+   *  - Inject brand-new components via the `_customComponents` array
+   *    (used for Velxio-only parts not defined in wokwi-elements, e.g. logic
+   *    gates, discrete analog components, instruments).
    */
   private applyOverrides(components: ComponentMetadata[]): void {
     if (!fs.existsSync(this.overridesPath)) return;
@@ -177,6 +182,34 @@ class MetadataGenerator {
     } catch (e) {
       console.warn(`⚠️  Could not parse ${this.overridesPath}:`, e);
       return;
+    }
+
+    // Inject custom components first (so wokwi-elements scan can still take
+    // precedence on id collisions). Each entry must be a full ComponentMetadata.
+    const customComps = (overrides._customComponents ?? []) as ComponentMetadata[];
+    let injected = 0;
+    for (const custom of customComps) {
+      if (!custom.id || !custom.tagName) {
+        console.warn(`⚠️  Skipping custom component without id/tagName:`, custom);
+        continue;
+      }
+      if (components.find(c => c.id === custom.id)) {
+        console.log(`  ⏭️  Custom component ${custom.id} already scanned from wokwi-elements; skipping custom entry`);
+        continue;
+      }
+      components.push({
+        thumbnail: custom.thumbnail ?? this.generateThumbnailPlaceholder(custom.id),
+        tags: custom.tags ?? this.generateTags(custom.id, custom.name || custom.id),
+        properties: custom.properties ?? [],
+        defaultValues: custom.defaultValues ?? {},
+        pinCount: custom.pinCount ?? 0,
+        ...custom,
+      });
+      injected++;
+      console.log(`  ➕ Injected custom component ${custom.id}`);
+    }
+    if (injected > 0) {
+      console.log(`\n➕ Injected ${injected} custom component(s)`);
     }
 
     let applied = 0;
@@ -201,6 +234,15 @@ class MetadataGenerator {
       // Merge defaultValues
       if (ov.defaultValues) {
         comp.defaultValues = { ...comp.defaultValues, ...ov.defaultValues };
+      }
+
+      // Replace the picker label / SVG thumbnail (used to e.g. rename the
+      // canonical resistor to "Resistor (custom)" once preset variants exist).
+      if (typeof ov.name === 'string') {
+        comp.name = ov.name;
+      }
+      if (typeof ov.thumbnail === 'string') {
+        comp.thumbnail = ov.thumbnail;
       }
 
       applied++;
@@ -301,10 +343,19 @@ class MetadataGenerator {
               const type = member.type?.getText() || 'any';
               const defaultValue = member.initializer?.getText();
 
+              let resolvedDefault: unknown;
+              if (defaultValue) {
+                try {
+                  resolvedDefault = eval(defaultValue);
+                } catch {
+                  // Initializer references an identifier not in scope (e.g. imported constant)
+                  resolvedDefault = undefined;
+                }
+              }
               properties.push({
                 name,
                 type,
-                defaultValue: defaultValue ? eval(defaultValue) : undefined,
+                defaultValue: resolvedDefault,
               });
             }
           }

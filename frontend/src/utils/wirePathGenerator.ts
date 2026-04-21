@@ -62,7 +62,7 @@ function generateSimplePath(x1: number, y1: number, x2: number, y2: number): str
 function generateMultiSegmentPath(
   start: { x: number; y: number },
   controlPoints: WireControlPoint[],
-  end: { x: number; y: number }
+  end: { x: number; y: number },
 ): string {
   let path = `M ${start.x} ${start.y}`;
 

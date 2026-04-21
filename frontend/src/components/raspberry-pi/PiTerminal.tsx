@@ -43,7 +43,11 @@ export const PiTerminal: React.FC<PiTerminalProps> = ({ boardId }) => {
 
     // Slight delay to allow layout to settle before fitting
     requestAnimationFrame(() => {
-      try { fitAddon.fit(); } catch (_) { /* ignore if dimensions not ready */ }
+      try {
+        fitAddon.fit();
+      } catch (_) {
+        /* ignore if dimensions not ready */
+      }
     });
 
     termRef.current = term;
@@ -79,14 +83,17 @@ export const PiTerminal: React.FC<PiTerminalProps> = ({ boardId }) => {
       termRef.current = null;
       fitAddonRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardId]);
 
   // ResizeObserver → refit terminal when container size changes
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver(() => {
-      try { fitAddonRef.current?.fit(); } catch (_) { /* ignore */ }
+      try {
+        fitAddonRef.current?.fit();
+      } catch (_) {
+        /* ignore */
+      }
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();

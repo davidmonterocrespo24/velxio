@@ -70,12 +70,22 @@ class MockWebSocket {
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   sent: string[] = [];
-  send(data: string) { this.sent.push(data); }
-  close() { this.readyState = 3; this.onclose?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = 3;
+    this.onclose?.();
+  }
   // Helper: simulate incoming message
-  receive(payload: object) { this.onmessage?.({ data: JSON.stringify(payload) }); }
+  receive(payload: object) {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
   // Simulate open
-  open() { this.readyState = MockWebSocket.OPEN; this.onopen?.(); }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
 }
 
 vi.stubGlobal('WebSocket', MockWebSocket);
@@ -99,17 +109,17 @@ import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 
 describe('boardPinMapping — Pi3B BCM', () => {
   it('maps known GPIO physical pins to correct BCM numbers', () => {
-    expect(PI3_PHYSICAL_TO_BCM[11]).toBe(17);  // BCM17
-    expect(PI3_PHYSICAL_TO_BCM[12]).toBe(18);  // BCM18 PWM0
-    expect(PI3_PHYSICAL_TO_BCM[13]).toBe(27);  // BCM27
-    expect(PI3_PHYSICAL_TO_BCM[40]).toBe(21);  // BCM21
+    expect(PI3_PHYSICAL_TO_BCM[11]).toBe(17); // BCM17
+    expect(PI3_PHYSICAL_TO_BCM[12]).toBe(18); // BCM18 PWM0
+    expect(PI3_PHYSICAL_TO_BCM[13]).toBe(27); // BCM27
+    expect(PI3_PHYSICAL_TO_BCM[40]).toBe(21); // BCM21
   });
 
   it('maps power/GND pins to -1', () => {
-    expect(PI3_PHYSICAL_TO_BCM[1]).toBe(-1);   // 3.3V
-    expect(PI3_PHYSICAL_TO_BCM[2]).toBe(-1);   // 5V
-    expect(PI3_PHYSICAL_TO_BCM[6]).toBe(-1);   // GND
-    expect(PI3_PHYSICAL_TO_BCM[9]).toBe(-1);   // GND
+    expect(PI3_PHYSICAL_TO_BCM[1]).toBe(-1); // 3.3V
+    expect(PI3_PHYSICAL_TO_BCM[2]).toBe(-1); // 5V
+    expect(PI3_PHYSICAL_TO_BCM[6]).toBe(-1); // GND
+    expect(PI3_PHYSICAL_TO_BCM[9]).toBe(-1); // GND
   });
 
   it('reverse map BCM→physical is consistent', () => {
@@ -393,8 +403,12 @@ describe('RaspberryPi3Bridge — WebSocket protocol', () => {
   });
 
   it('fires onPinChange for gpio_change events', () => {
-    let gotPin = -1, gotState = false;
-    bridge.onPinChange = (pin, state) => { gotPin = pin; gotState = state; };
+    let gotPin = -1,
+      gotState = false;
+    bridge.onPinChange = (pin, state) => {
+      gotPin = pin;
+      gotState = state;
+    };
     ws.receive({ type: 'gpio_change', data: { pin: 17, state: 1 } });
     expect(gotPin).toBe(17);
     expect(gotState).toBe(true);
@@ -405,14 +419,18 @@ describe('RaspberryPi3Bridge — WebSocket protocol', () => {
 
   it('fires onSystemEvent for system events', () => {
     let lastEvent = '';
-    bridge.onSystemEvent = (event) => { lastEvent = event; };
+    bridge.onSystemEvent = (event) => {
+      lastEvent = event;
+    };
     ws.receive({ type: 'system', data: { event: 'booted' } });
     expect(lastEvent).toBe('booted');
   });
 
   it('fires onError for error events', () => {
     let errMsg = '';
-    bridge.onError = (msg) => { errMsg = msg; };
+    bridge.onError = (msg) => {
+      errMsg = msg;
+    };
     ws.receive({ type: 'error', data: { message: 'QEMU crashed' } });
     expect(errMsg).toBe('QEMU crashed');
   });

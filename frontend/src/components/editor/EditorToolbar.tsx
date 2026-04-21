@@ -12,7 +12,13 @@ import { parseCompileResult } from '../../utils/compilationLogger';
 import type { CompilationLog } from '../../utils/compilationLogger';
 import { exportToWokwiZip, importFromWokwiZip } from '../../utils/wokwiZip';
 import { readFirmwareFile } from '../../utils/firmwareLoader';
-import { trackCompileCode, trackRunSimulation, trackStopSimulation, trackResetSimulation, trackOpenLibraryManager } from '../../utils/analytics';
+import {
+  trackCompileCode,
+  trackRunSimulation,
+  trackStopSimulation,
+  trackResetSimulation,
+  trackOpenLibraryManager,
+} from '../../utils/analytics';
 import './EditorToolbar.css';
 
 interface EditorToolbarProps {
@@ -23,28 +29,33 @@ interface EditorToolbarProps {
 }
 
 const BOARD_PILL_ICON: Record<BoardKind, string> = {
-  'arduino-uno':       '⬤',
-  'arduino-nano':      '▪',
-  'arduino-mega':      '▬',
+  'arduino-uno': '⬤',
+  'arduino-nano': '▪',
+  'arduino-mega': '▬',
   'raspberry-pi-pico': '◆',
-  'raspberry-pi-3':    '⬛',
-  'esp32':    '⬡',
+  'raspberry-pi-3': '⬛',
+  esp32: '⬡',
   'esp32-s3': '⬡',
   'esp32-c3': '⬡',
 };
 
 const BOARD_PILL_COLOR: Record<BoardKind, string> = {
-  'arduino-uno':       '#4fc3f7',
-  'arduino-nano':      '#4fc3f7',
-  'arduino-mega':      '#4fc3f7',
+  'arduino-uno': '#4fc3f7',
+  'arduino-nano': '#4fc3f7',
+  'arduino-mega': '#4fc3f7',
   'raspberry-pi-pico': '#ce93d8',
-  'raspberry-pi-3':    '#ef9a9a',
-  'esp32':    '#a5d6a7',
+  'raspberry-pi-3': '#ef9a9a',
+  esp32: '#a5d6a7',
   'esp32-s3': '#a5d6a7',
   'esp32-c3': '#a5d6a7',
 };
 
-export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compileLogs, setCompileLogs }: EditorToolbarProps) => {
+export const EditorToolbar = ({
+  consoleOpen,
+  setConsoleOpen,
+  compileLogs: _compileLogs,
+  setCompileLogs,
+}: EditorToolbarProps) => {
   const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
   const {
     boards,
@@ -97,9 +108,12 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const [compileAllRunning, setCompileAllRunning] = useState(false);
   const [compileAllStatuses, setCompileAllStatuses] = useState<BoardCompileStatus[]>([]);
 
-  const addLog = useCallback((log: CompilationLog) => {
-    setCompileLogs((prev: CompilationLog[]) => [...prev, log]);
-  }, [setCompileLogs]);
+  const addLog = useCallback(
+    (log: CompilationLog) => {
+      setCompileLogs((prev: CompilationLog[]) => [...prev, log]);
+    },
+    [setCompileLogs],
+  );
 
   const handleCompile = async () => {
     setCompiling(true);
@@ -111,7 +125,11 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
     // Raspberry Pi 3B doesn't need arduino-cli compilation
     if (kind === 'raspberry-pi-3') {
-      addLog({ timestamp: new Date(), type: 'info', message: 'Raspberry Pi 3B: no compilation needed — run Python scripts directly.' });
+      addLog({
+        timestamp: new Date(),
+        type: 'info',
+        message: 'Raspberry Pi 3B: no compilation needed — run Python scripts directly.',
+      });
       setMessage({ type: 'success', text: 'Ready (no compilation needed)' });
       setCompiling(false);
       return;
@@ -119,12 +137,20 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
     // MicroPython mode — no backend compilation needed
     if (activeBoard?.languageMode === 'micropython' && activeBoardId) {
-      addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+      addLog({
+        timestamp: new Date(),
+        type: 'info',
+        message: 'MicroPython: loading firmware and user files...',
+      });
       try {
         const groupFiles = useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId);
         const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
         await loadMicroPythonProgram(activeBoardId, pyFiles);
-        addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded successfully' });
+        addLog({
+          timestamp: new Date(),
+          type: 'success',
+          message: 'MicroPython firmware loaded successfully',
+        });
         setMessage({ type: 'success', text: 'MicroPython ready' });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
@@ -146,10 +172,20 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       return;
     }
 
-    addLog({ timestamp: new Date(), type: 'info', message: `Starting compilation for ${boardLabel} (${fqbn})...` });
+    addLog({
+      timestamp: new Date(),
+      type: 'info',
+      message: `Starting compilation for ${boardLabel} (${fqbn})...`,
+    });
 
     try {
-      const sketchFiles = files.map((f) => ({ name: f.name, content: f.content }));
+      const groupFiles = activeBoard?.activeFileGroupId
+        ? useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId)
+        : files;
+      const sketchFiles = (groupFiles.length > 0 ? groupFiles : files).map((f) => ({
+        name: f.name,
+        content: f.content,
+      }));
       const result = await compileCode(sketchFiles, fqbn);
 
       const resultLogs = parseCompileResult(result, boardLabel);
@@ -171,7 +207,8 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         setMessage({ type: 'error', text: errText });
         // Detect missing library errors — common patterns:
         // "No such file or directory" for #include, "fatal error: XXX.h"
-        const looksLikeMissingLib = /No such file or directory|fatal error:.*\.h|library not found/i.test(errText);
+        const looksLikeMissingLib =
+          /No such file or directory|fatal error:.*\.h|library not found/i.test(errText);
         setMissingLibHint(looksLikeMissingLib);
       }
     } catch (err) {
@@ -200,17 +237,25 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         if (board.running) {
           stopBoard(activeBoardId);
           // Give the WebSocket a moment to close cleanly before reconnecting.
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
         }
 
         setCompiling(true);
         setMessage(null);
-        addLog({ timestamp: new Date(), type: 'info', message: 'MicroPython: loading firmware and user files...' });
+        addLog({
+          timestamp: new Date(),
+          type: 'info',
+          message: 'MicroPython: loading firmware and user files...',
+        });
         try {
           const groupFiles = useEditorStore.getState().getGroupFiles(board.activeFileGroupId);
           const pyFiles = groupFiles.map((f) => ({ name: f.name, content: f.content }));
           await loadMicroPythonProgram(activeBoardId, pyFiles);
-          addLog({ timestamp: new Date(), type: 'success', message: 'MicroPython firmware loaded' });
+          addLog({
+            timestamp: new Date(),
+            type: 'success',
+            message: 'MicroPython firmware loaded',
+          });
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
           addLog({ timestamp: new Date(), type: 'error', message: errMsg });
@@ -224,14 +269,19 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         return;
       }
 
-      const isQemuBoard = board?.boardKind === 'raspberry-pi-3' || board?.boardKind === 'esp32' || board?.boardKind === 'esp32-s3';
+      const isQemuBoard =
+        board?.boardKind === 'raspberry-pi-3' ||
+        board?.boardKind === 'esp32' ||
+        board?.boardKind === 'esp32-s3';
 
       // QEMU boards: auto-compile if no firmware available yet
       if (isQemuBoard) {
         if (!board?.compiledProgram || codeChangedSinceLastCompile) {
           autoRunAfterCompile.current = true;
           await handleCompile();
-          const updatedBoard = useSimulatorStore.getState().boards.find((b) => b.id === activeBoardId);
+          const updatedBoard = useSimulatorStore
+            .getState()
+            .boards.find((b) => b.id === activeBoardId);
           if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
             autoRunAfterCompile.current = false;
             trackRunSimulation(updatedBoard.boardKind);
@@ -253,7 +303,9 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         autoRunAfterCompile.current = true;
         await handleCompile();
         // After compile, check if it succeeded and run
-        const updatedBoard = useSimulatorStore.getState().boards.find((b) => b.id === activeBoardId);
+        const updatedBoard = useSimulatorStore
+          .getState()
+          .boards.find((b) => b.id === activeBoardId);
         if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
           autoRunAfterCompile.current = false;
           trackRunSimulation(updatedBoard.boardKind);
@@ -318,7 +370,9 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
     for (const board of boardsList) {
       const updateStatus = (patch: Partial<BoardCompileStatus>) =>
-        setCompileAllStatuses((prev) => prev.map((s) => s.boardId === board.id ? { ...s, ...patch } : s));
+        setCompileAllStatuses((prev) =>
+          prev.map((s) => (s.boardId === board.id ? { ...s, ...patch } : s)),
+        );
 
       // Pi 3 doesn't need compilation
       if (board.boardKind === 'raspberry-pi-3') {
@@ -349,7 +403,10 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
           }
           updateStatus({ state: 'success' });
         } else {
-          updateStatus({ state: 'error', error: result.stderr || result.error || 'Compilation failed' });
+          updateStatus({
+            state: 'error',
+            error: result.stderr || result.error || 'Compilation failed',
+          });
         }
       } catch (err) {
         updateStatus({ state: 'error', error: err instanceof Error ? err.message : String(err) });
@@ -363,8 +420,10 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const handleRunAll = () => {
     const boardsList = useSimulatorStore.getState().boards;
     for (const board of boardsList) {
-      const isQemu = board.boardKind === 'raspberry-pi-3' ||
-        board.boardKind === 'esp32' || board.boardKind === 'esp32-s3';
+      const isQemu =
+        board.boardKind === 'raspberry-pi-3' ||
+        board.boardKind === 'esp32' ||
+        board.boardKind === 'esp32-s3';
       if (!board.running && (isQemu || board.compiledProgram)) {
         startBoard(board.id);
       }
@@ -374,8 +433,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
   const handleExport = async () => {
     try {
-      const { components, wires, boardPosition, boardType: legacyBoardType } = useSimulatorStore.getState();
-      const projectName = files.find((f) => f.name.endsWith('.ino'))?.name.replace('.ino', '') || 'velxio-project';
+      const {
+        components,
+        wires,
+        boardPosition,
+        boardType: legacyBoardType,
+      } = useSimulatorStore.getState();
+      const projectName =
+        files.find((f) => f.name.endsWith('.ino'))?.name.replace('.ino', '') || 'velxio-project';
       await exportToWokwiZip(files, components, wires, legacyBoardType, projectName, boardPosition);
     } catch (err) {
       setMessage({ type: 'error', text: 'Export failed.' });
@@ -431,7 +496,8 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     try {
       const result = await importFromWokwiZip(file);
       const { loadFiles } = useEditorStore.getState();
-      const { setComponents, setWires, setBoardType, setBoardPosition, stopSimulation } = useSimulatorStore.getState();
+      const { setComponents, setWires, setBoardType, setBoardPosition, stopSimulation } =
+        useSimulatorStore.getState();
       stopSimulation();
       if (result.boardType) setBoardType(result.boardType);
       setBoardPosition(result.boardPosition);
@@ -460,244 +526,351 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             onClose={() => setCompileAllOpen(false)}
           />
         )}
-      <div className="editor-toolbar" ref={toolbarRef}>
-        {/* Active board context pill */}
-        {activeBoard && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div
-              className="tb-board-pill"
-              style={{ borderColor: BOARD_PILL_COLOR[activeBoard.boardKind], color: BOARD_PILL_COLOR[activeBoard.boardKind] }}
-              title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
-            >
-              <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
-              <span className="tb-board-pill-label">{BOARD_KIND_LABELS[activeBoard.boardKind]}</span>
-              {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
-            </div>
-            {BOARD_SUPPORTS_MICROPYTHON.has(activeBoard.boardKind) && (
-              <select
-                className="tb-lang-select"
-                value={activeBoard.languageMode ?? 'arduino'}
-                onChange={(e) => {
-                  if (activeBoardId) setBoardLanguageMode(activeBoardId, e.target.value as LanguageMode);
-                }}
-                title="Language mode"
+        <div className="editor-toolbar" ref={toolbarRef}>
+          {/* Active board context pill */}
+          {activeBoard && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div
+                className="tb-board-pill"
                 style={{
-                  background: '#2d2d2d',
-                  color: '#ccc',
-                  border: '1px solid #444',
-                  borderRadius: 4,
-                  padding: '2px 4px',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  outline: 'none',
+                  borderColor: BOARD_PILL_COLOR[activeBoard.boardKind],
+                  color: BOARD_PILL_COLOR[activeBoard.boardKind],
                 }}
+                title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
               >
-                <option value="arduino">Arduino C++</option>
-                <option value="micropython">MicroPython</option>
-              </select>
-            )}
-          </div>
-        )}
-
-        <div className="toolbar-group">
-          {/* Compile */}
-          <button
-            onClick={handleCompile}
-            disabled={compiling}
-            className="tb-btn tb-btn-compile"
-            title={compiling ? 'Loading…' : activeBoard?.languageMode === 'micropython' ? 'Load MicroPython' : 'Compile (Ctrl+B)'}
-          >
-            {compiling ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-            ) : (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-              </svg>
-            )}
-          </button>
-
-          <div className="tb-divider" />
-
-          {/* Run */}
-          <button
-            onClick={handleRun}
-            disabled={running || compiling || (
-              !['raspberry-pi-3','esp32','esp32-s3'].includes(activeBoard?.boardKind ?? '')
-              && activeBoard?.languageMode !== 'micropython'
-              && !compiledHex
-              && !activeBoard?.compiledProgram
-            )}
-            className="tb-btn tb-btn-run"
-            title={activeBoard?.languageMode === 'micropython' ? 'Run MicroPython' : 'Run'}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <polygon points="5,3 19,12 5,21" />
-            </svg>
-          </button>
-
-          {/* Stop */}
-          <button
-            onClick={handleStop}
-            disabled={!running}
-            className="tb-btn tb-btn-stop"
-            title="Stop"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-            </svg>
-          </button>
-
-          {/* Reset */}
-          <button
-            onClick={handleReset}
-            disabled={!compiledHex}
-            className="tb-btn tb-btn-reset"
-            title="Reset"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-          </button>
-
-          {boards.length > 1 && (
-            <>
-              <div className="tb-divider" />
-
-              {/* Compile All */}
-              <button
-                onClick={handleCompileAll}
-                disabled={compileAllRunning}
-                className="tb-btn tb-btn-compile-all"
-                title="Compile all boards"
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                  <path d="M6 20h4M14 4l4 4" strokeDasharray="2 2" />
-                </svg>
-              </button>
-
-              {/* Run All */}
-              <button
-                onClick={handleRunAll}
-                disabled={running}
-                className="tb-btn tb-btn-run-all"
-                title="Run all boards"
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                  <polygon points="3,3 11,12 3,21" />
-                  <polygon points="13,3 21,12 13,21" />
-                </svg>
-              </button>
-            </>
+                <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
+                <span className="tb-board-pill-label">
+                  {BOARD_KIND_LABELS[activeBoard.boardKind]}
+                </span>
+                {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+              </div>
+              {BOARD_SUPPORTS_MICROPYTHON.has(activeBoard.boardKind) && (
+                <select
+                  className="tb-lang-select"
+                  value={activeBoard.languageMode ?? 'arduino'}
+                  onChange={(e) => {
+                    if (activeBoardId)
+                      setBoardLanguageMode(activeBoardId, e.target.value as LanguageMode);
+                  }}
+                  title="Language mode"
+                  style={{
+                    background: '#2d2d2d',
+                    color: '#ccc',
+                    border: '1px solid #444',
+                    borderRadius: 4,
+                    padding: '2px 4px',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="arduino">Arduino C++</option>
+                  <option value="micropython">MicroPython</option>
+                </select>
+              )}
+            </div>
           )}
-        </div>
 
-        <div className="toolbar-group toolbar-group-right">
-         
-
-          {/* Hidden file input for import (always present) */}
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".zip"
-            style={{ display: 'none' }}
-            onChange={handleImportFile}
-          />
-          {/* Hidden file input for firmware upload */}
-          <input
-            ref={firmwareInputRef}
-            type="file"
-            accept=".hex,.bin,.elf,.ihex"
-            style={{ display: 'none' }}
-            onChange={handleFirmwareUpload}
-          />
-
-          {/* Library Manager — always visible with label */}
-          <button
-            onClick={() => { trackOpenLibraryManager(); setLibManagerOpen(true); }}
-            className="tb-btn-libraries"
-            title="Search and install Arduino libraries"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-              <path d="m3.3 7 8.7 5 8.7-5" />
-              <path d="M12 22V12" />
-            </svg>
-            <span className="tb-libraries-label">Libraries</span>
-          </button>
-
-          {/* Import / Export — overflow menu */}
-          <div className="tb-overflow-wrap" ref={overflowMenuRef}>
+          <div className="toolbar-group">
+            {/* Compile */}
             <button
-              onClick={() => setOverflowOpen((v) => !v)}
-              className={`tb-btn tb-btn-overflow${overflowOpen ? ' tb-btn-overflow-active' : ''}`}
-              title="Import / Export"
+              onClick={handleCompile}
+              disabled={compiling || !activeBoard}
+              className="tb-btn tb-btn-compile"
+              title={
+                !activeBoard
+                  ? 'Add a board to compile'
+                  : compiling
+                    ? 'Loading…'
+                    : activeBoard?.languageMode === 'micropython'
+                      ? 'Load MicroPython'
+                      : 'Compile (Ctrl+B)'
+              }
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                <circle cx="5"  cy="12" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="19" cy="12" r="2" />
+              {compiling ? (
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="spin"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+              ) : (
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                </svg>
+              )}
+            </button>
+
+            <div className="tb-divider" />
+
+            {/* Run */}
+            <button
+              onClick={handleRun}
+              disabled={running || compiling || !activeBoard}
+              className="tb-btn tb-btn-run"
+              title={
+                !activeBoard
+                  ? 'Add a board to run'
+                  : activeBoard?.languageMode === 'micropython'
+                    ? 'Run MicroPython'
+                    : 'Run (auto-compiles if needed)'
+              }
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <polygon points="5,3 19,12 5,21" />
               </svg>
             </button>
 
-            {overflowOpen && (
-              <div className="tb-overflow-menu">
+            {/* Stop */}
+            <button
+              onClick={handleStop}
+              disabled={!running}
+              className="tb-btn tb-btn-stop"
+              title="Stop"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+              </svg>
+            </button>
+
+            {/* Reset */}
+            <button
+              onClick={handleReset}
+              disabled={!compiledHex && !activeBoard?.compiledProgram}
+              className="tb-btn tb-btn-reset"
+              title="Reset"
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+            </button>
+
+            {boards.length > 1 && (
+              <>
+                <div className="tb-divider" />
+
+                {/* Compile All */}
                 <button
-                  className="tb-overflow-item"
-                  onClick={() => { importInputRef.current?.click(); setOverflowOpen(false); }}
+                  onClick={handleCompileAll}
+                  disabled={compileAllRunning}
+                  className="tb-btn tb-btn-compile-all"
+                  title="Compile all boards"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  Import zip
-                </button>
-                <button
-                  className="tb-overflow-item"
-                  onClick={() => { handleExport(); setOverflowOpen(false); }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="17 8 12 3 7 8" />
-                    <line x1="12" y1="3" x2="12" y2="15" />
-                  </svg>
-                  Export zip
-                </button>
-                <div style={{ borderTop: '1px solid #3c3c3c', margin: '4px 0' }} />
-                <button
-                  className="tb-overflow-item"
-                  onClick={() => { firmwareInputRef.current?.click(); setOverflowOpen(false); }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                    <line x1="12" y1="15" x2="12" y2="22" />
-                    <polyline points="8 18 12 22 16 18" />
+                    <path d="M6 20h4M14 4l4 4" strokeDasharray="2 2" />
                   </svg>
-                  Upload firmware (.hex, .bin, .elf)
                 </button>
-              </div>
+
+                {/* Run All */}
+                <button
+                  onClick={handleRunAll}
+                  disabled={running}
+                  className="tb-btn tb-btn-run-all"
+                  title="Run all boards"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <polygon points="3,3 11,12 3,21" />
+                    <polygon points="13,3 21,12 13,21" />
+                  </svg>
+                </button>
+              </>
             )}
           </div>
 
-          <div className="tb-divider" />
+          <div className="toolbar-group toolbar-group-right">
+            {/* Hidden file input for import (always present) */}
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".zip"
+              style={{ display: 'none' }}
+              onChange={handleImportFile}
+            />
+            {/* Hidden file input for firmware upload */}
+            <input
+              ref={firmwareInputRef}
+              type="file"
+              accept=".hex,.bin,.elf,.ihex"
+              style={{ display: 'none' }}
+              onChange={handleFirmwareUpload}
+            />
 
-          {/* Output Console toggle */}
-          <button
-            onClick={() => setConsoleOpen((v) => !v)}
-            className={`tb-btn tb-btn-output${consoleOpen ? ' tb-btn-output-active' : ''}`}
-            title="Toggle Output Console"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-          </button>
+            {/* Library Manager — always visible with label */}
+            <button
+              onClick={() => {
+                trackOpenLibraryManager();
+                setLibManagerOpen(true);
+              }}
+              className="tb-btn-libraries"
+              title="Search and install Arduino libraries"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                <path d="m3.3 7 8.7 5 8.7-5" />
+                <path d="M12 22V12" />
+              </svg>
+              <span className="tb-libraries-label">Libraries</span>
+            </button>
+
+            {/* Import / Export — overflow menu */}
+            <div className="tb-overflow-wrap" ref={overflowMenuRef}>
+              <button
+                onClick={() => setOverflowOpen((v) => !v)}
+                className={`tb-btn tb-btn-overflow${overflowOpen ? ' tb-btn-overflow-active' : ''}`}
+                title="Import / Export"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              </button>
+
+              {overflowOpen && (
+                <div className="tb-overflow-menu">
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => {
+                      importInputRef.current?.click();
+                      setOverflowOpen(false);
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Import zip
+                  </button>
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => {
+                      handleExport();
+                      setOverflowOpen(false);
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Export zip
+                  </button>
+                  <div style={{ borderTop: '1px solid #3c3c3c', margin: '4px 0' }} />
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => {
+                      firmwareInputRef.current?.click();
+                      setOverflowOpen(false);
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                      <line x1="12" y1="15" x2="12" y2="22" />
+                      <polyline points="8 18 12 22 16 18" />
+                    </svg>
+                    Upload firmware (.hex, .bin, .elf)
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="tb-divider" />
+
+            {/* Output Console toggle */}
+            <button
+              onClick={() => setConsoleOpen((v) => !v)}
+              className={`tb-btn tb-btn-output${consoleOpen ? ' tb-btn-output-active' : ''}`}
+              title="Toggle Output Console"
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* Error detail bar */}
@@ -708,16 +881,36 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       {/* Missing library hint */}
       {missingLibHint && (
         <div className="tb-lib-hint">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <span>Missing library? Install it from the</span>
-          <button className="tb-lib-hint-btn" onClick={() => { trackOpenLibraryManager(); setLibManagerOpen(true); setMissingLibHint(false); }}>
+          <button
+            className="tb-lib-hint-btn"
+            onClick={() => {
+              trackOpenLibraryManager();
+              setLibManagerOpen(true);
+              setMissingLibHint(false);
+            }}
+          >
             Library Manager
           </button>
-          <button className="tb-lib-hint-close" onClick={() => setMissingLibHint(false)} title="Dismiss">
+          <button
+            className="tb-lib-hint-close"
+            onClick={() => setMissingLibHint(false)}
+            title="Dismiss"
+          >
             &times;
           </button>
         </div>

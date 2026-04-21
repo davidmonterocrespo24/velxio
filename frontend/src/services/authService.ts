@@ -5,7 +5,11 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 const api = axios.create({ baseURL: API_BASE, withCredentials: true });
 
-export async function register(username: string, email: string, password: string): Promise<UserResponse> {
+export async function register(
+  username: string,
+  email: string,
+  password: string,
+): Promise<UserResponse> {
   const { data } = await api.post<UserResponse>('/auth/register', { username, email, password });
   return data;
 }

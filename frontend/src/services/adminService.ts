@@ -41,7 +41,11 @@ export async function getAdminSetupStatus(): Promise<{ has_admin: boolean }> {
   return data;
 }
 
-export async function createFirstAdmin(username: string, email: string, password: string): Promise<AdminUserResponse> {
+export async function createFirstAdmin(
+  username: string,
+  email: string,
+  password: string,
+): Promise<AdminUserResponse> {
   const { data } = await api.post('/admin/setup', { username, email, password });
   return data;
 }
@@ -56,7 +60,10 @@ export async function adminGetUser(userId: string): Promise<AdminUserResponse> {
   return data;
 }
 
-export async function adminUpdateUser(userId: string, body: AdminUserUpdateRequest): Promise<AdminUserResponse> {
+export async function adminUpdateUser(
+  userId: string,
+  body: AdminUserUpdateRequest,
+): Promise<AdminUserResponse> {
   const { data } = await api.put(`/admin/users/${userId}`, body);
   return data;
 }

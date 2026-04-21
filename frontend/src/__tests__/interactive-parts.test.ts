@@ -17,11 +17,14 @@ import '../simulation/parts/SensorParts';
 // ─── Globals ──────────────────────────────────────────────────────────────────
 beforeEach(() => {
   let requestAnimationFrameCounter = 0;
-  vi.stubGlobal('requestAnimationFrame', (_cb: FrameRequestCallback) => ++requestAnimationFrameCounter);
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    (_cb: FrameRequestCallback) => ++requestAnimationFrameCounter,
+  );
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  vi.stubGlobal('setTimeout',  vi.fn().mockReturnValue(1));
+  vi.stubGlobal('setTimeout', vi.fn().mockReturnValue(1));
   vi.stubGlobal('clearTimeout', vi.fn());
-  vi.stubGlobal('setInterval',  vi.fn().mockReturnValue(42));
+  vi.stubGlobal('setInterval', vi.fn().mockReturnValue(42));
   vi.stubGlobal('clearInterval', vi.fn());
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -38,20 +41,22 @@ function makeElement(props: Record<string, unknown> = {}): HTMLElement {
 
 function makeSimulator() {
   const pinManager = {
-    onPinChange:      vi.fn().mockReturnValue(() => {}),
-    onPwmChange:      vi.fn().mockReturnValue(() => {}),
+    onPinChange: vi.fn().mockReturnValue(() => {}),
+    onPwmChange: vi.fn().mockReturnValue(() => {}),
     triggerPinChange: vi.fn(),
   };
   return {
     pinManager,
-    getADC:      vi.fn().mockReturnValue(null),
+    getADC: vi.fn().mockReturnValue(null),
     setPinState: vi.fn(),
     cpu: { data: new Uint8Array(512).fill(0), cycles: 0 },
   };
 }
 
-const pinMap = (map: Record<string, number>) => (name: string): number | null =>
-  name in map ? map[name] : null;
+const pinMap =
+  (map: Record<string, number>) =>
+  (name: string): number | null =>
+    name in map ? map[name] : null;
 
 const noPins = (_name: string): number | null => null;
 
@@ -79,7 +84,7 @@ describe('Interactive parts — registration', () => {
 describe('neopixel — attachEvents', () => {
   it('registers onPinChange listener for DIN pin', () => {
     const logic = PartSimulationRegistry.get('neopixel');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, pinMap({ DIN: 4 }));
     expect(sim.pinManager.onPinChange).toHaveBeenCalledWith(4, expect.any(Function));
@@ -88,7 +93,7 @@ describe('neopixel — attachEvents', () => {
 
   it('returns no-op cleanup when DIN pin is not connected', () => {
     const logic = PartSimulationRegistry.get('neopixel');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, noPins);
     expect(sim.pinManager.onPinChange).not.toHaveBeenCalled();
@@ -101,7 +106,7 @@ describe('neopixel — attachEvents', () => {
 describe('pir-motion-sensor — attachEvents', () => {
   it('sets OUT LOW on init and registers click listener', () => {
     const logic = PartSimulationRegistry.get('pir-motion-sensor');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ OUT: 7 }));
 
@@ -111,7 +116,7 @@ describe('pir-motion-sensor — attachEvents', () => {
 
   it('drives OUT HIGH on click and schedules timer for LOW', () => {
     const logic = PartSimulationRegistry.get('pir-motion-sensor');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ OUT: 7 }));
 
@@ -121,13 +126,13 @@ describe('pir-motion-sensor — attachEvents', () => {
     )![1] as () => void;
     clickCb();
 
-    expect(sim.setPinState).toHaveBeenCalledWith(7, true);  // HIGH on click
+    expect(sim.setPinState).toHaveBeenCalledWith(7, true); // HIGH on click
     expect(setTimeout).toHaveBeenCalledWith(expect.any(Function), 3000);
   });
 
   it('cleans up click listener and timer on cleanup', () => {
     const logic = PartSimulationRegistry.get('pir-motion-sensor');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, pinMap({ OUT: 7 }));
 
@@ -144,7 +149,7 @@ describe('pir-motion-sensor — attachEvents', () => {
 
   it('returns no-op when OUT pin is not connected', () => {
     const logic = PartSimulationRegistry.get('pir-motion-sensor');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, noPins);
     expect(sim.setPinState).not.toHaveBeenCalled();
@@ -164,13 +169,13 @@ describe('ks2e-m-dc5 — onPinStateChange', () => {
 
   it('does not throw when COIL1 goes HIGH', () => {
     const logic = PartSimulationRegistry.get('ks2e-m-dc5');
-    const el  = makeElement();
+    const el = makeElement();
     expect(() => logic!.onPinStateChange!('COIL1', true, el)).not.toThrow();
   });
 
   it('does not throw when COIL2 goes LOW', () => {
     const logic = PartSimulationRegistry.get('ks2e-m-dc5');
-    const el  = makeElement();
+    const el = makeElement();
     expect(() => logic!.onPinStateChange!('COIL2', false, el)).not.toThrow();
   });
 });
@@ -180,7 +185,7 @@ describe('ks2e-m-dc5 — onPinStateChange', () => {
 describe('hc-sr04 — attachEvents', () => {
   it('sets ECHO LOW on init and watches TRIG pin', () => {
     const logic = PartSimulationRegistry.get('hc-sr04');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ TRIG: 2, ECHO: 3 }));
 
@@ -190,7 +195,7 @@ describe('hc-sr04 — attachEvents', () => {
 
   it('fires ECHO HIGH pulse when TRIG goes HIGH', () => {
     const logic = PartSimulationRegistry.get('hc-sr04');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ TRIG: 2, ECHO: 3 }));
 
@@ -205,7 +210,7 @@ describe('hc-sr04 — attachEvents', () => {
 
   it('returns no-op when TRIG or ECHO is not connected', () => {
     const logic = PartSimulationRegistry.get('hc-sr04');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, noPins);
     expect(sim.pinManager.onPinChange).not.toHaveBeenCalled();
@@ -218,22 +223,30 @@ describe('hc-sr04 — attachEvents', () => {
 describe('membrane-keypad — attachEvents', () => {
   it('registers onPinChange for each connected row and button-press/release', () => {
     const logic = PartSimulationRegistry.get('membrane-keypad');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
-    logic!.attachEvents!(el, sim as any, pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }));
+    logic!.attachEvents!(
+      el,
+      sim as any,
+      pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }),
+    );
 
     // 4 row pin change listeners
     expect(sim.pinManager.onPinChange).toHaveBeenCalledTimes(4);
     // button-press and button-release listeners
-    expect(el.addEventListener).toHaveBeenCalledWith('button-press',   expect.any(Function));
+    expect(el.addEventListener).toHaveBeenCalledWith('button-press', expect.any(Function));
     expect(el.addEventListener).toHaveBeenCalledWith('button-release', expect.any(Function));
   });
 
   it('drives COL LOW when ROW is LOW and matching key is pressed', () => {
     const logic = PartSimulationRegistry.get('membrane-keypad');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
-    logic!.attachEvents!(el, sim as any, pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }));
+    logic!.attachEvents!(
+      el,
+      sim as any,
+      pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }),
+    );
 
     // Simulate key '1' press (row=0, col=0) via button-press event
     const pressHandler = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -253,16 +266,20 @@ describe('membrane-keypad — attachEvents', () => {
 
   it('releases COL HIGH when ROW returns HIGH', () => {
     const logic = PartSimulationRegistry.get('membrane-keypad');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
-    logic!.attachEvents!(el, sim as any, pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }));
+    logic!.attachEvents!(
+      el,
+      sim as any,
+      pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }),
+    );
 
     // Scan R1 low (no keys pressed)
     const rowCb = (sim.pinManager.onPinChange as ReturnType<typeof vi.fn>).mock.calls.find(
       ([pin]: [number]) => pin === 2,
     )![1] as (_: number, state: boolean) => void;
     rowCb(2, false); // R1 LOW
-    rowCb(2, true);  // R1 HIGH
+    rowCb(2, true); // R1 HIGH
 
     // All cols must have been set HIGH at some point
     expect(sim.setPinState).toHaveBeenCalledWith(6, true);
@@ -270,11 +287,15 @@ describe('membrane-keypad — attachEvents', () => {
 
   it('cleans up all listeners on cleanup', () => {
     const logic = PartSimulationRegistry.get('membrane-keypad');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
-    const cleanup = logic!.attachEvents!(el, sim as any, pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }));
+    const cleanup = logic!.attachEvents!(
+      el,
+      sim as any,
+      pinMap({ R1: 2, R2: 3, R3: 4, R4: 5, C1: 6, C2: 7, C3: 8, C4: 9 }),
+    );
     cleanup();
-    expect(el.removeEventListener).toHaveBeenCalledWith('button-press',   expect.any(Function));
+    expect(el.removeEventListener).toHaveBeenCalledWith('button-press', expect.any(Function));
     expect(el.removeEventListener).toHaveBeenCalledWith('button-release', expect.any(Function));
   });
 });
@@ -284,7 +305,7 @@ describe('membrane-keypad — attachEvents', () => {
 describe('rotary-dialer — attachEvents', () => {
   it('initialises DIAL and PULSE HIGH (idle)', () => {
     const logic = PartSimulationRegistry.get('rotary-dialer');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ DIAL: 10, PULSE: 11 }));
 
@@ -294,17 +315,17 @@ describe('rotary-dialer — attachEvents', () => {
 
   it('registers dial-start and dial-end event listeners', () => {
     const logic = PartSimulationRegistry.get('rotary-dialer');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ DIAL: 10, PULSE: 11 }));
 
     expect(el.addEventListener).toHaveBeenCalledWith('dial-start', expect.any(Function));
-    expect(el.addEventListener).toHaveBeenCalledWith('dial-end',   expect.any(Function));
+    expect(el.addEventListener).toHaveBeenCalledWith('dial-end', expect.any(Function));
   });
 
   it('drives DIAL LOW on dial-start', () => {
     const logic = PartSimulationRegistry.get('rotary-dialer');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ DIAL: 10, PULSE: 11 }));
 
@@ -318,7 +339,7 @@ describe('rotary-dialer — attachEvents', () => {
 
   it('schedules pulse train on dial-end', () => {
     const logic = PartSimulationRegistry.get('rotary-dialer');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     logic!.attachEvents!(el, sim as any, pinMap({ DIAL: 10, PULSE: 11 }));
 
@@ -333,7 +354,7 @@ describe('rotary-dialer — attachEvents', () => {
 
   it('returns no-op cleanup when pins are not connected', () => {
     const logic = PartSimulationRegistry.get('rotary-dialer');
-    const el  = makeElement();
+    const el = makeElement();
     const sim = makeSimulator();
     const cleanup = logic!.attachEvents!(el, sim as any, noPins);
     expect(sim.setPinState).not.toHaveBeenCalled();
