@@ -429,10 +429,10 @@ export const analogExamples: ExampleProject[] = [
     ],
     [
       w('w1', ['src', 'SIG'], ['c1', '1'], C_SIG),
-      w('w2', ['c1', '2'],    ['d1', 'A'], C_WIRE),
-      w('w3', ['d1', 'C'],    ['src', 'GND'], C_GND),
-      w('w4', ['c1', '2'],    ['d2', 'A'], C_WIRE),
-      w('w5', ['d2', 'C'],    ['c2', '1'], C_OUT),
+      w('w2', ['c1', '2'],    ['d1', 'C'], C_WIRE),  // D1 cathode = n1 → clamps negative excursion to ~−0.7
+      w('w3', ['d1', 'A'],    ['src', 'GND'], C_GND), // D1 anode = GND
+      w('w4', ['c1', '2'],    ['d2', 'A'], C_WIRE),  // D2 anode = n1 (now swings 0 → +2·Vpeak)
+      w('w5', ['d2', 'C'],    ['c2', '1'], C_OUT),   // D2 cathode → vout
       w('w6', ['c2', '1'],    ['rl', '1'], C_OUT),
       w('w7', ['c2', '2'],    ['src', 'GND'], C_GND),
       w('w8', ['rl', '2'],    ['src', 'GND'], C_GND),
