@@ -15,7 +15,7 @@ export interface WireSegment {
   midPoint: { x: number; y: number };
   length: number;
   startIndex: number; // Index in orthoPoints array
-  endIndex: number;   // Index in orthoPoints array
+  endIndex: number; // Index in orthoPoints array
 }
 
 /**
@@ -40,7 +40,7 @@ export function getPathPoints(wire: Wire): Array<{ x: number; y: number }> {
  * Converts diagonal connections to L-shapes (horizontal then vertical or vice versa)
  */
 export function generateOrthogonalPoints(
-  points: Array<{ x: number; y: number }>
+  points: Array<{ x: number; y: number }>,
 ): Array<{ x: number; y: number }> {
   const result: Array<{ x: number; y: number }> = [];
 
@@ -87,9 +87,7 @@ export function computeSegments(wire: Wire): WireSegment[] {
 
     const orientation = start.y === end.y ? 'horizontal' : 'vertical';
     const length =
-      orientation === 'horizontal'
-        ? Math.abs(end.x - start.x)
-        : Math.abs(end.y - start.y);
+      orientation === 'horizontal' ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y);
 
     segments.push({
       id: `${wire.id}-seg-${i}`,
@@ -116,7 +114,7 @@ export function findSegmentUnderCursor(
   segments: WireSegment[],
   mouseX: number,
   mouseY: number,
-  threshold: number = 8 // 8px tolerance
+  threshold: number = 8, // 8px tolerance
 ): WireSegment | null {
   for (const segment of segments) {
     if (segment.orientation === 'horizontal') {
@@ -124,11 +122,7 @@ export function findSegmentUnderCursor(
       const maxX = Math.max(segment.startPoint.x, segment.endPoint.x);
       const lineY = segment.startPoint.y;
 
-      if (
-        mouseX >= minX &&
-        mouseX <= maxX &&
-        Math.abs(mouseY - lineY) <= threshold
-      ) {
+      if (mouseX >= minX && mouseX <= maxX && Math.abs(mouseY - lineY) <= threshold) {
         return segment;
       }
     } else {
@@ -136,11 +130,7 @@ export function findSegmentUnderCursor(
       const maxY = Math.max(segment.startPoint.y, segment.endPoint.y);
       const lineX = segment.startPoint.x;
 
-      if (
-        mouseY >= minY &&
-        mouseY <= maxY &&
-        Math.abs(mouseX - lineX) <= threshold
-      ) {
+      if (mouseY >= minY && mouseY <= maxY && Math.abs(mouseX - lineX) <= threshold) {
         return segment;
       }
     }
@@ -155,13 +145,13 @@ export function findSegmentUnderCursor(
 export function updateOrthogonalPointsForSegmentDrag(
   orthoPoints: Array<{ x: number; y: number }>,
   segment: WireSegment,
-  offset: number
+  offset: number,
 ): Array<{ x: number; y: number }> {
   const newPoints = orthoPoints.map((p) => ({ ...p }));
   const { startIndex, endIndex, orientation } = segment;
 
-  let newStart = { ...newPoints[startIndex] };
-  let newEnd = { ...newPoints[endIndex] };
+  const newStart = { ...newPoints[startIndex] };
+  const newEnd = { ...newPoints[endIndex] };
 
   if (orientation === 'horizontal') {
     newStart.y += offset;
@@ -210,7 +200,7 @@ export function updateOrthogonalPointsForSegmentDrag(
 export function orthogonalPointsToControlPoints(
   orthoPoints: Array<{ x: number; y: number }>,
   _start: { x: number; y: number },
-  _end: { x: number; y: number }
+  _end: { x: number; y: number },
 ): WireControlPoint[] {
   if (orthoPoints.length < 2) {
     return [];
@@ -238,7 +228,7 @@ export function orthogonalPointsToControlPoints(
     const dy1 = current.y - prev.y;
     const dx2 = next.x - current.x;
     const dy2 = next.y - current.y;
-    
+
     // Cross product magnitude. If > 0.1, the path bends here.
     const isCorner = Math.abs(dx1 * dy2 - dy1 * dx2) > 0.1;
 

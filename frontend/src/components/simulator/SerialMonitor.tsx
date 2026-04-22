@@ -11,63 +11,63 @@ import { BOARD_KIND_LABELS } from '../../types/board';
 
 // Short labels for tabs
 const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {
-  'arduino-uno':       'Uno',
-  'arduino-nano':      'Nano',
-  'arduino-mega':      'Mega',
+  'arduino-uno': 'Uno',
+  'arduino-nano': 'Nano',
+  'arduino-mega': 'Mega',
   'raspberry-pi-pico': 'Pico',
-  'pi-pico-w':         'Pico W',
-  'raspberry-pi-3':    'Pi 3B',
-  'esp32':             'ESP32',
+  'pi-pico-w': 'Pico W',
+  'raspberry-pi-3': 'Pi 3B',
+  esp32: 'ESP32',
   'esp32-devkit-c-v4': 'ESP32',
-  'esp32-cam':         'ESP32-CAM',
-  'wemos-lolin32-lite':'Lolin32',
-  'esp32-s3':          'ESP32-S3',
-  'xiao-esp32-s3':     'XIAO-S3',
-  'arduino-nano-esp32':'Nano ESP32',
-  'esp32-c3':          'ESP32-C3',
-  'xiao-esp32-c3':     'XIAO-C3',
+  'esp32-cam': 'ESP32-CAM',
+  'wemos-lolin32-lite': 'Lolin32',
+  'esp32-s3': 'ESP32-S3',
+  'xiao-esp32-s3': 'XIAO-S3',
+  'arduino-nano-esp32': 'Nano ESP32',
+  'esp32-c3': 'ESP32-C3',
+  'xiao-esp32-c3': 'XIAO-C3',
   'aitewinrobot-esp32c3-supermini': 'C3 Mini',
-  'attiny85':          'ATtiny85',
+  attiny85: 'ATtiny85',
 };
 
 const BOARD_ICON: Partial<Record<string, string>> = {
-  'arduino-uno':       '⬤',
-  'arduino-nano':      '▪',
-  'arduino-mega':      '▬',
+  'arduino-uno': '⬤',
+  'arduino-nano': '▪',
+  'arduino-mega': '▬',
   'raspberry-pi-pico': '◆',
-  'pi-pico-w':         '◆',
-  'raspberry-pi-3':    '⬛',
-  'esp32':             '⬡',
+  'pi-pico-w': '◆',
+  'raspberry-pi-3': '⬛',
+  esp32: '⬡',
   'esp32-devkit-c-v4': '⬡',
-  'esp32-cam':         '⬡',
-  'wemos-lolin32-lite':'⬡',
-  'esp32-s3':          '⬡',
-  'xiao-esp32-s3':     '⬡',
-  'arduino-nano-esp32':'⬡',
-  'esp32-c3':          '⬡',
-  'xiao-esp32-c3':     '⬡',
+  'esp32-cam': '⬡',
+  'wemos-lolin32-lite': '⬡',
+  'esp32-s3': '⬡',
+  'xiao-esp32-s3': '⬡',
+  'arduino-nano-esp32': '⬡',
+  'esp32-c3': '⬡',
+  'xiao-esp32-c3': '⬡',
   'aitewinrobot-esp32c3-supermini': '⬡',
-  'attiny85':          '▪',
+  attiny85: '▪',
 };
 
 const BOARD_COLOR: Partial<Record<string, string>> = {
-  'arduino-uno':       '#4fc3f7',
-  'arduino-nano':      '#4fc3f7',
-  'arduino-mega':      '#4fc3f7',
+  'arduino-uno': '#4fc3f7',
+  'arduino-nano': '#4fc3f7',
+  'arduino-mega': '#4fc3f7',
   'raspberry-pi-pico': '#ce93d8',
-  'pi-pico-w':         '#ce93d8',
-  'raspberry-pi-3':    '#ef9a9a',
-  'esp32':             '#a5d6a7',
+  'pi-pico-w': '#ce93d8',
+  'raspberry-pi-3': '#ef9a9a',
+  esp32: '#a5d6a7',
   'esp32-devkit-c-v4': '#a5d6a7',
-  'esp32-cam':         '#a5d6a7',
-  'wemos-lolin32-lite':'#a5d6a7',
-  'esp32-s3':          '#a5d6a7',
-  'xiao-esp32-s3':     '#a5d6a7',
-  'arduino-nano-esp32':'#a5d6a7',
-  'esp32-c3':          '#a5d6a7',
-  'xiao-esp32-c3':     '#a5d6a7',
+  'esp32-cam': '#a5d6a7',
+  'wemos-lolin32-lite': '#a5d6a7',
+  'esp32-s3': '#a5d6a7',
+  'xiao-esp32-s3': '#a5d6a7',
+  'arduino-nano-esp32': '#a5d6a7',
+  'esp32-c3': '#a5d6a7',
+  'xiao-esp32-c3': '#a5d6a7',
   'aitewinrobot-esp32c3-supermini': '#a5d6a7',
-  'attiny85':          '#ffcc80',
+  attiny85: '#ffcc80',
 };
 
 export const SerialMonitor: React.FC = () => {
@@ -92,17 +92,30 @@ export const SerialMonitor: React.FC = () => {
   }, [activeBoardId]);
 
   // Fallback: if activeTab is gone, pick first board
-  const resolvedTabId = (boards.find((b) => b.id === activeTabId) ? activeTabId : boards[0]?.id) ?? null;
+  const resolvedTabId =
+    (boards.find((b) => b.id === activeTabId) ? activeTabId : boards[0]?.id) ?? null;
   const activeBoard = boards.find((b) => b.id === resolvedTabId);
 
-  // Mark tab as read when it becomes active
+  // Snapshot the current length the moment a tab becomes active so any
+  // future bytes register as unread on *other* tabs. Deliberately omits
+  // `activeBoard?.serialOutput.length` from the deps — the unread dot is
+  // already hidden on the active tab (`hasUnread && !isActive`), so there's
+  // no need to re-snapshot on every byte arrival. Doing so under a high
+  // serial rate (~600 bytes/s from `Serial.println` in a tight loop) drove
+  // React's useSyncExternalStore into "Maximum update depth exceeded".
   useEffect(() => {
-    if (resolvedTabId && activeBoard) {
-      setLastSeenLen((prev) => ({ ...prev, [resolvedTabId]: activeBoard.serialOutput.length }));
+    if (resolvedTabId) {
+      const board = boards.find((b) => b.id === resolvedTabId);
+      if (board) {
+        setLastSeenLen((prev) => ({ ...prev, [resolvedTabId]: board.serialOutput.length }));
+      }
     }
-  }, [resolvedTabId, activeBoard?.serialOutput.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedTabId]);
 
-  // Auto-scroll when output changes on the visible tab
+  // Auto-scroll when output changes on the visible tab. Depending on the
+  // string identity (not its length) means one scroll per RAF flush — the
+  // batcher guarantees this doesn't run faster than 60 Hz.
   useEffect(() => {
     if (autoscroll && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -114,9 +127,15 @@ export const SerialMonitor: React.FC = () => {
     if (!inputValue && lineEnding === 'none') return;
     let text = inputValue;
     switch (lineEnding) {
-      case 'nl':   text += '\n';   break;
-      case 'cr':   text += '\r';   break;
-      case 'both': text += '\r\n'; break;
+      case 'nl':
+        text += '\n';
+        break;
+      case 'cr':
+        text += '\r';
+        break;
+      case 'both':
+        text += '\r\n';
+        break;
     }
     serialWriteToBoard(resolvedTabId, text);
     setInputValue('');
@@ -124,23 +143,26 @@ export const SerialMonitor: React.FC = () => {
 
   const isMicroPython = activeBoard?.languageMode === 'micropython';
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSend();
-      return;
-    }
-    // MicroPython REPL control characters (works for RP2040 and ESP32)
-    if (resolvedTabId && isMicroPython && e.ctrlKey) {
-      if (e.key === 'c' || e.key === 'C') {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
         e.preventDefault();
-        serialWriteToBoard(resolvedTabId, '\x03'); // Ctrl+C — keyboard interrupt
-      } else if (e.key === 'd' || e.key === 'D') {
-        e.preventDefault();
-        serialWriteToBoard(resolvedTabId, '\x04'); // Ctrl+D — soft reset
+        handleSend();
+        return;
       }
-    }
-  }, [handleSend, resolvedTabId]);
+      // MicroPython REPL control characters (works for RP2040 and ESP32)
+      if (resolvedTabId && isMicroPython && e.ctrlKey) {
+        if (e.key === 'c' || e.key === 'C') {
+          e.preventDefault();
+          serialWriteToBoard(resolvedTabId, '\x03'); // Ctrl+C — keyboard interrupt
+        } else if (e.key === 'd' || e.key === 'D') {
+          e.preventDefault();
+          serialWriteToBoard(resolvedTabId, '\x04'); // Ctrl+D — soft reset
+        }
+      }
+    },
+    [handleSend, resolvedTabId],
+  );
 
   const handleTabClick = (boardId: string) => {
     setActiveTabId(boardId);
@@ -168,7 +190,7 @@ export const SerialMonitor: React.FC = () => {
         {boards.map((board) => {
           const isActive = board.id === resolvedTabId;
           const color = BOARD_COLOR[board.boardKind] ?? '#999';
-          const hasUnread = (board.serialOutput.length) > (lastSeenLen[board.id] ?? 0);
+          const hasUnread = board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
           return (
             <button
               key={board.id}
@@ -191,11 +213,17 @@ export const SerialMonitor: React.FC = () => {
         {/* Right-side controls */}
         <div style={styles.tabControls}>
           {isMicroPython && (
-            <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>MicroPython REPL</span>
+            <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>
+              MicroPython REPL
+            </span>
           )}
-          {activeBoard?.serialBaudRate != null && activeBoard.serialBaudRate > 0 && !isMicroPython && (
-            <span style={styles.baudRate}>{activeBoard.serialBaudRate.toLocaleString()} baud</span>
-          )}
+          {activeBoard?.serialBaudRate != null &&
+            activeBoard.serialBaudRate > 0 &&
+            !isMicroPython && (
+              <span style={styles.baudRate}>
+                {activeBoard.serialBaudRate.toLocaleString()} baud
+              </span>
+            )}
           <label style={styles.autoscrollLabel}>
             <input
               type="checkbox"
@@ -217,49 +245,55 @@ export const SerialMonitor: React.FC = () => {
 
       {/* Output area */}
       <pre ref={outputRef} style={styles.output}>
-        {activeBoard?.serialOutput ? (() => {
-          const text = activeBoard.serialOutput;
-          const ipRegex = /http:\/\/192\.168\.4\.(\d+)(\/[^\s]*)?/g;
-          const matches = [...text.matchAll(ipRegex)];
+        {activeBoard?.serialOutput
+          ? (() => {
+              const text = activeBoard.serialOutput;
+              const ipRegex = /http:\/\/192\.168\.4\.(\d+)(\/[^\s]*)?/g;
+              const matches = [...text.matchAll(ipRegex)];
 
-          if (matches.length > 0) {
-            const parts: (string | React.ReactNode)[] = [];
-            let lastIdx = 0;
-            const sessionId = getTabSessionId();
-            const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
+              if (matches.length > 0) {
+                const parts: (string | React.ReactNode)[] = [];
+                let lastIdx = 0;
+                const sessionId = getTabSessionId();
+                const backendBase =
+                  (import.meta.env.VITE_API_BASE as string | undefined) ??
+                  'http://localhost:8001/api';
 
-            matches.forEach((m, i) => {
-              const start = m.index!;
-              const end = start + m[0].length;
-              const path = m[2] || '/';
-              const clientId = `${sessionId}::${activeBoard.id}`;
-              const gatewayUrl = `${backendBase}/gateway/${clientId}${path}`;
+                matches.forEach((m, i) => {
+                  const start = m.index!;
+                  const end = start + m[0].length;
+                  const path = m[2] || '/';
+                  const clientId = `${sessionId}::${activeBoard.id}`;
+                  const gatewayUrl = `${backendBase}/gateway/${clientId}${path}`;
 
-              parts.push(text.slice(lastIdx, start));
-              parts.push(
-                <a
-                  key={i}
-                  href={gatewayUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{
-                    color: '#4fc3f7',
-                    textDecoration: 'underline',
-                    fontWeight: 'bold',
-                    cursor: 'pointer'
-                  }}
-                  title="Click to open through IoT Gateway"
-                >
-                  {m[0]} (Open IoT Gateway ↗)
-                </a>
-              );
-              lastIdx = end;
-            });
-            parts.push(text.slice(lastIdx));
-            return parts;
-          }
-          return text;
-        })() : (activeBoard?.running ? 'Waiting for serial data...\n' : 'Start simulation to see serial output.\n')}
+                  parts.push(text.slice(lastIdx, start));
+                  parts.push(
+                    <a
+                      key={i}
+                      href={gatewayUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        color: '#4fc3f7',
+                        textDecoration: 'underline',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                      }}
+                      title="Click to open through IoT Gateway"
+                    >
+                      {m[0]} (Open IoT Gateway ↗)
+                    </a>,
+                  );
+                  lastIdx = end;
+                });
+                parts.push(text.slice(lastIdx));
+                return parts;
+              }
+              return text;
+            })()
+          : activeBoard?.running
+            ? 'Waiting for serial data...\n'
+            : 'Start simulation to see serial output.\n'}
       </pre>
 
       {/* Input row */}
@@ -269,7 +303,11 @@ export const SerialMonitor: React.FC = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isMicroPython ? 'Type Python expression... (Ctrl+C to interrupt)' : 'Type message to send...'}
+          placeholder={
+            isMicroPython
+              ? 'Type Python expression... (Ctrl+C to interrupt)'
+              : 'Type message to send...'
+          }
           style={styles.input}
           disabled={!activeBoard?.running}
         />

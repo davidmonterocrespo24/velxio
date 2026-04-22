@@ -343,6 +343,28 @@ class EspLibManager:
         if inst and inst.running and inst.process.returncode is None:
             self._write_cmd(inst, {'cmd': 'set_adc_raw', 'channel': channel, 'raw': raw})
 
+    def set_adc_waveform(self, client_id: str, channel: int, samples_b64: str,
+                         period_ns: int) -> None:
+        """
+        Push a periodic 12-bit waveform LUT for an ADC channel to QEMU.
+
+        QEMU stores the samples against its virtual clock and interpolates
+        them on every MMIO ADC read — giving ESP32 boards the same per-read
+        ADC fidelity AVR and RP2040 have via `onADCRead` monkey-patching.
+
+        An empty `samples_b64` with `period_ns == 0` clears the waveform and
+        restores the DC `set_adc` behavior.
+        """
+        with self._instances_lock:
+            inst = self._instances.get(client_id)
+        if inst and inst.running and inst.process.returncode is None:
+            self._write_cmd(inst, {
+                'cmd': 'set_adc_waveform',
+                'channel': channel,
+                'samples_u12_b64': samples_b64,
+                'period_ns': period_ns,
+            })
+
     # ── I2C / SPI device simulation ───────────────────────────────────────────
 
     def set_i2c_response(self, client_id: str, addr: int, response_byte: int) -> None:

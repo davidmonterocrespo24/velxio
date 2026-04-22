@@ -115,7 +115,7 @@ const ELEMENTS = [
   ['wokwi-dht22',                  'dht22-element',                  {},                                                                         false ],
   ['wokwi-hc-sr04',                'hc-sr04-element',                {},                                                                         false ],
   ['wokwi-mpu6050',                'mpu6050-element',                {},                                                                         false ],
-  ['wokwi-bmp280',                 'bmp280-element',                 {},                                                                         false ],
+  ['velxio-bmp280',                 'bmp280-element',                 {},                                                                         false ],
   ['wokwi-lcd2004',                'lcd2004-element',                {},                                                                         false ],
   ['wokwi-ssd1306',                'ssd1306-element',                { width: 128, height: 64 },                                                 false ],
   ['wokwi-ili9341',                'ili9341-element',                {},                                                                         false ],
@@ -426,7 +426,7 @@ const BOARD_COPIES = [
   ['wokwi-arduino-mega',      'arduino-mega.svg'],
   ['wokwi-arduino-mega-board','arduino-mega.svg'],
   ['wokwi-esp32-board', 'esp32-devkit-c-v4.svg'],
-  ['wokwi-raspberry-pi-3', 'Raspberry_Pi_3.svg'],
+  ['velxio-raspberry-pi-3', 'Raspberry_Pi_3.svg'],
 ];
 
 console.log('\n📋 Copying board SVGs from public/boards/...');

@@ -120,10 +120,12 @@ function makeEsp32Shim() {
   return {
     pinManager: {
       onPinChange: vi.fn().mockReturnValue(() => {}),
-      onPwmChange: vi.fn().mockImplementation((_pin: number, cb: (pin: number, duty: number) => void) => {
-        pwmCallback = cb;
-        return unsubPwm;
-      }),
+      onPwmChange: vi
+        .fn()
+        .mockImplementation((_pin: number, cb: (pin: number, duty: number) => void) => {
+          pwmCallback = cb;
+          return unsubPwm;
+        }),
       updatePwm: vi.fn(),
       triggerPinChange: vi.fn(),
     },
@@ -157,10 +159,12 @@ function makeAVRSim() {
 
   return {
     pinManager: {
-      onPinChange: vi.fn().mockImplementation((_pin: number, cb: (pin: number, state: boolean) => void) => {
-        pinCallback = cb;
-        return unsubPin;
-      }),
+      onPinChange: vi
+        .fn()
+        .mockImplementation((_pin: number, cb: (pin: number, state: boolean) => void) => {
+          pinCallback = cb;
+          return unsubPin;
+        }),
       onPwmChange: vi.fn().mockReturnValue(() => {}),
       updatePwm: vi.fn(),
     },
@@ -326,9 +330,7 @@ describe('LEDC update routing', () => {
 
   it('routes to GPIO pin when update.gpio >= 0', () => {
     const update = { channel: 0, duty: 7.5, duty_pct: 7.5, gpio: 13 };
-    const targetPin = (update.gpio !== undefined && update.gpio >= 0)
-      ? update.gpio
-      : update.channel;
+    const targetPin = update.gpio !== undefined && update.gpio >= 0 ? update.gpio : update.channel;
     pm.updatePwm(targetPin, update.duty_pct / 100);
 
     expect(pm.updatePwm).toHaveBeenCalledWith(13, 0.075);
@@ -336,9 +338,7 @@ describe('LEDC update routing', () => {
 
   it('falls back to channel when gpio is -1', () => {
     const update = { channel: 2, duty: 50, duty_pct: 50, gpio: -1 };
-    const targetPin = (update.gpio !== undefined && update.gpio >= 0)
-      ? update.gpio
-      : update.channel;
+    const targetPin = update.gpio !== undefined && update.gpio >= 0 ? update.gpio : update.channel;
     pm.updatePwm(targetPin, update.duty_pct / 100);
 
     expect(pm.updatePwm).toHaveBeenCalledWith(2, 0.5);
@@ -346,9 +346,7 @@ describe('LEDC update routing', () => {
 
   it('falls back to channel when gpio is undefined', () => {
     const update = { channel: 3, duty: 100, duty_pct: 100 } as any;
-    const targetPin = (update.gpio !== undefined && update.gpio >= 0)
-      ? update.gpio
-      : update.channel;
+    const targetPin = update.gpio !== undefined && update.gpio >= 0 ? update.gpio : update.channel;
     pm.updatePwm(targetPin, update.duty_pct / 100);
 
     expect(pm.updatePwm).toHaveBeenCalledWith(3, 1.0);
@@ -356,9 +354,7 @@ describe('LEDC update routing', () => {
 
   it('normalizes duty_pct to 0.0–1.0 (divides by 100)', () => {
     const update = { channel: 0, duty: 25, duty_pct: 25, gpio: 5 };
-    const targetPin = (update.gpio !== undefined && update.gpio >= 0)
-      ? update.gpio
-      : update.channel;
+    const targetPin = update.gpio !== undefined && update.gpio >= 0 ? update.gpio : update.channel;
     pm.updatePwm(targetPin, update.duty_pct / 100);
 
     expect(pm.updatePwm).toHaveBeenCalledWith(5, 0.25);
@@ -439,7 +435,7 @@ describe('ESP32 ADC channel mapping', () => {
     setAdcVoltage(shim as any, 39, 1.0);
 
     const calls = shim._getAdcCalls();
-    expect(calls.map(c => c.channel)).toEqual([0, 1, 2, 3]);
+    expect(calls.map((c) => c.channel)).toEqual([0, 1, 2, 3]);
   });
 
   it('maps GPIO 32-35 → ADC1 CH4-7', () => {
@@ -450,7 +446,7 @@ describe('ESP32 ADC channel mapping', () => {
     setAdcVoltage(shim as any, 35, 1.0);
 
     const calls = shim._getAdcCalls();
-    expect(calls.map(c => c.channel)).toEqual([4, 5, 6, 7]);
+    expect(calls.map((c) => c.channel)).toEqual([4, 5, 6, 7]);
   });
 
   it('converts voltage to millivolts correctly', () => {
@@ -478,18 +474,18 @@ describe('LEDC 0x5000 marker decoding', () => {
   // Worker must extract: ledc_ch = (direction >> 8) & 0x0F (NOT & 0xFF)
 
   function decodeLedc(direction: number) {
-    const marker = direction & 0xF000;
+    const marker = direction & 0xf000;
     if (marker !== 0x5000) return null;
-    const ledc_ch = (direction >> 8) & 0x0F;  // correct: strips marker bits
-    const intensity = direction & 0xFF;
+    const ledc_ch = (direction >> 8) & 0x0f; // correct: strips marker bits
+    const intensity = direction & 0xff;
     return { ledc_ch, intensity };
   }
 
   function decodeLedcBroken(direction: number) {
-    const marker = direction & 0xF000;
+    const marker = direction & 0xf000;
     if (marker !== 0x5000) return null;
-    const ledc_ch = (direction >> 8) & 0xFF;  // BUG: includes marker bits
-    const intensity = direction & 0xFF;
+    const ledc_ch = (direction >> 8) & 0xff; // BUG: includes marker bits
+    const intensity = direction & 0xff;
     return { ledc_ch, intensity };
   }
 
@@ -498,8 +494,8 @@ describe('LEDC 0x5000 marker decoding', () => {
     const correct = decodeLedc(direction)!;
     const broken = decodeLedcBroken(direction)!;
 
-    expect(correct.ledc_ch).toBe(0);   // correct
-    expect(broken.ledc_ch).toBe(80);   // BUG: 0x50 = 80
+    expect(correct.ledc_ch).toBe(0); // correct
+    expect(broken.ledc_ch).toBe(80); // BUG: 0x50 = 80
     expect(correct.intensity).toBe(11);
   });
 
@@ -508,8 +504,8 @@ describe('LEDC 0x5000 marker decoding', () => {
     const correct = decodeLedc(direction)!;
     const broken = decodeLedcBroken(direction)!;
 
-    expect(correct.ledc_ch).toBe(8);   // correct
-    expect(broken.ledc_ch).toBe(88);   // BUG: 0x58 = 88
+    expect(correct.ledc_ch).toBe(8); // correct
+    expect(broken.ledc_ch).toBe(88); // BUG: 0x58 = 88
     expect(correct.intensity).toBe(17);
   });
 
@@ -546,7 +542,7 @@ describe('GPIO out_sel scanning for LEDC mapping', () => {
   function scanOutSel(outSel: number[]): Map<number, number> {
     const ledcGpioMap = new Map<number, number>();
     for (let gpioPin = 0; gpioPin < outSel.length; gpioPin++) {
-      const signal = outSel[gpioPin] & 0xFF;
+      const signal = outSel[gpioPin] & 0xff;
       if (signal >= 72 && signal <= 87) {
         const ledcCh = signal - 72;
         ledcGpioMap.set(ledcCh, gpioPin);
@@ -574,9 +570,9 @@ describe('GPIO out_sel scanning for LEDC mapping', () => {
 
   it('detects multiple LEDC channels', () => {
     const outSel = new Array(40).fill(256);
-    outSel[13] = 72;  // HS ch0 → GPIO 13
-    outSel[12] = 73;  // HS ch1 → GPIO 12
-    outSel[14] = 80;  // LS ch0 → GPIO 14
+    outSel[13] = 72; // HS ch0 → GPIO 13
+    outSel[12] = 73; // HS ch1 → GPIO 12
+    outSel[14] = 80; // LS ch0 → GPIO 14
     const map = scanOutSel(outSel);
 
     expect(map.get(0)).toBe(13);
@@ -587,9 +583,9 @@ describe('GPIO out_sel scanning for LEDC mapping', () => {
 
   it('ignores non-LEDC signals (< 72 or > 87)', () => {
     const outSel = new Array(40).fill(256);
-    outSel[5] = 71;  // signal 71 = not LEDC
-    outSel[6] = 88;  // signal 88 = not LEDC
-    outSel[7] = 0;   // signal 0 = GPIO matrix simple
+    outSel[5] = 71; // signal 71 = not LEDC
+    outSel[6] = 88; // signal 88 = not LEDC
+    outSel[7] = 0; // signal 0 = GPIO matrix simple
     const map = scanOutSel(outSel);
 
     expect(map.size).toBe(0);
@@ -601,11 +597,11 @@ describe('GPIO out_sel scanning for LEDC mapping', () => {
     // marker = direction & 0xF000 = 0x6000 ≠ 0x2000 → NEVER MATCHED!
     const signal = 72;
     const gpio = 13;
-    const direction = 0x2000 | ((signal & 0xFF) << 8) | (gpio & 0xFF);
+    const direction = 0x2000 | ((signal & 0xff) << 8) | (gpio & 0xff);
 
-    expect(direction).toBe(0x680D);
-    expect(direction & 0xF000).toBe(0x6000); // NOT 0x2000!
-    expect(direction & 0xF000).not.toBe(0x2000); // confirms the bug
+    expect(direction).toBe(0x680d);
+    expect(direction & 0xf000).toBe(0x6000); // NOT 0x2000!
+    expect(direction & 0xf000).not.toBe(0x2000); // confirms the bug
   });
 });
 
@@ -623,7 +619,7 @@ describe('End-to-end: LEDC → servo angle', () => {
 
     // Simulate what useSimulatorStore.onLedcUpdate does:
     const update = { channel: 0, duty: 7.36, duty_pct: 7.36, gpio: 13 };
-    const targetPin = (update.gpio >= 0) ? update.gpio : update.channel;
+    const targetPin = update.gpio >= 0 ? update.gpio : update.channel;
     const dutyCycleFraction = update.duty_pct / 100;
 
     // This is what the store calls:
@@ -682,11 +678,9 @@ describe('LEDC polling — data format', () => {
     const dutyCycleFraction = dutyPct / 100; // 0.075
 
     // Servo maps pulse width:
-    const MIN_DC = 544 / 20000;   // 0.0272
-    const MAX_DC = 2400 / 20000;  // 0.12
-    const angle = Math.round(
-      ((dutyCycleFraction - MIN_DC) / (MAX_DC - MIN_DC)) * 180
-    );
+    const MIN_DC = 544 / 20000; // 0.0272
+    const MAX_DC = 2400 / 20000; // 0.12
+    const angle = Math.round(((dutyCycleFraction - MIN_DC) / (MAX_DC - MIN_DC)) * 180);
 
     // 7.5% duty ≈ 93° (close to 90°)
     expect(angle).toBeGreaterThanOrEqual(88);
@@ -745,18 +739,20 @@ describe('PinManager.broadcastPwm fallback', () => {
     onPwmChange(pin: number, cb: (pin: number, duty: number) => void): () => void {
       if (!this.pwmListeners.has(pin)) this.pwmListeners.set(pin, new Set());
       this.pwmListeners.get(pin)!.add(cb);
-      return () => { this.pwmListeners.get(pin)?.delete(cb); };
+      return () => {
+        this.pwmListeners.get(pin)?.delete(cb);
+      };
     }
 
     updatePwm(pin: number, dutyCycle: number): void {
       this.pwmValues.set(pin, dutyCycle);
-      this.pwmListeners.get(pin)?.forEach(cb => cb(pin, dutyCycle));
+      this.pwmListeners.get(pin)?.forEach((cb) => cb(pin, dutyCycle));
     }
 
     broadcastPwm(dutyCycle: number): void {
       this.pwmListeners.forEach((callbacks, pin) => {
         this.pwmValues.set(pin, dutyCycle);
-        callbacks.forEach(cb => cb(pin, dutyCycle));
+        callbacks.forEach((cb) => cb(pin, dutyCycle));
       });
     }
   }
@@ -782,12 +778,12 @@ describe('PinManager.broadcastPwm fallback', () => {
   });
 
   it('servo filters broadcastPwm by duty range (0.01-0.20)', () => {
-    const MIN_DC = 544 / 20000;  // 0.0272
+    const MIN_DC = 544 / 20000; // 0.0272
     const MAX_DC = 2400 / 20000; // 0.12
     let servoAngle = -1;
 
     const servoCallback = (_pin: number, dutyCycle: number) => {
-      if (dutyCycle < 0.01 || dutyCycle > 0.20) return;
+      if (dutyCycle < 0.01 || dutyCycle > 0.2) return;
       const angle = Math.round(((dutyCycle - MIN_DC) / (MAX_DC - MIN_DC)) * 180);
       servoAngle = Math.max(0, Math.min(180, angle));
     };
@@ -797,7 +793,7 @@ describe('PinManager.broadcastPwm fallback', () => {
     expect(servoAngle).toBeLessThanOrEqual(95);
 
     const prevAngle = servoAngle;
-    servoCallback(13, 0.50); // 50% — not a servo signal
+    servoCallback(13, 0.5); // 50% — not a servo signal
     expect(servoAngle).toBe(prevAngle);
   });
 

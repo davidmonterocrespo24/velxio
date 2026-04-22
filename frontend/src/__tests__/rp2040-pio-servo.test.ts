@@ -136,8 +136,8 @@ describe('RP2040 PIO → GPIO chain', () => {
     // Load program:
     //   Instruction 0: SET pins, 1  (set pin HIGH)
     //   Instruction 1: SET pins, 0  (set pin LOW)
-    pio0.writeUint32(INSTR_MEM0, pioSetPins(1));      // slot 0
-    pio0.writeUint32(INSTR_MEM0 + 4, pioSetPins(0));  // slot 1
+    pio0.writeUint32(INSTR_MEM0, pioSetPins(1)); // slot 0
+    pio0.writeUint32(INSTR_MEM0 + 4, pioSetPins(0)); // slot 1
 
     // Configure SM0: SET_BASE=15, SET_COUNT=1
     const SET_BASE = 15;
@@ -246,7 +246,7 @@ describe('RP2040 PIO → GPIO chain', () => {
     gpio15.ctrl = 6;
 
     // Load program: set pindirs, set pin high, set pin low (loop)
-    pio0.writeUint32(INSTR_MEM0, 0xe080 | 1);     // SET pindirs, 1
+    pio0.writeUint32(INSTR_MEM0, 0xe080 | 1); // SET pindirs, 1
     pio0.writeUint32(INSTR_MEM0 + 4, pioSetPins(1)); // SET pins, 1
     pio0.writeUint32(INSTR_MEM0 + 8, pioSetPins(0)); // SET pins, 0
 
@@ -271,12 +271,14 @@ describe('RP2040 PIO → GPIO chain', () => {
       pio0.step();
     }
 
-    console.log(`onPinChangeWithTime calls for pin 15: ${JSON.stringify(
-      pinChanges.filter(c => c.pin === 15)
-    )}`);
+    console.log(
+      `onPinChangeWithTime calls for pin 15: ${JSON.stringify(
+        pinChanges.filter((c) => c.pin === 15),
+      )}`,
+    );
     console.log(`All onPinChangeWithTime calls: ${JSON.stringify(pinChanges)}`);
 
-    const pin15Changes = pinChanges.filter(c => c.pin === 15);
+    const pin15Changes = pinChanges.filter((c) => c.pin === 15);
     expect(pin15Changes.length).toBeGreaterThan(0);
   });
 
@@ -340,12 +342,12 @@ describe('RP2040 PIO servo pulse width measurement', () => {
     // Instruction 3: NOP
     // Instruction 4: SET pins, 0  (falling edge)
     // Instruction 5: NOP (delay while LOW)
-    pio0.writeUint32(INSTR_MEM0, 0xe080 | 1);         // SET pindirs, 1
-    pio0.writeUint32(INSTR_MEM0 + 4, pioSetPins(1));   // SET pins, 1
-    pio0.writeUint32(INSTR_MEM0 + 8, pioNop());        // NOP
-    pio0.writeUint32(INSTR_MEM0 + 12, pioNop());       // NOP
-    pio0.writeUint32(INSTR_MEM0 + 16, pioSetPins(0));  // SET pins, 0
-    pio0.writeUint32(INSTR_MEM0 + 20, pioNop());       // NOP
+    pio0.writeUint32(INSTR_MEM0, 0xe080 | 1); // SET pindirs, 1
+    pio0.writeUint32(INSTR_MEM0 + 4, pioSetPins(1)); // SET pins, 1
+    pio0.writeUint32(INSTR_MEM0 + 8, pioNop()); // NOP
+    pio0.writeUint32(INSTR_MEM0 + 12, pioNop()); // NOP
+    pio0.writeUint32(INSTR_MEM0 + 16, pioSetPins(0)); // SET pins, 0
+    pio0.writeUint32(INSTR_MEM0 + 20, pioNop()); // NOP
 
     // Configure SM0: SET_BASE=15, SET_COUNT=1, wrap 1-5
     pio0.writeUint32(SM0_PINCTRL, (15 << 5) | (1 << 26));
@@ -373,7 +375,7 @@ describe('RP2040 PIO servo pulse width measurement', () => {
 
     // We should see alternating HIGH/LOW transitions
     if (transitions.length >= 2) {
-      const risingIdx = transitions.findIndex(t => t.state === true);
+      const risingIdx = transitions.findIndex((t) => t.state === true);
       const fallingIdx = transitions.findIndex((t, i) => i > risingIdx && t.state === false);
 
       if (risingIdx >= 0 && fallingIdx >= 0) {

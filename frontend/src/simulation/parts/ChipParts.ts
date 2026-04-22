@@ -48,7 +48,14 @@ function getConnectedToPin(
  */
 function set7SegPin(element: HTMLElement, pinName: string, state: boolean) {
   const segmentIndex: Record<string, number> = {
-    A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, DP: 7,
+    A: 0,
+    B: 1,
+    C: 2,
+    D: 3,
+    E: 4,
+    F: 5,
+    G: 6,
+    DP: 7,
   };
   const idx = segmentIndex[pinName.toUpperCase()];
   if (idx === undefined) return;
@@ -67,20 +74,20 @@ PartSimulationRegistry.register('74hc595', {
     if (!pinManager) return () => {};
 
     // Internal state
-    let shiftReg = 0;    // 8-bit shift register
-    let storageReg = 0;  // 8-bit storage register (output)
+    let shiftReg = 0; // 8-bit shift register
+    let storageReg = 0; // 8-bit storage register (output)
     let oeActive = false; // output enable (active low)
-    let mrActive = true;  // master reset (active low — HIGH = not reset)
+    let mrActive = true; // master reset (active low — HIGH = not reset)
 
     let prevShcp = false;
     let prevStcp = false;
 
     // Resolve connected Arduino pins
-    const pinDS   = getArduinoPinHelper('DS');
+    const pinDS = getArduinoPinHelper('DS');
     const pinSHCP = getArduinoPinHelper('SHCP');
     const pinSTCP = getArduinoPinHelper('STCP');
-    const pinMR   = getArduinoPinHelper('MR');
-    const pinOE   = getArduinoPinHelper('OE');
+    const pinMR = getArduinoPinHelper('MR');
+    const pinOE = getArduinoPinHelper('OE');
 
     const unsubscribers: (() => void)[] = [];
 
@@ -103,7 +110,7 @@ PartSimulationRegistry.register('74hc595', {
             (connected.element as any).value = state ? 1 : 0;
           }
           // Update 74HC595 chained via Q7S
-          if (tagName === 'wokwi-74hc595' && outputPins[i] === 'Q7S') {
+          if (tagName === 'velxio-74hc595' && outputPins[i] === 'Q7S') {
             // Q7S is serial out — drives DS of next chip (handled via wire logic)
           }
         }
@@ -111,7 +118,7 @@ PartSimulationRegistry.register('74hc595', {
 
       // Update this element's visual (Q0-Q7 output dots)
       const el = element as any;
-      el.values = outputPins.map((_, i) => ((storageReg >> i) & 1));
+      el.values = outputPins.map((_, i) => (storageReg >> i) & 1);
 
       // Also propagate Q7S (serial output = bit 7 of shift register, not storage)
       const q7sConn = getConnectedToPin(element.id, 'Q7S');
@@ -124,22 +131,26 @@ PartSimulationRegistry.register('74hc595', {
     // OE (active low — LOW enables outputs)
     if (pinOE !== null) {
       pinManager.triggerPinChange(pinOE, true); // default HIGH = disabled
-      unsubscribers.push(pinManager.onPinChange(pinOE, (_: number, state: boolean) => {
-        oeActive = !state; // OE low = active
-        propagateOutputs();
-      }));
+      unsubscribers.push(
+        pinManager.onPinChange(pinOE, (_: number, state: boolean) => {
+          oeActive = !state; // OE low = active
+          propagateOutputs();
+        }),
+      );
     } else {
       oeActive = true; // assume OE tied to GND (always enabled)
     }
 
     // MR (active low — LOW resets shift register)
     if (pinMR !== null) {
-      unsubscribers.push(pinManager.onPinChange(pinMR, (_: number, state: boolean) => {
-        mrActive = state; // MR high = no reset, low = reset
-        if (!mrActive) {
-          shiftReg = 0;
-        }
-      }));
+      unsubscribers.push(
+        pinManager.onPinChange(pinMR, (_: number, state: boolean) => {
+          mrActive = state; // MR high = no reset, low = reset
+          if (!mrActive) {
+            shiftReg = 0;
+          }
+        }),
+      );
     } else {
       mrActive = true; // assume MR tied high
     }
@@ -147,41 +158,47 @@ PartSimulationRegistry.register('74hc595', {
     // DS — latched on SHCP rising edge; just track current value
     let dsState = false;
     if (pinDS !== null) {
-      unsubscribers.push(pinManager.onPinChange(pinDS, (_: number, state: boolean) => {
-        dsState = state;
-      }));
+      unsubscribers.push(
+        pinManager.onPinChange(pinDS, (_: number, state: boolean) => {
+          dsState = state;
+        }),
+      );
     }
 
     // SHCP — rising edge shifts DS into shift register
     if (pinSHCP !== null) {
-      unsubscribers.push(pinManager.onPinChange(pinSHCP, (_: number, state: boolean) => {
-        if (state && !prevShcp) {
-          // Rising edge
-          if (mrActive) {
-            // Shift: MSB shifts out via Q7S, DS enters at LSB
-            shiftReg = ((shiftReg << 1) | (dsState ? 1 : 0)) & 0xFF;
+      unsubscribers.push(
+        pinManager.onPinChange(pinSHCP, (_: number, state: boolean) => {
+          if (state && !prevShcp) {
+            // Rising edge
+            if (mrActive) {
+              // Shift: MSB shifts out via Q7S, DS enters at LSB
+              shiftReg = ((shiftReg << 1) | (dsState ? 1 : 0)) & 0xff;
+            }
           }
-        }
-        prevShcp = state;
-      }));
+          prevShcp = state;
+        }),
+      );
     }
 
     // STCP — rising edge latches shift register to storage register
     if (pinSTCP !== null) {
-      unsubscribers.push(pinManager.onPinChange(pinSTCP, (_: number, state: boolean) => {
-        if (state && !prevStcp) {
-          // Rising edge — latch
-          storageReg = shiftReg;
-          propagateOutputs();
-        }
-        prevStcp = state;
-      }));
+      unsubscribers.push(
+        pinManager.onPinChange(pinSTCP, (_: number, state: boolean) => {
+          if (state && !prevStcp) {
+            // Rising edge — latch
+            storageReg = shiftReg;
+            propagateOutputs();
+          }
+          prevStcp = state;
+        }),
+      );
     }
 
     // Initial state propagation
     propagateOutputs();
 
-    return () => unsubscribers.forEach(u => u());
+    return () => unsubscribers.forEach((u) => u());
   },
 });
 
@@ -199,13 +216,15 @@ PartSimulationRegistry.register('7segment', {
       const seg = segments[i];
       const arduinoPin = getArduinoPinHelper(seg);
       if (arduinoPin !== null) {
-        unsubscribers.push(pinManager.onPinChange(arduinoPin, (_: number, state: boolean) => {
-          set7SegPin(element, seg, state);
-        }));
+        unsubscribers.push(
+          pinManager.onPinChange(arduinoPin, (_: number, state: boolean) => {
+            set7SegPin(element, seg, state);
+          }),
+        );
       }
     }
 
-    return () => unsubscribers.forEach(u => u());
+    return () => unsubscribers.forEach((u) => u());
   },
   // Called by SimulatorCanvas for boards without a local simulator (e.g. ESP32 via QEMU backend).
   // pinName is the segment identifier (A, B, C, D, E, F, G, DP).

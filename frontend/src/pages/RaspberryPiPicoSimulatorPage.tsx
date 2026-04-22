@@ -76,39 +76,65 @@ export const RaspberryPiPicoSimulatorPage: React.FC = () => {
       <AppHeader />
       <main>
         <section className="seo-hero">
-          <img src={piPicoSvgUrl} alt="Raspberry Pi Pico board" style={{ height: 120, marginBottom: 24 }} />
+          <img
+            src={piPicoSvgUrl}
+            alt="Raspberry Pi Pico board"
+            style={{ height: 120, marginBottom: 24 }}
+          />
           <h1>
-            Free Raspberry Pi Pico Simulator<br />
+            Free Raspberry Pi Pico Simulator
+            <br />
             <span className="accent">RP2040 ARM Cortex-M0+ Emulation</span>
           </h1>
           <p className="subtitle">
-            Write Arduino code for Raspberry Pi Pico and simulate it in your browser — real RP2040 ARM Cortex-M0+ emulation
-            at 133 MHz. 26 GPIO pins, I2C, SPI, UART, ADC. No hardware needed.
+            Write Arduino code for Raspberry Pi Pico and simulate it in your browser — real RP2040
+            ARM Cortex-M0+ emulation at 133 MHz. 26 GPIO pins, I2C, SPI, UART, ADC. No hardware
+            needed.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('rpi-pico-simulator', '/editor')}>Open Pico Simulator →</Link>
-            <Link to="/examples" className="seo-btn-secondary">Pico Examples</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('rpi-pico-simulator', '/editor')}
+            >
+              Open Pico Simulator →
+            </Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              Pico Examples
+            </Link>
           </div>
-          <p className="seo-trust">Free &amp; open-source · rp2040js emulation · No account needed</p>
+          <p className="seo-trust">
+            Free &amp; open-source · rp2040js emulation · No account needed
+          </p>
         </section>
 
         <section className="seo-section">
           <h2>Supported RP2040 boards</h2>
           <p className="lead">
-            Both official Raspberry Pi Pico boards are supported with full RP2040 CPU emulation via rp2040js.
+            Both official Raspberry Pi Pico boards are supported with full RP2040 CPU emulation via
+            rp2040js.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>Raspberry Pi Pico</h3>
-              <p>RP2040 dual-core ARM Cortex-M0+ at 133 MHz. 264 KB SRAM, 2 MB flash. 26 GPIO, 3 ADC, 2× SPI, 2× I2C, 2× UART.</p>
+              <p>
+                RP2040 dual-core ARM Cortex-M0+ at 133 MHz. 264 KB SRAM, 2 MB flash. 26 GPIO, 3 ADC,
+                2× SPI, 2× I2C, 2× UART.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Raspberry Pi Pico W</h3>
-              <p>Same RP2040 chip plus Infineon CYW43439 for WiFi 4 and Bluetooth 5.2. Pin-compatible with Pico.</p>
+              <p>
+                Same RP2040 chip plus Infineon CYW43439 for WiFi 4 and Bluetooth 5.2. Pin-compatible
+                with Pico.
+              </p>
             </div>
             <div className="seo-card">
               <h3>RP2040 specs</h3>
-              <p>Dual-core Cortex-M0+ at 133 MHz, 264 KB SRAM, hardware interpolators, 8 PIO state machines, DMA controller.</p>
+              <p>
+                Dual-core Cortex-M0+ at 133 MHz, 264 KB SRAM, hardware interpolators, 8 PIO state
+                machines, DMA controller.
+              </p>
             </div>
           </div>
         </section>
@@ -116,7 +142,8 @@ export const RaspberryPiPicoSimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>Pico example projects</h2>
           <p className="lead">
-            18+ ready-to-run Raspberry Pi Pico examples — from LED blink to I2C, SPI, and sensor integrations.
+            18+ ready-to-run Raspberry Pi Pico examples — from LED blink to I2C, SPI, and sensor
+            integrations.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
@@ -133,19 +160,28 @@ export const RaspberryPiPicoSimulatorPage: React.FC = () => {
             </div>
             <div className="seo-card">
               <h3>Pico ADC Read</h3>
-              <p>Read the 12-bit ADC — measure analog voltage, temperature sensor, or potentiometer.</p>
+              <p>
+                Read the 12-bit ADC — measure analog voltage, temperature sensor, or potentiometer.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Pico DHT22 Sensor</h3>
-              <p>Read temperature and humidity from DHT22. Serial output with formatted readings.</p>
+              <p>
+                Read temperature and humidity from DHT22. Serial output with formatted readings.
+              </p>
             </div>
             <div className="seo-card">
               <h3>Pico Servo Motor</h3>
-              <p>Sweep a servo from 0° to 180° using RP2040 PWM. Smooth motion with configurable range.</p>
+              <p>
+                Sweep a servo from 0° to 180° using RP2040 PWM. Smooth motion with configurable
+                range.
+              </p>
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: 24 }}>
-            <Link to="/examples" className="seo-btn-secondary">View All 68+ Examples →</Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              View All 68+ Examples →
+            </Link>
           </div>
         </section>
 
@@ -163,8 +199,17 @@ export const RaspberryPiPicoSimulatorPage: React.FC = () => {
 
         <div className="seo-bottom">
           <h2>Ready to simulate Raspberry Pi Pico?</h2>
-          <p>Open the editor, select a Pico board, and start coding — no Raspberry Pi hardware required.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('rpi-pico-simulator', '/editor')}>Launch Pico Simulator →</Link>
+          <p>
+            Open the editor, select a Pico board, and start coding — no Raspberry Pi hardware
+            required.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('rpi-pico-simulator', '/editor')}
+          >
+            Launch Pico Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/examples">Example Projects</Link>
             <Link to="/docs/rp2040-emulation">RP2040 Docs</Link>

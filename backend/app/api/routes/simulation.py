@@ -161,6 +161,20 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                             client_id, channel, int(msg_data['raw'])
                         )
 
+            # ── ESP32 ADC waveform LUT (periodic sampling for AC sources) ──
+            # Frontend pushes a 12-bit sample array + period; QEMU interpolates
+            # on every MMIO read using its virtual clock. This matches the
+            # AVR/RP2040 per-read `onADCRead` hook so ADC samples see the
+            # instantaneous SPICE waveform rather than a stale DC scalar.
+            elif msg_type == 'esp32_adc_waveform':
+                channel = int(msg_data.get('channel', 0))
+                samples_b64 = msg_data.get('samples_u12_b64', '')
+                period_ns = int(msg_data.get('period_ns', 0))
+                if _use_lib() and hasattr(esp_lib_manager, 'set_adc_waveform'):
+                    esp_lib_manager.set_adc_waveform(
+                        client_id, channel, samples_b64, period_ns
+                    )
+
             # ── ESP32 I2C device simulation ───────────────────────────────
             elif msg_type == 'esp32_i2c_response':
                 # Frontend configures what an I2C device at addr returns

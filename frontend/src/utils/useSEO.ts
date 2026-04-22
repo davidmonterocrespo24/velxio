@@ -28,27 +28,27 @@ export function useSEO({ title, description, url, ogImage, jsonLd, noindex }: SE
 
   useEffect(() => {
     const origTitle = document.title;
-    const descEl      = qs('meta[name="description"]');
-    const robotsEl    = qs('meta[name="robots"]');
-    const ogTitleEl   = qs('meta[property="og:title"]');
-    const ogDescEl    = qs('meta[property="og:description"]');
-    const ogUrlEl     = qs('meta[property="og:url"]');
-    const ogImgEl     = qs('meta[property="og:image"]');
-    const twTitleEl   = qs('meta[name="twitter:title"]');
-    const twDescEl    = qs('meta[name="twitter:description"]');
+    const descEl = qs('meta[name="description"]');
+    const robotsEl = qs('meta[name="robots"]');
+    const ogTitleEl = qs('meta[property="og:title"]');
+    const ogDescEl = qs('meta[property="og:description"]');
+    const ogUrlEl = qs('meta[property="og:url"]');
+    const ogImgEl = qs('meta[property="og:image"]');
+    const twTitleEl = qs('meta[name="twitter:title"]');
+    const twDescEl = qs('meta[name="twitter:description"]');
     const canonicalEl = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
 
     const get = (el: HTMLMetaElement | null) => el?.getAttribute('content') ?? '';
     const set = (el: HTMLMetaElement | null, v: string) => el?.setAttribute('content', v);
 
-    const origDesc      = get(descEl);
-    const origRobots    = get(robotsEl);
-    const origOgTitle   = get(ogTitleEl);
-    const origOgDesc    = get(ogDescEl);
-    const origOgUrl     = get(ogUrlEl);
-    const origOgImg     = get(ogImgEl);
-    const origTwTitle   = get(twTitleEl);
-    const origTwDesc    = get(twDescEl);
+    const origDesc = get(descEl);
+    const origRobots = get(robotsEl);
+    const origOgTitle = get(ogTitleEl);
+    const origOgDesc = get(ogDescEl);
+    const origOgUrl = get(ogUrlEl);
+    const origOgImg = get(ogImgEl);
+    const origTwTitle = get(twTitleEl);
+    const origTwDesc = get(twDescEl);
     const origCanonical = canonicalEl?.getAttribute('href') ?? '';
 
     // If no <link rel="canonical"> exists yet, create one so each SPA route

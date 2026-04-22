@@ -23,7 +23,9 @@ function makePin() {
 
 describe('PinManager — digital pins', () => {
   let pm: PinManager;
-  beforeEach(() => { pm = makePin(); });
+  beforeEach(() => {
+    pm = makePin();
+  });
 
   it('starts with no listeners and all pins LOW', () => {
     expect(pm.getListenersCount()).toBe(0);
@@ -40,7 +42,7 @@ describe('PinManager — digital pins', () => {
 
   it('fires listeners when PORTB pin changes', () => {
     const cb = vi.fn();
-    pm.onPinChange(13, cb);            // pin 13 = PORTB bit 5
+    pm.onPinChange(13, cb); // pin 13 = PORTB bit 5
     pm.updatePort('PORTB', 0x20, 0x00);
     expect(cb).toHaveBeenCalledOnce();
     expect(cb).toHaveBeenCalledWith(13, true);
@@ -64,15 +66,15 @@ describe('PinManager — digital pins', () => {
 
   it('fires listeners on PORTC (analog pins A0-A5 = 14-19)', () => {
     const cb = vi.fn();
-    pm.onPinChange(14, cb);             // A0 = PORTC bit 0
+    pm.onPinChange(14, cb); // A0 = PORTC bit 0
     pm.updatePort('PORTC', 0x01, 0x00);
     expect(cb).toHaveBeenCalledWith(14, true);
   });
 
   it('fires listeners on PORTD (digital pins 0-7)', () => {
     const cb = vi.fn();
-    pm.onPinChange(0, cb);              // D0 = PORTD bit 0
-    pm.onPinChange(7, cb);              // D7 = PORTD bit 7
+    pm.onPinChange(0, cb); // D0 = PORTD bit 0
+    pm.onPinChange(7, cb); // D7 = PORTD bit 7
     pm.updatePort('PORTD', 0x81, 0x00); // bits 0 and 7
     expect(cb).toHaveBeenCalledTimes(2);
     expect(cb).toHaveBeenCalledWith(0, true);
@@ -109,7 +111,9 @@ describe('PinManager — digital pins', () => {
 
 describe('PinManager — PWM duty cycle', () => {
   let pm: PinManager;
-  beforeEach(() => { pm = makePin(); });
+  beforeEach(() => {
+    pm = makePin();
+  });
 
   it('starts with PWM value 0 on all pins', () => {
     expect(pm.getPwmValue(9)).toBe(0);
@@ -155,11 +159,13 @@ describe('PinManager — PWM duty cycle', () => {
 
 describe('PinManager — analog voltage', () => {
   let pm: PinManager;
-  beforeEach(() => { pm = makePin(); });
+  beforeEach(() => {
+    pm = makePin();
+  });
 
   it('fires analog listeners when voltage is set', () => {
     const cb = vi.fn();
-    pm.onAnalogChange(14, cb);          // A0 = pin 14
+    pm.onAnalogChange(14, cb); // A0 = pin 14
     pm.setAnalogVoltage(14, 2.5);
     expect(cb).toHaveBeenCalledWith(14, 2.5);
   });
@@ -189,11 +195,13 @@ describe('PinManager — analog voltage', () => {
 
 describe('PinManager — triggerPinChange (RP2040)', () => {
   let pm: PinManager;
-  beforeEach(() => { pm = makePin(); });
+  beforeEach(() => {
+    pm = makePin();
+  });
 
   it('fires listeners directly by pin number', () => {
     const cb = vi.fn();
-    pm.onPinChange(25, cb);             // GPIO25 = LED on Pico
+    pm.onPinChange(25, cb); // GPIO25 = LED on Pico
     pm.triggerPinChange(25, true);
     expect(cb).toHaveBeenCalledWith(25, true);
   });
@@ -207,10 +215,10 @@ describe('PinManager — triggerPinChange (RP2040)', () => {
   });
 
   it('does NOT fire if state is identical (no-change optimization)', () => {
-    pm.triggerPinChange(25, true);      // first: fires
+    pm.triggerPinChange(25, true); // first: fires
     const cb = vi.fn();
     pm.onPinChange(25, cb);
-    pm.triggerPinChange(25, true);      // same state → should NOT fire
+    pm.triggerPinChange(25, true); // same state → should NOT fire
     expect(cb).not.toHaveBeenCalled();
   });
 
@@ -236,7 +244,7 @@ describe('PinManager — triggerPinChange (RP2040)', () => {
     expect(callbacks[7]).toHaveBeenCalledWith(7, true);
     expect(callbacks[25]).toHaveBeenCalledWith(25, true);
     // Others should NOT have fired
-    [0, 1, 8, 24, 26].forEach(i => {
+    [0, 1, 8, 24, 26].forEach((i) => {
       expect(callbacks[i]).not.toHaveBeenCalled();
     });
   });

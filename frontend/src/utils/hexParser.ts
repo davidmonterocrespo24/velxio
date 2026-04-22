@@ -13,7 +13,7 @@
  */
 
 export function hexToUint8Array(hexContent: string): Uint8Array {
-  const lines = hexContent.split('\n').filter(line => line.trim().startsWith(':'));
+  const lines = hexContent.split('\n').filter((line) => line.trim().startsWith(':'));
 
   // Determine max address to size the array
   let maxAddress = 0;
@@ -79,5 +79,5 @@ export function verifyHexChecksum(line: string): boolean {
   const checksum = parseInt(bytes.substring(bytes.length - 2), 16);
 
   // Checksum = two's complement of sum
-  return ((sum + checksum) & 0xFF) === 0;
+  return ((sum + checksum) & 0xff) === 0;
 }

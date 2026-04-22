@@ -63,7 +63,7 @@ const ROUTE_COMPONENTS: Record<string, React.FC> = {
  * Returns all routes that have both seoMeta and a renderable component.
  */
 export function getPrerenderedRoutes() {
-  return SEO_ROUTES.filter(r => r.seoMeta && ROUTE_COMPONENTS[r.path]);
+  return SEO_ROUTES.filter((r) => r.seoMeta && ROUTE_COMPONENTS[r.path]);
 }
 
 /**
@@ -77,7 +77,7 @@ export function render(path: string): string {
     return renderToString(
       <MemoryRouter initialEntries={[path]}>
         <Component />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
   } catch (err) {
     console.warn(`  ⚠ SSR render failed for ${path}:`, (err as Error).message);
@@ -105,7 +105,7 @@ export function renderExample(exampleId: string): string {
     return renderToString(
       <MemoryRouter initialEntries={[`/examples/${exampleId}`]}>
         <ExampleDetailPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
   } catch (err) {
     console.warn(`  ⚠ SSR render failed for /examples/${exampleId}:`, (err as Error).message);

@@ -58,7 +58,10 @@ export function trackCreateWire(): void {
 
 /** Fired when the user opens or closes the Serial Monitor. */
 export function trackToggleSerialMonitor(open: boolean): void {
-  fireEvent('toggle_serial_monitor', { event_category: 'engagement', state: open ? 'open' : 'close' });
+  fireEvent('toggle_serial_monitor', {
+    event_category: 'engagement',
+    state: open ? 'open' : 'close',
+  });
 }
 
 // ── Examples ────────────────────────────────────────────────────────────────

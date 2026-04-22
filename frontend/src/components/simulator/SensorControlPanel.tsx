@@ -32,8 +32,8 @@ interface SensorSection {
 
 const MPU6050_SECTIONS: SensorSection[] = [
   { label: 'Acceleration', icon: '↗', keys: ['accelX', 'accelY', 'accelZ'] },
-  { label: 'Rotation',     icon: '↻', keys: ['gyroX',  'gyroY',  'gyroZ'] },
-  { label: 'Temperature',  icon: '🌡', keys: ['temp'] },
+  { label: 'Rotation', icon: '↻', keys: ['gyroX', 'gyroY', 'gyroZ'] },
+  { label: 'Temperature', icon: '🌡', keys: ['temp'] },
 ];
 
 // Keys that use single-char axis labels (X / Y / Z) rather than the full key name
@@ -59,12 +59,14 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
     if (def && Object.keys(def.defaultValues).length > 0) {
       dispatchSensorUpdate(componentId, def.defaultValues);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [componentId]);
 
   // Close on Escape
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -75,7 +77,7 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
 
   const handleSlider = (key: string, raw: string) => {
     const v = parseFloat(raw);
-    setValues(prev => ({ ...prev, [key]: v }));
+    setValues((prev) => ({ ...prev, [key]: v }));
     dispatchSensorUpdate(componentId, { [key]: v });
   };
 
@@ -100,7 +102,7 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
 
     // Slider
     const sc = ctrl as SliderControl;
-    const val = values[sc.key] as number ?? sc.defaultValue;
+    const val = (values[sc.key] as number) ?? sc.defaultValue;
     const displayVal = sc.formatValue ? sc.formatValue(val) : String(val);
     const isAxisKey = AXIS_KEYS.has(sc.key);
 
@@ -116,10 +118,11 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
           max={sc.max}
           step={sc.step}
           value={val}
-          onChange={e => handleSlider(sc.key, e.target.value)}
+          onChange={(e) => handleSlider(sc.key, e.target.value)}
         />
         <span className="sensor-value-display">
-          {displayVal}{sc.unit ? ` ${sc.unit}` : ''}
+          {displayVal}
+          {sc.unit ? ` ${sc.unit}` : ''}
         </span>
       </div>
     );
@@ -128,8 +131,8 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
   // For MPU6050 render sections; for everything else render controls flat
   const renderControls = () => {
     if (metadataId === 'mpu6050') {
-      return MPU6050_SECTIONS.map(section => {
-        const sectionControls = def.controls.filter(c => section.keys.includes(c.key));
+      return MPU6050_SECTIONS.map((section) => {
+        const sectionControls = def.controls.filter((c) => section.keys.includes(c.key));
         return (
           <React.Fragment key={section.label}>
             <div className="sensor-section-label">
@@ -145,10 +148,12 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
   };
 
   return (
-    <div className="sensor-control-panel" onClick={e => e.stopPropagation()}>
+    <div className="sensor-control-panel" onClick={(e) => e.stopPropagation()}>
       <div className="sensor-panel-header">
         <span className="sensor-panel-title">{sensorName || def.title}</span>
-        <button className="sensor-panel-close" onClick={onClose} title="Close">×</button>
+        <button className="sensor-panel-close" onClick={onClose} title="Close">
+          ×
+        </button>
       </div>
       {renderControls()}
     </div>

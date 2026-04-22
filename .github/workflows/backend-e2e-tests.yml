@@ -168,6 +168,20 @@ jobs:
         env:
           BACKEND_URL: http://localhost:8001
 
+      # ── ESP32 + ngspice co-simulation tests ─────────────────────────────────
+      - name: Run ngspice smoke test (no backend needed)
+        run: node test/backend/e2e/test_esp32_spice_smoke.mjs
+
+      - name: Run ESP32 + ngspice voltage divider co-simulation
+        run: node test/backend/e2e/test_esp32_spice_analog.mjs --timeout=120
+        env:
+          BACKEND_URL: http://localhost:8001
+
+      - name: Run ESP32 + ngspice Wheatstone bridge co-simulation
+        run: node test/backend/e2e/test_esp32_spice_ntc_bridge.mjs --timeout=120
+        env:
+          BACKEND_URL: http://localhost:8001
+
       # ── Always dump backend logs so failures are diagnosable ──────────────────
       - name: Show backend logs
         if: always()

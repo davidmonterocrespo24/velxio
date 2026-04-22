@@ -40,10 +40,11 @@ export const ProjectByIdPage: React.FC = () => {
         }
       : {
           title: 'Project — Velxio Arduino Emulator',
-          description: 'View and simulate this Arduino project on Velxio — free, open-source multi-board emulator.',
+          description:
+            'View and simulate this Arduino project on Velxio — free, open-source multi-board emulator.',
           url: `${DOMAIN}/editor`,
           noindex: true,
-        }
+        },
   );
 
   useEffect(() => {
@@ -91,12 +92,28 @@ export const ProjectByIdPage: React.FC = () => {
 
   if (error) {
     return (
-      <div style={{ minHeight: '100vh', background: '#1e1e1e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#1e1e1e',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <div style={{ color: '#f44747', fontSize: 16, textAlign: 'center' }}>
           <p>{error}</p>
           <button
             onClick={() => navigate('/')}
-            style={{ marginTop: 12, background: '#0e639c', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}
+            style={{
+              marginTop: 12,
+              background: '#0e639c',
+              border: 'none',
+              color: '#fff',
+              padding: '8px 16px',
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
           >
             Go home
           </button>
@@ -107,7 +124,15 @@ export const ProjectByIdPage: React.FC = () => {
 
   if (!ready) {
     return (
-      <div style={{ minHeight: '100vh', background: '#1e1e1e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#1e1e1e',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <p style={{ color: '#9d9d9d' }}>Loading project…</p>
       </div>
     );

@@ -1,18 +1,21 @@
 import { useSimulatorStore, getEsp32Bridge } from '../../store/useSimulatorStore';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ESP32_ADC_PIN_MAP } from '../components-wokwi/Esp32Element';
+import { ESP32_ADC_PIN_MAP } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
 import { ComponentPropertyDialog } from './ComponentPropertyDialog';
 import { SensorControlPanel } from './SensorControlPanel';
 import { SENSOR_CONTROLS } from '../../simulation/sensorControlConfig';
 import { DynamicComponent, createComponentFromMetadata } from '../DynamicComponent';
+import { InstrumentComponent } from '../components-instruments/InstrumentComponent';
 import { ComponentRegistry } from '../../services/ComponentRegistry';
-import { PinSelector } from './PinSelector';
 import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle } from './WireLayer';
+import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
 import { BoardOnCanvas } from './BoardOnCanvas';
 import { PartSimulationRegistry } from '../../simulation/parts';
+import { PROPERTY_CHANGE_EVENT, type PropertyChangeDetail } from '../../simulation/parts/partUtils';
+import { isSpiceMapped } from '../../simulation/spice/componentToSpice';
 import { PinOverlay } from './PinOverlay';
 import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping';
 import { autoWireColor, WIRE_KEY_COLORS } from '../../utils/wireUtils';
@@ -26,19 +29,32 @@ import {
 } from '../../utils/wireHitDetection';
 
 /** Detect touch-capable device once */
-const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+const isTouchDevice =
+  typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 import type { ComponentMetadata } from '../../types/component-metadata';
 import type { BoardKind } from '../../types/board';
 import { BOARD_KIND_LABELS } from '../../types/board';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
-import { trackSelectBoard, trackAddComponent, trackCreateWire, trackToggleSerialMonitor } from '../../utils/analytics';
+import {
+  trackSelectBoard,
+  trackAddComponent,
+  trackCreateWire,
+  trackToggleSerialMonitor,
+} from '../../utils/analytics';
 import './SimulatorCanvas.css';
 
 /** Check if a board kind is an ESP32-family board. */
 function isEsp32Kind(kind: BoardKind): boolean {
-  return kind.startsWith('esp32') || kind === 'xiao-esp32-s3' || kind === 'xiao-esp32-c3'
-    || kind === 'arduino-nano-esp32' || kind === 'aitewinrobot-esp32c3-supermini'
-    || kind === 'esp32-cam' || kind === 'wemos-lolin32-lite' || kind === 'esp32-devkit-c-v4';
+  return (
+    kind.startsWith('esp32') ||
+    kind === 'xiao-esp32-s3' ||
+    kind === 'xiao-esp32-c3' ||
+    kind === 'arduino-nano-esp32' ||
+    kind === 'aitewinrobot-esp32c3-supermini' ||
+    kind === 'esp32-cam' ||
+    kind === 'wemos-lolin32-lite' ||
+    kind === 'esp32-devkit-c-v4'
+  );
 }
 
 export const SimulatorCanvas = () => {
@@ -104,8 +120,6 @@ export const SimulatorCanvas = () => {
 
   // Component selection
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
-  const [showPinSelector, setShowPinSelector] = useState(false);
-  const [pinSelectorPos, setPinSelectorPos] = useState({ x: 0, y: 0 });
 
   // Component property dialog
   const [showPropertyDialog, setShowPropertyDialog] = useState(false);
@@ -121,7 +135,11 @@ export const SimulatorCanvas = () => {
   const [boardLedStates, setBoardLedStates] = useState<Record<string, boolean>>({});
 
   // Board context menu (right-click)
-  const [boardContextMenu, setBoardContextMenu] = useState<{ boardId: string; x: number; y: number } | null>(null);
+  const [boardContextMenu, setBoardContextMenu] = useState<{
+    boardId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   // Board removal confirmation dialog
   const [boardToRemove, setBoardToRemove] = useState<string | null>(null);
 
@@ -210,7 +228,7 @@ export const SimulatorCanvas = () => {
     if (!rect) return { x: screenX, y: screenY };
     return {
       x: (screenX - rect.left - panRef.current.x) / zoomRef.current,
-      y: (screenY - rect.top  - panRef.current.y) / zoomRef.current,
+      y: (screenY - rect.top - panRef.current.y) / zoomRef.current,
     };
   }, []);
 
@@ -219,13 +237,37 @@ export const SimulatorCanvas = () => {
     initSimulator();
   }, [initSimulator]);
 
+  // Runtime parts (pots, switches, sensor panels) emit
+  // `velxio:property-change` instead of writing the store directly — one
+  // listener here routes every mutation through `updateComponent()`, which
+  // is the same path the Property Dialog uses. Keeps parts decoupled from
+  // Zustand and guarantees the SPICE netlist memo invalidates on every
+  // user-driven property change.
+  useEffect(() => {
+    const onPropertyChange = (evt: Event) => {
+      const { componentId, propName, value } = (evt as CustomEvent<PropertyChangeDetail>).detail;
+      const state = useSimulatorStore.getState();
+      const comp = state.components.find((c) => c.id === componentId);
+      if (!comp) return;
+      if (String(comp.properties?.[propName]) === String(value)) return;
+      state.updateComponent(componentId, {
+        properties: { ...comp.properties, [propName]: value },
+      });
+    };
+    window.addEventListener(PROPERTY_CHANGE_EVENT, onPropertyChange);
+    return () => window.removeEventListener(PROPERTY_CHANGE_EVENT, onPropertyChange);
+  }, []);
+
   // Auto-start/stop Pi bridges when simulation state changes
   const startBoard = useSimulatorStore((s) => s.startBoard);
   const stopBoard = useSimulatorStore((s) => s.stopBoard);
   useEffect(() => {
     const remoteBoards = boards.filter(
-      (b) => b.boardKind === 'raspberry-pi-3' ||
-             b.boardKind === 'esp32' || b.boardKind === 'esp32-s3' || b.boardKind === 'esp32-c3'
+      (b) =>
+        b.boardKind === 'raspberry-pi-3' ||
+        b.boardKind === 'esp32' ||
+        b.boardKind === 'esp32-s3' ||
+        b.boardKind === 'esp32-c3',
     );
     remoteBoards.forEach((b) => {
       if (running && !b.running) startBoard(b.id);
@@ -352,7 +394,7 @@ export const SimulatorCanvas = () => {
         // ── 5. Board overlay: use multi-board path ──
         const boardId = boardOverlay.getAttribute('data-board-id');
         const storeBoards = useSimulatorStore.getState().boards;
-        const boardInstance = boardId ? storeBoards.find(b => b.id === boardId) : null;
+        const boardInstance = boardId ? storeBoards.find((b) => b.id === boardId) : null;
         if (boardInstance) {
           const world = toWorld(touch.clientX, touch.clientY);
           touchDraggedComponentIdRef.current = `__board__:${boardId}`;
@@ -386,7 +428,10 @@ export const SimulatorCanvas = () => {
       // Let interactive components handle their own touch (potentiometer drag, etc.)
       if (touchPassthroughRef.current) return;
       // Pin touch: no move processing needed
-      if (touchOnPinRef.current) { e.preventDefault(); return; }
+      if (touchOnPinRef.current) {
+        e.preventDefault();
+        return;
+      }
 
       e.preventDefault();
 
@@ -433,7 +478,11 @@ export const SimulatorCanvas = () => {
       }
 
       // ── Wire preview: update position as finger moves ──
-      if (wireInProgressRef.current && !isPanningRef.current && !touchDraggedComponentIdRef.current) {
+      if (
+        wireInProgressRef.current &&
+        !isPanningRef.current &&
+        !touchDraggedComponentIdRef.current
+      ) {
         const world = toWorld(touch.clientX, touch.clientY);
         useSimulatorStore.getState().updateWireInProgress(world.x, world.y);
         return;
@@ -458,10 +507,13 @@ export const SimulatorCanvas = () => {
         const touchId = touchDraggedComponentIdRef.current;
         if (touchId && touchId.startsWith('__board__:')) {
           const boardId = touchId.slice('__board__:'.length);
-          setBoardPosition({
-            x: world.x - touchDragOffsetRef.current.x,
-            y: world.y - touchDragOffsetRef.current.y,
-          }, boardId);
+          setBoardPosition(
+            {
+              x: world.x - touchDragOffsetRef.current.x,
+              y: world.y - touchDragOffsetRef.current.y,
+            },
+            boardId,
+          );
         } else if (touchId === '__board__') {
           setBoardPosition({
             x: world.x - touchDragOffsetRef.current.x,
@@ -549,14 +601,16 @@ export const SimulatorCanvas = () => {
             const boardId = touchId.slice('__board__:'.length);
             useSimulatorStore.getState().setActiveBoardId(boardId);
           } else if (touchId !== '__board__') {
-            // Short tap on component → open property dialog or sensor panel
-            const component = componentsRef.current.find(
-              (c) => c.id === touchId
-            );
+            // Short tap on component → open property dialog or sensor panel.
+            // While the simulator is running, components stay interactive —
+            // only sensor panels may open; property editing is disabled.
+            const component = componentsRef.current.find((c) => c.id === touchId);
             if (component) {
-              if (runningRef.current && SENSOR_CONTROLS[component.metadataId] !== undefined) {
-                setSensorControlComponentId(touchId);
-                setSensorControlMetadataId(component.metadataId);
+              if (runningRef.current) {
+                if (SENSOR_CONTROLS[component.metadataId] !== undefined) {
+                  setSensorControlComponentId(touchId);
+                  setSensorControlMetadataId(component.metadataId);
+                }
               } else {
                 setPropertyDialogComponentId(touchId);
                 setPropertyDialogPosition({
@@ -637,13 +691,13 @@ export const SimulatorCanvas = () => {
     // GND or power-rail pin (boardPinToNumber returns -1 for these).
     // Used to block output components from activating without a ground connection.
     const componentHasGndWire = (component: any): boolean =>
-      wires.some(w => {
+      wires.some((w) => {
         const isSelfStart = w.start.componentId === component.id;
-        const isSelfEnd   = w.end.componentId   === component.id;
+        const isSelfEnd = w.end.componentId === component.id;
         if (!isSelfStart && !isSelfEnd) return false;
         const otherEndpoint = isSelfStart ? w.end : w.start;
         if (!isBoardComponent(otherEndpoint.componentId)) return false;
-        const boardInstance = boards.find(b => b.id === otherEndpoint.componentId);
+        const boardInstance = boards.find((b) => b.id === otherEndpoint.componentId);
         const lookupKey = boardInstance ? boardInstance.boardKind : otherEndpoint.componentId;
         return boardPinToNumber(lookupKey, otherEndpoint.pinName) === -1;
       });
@@ -659,47 +713,41 @@ export const SimulatorCanvas = () => {
       // Components with attachEvents in PartSimulationRegistry manage their own
       // visual state (e.g. LED, servo, buzzer). Skip generic digital/PWM updates for
       // them — they already handle GND logic internally via getArduinoPinHelper.
+      //
+      // SPICE-mapped components (every analog/mixed part — resistors, capacitors,
+      // diodes, MOSFETs, op-amps, regulators, …) are ALSO treated as self-managed:
+      // SPICE is the authoritative source for their electrical state. If we echoed
+      // the raw digital pin value back into `components[i].properties.state` on
+      // every toggle, the store update would invalidate the solver debounce every
+      // ~2 ms under PWM (490 Hz) and the solver would effectively never run — the
+      // root cause of the MOSFET-PWM-LED regression. This single rule makes every
+      // current and future SPICE mapper immune to that feedback loop.
       const logic = PartSimulationRegistry.get(component.metadataId);
-      const hasSelfManagedVisuals = !!(logic && logic.attachEvents);
+      const spiceOwned = isSpiceMapped(component.metadataId);
+      const hasSelfManagedVisuals = !!(logic && logic.attachEvents) || spiceOwned;
 
       // Generic GND check: for wire-connected output components that don't manage
       // their own state, require at least one GND wire before activating.
       // Skip the check for pin-property components (no GND wire to detect) and for
       // self-managed components (they handle GND themselves via attachEvents).
-      const hasGnd = (!wireConnected || hasSelfManagedVisuals)
-        ? true
-        : componentHasGndWire(component);
+      const hasGnd =
+        !wireConnected || hasSelfManagedVisuals ? true : componentHasGndWire(component);
 
-      const unsubscribe = pinManager.onPinChange(
-        pin,
-        (_pin, state) => {
-          if (!hasSelfManagedVisuals) {
-            // Update React state — gate on GND for wire-connected components.
-            updateComponentState(component.id, hasGnd && state);
-          }
+      const unsubscribe = pinManager.onPinChange(pin, (_pin, state) => {
+        if (!hasSelfManagedVisuals) {
+          // Update React state — gate on GND for wire-connected components.
+          updateComponentState(component.id, hasGnd && state);
+        }
 
-          // Delegate to PartSimulationRegistry for custom visual updates
-          if (logic && logic.onPinStateChange) {
-            const el = document.getElementById(component.id);
-            if (el) {
-              logic.onPinStateChange(componentPinName || 'A', hasGnd && state, el);
-            }
+        // Delegate to PartSimulationRegistry for custom visual updates
+        if (logic && logic.onPinStateChange) {
+          const el = document.getElementById(component.id);
+          if (el) {
+            logic.onPinStateChange(componentPinName || 'A', hasGnd && state, el);
           }
         }
-      );
+      });
       unsubscribers.push(unsubscribe);
-
-      // PWM subscription: update LED opacity when the pin receives a PWM duty cycle.
-      // Skip for self-managed components (servo, buzzer) — their duty cycle is a
-      // control signal, not a brightness value, so setting opacity would cause flicker.
-      if (!hasSelfManagedVisuals) {
-        const pwmUnsub = pinManager.onPwmChange(pin, (_p, duty) => {
-          if (!hasGnd) return; // no GND → stay dark even under PWM
-          const el = document.getElementById(component.id);
-          if (el) el.style.opacity = duty > 0 ? String(duty) : '';
-        });
-        unsubscribers.push(pwmUnsub);
-      }
     };
 
     components.forEach((component) => {
@@ -709,10 +757,10 @@ export const SimulatorCanvas = () => {
       } else {
         // 2. Subscribe by finding wires connected to arduino
         const connectedWires = wires.filter(
-          w => w.start.componentId === component.id || w.end.componentId === component.id
+          (w) => w.start.componentId === component.id || w.end.componentId === component.id,
         );
 
-        connectedWires.forEach(wire => {
+        connectedWires.forEach((wire) => {
           const isStartSelf = wire.start.componentId === component.id;
           const selfEndpoint = isStartSelf ? wire.start : wire.end;
           const otherEndpoint = isStartSelf ? wire.end : wire.start;
@@ -721,17 +769,15 @@ export const SimulatorCanvas = () => {
             // Use the board's actual boardKind (not just its instance ID) so that
             // a board whose ID is 'arduino-uno' but whose kind is 'esp32' gets the
             // correct GPIO mapping ('GPIO4' → 4, not null).
-            const boardInstance = boards.find(b => b.id === otherEndpoint.componentId);
+            const boardInstance = boards.find((b) => b.id === otherEndpoint.componentId);
             const lookupKey = boardInstance ? boardInstance.boardKind : otherEndpoint.componentId;
             const pin = boardPinToNumber(lookupKey, otherEndpoint.pinName);
-            console.log(
-              `[WirePin] component=${component.id} board=${otherEndpoint.componentId}` +
-              ` kind=${lookupKey} pinName=${otherEndpoint.pinName} → gpioPin=${pin}`
-            );
             if (pin !== null && pin >= 0) {
               subscribeComponentToPin(component, pin, selfEndpoint.pinName, true);
             } else if (pin === null) {
-              console.warn(`[WirePin] Could not resolve pin "${otherEndpoint.pinName}" on ${lookupKey}`);
+              console.warn(
+                `[WirePin] Could not resolve pin "${otherEndpoint.pinName}" on ${lookupKey}`,
+              );
             }
             // pin === -1 → power/GND pin, skip silently
           }
@@ -740,7 +786,7 @@ export const SimulatorCanvas = () => {
     });
 
     return () => {
-      unsubscribers.forEach(unsub => unsub());
+      unsubscribers.forEach((unsub) => unsub());
     };
   }, [components, wires, boards, pinManager, updateComponentState]);
 
@@ -769,7 +815,7 @@ export const SimulatorCanvas = () => {
             if (prev[board.id] === state) return prev;
             return { ...prev, [board.id]: state };
           });
-        })
+        }),
       );
     });
 
@@ -782,21 +828,21 @@ export const SimulatorCanvas = () => {
 
     components.forEach((component) => {
       const connectedWires = wires.filter(
-        w => w.start.componentId === component.id || w.end.componentId === component.id
+        (w) => w.start.componentId === component.id || w.end.componentId === component.id,
       );
 
-      connectedWires.forEach(wire => {
+      connectedWires.forEach((wire) => {
         const isStartSelf = wire.start.componentId === component.id;
-        const selfEndpoint  = isStartSelf ? wire.start : wire.end;
-        const otherEndpoint = isStartSelf ? wire.end   : wire.start;
+        const selfEndpoint = isStartSelf ? wire.start : wire.end;
+        const otherEndpoint = isStartSelf ? wire.end : wire.start;
 
         if (!isBoardComponent(otherEndpoint.componentId)) return;
 
-        const boardId  = otherEndpoint.componentId;
-        const bridge   = getEsp32Bridge(boardId);
-        if (!bridge) return;  // not an ESP32 board
+        const boardId = otherEndpoint.componentId;
+        const bridge = getEsp32Bridge(boardId);
+        if (!bridge) return; // not an ESP32 board
 
-        const boardInstance = boards.find(b => b.id === boardId);
+        const boardInstance = boards.find((b) => b.id === boardId);
         const lookupKey = boardInstance ? boardInstance.boardKind : boardId;
         const gpioPin = boardPinToNumber(lookupKey, otherEndpoint.pinName);
         if (gpioPin === null) return;
@@ -809,12 +855,12 @@ export const SimulatorCanvas = () => {
 
           // Push-button: forward press/release as GPIO level changes
           if (tag === 'wokwi-pushbutton') {
-            const onPress   = () => bridge.sendPinEvent(gpioPin, true);
+            const onPress = () => bridge.sendPinEvent(gpioPin, true);
             const onRelease = () => bridge.sendPinEvent(gpioPin, false);
-            el.addEventListener('button-press',   onPress);
+            el.addEventListener('button-press', onPress);
             el.addEventListener('button-release', onRelease);
             cleanups.push(() => {
-              el.removeEventListener('button-press',   onPress);
+              el.removeEventListener('button-press', onPress);
               el.removeEventListener('button-release', onRelease);
             });
           }
@@ -824,8 +870,8 @@ export const SimulatorCanvas = () => {
             const adcInfo = ESP32_ADC_PIN_MAP[gpioPin];
             if (adcInfo) {
               const onInput = (e: Event) => {
-                const pct = parseFloat((e.target as any).value ?? '0');  // 0–100
-                bridge.setAdc(adcInfo.chn, Math.round(pct / 100 * 3300));
+                const pct = parseFloat((e.target as any).value ?? '0'); // 0–100
+                bridge.setAdc(adcInfo.chn, Math.round((pct / 100) * 3300));
               };
               el.addEventListener('input', onInput);
               cleanups.push(() => el.removeEventListener('input', onInput));
@@ -837,7 +883,7 @@ export const SimulatorCanvas = () => {
       });
     });
 
-    return () => cleanups.forEach(fn => fn());
+    return () => cleanups.forEach((fn) => fn());
   }, [components, wires, boards]);
 
   // Handle keyboard delete for components and boards
@@ -860,40 +906,28 @@ export const SimulatorCanvas = () => {
 
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
-    // Calculate grid position to avoid overlapping
-    // Use existing components count to determine position
-    const componentsCount = components.length;
-    const gridSize = 250; // Space between components
-    const cols = 3; // Components per row
+    // Anchor new components to the visible top-left of the canvas, so they
+    // appear in the user's current viewport regardless of pan/zoom (instead
+    // of growing off-screen at fixed world coords like (400, 100 + row*250)).
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const z = zoomRef.current || 1;
+    const screenMargin = 60; // px on screen — keeps the part off the toolbar/edge
+    const worldOrigin = rect
+      ? toWorld(rect.left + screenMargin, rect.top + screenMargin)
+      : { x: 100, y: 100 };
 
-    const col = componentsCount % cols;
-    const row = Math.floor(componentsCount / cols);
-
-    const x = 400 + (col * gridSize);
-    const y = 100 + (row * gridSize);
+    // Tile additional drops so they don't stack exactly on top of each other,
+    // while still landing inside the viewport.
+    const tileStep = 40 / z; // 40 screen-px between successive drops
+    const cols = 4;
+    const idx = components.length;
+    const x = worldOrigin.x + (idx % cols) * tileStep;
+    const y = worldOrigin.y + Math.floor(idx / cols) * tileStep;
 
     const component = createComponentFromMetadata(metadata, x, y);
     trackAddComponent(metadata.id);
     addComponent(component as any);
     setShowComponentPicker(false);
-  };
-
-  // Component selection (double click to open pin selector)
-  const handleComponentDoubleClick = (componentId: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    setSelectedComponentId(componentId);
-    setPinSelectorPos({ x: event.clientX, y: event.clientY });
-    setShowPinSelector(true);
-  };
-
-  // Pin assignment
-  const handlePinSelect = (componentId: string, pin: number) => {
-    updateComponent(componentId, {
-      properties: {
-        ...components.find((c) => c.id === componentId)?.properties,
-        pin,
-      },
-    } as any);
   };
 
   // Component rotation
@@ -912,7 +946,7 @@ export const SimulatorCanvas = () => {
 
   // Component dragging handlers
   const handleComponentMouseDown = (componentId: string, e: React.MouseEvent) => {
-    if (showPinSelector || showPropertyDialog) return;
+    if (showPropertyDialog) return;
 
     e.stopPropagation();
     const component = components.find((c) => c.id === componentId);
@@ -1019,8 +1053,7 @@ export const SimulatorCanvas = () => {
     if (draggedComponentId) {
       const timeDiff = Date.now() - clickStartTime;
       const posDiff = Math.sqrt(
-        Math.pow(e.clientX - clickStartPos.x, 2) +
-        Math.pow(e.clientY - clickStartPos.y, 2)
+        Math.pow(e.clientX - clickStartPos.x, 2) + Math.pow(e.clientY - clickStartPos.y, 2),
       );
 
       if (posDiff < 5 && timeDiff < 300) {
@@ -1031,10 +1064,15 @@ export const SimulatorCanvas = () => {
         } else if (draggedComponentId !== '__board__') {
           const component = components.find((c) => c.id === draggedComponentId);
           if (component) {
-            // During simulation: sensor components show the SensorControlPanel
-            if (running && SENSOR_CONTROLS[component.metadataId] !== undefined) {
-              setSensorControlComponentId(draggedComponentId);
-              setSensorControlMetadataId(component.metadataId);
+            if (running) {
+              // During simulation only sensor panels open on click — every
+              // other component is interactive (pushbutton, switch, pot, …)
+              // and must handle its own clicks, so we suppress the property
+              // dialog entirely.
+              if (SENSOR_CONTROLS[component.metadataId] !== undefined) {
+                setSensorControlComponentId(draggedComponentId);
+                setSensorControlMetadataId(component.metadataId);
+              }
             } else {
               setPropertyDialogComponentId(draggedComponentId);
               setPropertyDialogPosition({
@@ -1186,7 +1224,14 @@ export const SimulatorCanvas = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [wireInProgress, cancelWireCreation, selectedWireId, removeWire, setWireInProgressColor, updateWire]);
+  }, [
+    wireInProgress,
+    cancelWireCreation,
+    selectedWireId,
+    removeWire,
+    setWireInProgressColor,
+    updateWire,
+  ]);
 
   // Recalculate wire positions when components change (e.g., when loading an example)
   useEffect(() => {
@@ -1199,7 +1244,7 @@ export const SimulatorCanvas = () => {
     timers.push(setTimeout(() => recalculateAllWirePositions(), 300));
     timers.push(setTimeout(() => recalculateAllWirePositions(), 500));
 
-    return () => timers.forEach(t => clearTimeout(t));
+    return () => timers.forEach((t) => clearTimeout(t));
   }, [components, recalculateAllWirePositions]);
 
   // Auto-pan to keep the board and all components visible after a project import/load.
@@ -1234,7 +1279,7 @@ export const SimulatorCanvas = () => {
       const centerY = (minY + maxY) / 2;
 
       const newPan = {
-        x: rect.width  / 2 - centerX * currentZoom,
+        x: rect.width / 2 - centerX * currentZoom,
         y: rect.height / 2 - centerY * currentZoom,
       };
       panRef.current = newPan;
@@ -1242,11 +1287,40 @@ export const SimulatorCanvas = () => {
     }, 150);
 
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [components.length]);
 
   // Render component using dynamic renderer
   const renderComponent = (component: any) => {
+    // SPICE probes are React components, not web components — render them
+    // directly and let PinOverlay read the pinInfo we attach in the wrapper.
+    if (component.metadataId === 'instr-voltmeter' || component.metadataId === 'instr-ammeter') {
+      const isSelected = selectedComponentId === component.id;
+      return (
+        <React.Fragment key={component.id}>
+          <InstrumentComponent
+            id={component.id}
+            metadataId={component.metadataId}
+            x={component.x}
+            y={component.y}
+            isSelected={isSelected}
+            onMouseDown={(e) => handleComponentMouseDown(component.id, e)}
+          />
+          {!running && (
+            <PinOverlay
+              componentId={component.id}
+              componentX={component.x}
+              componentY={component.y}
+              onPinClick={handlePinClick}
+              showPins={true}
+              zoom={zoom}
+              wrapperOffsetX={0}
+              wrapperOffsetY={0}
+            />
+          )}
+        </React.Fragment>
+      );
+    }
+
     const metadata = registry.getById(component.metadataId);
     if (!metadata) {
       console.warn(`Metadata not found for component: ${component.metadataId}`);
@@ -1269,12 +1343,6 @@ export const SimulatorCanvas = () => {
           onMouseDown={(e) => {
             handleComponentMouseDown(component.id, e);
           }}
-          onDoubleClick={(e) => {
-            // Only handle UI events when simulation is NOT running
-            if (!running) {
-              handleComponentDoubleClick(component.id, e);
-            }
-          }}
         />
 
         {/* Pin overlay for wire creation - hide when running */}
@@ -1296,18 +1364,37 @@ export const SimulatorCanvas = () => {
     <div className="simulator-canvas-container">
       {/* ESP32 crash notification */}
       {esp32CrashBoardId && (
-        <div style={{
-          position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 1000, background: '#c0392b', color: '#fff',
-          padding: '8px 16px', borderRadius: 6, display: 'flex', alignItems: 'center',
-          gap: 12, fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-        }}>
-          <span>ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong> — cache error (IDF incompatibility)</span>
+        <div
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            background: '#c0392b',
+            color: '#fff',
+            padding: '8px 16px',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            fontSize: 13,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          }}
+        >
+          <span>
+            ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong> — cache error (IDF
+            incompatibility)
+          </span>
           <button
             onClick={dismissEsp32Crash}
             style={{
-              background: 'transparent', border: '1px solid rgba(255,255,255,0.6)',
-              color: '#fff', borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.6)',
+              color: '#fff',
+              borderRadius: 4,
+              padding: '2px 8px',
+              cursor: 'pointer',
             }}
           >
             Dismiss
@@ -1320,28 +1407,55 @@ export const SimulatorCanvas = () => {
         <div className="canvas-header">
           <div className="canvas-header-left">
             {/* Status LED */}
-            <span className={`status-dot ${running ? 'running' : 'stopped'}`} title={running ? 'Running' : 'Stopped'} />
+            <span
+              className={`status-dot ${running ? 'running' : 'stopped'}`}
+              title={running ? 'Running' : 'Stopped'}
+            />
 
-            {/* Active board selector (multi-board) */}
-            <select
-              className="board-selector"
-              value={activeBoardId ?? ''}
-              onChange={(e) => useSimulatorStore.getState().setActiveBoardId(e.target.value)}
-              disabled={running}
-              title="Active board"
-            >
-              {boards.map((b) => (
-                <option key={b.id} value={b.id}>{BOARD_KIND_LABELS[b.boardKind] ?? b.id}</option>
-              ))}
-            </select>
+            {/* Active board selector (multi-board) — hidden when no boards */}
+            {boards.length > 0 ? (
+              <select
+                className="board-selector"
+                value={activeBoardId ?? ''}
+                onChange={(e) => useSimulatorStore.getState().setActiveBoardId(e.target.value)}
+                disabled={running}
+                title="Active board"
+              >
+                {boards.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {BOARD_KIND_LABELS[b.boardKind] ?? b.id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span
+                className="board-selector"
+                style={{ opacity: 0.55, fontStyle: 'italic', cursor: 'default' }}
+                title="No board on canvas — add one with the Add button to compile and run code"
+              >
+                No board
+              </span>
+            )}
 
             {/* Serial Monitor toggle */}
             <button
-              onClick={() => { toggleSerialMonitor(); trackToggleSerialMonitor(!serialMonitorOpen); }}
+              onClick={() => {
+                toggleSerialMonitor();
+                trackToggleSerialMonitor(!serialMonitorOpen);
+              }}
               className={`canvas-serial-btn${serialMonitorOpen ? ' canvas-serial-btn-active' : ''}`}
               title="Toggle Serial Monitor"
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <rect x="2" y="3" width="20" height="14" rx="2" />
                 <path d="M8 21h8M12 17v4" />
               </svg>
@@ -1349,37 +1463,51 @@ export const SimulatorCanvas = () => {
             </button>
 
             {/* WiFi status indicator (ESP32 boards only) */}
-            {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.wifiStatus && (() => {
-              const status = activeBoard.wifiStatus.status;
-              const hasIp = status === 'got_ip';
-              const sessionId = getTabSessionId();
-              const clientId = `${sessionId}::${activeBoard.id}`;
-              const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
-              const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+            {activeBoard &&
+              isEsp32Kind(activeBoard.boardKind) &&
+              activeBoard.wifiStatus &&
+              (() => {
+                const status = activeBoard.wifiStatus.status;
+                const hasIp = status === 'got_ip';
+                const sessionId = getTabSessionId();
+                const clientId = `${sessionId}::${activeBoard.id}`;
+                const backendBase =
+                  (import.meta.env.VITE_API_BASE as string | undefined) ??
+                  'http://localhost:8001/api';
+                const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
 
-              return (
-                <span
-                  className={`canvas-wifi-badge canvas-wifi-${status}${hasIp ? ' canvas-wifi-clickable' : ''}`}
-                  onClick={() => hasIp && window.open(gatewayUrl, '_blank')}
-                  title={
-                    hasIp
-                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — IP: ${activeBoard.wifiStatus.ip}\nClick to open IoT Gateway ↗`
-                      : status === 'connected'
-                      ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — Connecting...`
-                      : status === 'initializing'
-                      ? 'WiFi: Initializing...'
-                      : 'WiFi: Disconnected'
-                  }
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-                    <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-                    <circle cx="12" cy="20" r="1" />
-                  </svg>
-                </span>
-              );
-            })()}
+                return (
+                  <span
+                    className={`canvas-wifi-badge canvas-wifi-${status}${hasIp ? ' canvas-wifi-clickable' : ''}`}
+                    onClick={() => hasIp && window.open(gatewayUrl, '_blank')}
+                    title={
+                      hasIp
+                        ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — IP: ${activeBoard.wifiStatus.ip}\nClick to open IoT Gateway ↗`
+                        : status === 'connected'
+                          ? `WiFi: ${activeBoard.wifiStatus.ssid ?? 'Velxio-GUEST'} — Connecting...`
+                          : status === 'initializing'
+                            ? 'WiFi: Initializing...'
+                            : 'WiFi: Disconnected'
+                    }
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                      <circle cx="12" cy="20" r="1" />
+                    </svg>
+                  </span>
+                );
+              })()}
 
             {/* BLE status indicator (ESP32 boards only) */}
             {activeBoard && isEsp32Kind(activeBoard.boardKind) && activeBoard.bleStatus && (
@@ -1391,7 +1519,16 @@ export const SimulatorCanvas = () => {
                     : 'BLE: Initialized'
                 }
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5" />
                 </svg>
               </span>
@@ -1403,7 +1540,16 @@ export const SimulatorCanvas = () => {
               className={`canvas-serial-btn${oscilloscopeOpen ? ' canvas-serial-btn-active' : ''}`}
               title="Toggle Oscilloscope / Logic Analyzer"
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <polyline points="2 14 6 8 10 14 14 6 18 14 22 10" />
               </svg>
               Scope
@@ -1413,20 +1559,79 @@ export const SimulatorCanvas = () => {
           <div className="canvas-header-right">
             {/* Zoom controls */}
             <div className="zoom-controls">
-              <button className="zoom-btn" onClick={() => handleWheel({ deltaY: 100, clientX: 0, clientY: 0, preventDefault: () => {} } as any)} title="Zoom out">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              <button
+                className="zoom-btn"
+                onClick={() =>
+                  handleWheel({
+                    deltaY: 100,
+                    clientX: 0,
+                    clientY: 0,
+                    preventDefault: () => {},
+                  } as any)
+                }
+                title="Zoom out"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
               </button>
-              <button className="zoom-level" onClick={handleResetView} title="Reset view (click to reset)">
+              <button
+                className="zoom-level"
+                onClick={handleResetView}
+                title="Reset view (click to reset)"
+              >
                 {Math.round(zoom * 100)}%
               </button>
-              <button className="zoom-btn" onClick={() => handleWheel({ deltaY: -100, clientX: 0, clientY: 0, preventDefault: () => {} } as any)} title="Zoom in">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+              <button
+                className="zoom-btn"
+                onClick={() =>
+                  handleWheel({
+                    deltaY: -100,
+                    clientX: 0,
+                    clientY: 0,
+                    preventDefault: () => {},
+                  } as any)
+                }
+                title="Zoom in"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
               </button>
             </div>
 
             {/* Component count */}
-            <span className="component-count" title={`${components.length} component${components.length !== 1 ? 's' : ''}`}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <span
+              className="component-count"
+              title={`${components.length} component${components.length !== 1 ? 's' : ''}`}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <rect x="2" y="7" width="20" height="14" rx="2" />
                 <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
               </svg>
@@ -1440,13 +1645,21 @@ export const SimulatorCanvas = () => {
               title="Add Component"
               disabled={running}
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
               Add
             </button>
-
           </div>
         </div>
         <div
@@ -1455,7 +1668,11 @@ export const SimulatorCanvas = () => {
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
-          onMouseLeave={() => { isPanningRef.current = false; setPan({ ...panRef.current }); setDraggedComponentId(null); }}
+          onMouseLeave={() => {
+            isPanningRef.current = false;
+            setPan({ ...panRef.current });
+            setDraggedComponentId(null);
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             if (wireInProgress) cancelWireCreation();
@@ -1492,27 +1709,32 @@ export const SimulatorCanvas = () => {
             }
           }}
           style={{
-            cursor: isPanningRef.current ? 'grabbing'
-              : wireInProgress ? 'crosshair'
-              : hoveredWireId ? 'pointer'
-              : 'default',
+            cursor: isPanningRef.current
+              ? 'grabbing'
+              : wireInProgress
+                ? 'crosshair'
+                : hoveredWireId
+                  ? 'pointer'
+                  : 'default',
           }}
         >
           {/* Sensor Control Panel — shown when a sensor component is clicked during simulation */}
-          {sensorControlComponentId && sensorControlMetadataId && (() => {
-            const meta = registry.getById(sensorControlMetadataId);
-            return (
-              <SensorControlPanel
-                componentId={sensorControlComponentId}
-                metadataId={sensorControlMetadataId}
-                sensorName={meta?.name ?? sensorControlMetadataId}
-                onClose={() => {
-                  setSensorControlComponentId(null);
-                  setSensorControlMetadataId(null);
-                }}
-              />
-            );
-          })()}
+          {sensorControlComponentId &&
+            sensorControlMetadataId &&
+            (() => {
+              const meta = registry.getById(sensorControlMetadataId);
+              return (
+                <SensorControlPanel
+                  componentId={sensorControlComponentId}
+                  metadataId={sensorControlMetadataId}
+                  sensorName={meta?.name ?? sensorControlMetadataId}
+                  onClose={() => {
+                    setSensorControlComponentId(null);
+                    setSensorControlMetadataId(null);
+                  }}
+                />
+              );
+            })()}
 
           {/* Infinite world — pan+zoom applied here */}
           <div
@@ -1554,7 +1776,12 @@ export const SimulatorCanvas = () => {
             ))}
 
             {/* Components using wokwi-elements */}
-            <div className="components-area">{registryLoaded && components.map(renderComponent)}</div>
+            <div className="components-area">
+              {registryLoaded && components.map(renderComponent)}
+            </div>
+
+            {/* Electrical simulation overlay (voltages / warnings) */}
+            <ElectricalOverlay />
           </div>
 
           {/* Wire creation mode banner — visible on both desktop and mobile */}
@@ -1567,55 +1794,41 @@ export const SimulatorCanvas = () => {
         </div>
       </div>
 
-      {/* Pin Selector Modal */}
-      {showPinSelector && selectedComponentId && (
-        <PinSelector
-          componentId={selectedComponentId}
-          componentType={
-            components.find((c) => c.id === selectedComponentId)?.metadataId || 'unknown'
-          }
-          currentPin={
-            components.find((c) => c.id === selectedComponentId)?.properties.pin as number | undefined
-          }
-          onPinSelect={handlePinSelect}
-          onClose={() => setShowPinSelector(false)}
-          position={pinSelectorPos}
-        />
-      )}
-
       {/* Component Property Dialog */}
-      {showPropertyDialog && propertyDialogComponentId && (() => {
-        const component = components.find((c) => c.id === propertyDialogComponentId);
-        const metadata = component ? registry.getById(component.metadataId) : null;
-        if (!component || !metadata) return null;
+      {showPropertyDialog &&
+        propertyDialogComponentId &&
+        (() => {
+          const component = components.find((c) => c.id === propertyDialogComponentId);
+          const metadata = component ? registry.getById(component.metadataId) : null;
+          if (!component || !metadata) return null;
 
-        const element = document.getElementById(propertyDialogComponentId);
-        const pinInfo = element ? (element as any).pinInfo : [];
+          const element = document.getElementById(propertyDialogComponentId);
+          const pinInfo = element ? (element as any).pinInfo : [];
 
-        return (
-          <ComponentPropertyDialog
-            componentId={propertyDialogComponentId}
-            componentMetadata={metadata}
-            componentProperties={component.properties}
-            position={propertyDialogPosition}
-            pinInfo={pinInfo || []}
-            onClose={() => setShowPropertyDialog(false)}
-            onRotate={handleRotateComponent}
-            onDelete={(id) => {
-              removeComponent(id);
-              setShowPropertyDialog(false);
-            }}
-            onPropertyChange={(id, propName, value) => {
-              const comp = components.find((c) => c.id === id);
-              if (comp) {
-                updateComponent(id, {
-                  properties: { ...comp.properties, [propName]: value },
-                });
-              }
-            }}
-          />
-        );
-      })()}
+          return (
+            <ComponentPropertyDialog
+              componentId={propertyDialogComponentId}
+              componentMetadata={metadata}
+              componentProperties={component.properties}
+              position={propertyDialogPosition}
+              pinInfo={pinInfo || []}
+              onClose={() => setShowPropertyDialog(false)}
+              onRotate={handleRotateComponent}
+              onDelete={(id) => {
+                removeComponent(id);
+                setShowPropertyDialog(false);
+              }}
+              onPropertyChange={(id, propName, value) => {
+                const comp = components.find((c) => c.id === id);
+                if (comp) {
+                  updateComponent(id, {
+                    properties: { ...comp.properties, [propName]: value },
+                  });
+                }
+              }}
+            />
+          );
+        })()}
 
       {/* Component Picker Modal */}
       <ComponentPickerModal
@@ -1635,100 +1848,186 @@ export const SimulatorCanvas = () => {
       />
 
       {/* Board right-click context menu */}
-      {boardContextMenu && (() => {
-        const board = boards.find((b) => b.id === boardContextMenu.boardId);
-        const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
-        const connectedWires = wires.filter(
-          (w) => w.start.componentId === boardContextMenu.boardId || w.end.componentId === boardContextMenu.boardId
-        ).length;
-        return (
-          <>
-            <div
-              style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-              onClick={() => setBoardContextMenu(null)}
-              onContextMenu={(e) => { e.preventDefault(); setBoardContextMenu(null); }}
-            />
+      {boardContextMenu &&
+        (() => {
+          const board = boards.find((b) => b.id === boardContextMenu.boardId);
+          const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
+          const connectedWires = wires.filter(
+            (w) =>
+              w.start.componentId === boardContextMenu.boardId ||
+              w.end.componentId === boardContextMenu.boardId,
+          ).length;
+          return (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+                onClick={() => setBoardContextMenu(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setBoardContextMenu(null);
+                }}
+              />
+              <div
+                style={{
+                  position: 'fixed',
+                  left: boardContextMenu.x,
+                  top: boardContextMenu.y,
+                  background: '#252526',
+                  border: '1px solid #3c3c3c',
+                  borderRadius: 6,
+                  padding: '4px 0',
+                  zIndex: 9999,
+                  minWidth: 180,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                  fontSize: 13,
+                }}
+              >
+                <div
+                  style={{
+                    padding: '6px 14px',
+                    color: '#888',
+                    fontSize: 11,
+                    borderBottom: '1px solid #3c3c3c',
+                    marginBottom: 2,
+                  }}
+                >
+                  {label}
+                </div>
+                <button
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    padding: '7px 14px',
+                    background: 'none',
+                    border: 'none',
+                    color: boards.length <= 1 ? '#555' : '#e06c75',
+                    cursor: boards.length <= 1 ? 'default' : 'pointer',
+                    fontSize: 13,
+                    textAlign: 'left',
+                  }}
+                  disabled={boards.length <= 1}
+                  title={boards.length <= 1 ? 'Cannot remove the last board' : undefined}
+                  onMouseEnter={(e) => {
+                    if (boards.length > 1) e.currentTarget.style.background = '#2a2d2e';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'none';
+                  }}
+                  onClick={() => {
+                    setBoardContextMenu(null);
+                    setBoardToRemove(boardContextMenu.boardId);
+                  }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  Remove board
+                  {connectedWires > 0 && (
+                    <span style={{ color: '#888', fontSize: 11 }}>
+                      ({connectedWires} wire{connectedWires > 1 ? 's' : ''})
+                    </span>
+                  )}
+                </button>
+              </div>
+            </>
+          );
+        })()}
+
+      {/* Board removal confirmation dialog */}
+      {boardToRemove &&
+        (() => {
+          const board = boards.find((b) => b.id === boardToRemove);
+          const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
+          const connectedWires = wires.filter(
+            (w) => w.start.componentId === boardToRemove || w.end.componentId === boardToRemove,
+          ).length;
+          return (
             <div
               style={{
                 position: 'fixed',
-                left: boardContextMenu.x,
-                top: boardContextMenu.y,
-                background: '#252526',
-                border: '1px solid #3c3c3c',
-                borderRadius: 6,
-                padding: '4px 0',
-                zIndex: 9999,
-                minWidth: 180,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-                fontSize: 13,
+                inset: 0,
+                background: 'rgba(0,0,0,0.5)',
+                zIndex: 10000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              <div style={{ padding: '6px 14px', color: '#888', fontSize: 11, borderBottom: '1px solid #3c3c3c', marginBottom: 2 }}>
-                {label}
-              </div>
-              <button
+              <div
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  width: '100%', padding: '7px 14px', background: 'none', border: 'none',
-                  color: boards.length <= 1 ? '#555' : '#e06c75', cursor: boards.length <= 1 ? 'default' : 'pointer',
-                  fontSize: 13, textAlign: 'left',
-                }}
-                disabled={boards.length <= 1}
-                title={boards.length <= 1 ? 'Cannot remove the last board' : undefined}
-                onMouseEnter={(e) => { if (boards.length > 1) (e.currentTarget.style.background = '#2a2d2e'); }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
-                onClick={() => {
-                  setBoardContextMenu(null);
-                  setBoardToRemove(boardContextMenu.boardId);
+                  background: '#1e1e1e',
+                  border: '1px solid #3c3c3c',
+                  borderRadius: 8,
+                  padding: '20px 24px',
+                  maxWidth: 380,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                </svg>
-                Remove board
-                {connectedWires > 0 && <span style={{ color: '#888', fontSize: 11 }}>({connectedWires} wire{connectedWires > 1 ? 's' : ''})</span>}
-              </button>
-            </div>
-          </>
-        );
-      })()}
-
-      {/* Board removal confirmation dialog */}
-      {boardToRemove && (() => {
-        const board = boards.find((b) => b.id === boardToRemove);
-        const label = board ? BOARD_KIND_LABELS[board.boardKind] : 'Board';
-        const connectedWires = wires.filter(
-          (w) => w.start.componentId === boardToRemove || w.end.componentId === boardToRemove
-        ).length;
-        return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#1e1e1e', border: '1px solid #3c3c3c', borderRadius: 8, padding: '20px 24px', maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}>
-              <h3 style={{ margin: '0 0 10px', color: '#e0e0e0', fontSize: 15 }}>Remove {label}?</h3>
-              <p style={{ margin: '0 0 16px', color: '#999', fontSize: 13, lineHeight: 1.5 }}>
-                This will remove the board from the workspace
-                {connectedWires > 0 && <> and <strong style={{ color: '#e06c75' }}>{connectedWires} connected wire{connectedWires > 1 ? 's' : ''}</strong></>}
-                . This action cannot be undone.
-              </p>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setBoardToRemove(null)}
-                  style={{ padding: '6px 16px', background: '#333', border: '1px solid #555', borderRadius: 4, color: '#ccc', cursor: 'pointer', fontSize: 13 }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => { removeBoard(boardToRemove); setBoardToRemove(null); }}
-                  style={{ padding: '6px 16px', background: '#e06c75', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 13 }}
-                >
-                  Remove
-                </button>
+                <h3 style={{ margin: '0 0 10px', color: '#e0e0e0', fontSize: 15 }}>
+                  Remove {label}?
+                </h3>
+                <p style={{ margin: '0 0 16px', color: '#999', fontSize: 13, lineHeight: 1.5 }}>
+                  This will remove the board from the workspace
+                  {connectedWires > 0 && (
+                    <>
+                      {' '}
+                      and{' '}
+                      <strong style={{ color: '#e06c75' }}>
+                        {connectedWires} connected wire{connectedWires > 1 ? 's' : ''}
+                      </strong>
+                    </>
+                  )}
+                  . This action cannot be undone.
+                </p>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => setBoardToRemove(null)}
+                    style={{
+                      padding: '6px 16px',
+                      background: '#333',
+                      border: '1px solid #555',
+                      borderRadius: 4,
+                      color: '#ccc',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      removeBoard(boardToRemove);
+                      setBoardToRemove(null);
+                    }}
+                    style={{
+                      padding: '6px 16px',
+                      background: '#e06c75',
+                      border: 'none',
+                      borderRadius: 4,
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
-
+          );
+        })()}
     </div>
   );
 };

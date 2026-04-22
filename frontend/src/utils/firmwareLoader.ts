@@ -17,9 +17,13 @@ const ELF_MAGIC = [0x7f, 0x45, 0x4c, 0x46]; // \x7FELF
 
 export function detectFirmwareFormat(filename: string, bytes: Uint8Array): FirmwareFormat {
   // Check ELF magic
-  if (bytes.length >= 4 &&
-    bytes[0] === ELF_MAGIC[0] && bytes[1] === ELF_MAGIC[1] &&
-    bytes[2] === ELF_MAGIC[2] && bytes[3] === ELF_MAGIC[3]) {
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === ELF_MAGIC[0] &&
+    bytes[1] === ELF_MAGIC[1] &&
+    bytes[2] === ELF_MAGIC[2] &&
+    bytes[3] === ELF_MAGIC[3]
+  ) {
     return 'elf';
   }
 
@@ -59,9 +63,7 @@ export function detectArchitectureFromElf(bytes: Uint8Array): ElfInfo | null {
   const isLittleEndian = bytes[5] === 1;
 
   // e_machine at offset 18 (2 bytes)
-  const machine = isLittleEndian
-    ? bytes[18] | (bytes[19] << 8)
-    : (bytes[18] << 8) | bytes[19];
+  const machine = isLittleEndian ? bytes[18] | (bytes[19] << 8) : (bytes[18] << 8) | bytes[19];
 
   let suggestedBoard: BoardKind | null = null;
   let architectureName = 'Unknown';
@@ -103,13 +105,13 @@ export function extractLoadSegmentsFromElf(bytes: Uint8Array): Uint8Array {
     throw new Error('Only 32-bit ELF files are supported');
   }
 
-  const u16 = (off: number) => isLE ? view.getUint16(off, true) : view.getUint16(off, false);
-  const u32 = (off: number) => isLE ? view.getUint32(off, true) : view.getUint32(off, false);
+  const u16 = (off: number) => (isLE ? view.getUint16(off, true) : view.getUint16(off, false));
+  const u32 = (off: number) => (isLE ? view.getUint32(off, true) : view.getUint32(off, false));
 
   // ELF32 header fields
-  const e_phoff = u32(28);     // program header table offset
+  const e_phoff = u32(28); // program header table offset
   const e_phentsize = u16(42); // program header entry size
-  const e_phnum = u16(44);     // number of program header entries
+  const e_phnum = u16(44); // number of program header entries
 
   if (e_phoff === 0 || e_phnum === 0) {
     throw new Error('ELF file has no program headers');
@@ -149,7 +151,7 @@ export function extractLoadSegmentsFromElf(bytes: Uint8Array): Uint8Array {
   segments.sort((a, b) => a.paddr - b.paddr);
   const baseAddr = segments[0].paddr;
   const lastSeg = segments[segments.length - 1];
-  const totalSize = (lastSeg.paddr - baseAddr) + lastSeg.data.length;
+  const totalSize = lastSeg.paddr - baseAddr + lastSeg.data.length;
   const result = new Uint8Array(totalSize);
 
   for (const seg of segments) {
@@ -206,13 +208,9 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 // ── Board classification helpers ─────────────────────────────────────────────
 
-const AVR_BOARDS = new Set<BoardKind>([
-  'arduino-uno', 'arduino-nano', 'arduino-mega', 'attiny85',
-]);
+const AVR_BOARDS = new Set<BoardKind>(['arduino-uno', 'arduino-nano', 'arduino-mega', 'attiny85']);
 
-const RP2040_BOARDS = new Set<BoardKind>([
-  'raspberry-pi-pico', 'pi-pico-w',
-]);
+const RP2040_BOARDS = new Set<BoardKind>(['raspberry-pi-pico', 'pi-pico-w']);
 
 function isAvrBoard(kind: BoardKind): boolean {
   return AVR_BOARDS.has(kind);
@@ -244,9 +242,14 @@ const MAX_FILE_SIZE = 16 * 1024 * 1024; // 16 MB absolute max
  * @param boardKind - The current board's kind (determines output format)
  * @returns The program string + metadata
  */
-export async function readFirmwareFile(file: File, boardKind: BoardKind): Promise<FirmwareLoadResult> {
+export async function readFirmwareFile(
+  file: File,
+  boardKind: BoardKind,
+): Promise<FirmwareLoadResult> {
   if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max ${MAX_FILE_SIZE / 1024 / 1024} MB.`);
+    throw new Error(
+      `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max ${MAX_FILE_SIZE / 1024 / 1024} MB.`,
+    );
   }
 
   const buffer = await file.arrayBuffer();

@@ -11,8 +11,12 @@
 }
 
 @keyframes ilib-fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .ilib-modal {
@@ -30,8 +34,14 @@
 }
 
 @keyframes ilib-slideIn {
-  from { transform: translateY(-16px); opacity: 0; }
-  to   { transform: translateY(0);     opacity: 1; }
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* Header */
@@ -108,9 +118,16 @@
   padding: 6px 0;
 }
 
-.ilib-list::-webkit-scrollbar { width: 6px; }
-.ilib-list::-webkit-scrollbar-track { background: #111; }
-.ilib-list::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+.ilib-list::-webkit-scrollbar {
+  width: 6px;
+}
+.ilib-list::-webkit-scrollbar-track {
+  background: #111;
+}
+.ilib-list::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
 
 .ilib-item {
   display: flex;
@@ -122,7 +139,9 @@
   transition: background 0.1s;
 }
 
-.ilib-item:hover { background: #1f1f1f; }
+.ilib-item:hover {
+  background: #1f1f1f;
+}
 
 .ilib-item-name {
   font-size: 13px;
@@ -134,8 +153,12 @@
   white-space: nowrap;
 }
 
-.ilib-item--done .ilib-item-name  { color: #888; }
-.ilib-item--error .ilib-item-name { color: #888; }
+.ilib-item--done .ilib-item-name {
+  color: #888;
+}
+.ilib-item--error .ilib-item-name {
+  color: #888;
+}
 
 .ilib-item-status {
   flex-shrink: 0;
@@ -197,8 +220,12 @@
 }
 
 @keyframes ilib-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Footer */

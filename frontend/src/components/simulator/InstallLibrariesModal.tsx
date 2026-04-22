@@ -49,20 +49,18 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
     setRunning(false);
   }, [libraries]);
 
-  const setItemStatus = useCallback(
-    (name: string, status: ItemStatus, error?: string) => {
-      setItems((prev) =>
-        prev.map((it) => (it.name === name ? { ...it, status, error } : it)),
-      );
-    },
-    [],
-  );
+  const setItemStatus = useCallback((name: string, status: ItemStatus, error?: string) => {
+    setItems((prev) => prev.map((it) => (it.name === name ? { ...it, status, error } : it)));
+  }, []);
 
   const handleInstallAll = useCallback(async () => {
     setRunning(true);
     let completed = 0;
     for (const item of items) {
-      if (item.status === 'done') { completed++; continue; }
+      if (item.status === 'done') {
+        completed++;
+        continue;
+      }
       setItemStatus(item.name, 'installing');
       try {
         const result = await installLibrary(item.name);
@@ -92,7 +90,16 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
         {/* Header */}
         <div className="ilib-header">
           <div className="ilib-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00b8d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#00b8d4"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
               <path d="m3.3 7 8.7 5 8.7-5" />
               <path d="M12 22V12" />
@@ -100,7 +107,15 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
             <span>REQUIRED LIBRARIES</span>
           </div>
           <button className="ilib-close-btn" onClick={onClose} disabled={running}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -133,40 +148,61 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
               : item.name;
             const isWokwiLib = item.name.includes('@wokwi:');
             return (
-            <div key={item.name} className={`ilib-item ilib-item--${item.status}`}>
-              <span className="ilib-item-name">
-                {displayName}
-                {isWokwiLib && (
-                  <span className="ilib-badge ilib-badge--wokwi" title="Wokwi-hosted library">wokwi</span>
-                )}
-              </span>
-              <span className="ilib-item-status">
-                {item.status === 'pending' && <span className="ilib-badge ilib-badge--pending">pending</span>}
-                {item.status === 'installing' && (
-                  <span className="ilib-badge ilib-badge--installing">
-                    <Spinner size={12} />
-                    installing…
-                  </span>
-                )}
-                {item.status === 'done' && (
-                  <span className="ilib-badge ilib-badge--done">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    installed
-                  </span>
-                )}
-                {item.status === 'error' && (
-                  <span className="ilib-badge ilib-badge--error" title={item.error}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                    error
-                  </span>
-                )}
-              </span>
-            </div>
+              <div key={item.name} className={`ilib-item ilib-item--${item.status}`}>
+                <span className="ilib-item-name">
+                  {displayName}
+                  {isWokwiLib && (
+                    <span className="ilib-badge ilib-badge--wokwi" title="Wokwi-hosted library">
+                      wokwi
+                    </span>
+                  )}
+                </span>
+                <span className="ilib-item-status">
+                  {item.status === 'pending' && (
+                    <span className="ilib-badge ilib-badge--pending">pending</span>
+                  )}
+                  {item.status === 'installing' && (
+                    <span className="ilib-badge ilib-badge--installing">
+                      <Spinner size={12} />
+                      installing…
+                    </span>
+                  )}
+                  {item.status === 'done' && (
+                    <span className="ilib-badge ilib-badge--done">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      installed
+                    </span>
+                  )}
+                  {item.status === 'error' && (
+                    <span className="ilib-badge ilib-badge--error" title={item.error}>
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      >
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                      error
+                    </span>
+                  )}
+                </span>
+              </div>
             );
           })}
         </div>
@@ -179,11 +215,7 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
             </button>
           ) : (
             <>
-              <button
-                className="ilib-btn ilib-btn--ghost"
-                onClick={onClose}
-                disabled={running}
-              >
+              <button className="ilib-btn ilib-btn--ghost" onClick={onClose} disabled={running}>
                 Skip
               </button>
               <button

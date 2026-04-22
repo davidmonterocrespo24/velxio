@@ -25,7 +25,7 @@ export function calculatePinPosition(
   componentId: string,
   pinName: string,
   componentX: number,
-  componentY: number
+  componentY: number,
 ): { x: number; y: number } | null {
   // Get the DOM element
   const element = document.getElementById(componentId);
@@ -57,7 +57,10 @@ export function calculatePinPosition(
   }
   if (!pin) {
     console.warn(`[pinPositionCalculator] Pin ${pinName} not found on component ${componentId}`);
-    console.warn(`Available pins:`, pinInfo.map((p: any) => p.name));
+    console.warn(
+      `Available pins:`,
+      pinInfo.map((p: any) => p.name),
+    );
     return null;
   }
 
@@ -80,7 +83,7 @@ export function calculatePinPosition(
 export function getAllPinPositions(
   componentId: string,
   componentX: number,
-  componentY: number
+  componentY: number,
 ): Array<{ name: string; x: number; y: number; signals: any[] }> {
   const element = document.getElementById(componentId);
   if (!element) return [];
@@ -114,7 +117,7 @@ export function findClosestPin(
   componentY: number,
   targetX: number,
   targetY: number,
-  maxDistance: number = 20
+  maxDistance: number = 20,
 ): { name: string; x: number; y: number; signals: any[] } | null {
   const pins = getAllPinPositions(componentId, componentX, componentY);
 
@@ -122,9 +125,7 @@ export function findClosestPin(
   let minDistance = maxDistance;
 
   for (const pin of pins) {
-    const distance = Math.sqrt(
-      Math.pow(pin.x - targetX, 2) + Math.pow(pin.y - targetY, 2)
-    );
+    const distance = Math.sqrt(Math.pow(pin.x - targetX, 2) + Math.pow(pin.y - targetY, 2));
 
     if (distance < minDistance) {
       minDistance = distance;
@@ -134,5 +135,3 @@ export function findClosestPin(
 
   return closestPin;
 }
-
-

@@ -99,9 +99,7 @@ describe('parseLibrariesTxt — unit', () => {
   });
 
   it('includes @wokwi: hash entries (backend handles them)', () => {
-    const result = parseLibrariesTxt(
-      'GoodLib\nWokwiLib@wokwi:abc123deadbeef\nAnotherGood\n',
-    );
+    const result = parseLibrariesTxt('GoodLib\nWokwiLib@wokwi:abc123deadbeef\nAnotherGood\n');
     expect(result).toEqual(['GoodLib', 'WokwiLib@wokwi:abc123deadbeef', 'AnotherGood']);
   });
 
@@ -190,7 +188,9 @@ describe('importFromWokwiZip — libraries field', () => {
     expect(result.libraries).toContain('Adafruit GFX Library');
     expect(result.libraries).toContain('SD');
     // Wokwi-hosted libs must also be present
-    expect(result.libraries).toContain('LC_Adafruit_1947@wokwi:b065451f35dab6e1021d78f0f79b6eda6910455d');
+    expect(result.libraries).toContain(
+      'LC_Adafruit_1947@wokwi:b065451f35dab6e1021d78f0f79b6eda6910455d',
+    );
     expect(result.libraries.length).toBeGreaterThan(5);
   });
 
@@ -231,10 +231,13 @@ describe('installLibrary service', () => {
   });
 
   it('returns { success: true } when the backend responds 200 ok', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      }),
+    );
 
     const result = await installLibrary('Servo');
     expect(result.success).toBe(true);
@@ -242,10 +245,13 @@ describe('installLibrary service', () => {
   });
 
   it('returns { success: false, error } when the backend reports failure', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: false, error: 'Library not found' }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: false, error: 'Library not found' }),
+      }),
+    );
 
     const result = await installLibrary('NonExistentLib99999');
     expect(result.success).toBe(false);
@@ -254,10 +260,13 @@ describe('installLibrary service', () => {
 
   it('installs multiple libraries sequentially without interference', async () => {
     const calls: string[] = [];
-    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
-      calls.push(JSON.parse(opts.body as string).name);
-      return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
+        calls.push(JSON.parse(opts.body as string).name);
+        return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
+      }),
+    );
 
     const libs = ['Adafruit GFX Library', 'Adafruit SSD1306', 'Servo'];
     for (const lib of libs) await installLibrary(lib);
@@ -276,10 +285,13 @@ describe('getInstalledLibraries service', () => {
       { library: { name: 'Servo', version: '1.2.1', author: 'Arduino' } },
       { library: { name: 'Adafruit GFX Library', version: '1.11.9', author: 'Adafruit' } },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, libraries: mockLibs }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, libraries: mockLibs }),
+      }),
+    );
 
     const result = await getInstalledLibraries();
     expect(result).toHaveLength(2);
@@ -288,20 +300,26 @@ describe('getInstalledLibraries service', () => {
   });
 
   it('returns empty array when no libraries are installed', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, libraries: [] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true, libraries: [] }),
+      }),
+    );
 
     const result = await getInstalledLibraries();
     expect(result).toEqual([]);
   });
 
   it('throws when the request fails (non-ok response)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      json: async () => ({ detail: 'Internal server error' }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ detail: 'Internal server error' }),
+      }),
+    );
 
     await expect(getInstalledLibraries()).rejects.toThrow('Internal server error');
   });

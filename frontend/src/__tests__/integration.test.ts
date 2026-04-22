@@ -39,9 +39,7 @@ afterEach(() => vi.unstubAllGlobals());
  * Minimal Intel HEX that sets pin 13 HIGH and loops:
  *   LDI r16, 0xFF  → OUT DDRB → LDI r16, 0x20 → OUT PORTB → RJMP .-2
  */
-const BLINK_HEX =
-  ':0A0000000FEF04B900E205B9FFCFCD\n' +
-  ':00000001FF\n';
+const BLINK_HEX = ':0A0000000FEF04B900E205B9FFCFCD\n' + ':00000001FF\n';
 
 /** Empty program (EOF record only) */
 const EMPTY_HEX = ':00000001FF\n';
@@ -92,16 +90,24 @@ describe('Integration — AVRSimulator + PinManager', () => {
     sim.loadHex(BLINK_HEX);
 
     const ledState = { on: false };
-    pm.onPinChange(13, (_pin, state) => { ledState.on = state; });
+    pm.onPinChange(13, (_pin, state) => {
+      ledState.on = state;
+    });
 
-    sim.step(); sim.step(); sim.step(); sim.step();
+    sim.step();
+    sim.step();
+    sim.step();
+    sim.step();
 
     expect(ledState.on).toBe(true);
   });
 
   it('pin 13 stays HIGH through the RJMP loop', () => {
     sim.loadHex(BLINK_HEX);
-    sim.step(); sim.step(); sim.step(); sim.step(); // set pin HIGH
+    sim.step();
+    sim.step();
+    sim.step();
+    sim.step(); // set pin HIGH
 
     for (let i = 0; i < 10; i++) sim.step(); // execute 10 more (RJMP loops)
 
@@ -152,21 +158,25 @@ describe('Integration — AVRSimulator + PinManager', () => {
     sim.loadHex(EMPTY_HEX);
 
     const PWM_MAP = [
-      { addr: 0x47, pin: 6,  value: 50  },
-      { addr: 0x48, pin: 5,  value: 100 },
-      { addr: 0x88, pin: 9,  value: 150 },
-      { addr: 0x8A, pin: 10, value: 200 },
-      { addr: 0xB3, pin: 11, value: 25  },
-      { addr: 0xB4, pin: 3,  value: 75  },
+      { addr: 0x47, pin: 6, value: 50 },
+      { addr: 0x48, pin: 5, value: 100 },
+      { addr: 0x88, pin: 9, value: 150 },
+      { addr: 0x8a, pin: 10, value: 200 },
+      { addr: 0xb3, pin: 11, value: 25 },
+      { addr: 0xb4, pin: 3, value: 75 },
     ];
 
     const received: Record<number, number> = {};
     PWM_MAP.forEach(({ pin }) => {
-      pm.onPwmChange(pin, (_p, dc) => { received[pin] = dc; });
+      pm.onPwmChange(pin, (_p, dc) => {
+        received[pin] = dc;
+      });
     });
 
     const cpu = (sim as any).cpu;
-    PWM_MAP.forEach(({ addr, value }) => { cpu.data[addr] = value; });
+    PWM_MAP.forEach(({ addr, value }) => {
+      cpu.data[addr] = value;
+    });
 
     sim.start();
     sim.stop();
@@ -180,9 +190,9 @@ describe('Integration — AVRSimulator + PinManager', () => {
     sim.loadHex(EMPTY_HEX);
     // setPinState drives external INPUT (button/switch); PinManager tracks CPU PORT OUTPUT.
     // These should not throw regardless of pin range.
-    expect(() => sim.setPinState(4, true)).not.toThrow();   // PORTD
-    expect(() => sim.setPinState(13, true)).not.toThrow();  // PORTB
-    expect(() => sim.setPinState(14, true)).not.toThrow();  // PORTC/A0
+    expect(() => sim.setPinState(4, true)).not.toThrow(); // PORTD
+    expect(() => sim.setPinState(13, true)).not.toThrow(); // PORTB
+    expect(() => sim.setPinState(14, true)).not.toThrow(); // PORTC/A0
   });
 
   it('multiple onPinChange subscribers all fire for the same pin', () => {
@@ -193,7 +203,10 @@ describe('Integration — AVRSimulator + PinManager', () => {
     pm.onPinChange(13, cb1);
     pm.onPinChange(13, cb2);
 
-    sim.step(); sim.step(); sim.step(); sim.step();
+    sim.step();
+    sim.step();
+    sim.step();
+    sim.step();
 
     expect(cb1).toHaveBeenCalledWith(13, true);
     expect(cb2).toHaveBeenCalledWith(13, true);
@@ -216,7 +229,9 @@ describe('Integration — RP2040Simulator + PinManager', () => {
     sim.loadBinary(zeroBinary());
 
     const ledState = { on: false };
-    pm.onPinChange(25, (_pin, state) => { ledState.on = state; });
+    pm.onPinChange(25, (_pin, state) => {
+      ledState.on = state;
+    });
 
     pm.triggerPinChange(25, true);
     expect(ledState.on).toBe(true);
@@ -247,13 +262,13 @@ describe('Integration — RP2040Simulator + PinManager', () => {
   it('multiple independent GPIO listeners fire only their own pin', () => {
     sim.loadBinary(zeroBinary());
 
-    const cb7  = vi.fn();
+    const cb7 = vi.fn();
     const cb25 = vi.fn();
-    const cb0  = vi.fn();
+    const cb0 = vi.fn();
 
-    pm.onPinChange(7,  cb7);
+    pm.onPinChange(7, cb7);
     pm.onPinChange(25, cb25);
-    pm.onPinChange(0,  cb0);
+    pm.onPinChange(0, cb0);
 
     pm.triggerPinChange(25, true);
 
@@ -289,10 +304,10 @@ describe('Integration — board switching (AVR ↔ RP2040)', () => {
   it('both simulators share the same PinManager instance', () => {
     const pm = new PinManager();
     const avrSim = new AVRSimulator(pm);
-    const rpSim  = new RP2040Simulator(pm);
+    const rpSim = new RP2040Simulator(pm);
 
     expect((avrSim as any).pinManager).toBe(pm);
-    expect((rpSim  as any).pinManager).toBe(pm);
+    expect((rpSim as any).pinManager).toBe(pm);
   });
 
   it('stopping AVR and starting RP2040 does not corrupt PinManager', () => {
@@ -337,7 +352,10 @@ describe('Integration — board switching (AVR ↔ RP2040)', () => {
 
     const avrCb = vi.fn();
     pm.onPinChange(13, avrCb);
-    avrSim.step(); avrSim.step(); avrSim.step(); avrSim.step();
+    avrSim.step();
+    avrSim.step();
+    avrSim.step();
+    avrSim.step();
     expect(pm.getPinState(13)).toBe(true);
 
     // Step 2: Switch to RP2040 — clear AVR listeners, load RP2040 binary
@@ -358,7 +376,7 @@ describe('Integration — board switching (AVR ↔ RP2040)', () => {
 
 describe('Integration — PWM pipeline (AVR → PinManager → component)', () => {
   it('OCR1AL=128 → onPwmChange(9) fires with duty 128/255', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm);
     sim.loadHex(EMPTY_HEX);
 
@@ -374,19 +392,25 @@ describe('Integration — PWM pipeline (AVR → PinManager → component)', () =
   });
 
   it('RGB LED component receives correct brightness via PWM', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm);
     sim.loadHex(EMPTY_HEX);
 
     // Simulate RGB LED component listening to PWM on pins 9, 10, 11
     const rgb = { red: 0, green: 0, blue: 0 };
-    pm.onPwmChange(9,  (_p, dc) => { rgb.red   = Math.round(dc * 255); });
-    pm.onPwmChange(10, (_p, dc) => { rgb.green = Math.round(dc * 255); });
-    pm.onPwmChange(11, (_p, dc) => { rgb.blue  = Math.round(dc * 255); });
+    pm.onPwmChange(9, (_p, dc) => {
+      rgb.red = Math.round(dc * 255);
+    });
+    pm.onPwmChange(10, (_p, dc) => {
+      rgb.green = Math.round(dc * 255);
+    });
+    pm.onPwmChange(11, (_p, dc) => {
+      rgb.blue = Math.round(dc * 255);
+    });
 
     (sim as any).cpu.data[0x88] = 255; // OCR1A → D9  = 100%
-    (sim as any).cpu.data[0x8A] = 128; // OCR1B → D10 = ~50%
-    (sim as any).cpu.data[0xB3] = 0;   // OCR2A → D11 = 0%
+    (sim as any).cpu.data[0x8a] = 128; // OCR1B → D10 = ~50%
+    (sim as any).cpu.data[0xb3] = 0; // OCR2A → D11 = 0%
 
     sim.start();
     sim.stop();
@@ -399,7 +423,7 @@ describe('Integration — PWM pipeline (AVR → PinManager → component)', () =
   });
 
   it('PWM value does not re-fire if OCR register stays the same', () => {
-    const pm  = new PinManager();
+    const pm = new PinManager();
     const sim = new AVRSimulator(pm);
     sim.loadHex(EMPTY_HEX);
 

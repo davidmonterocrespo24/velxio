@@ -61,20 +61,28 @@ vi.mock('../store/useOscilloscopeStore', () => ({
 
 // WebSocket mock
 class MockWebSocket {
-  static OPEN    = 1;
+  static OPEN = 1;
   static CLOSING = 2;
-  static CLOSED  = 3;
+  static CLOSED = 3;
 
   readyState = MockWebSocket.OPEN;
-  onopen:    (() => void) | null = null;
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onclose:   (() => void) | null = null;
-  onerror:   (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
   sent: string[] = [];
 
-  send(data: string)  { this.sent.push(data); }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.(); }
-  open()  { this.readyState = MockWebSocket.OPEN;   this.onopen?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
   receive(payload: object) {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
@@ -256,7 +264,10 @@ describe('Esp32Bridge — WiFi/BLE status events (ESP32-C3)', () => {
 
     ws.receive({ type: 'wifi_status', data: { status: 'initializing' } });
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
-    ws.receive({ type: 'wifi_status', data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' } });
+    ws.receive({
+      type: 'wifi_status',
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+    });
 
     expect(received).toHaveLength(3);
     expect(received[0].status).toBe('initializing');
@@ -346,7 +357,7 @@ describe('BLE detection in ESP32-C3 sketches', () => {
 
 describe('ESP32-C3 board FQBN mapping', () => {
   const FQBN_MAP: Record<string, string> = {
-    'esp32': 'esp32:esp32:esp32',
+    esp32: 'esp32:esp32:esp32',
     'esp32-s3': 'esp32:esp32:esp32s3',
     'esp32-c3': 'esp32:esp32:esp32c3',
   };
@@ -385,7 +396,7 @@ describe('ESP32-C3 QEMU NIC configuration', () => {
 
   it('C3 uses qemu-system-riscv32 (not qemu-system-xtensa)', () => {
     const QEMU_MAP: Record<string, string> = {
-      'esp32': 'qemu-system-xtensa',
+      esp32: 'qemu-system-xtensa',
       'esp32-s3': 'qemu-system-xtensa',
       'esp32-c3': 'qemu-system-riscv32',
     };

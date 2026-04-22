@@ -1,4 +1,33 @@
-import { CPU, AVRTimer, timer0Config, timer1Config, timer2Config, AVRUSART, usart0Config, AVRIOPort, portAConfig, portBConfig, portCConfig, portDConfig, portEConfig, portFConfig, portGConfig, portHConfig, portJConfig, portKConfig, portLConfig, avrInstruction, AVRADC, adcConfig, AVRSPI, spiConfig, AVRTWI, twiConfig, ATtinyTimer1, attinyTimer1Config } from 'avr8js';
+import {
+  CPU,
+  AVRTimer,
+  timer0Config,
+  timer1Config,
+  timer2Config,
+  AVRUSART,
+  usart0Config,
+  AVRIOPort,
+  portAConfig,
+  portBConfig,
+  portCConfig,
+  portDConfig,
+  portEConfig,
+  portFConfig,
+  portGConfig,
+  portHConfig,
+  portJConfig,
+  portKConfig,
+  portLConfig,
+  avrInstruction,
+  AVRADC,
+  adcConfig,
+  AVRSPI,
+  spiConfig,
+  AVRTWI,
+  twiConfig,
+  ATtinyTimer1,
+  attinyTimer1Config,
+} from 'avr8js';
 import { PinManager } from './PinManager';
 import { hexToUint8Array } from '../utils/hexParser';
 import { I2CBusManager } from './I2CBusManager';
@@ -19,35 +48,35 @@ import type { I2CDevice } from './I2CBusManager';
 
 // OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano)
 const PWM_PINS_UNO = [
-  { ocrAddr: 0x47, pin: 6,  label: 'OCR0A' }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5,  label: 'OCR0B' }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9,  label: 'OCR1AL' }, // Timer1A low byte → D9
-  { ocrAddr: 0x8A, pin: 10, label: 'OCR1BL' }, // Timer1B low byte → D10
-  { ocrAddr: 0xB3, pin: 11, label: 'OCR2A' }, // Timer2A → D11
-  { ocrAddr: 0xB4, pin: 3,  label: 'OCR2B' }, // Timer2B → D3
+  { ocrAddr: 0x47, pin: 6, label: 'OCR0A' }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: 'OCR0B' }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL' }, // Timer1A low byte → D9
+  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL' }, // Timer1B low byte → D10
+  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A' }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B' }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
 // Timers 0/1/2 same addresses; Timers 3/4/5 at higher addresses.
 const PWM_PINS_MEGA = [
   { ocrAddr: 0x47, pin: 13, label: 'OCR0A' }, // Timer0A → D13
-  { ocrAddr: 0x48, pin: 4,  label: 'OCR0B' }, // Timer0B → D4
+  { ocrAddr: 0x48, pin: 4, label: 'OCR0B' }, // Timer0B → D4
   { ocrAddr: 0x88, pin: 11, label: 'OCR1AL' }, // Timer1A → D11
-  { ocrAddr: 0x8A, pin: 12, label: 'OCR1BL' }, // Timer1B → D12
-  { ocrAddr: 0xB3, pin: 10, label: 'OCR2A' }, // Timer2A → D10
-  { ocrAddr: 0xB4, pin: 9,  label: 'OCR2B' }, // Timer2B → D9
+  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL' }, // Timer1B → D12
+  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A' }, // Timer2A → D10
+  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B' }, // Timer2B → D9
   // Timer3 (0x80–0x8D, but OCR3A/B/C at 0x98/0x9A/0x9C)
-  { ocrAddr: 0x98, pin: 5,  label: 'OCR3AL' }, // Timer3A → D5
-  { ocrAddr: 0x9A, pin: 2,  label: 'OCR3BL' }, // Timer3B → D2
-  { ocrAddr: 0x9C, pin: 3,  label: 'OCR3CL' }, // Timer3C → D3
+  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL' }, // Timer3A → D5
+  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL' }, // Timer3B → D2
+  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL' }, // Timer3C → D3
   // Timer4 (OCR4A/B/C at 0xA8/0xAA/0xAC)
-  { ocrAddr: 0xA8, pin: 6,  label: 'OCR4AL' }, // Timer4A → D6
-  { ocrAddr: 0xAA, pin: 7,  label: 'OCR4BL' }, // Timer4B → D7
-  { ocrAddr: 0xAC, pin: 8,  label: 'OCR4CL' }, // Timer4C → D8
+  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL' }, // Timer4A → D6
+  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL' }, // Timer4B → D7
+  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL' }, // Timer4C → D8
   // Timer5 (OCR5A/B/C at 0x128/0x12A/0x12C — extended I/O)
   { ocrAddr: 0x128, pin: 46, label: 'OCR5AL' }, // Timer5A → D46
-  { ocrAddr: 0x12A, pin: 45, label: 'OCR5BL' }, // Timer5B → D45
-  { ocrAddr: 0x12C, pin: 44, label: 'OCR5CL' }, // Timer5C → D44
+  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL' }, // Timer5B → D45
+  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL' }, // Timer5C → D44
 ];
 
 /**
@@ -56,27 +85,27 @@ const PWM_PINS_MEGA = [
  */
 const MEGA_PORT_BIT_MAP: Record<string, number[]> = {
   // PA0-PA7 → D22-D29
-  'PORTA': [22, 23, 24, 25, 26, 27, 28, 29],
+  PORTA: [22, 23, 24, 25, 26, 27, 28, 29],
   // PB0=D53(SS), PB1=D52(SCK), PB2=D51(MOSI), PB3=D50(MISO), PB4-PB7=D10-D13
-  'PORTB': [53, 52, 51, 50, 10, 11, 12, 13],
+  PORTB: [53, 52, 51, 50, 10, 11, 12, 13],
   // PC0-PC7 → D37, D36, D35, D34, D33, D32, D31, D30  (reversed)
-  'PORTC': [37, 36, 35, 34, 33, 32, 31, 30],
+  PORTC: [37, 36, 35, 34, 33, 32, 31, 30],
   // PD0=D21(SCL), PD1=D20(SDA), PD2=D19(RX1), PD3=D18(TX1), PD7=D38
-  'PORTD': [21, 20, 19, 18, -1, -1, -1, 38],
+  PORTD: [21, 20, 19, 18, -1, -1, -1, 38],
   // PE0=D0(RX0), PE1=D1(TX0), PE3=D5, PE4=D2, PE5=D3
-  'PORTE': [0,  1,  -1, 5,  2,  3,  -1, -1],
+  PORTE: [0, 1, -1, 5, 2, 3, -1, -1],
   // PF0-PF7 → A0-A7 (pin numbers 54-61)
-  'PORTF': [54, 55, 56, 57, 58, 59, 60, 61],
+  PORTF: [54, 55, 56, 57, 58, 59, 60, 61],
   // PG0=D41, PG1=D40, PG2=D39, PG5=D4
-  'PORTG': [41, 40, 39, -1, -1, 4,  -1, -1],
+  PORTG: [41, 40, 39, -1, -1, 4, -1, -1],
   // PH0=D17(RX2), PH1=D16(TX2), PH3=D6, PH4=D7, PH5=D8, PH6=D9
-  'PORTH': [17, 16, -1, 6,  7,  8,  9,  -1],
+  PORTH: [17, 16, -1, 6, 7, 8, 9, -1],
   // PJ0=D15(RX3), PJ1=D14(TX3)
-  'PORTJ': [15, 14, -1, -1, -1, -1, -1, -1],
+  PORTJ: [15, 14, -1, -1, -1, -1, -1, -1],
   // PK0-PK7 → A8-A15 (pin numbers 62-69)
-  'PORTK': [62, 63, 64, 65, 66, 67, 68, 69],
+  PORTK: [62, 63, 64, 65, 66, 67, 68, 69],
   // PL0=D49, PL1=D48, PL2=D47, PL3=D46, PL4=D45, PL5=D44, PL6=D43, PL7=D42
-  'PORTL': [49, 48, 47, 46, 45, 44, 43, 42],
+  PORTL: [49, 48, 47, 46, 45, 44, 43, 42],
 };
 
 /**
@@ -98,9 +127,9 @@ const MEGA_PIN_TO_PORT = (() => {
 // Timer1: OC1A→PB1, OC1B→PB4 (ATtinyTimer1 OCR regs from attinyTimer1Config)
 const PWM_PINS_TINY85 = [
   { ocrAddr: 0x56, pin: 0, label: 'OCR0A' }, // Timer0A → PB0
-  { ocrAddr: 0x5C, pin: 1, label: 'OCR0B' }, // Timer0B → PB1
-  { ocrAddr: 0x4E, pin: 1, label: 'OCR1A' }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
-  { ocrAddr: 0x4B, pin: 4, label: 'OCR1B' }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
+  { ocrAddr: 0x5c, pin: 1, label: 'OCR0B' }, // Timer0B → PB1
+  { ocrAddr: 0x4e, pin: 1, label: 'OCR1A' }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
+  { ocrAddr: 0x4b, pin: 4, label: 'OCR1B' }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
 ];
 
 /**
@@ -191,13 +220,15 @@ export class AVRSimulator {
 
     // ATmega328P: 32 KB = 16 384 words.  ATmega2560: 256 KB = 131 072 words.
     // ATtiny85: 8 KB = 4 096 words, 512 bytes SRAM.
-    const progWords = this.boardVariant === 'mega' ? 131072 : this.boardVariant === 'tiny85' ? 4096 : 16384;
+    const progWords =
+      this.boardVariant === 'mega' ? 131072 : this.boardVariant === 'tiny85' ? 4096 : 16384;
     // ATmega2560 data space: 0x0000–0x21FF = 8704 bytes total.
     // avr8js: data.length = sramBytes + registerSpace (0x100 = 256).
     // So sramBytes must be >= 8704 − 256 = 8448 to fit RAMEND=0x21FF on the stack.
     // ATmega328P RAMEND = 0x08FF; default 8192 is already a safe over-alloc.
     // ATtiny85 RAMEND = 0x025F; 512 bytes SRAM.
-    const sramBytes = this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
+    const sramBytes =
+      this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
 
     this.program = new Uint16Array(progWords);
     for (let i = 0; i < bytes.length; i += 2) {
@@ -231,26 +262,35 @@ export class AVRSimulator {
       //   TWI=_V(39)→0x4E
       const isMega = this.boardVariant === 'mega';
       const activeTimer0Config = isMega
-        ? { ...timer0Config, compAInterrupt: 0x2A, compBInterrupt: 0x2C, ovfInterrupt: 0x2E }
+        ? { ...timer0Config, compAInterrupt: 0x2a, compBInterrupt: 0x2c, ovfInterrupt: 0x2e }
         : timer0Config;
       const activeTimer1Config = isMega
-        ? { ...timer1Config, captureInterrupt: 0x20, compAInterrupt: 0x22, compBInterrupt: 0x24, ovfInterrupt: 0x28 }
+        ? {
+            ...timer1Config,
+            captureInterrupt: 0x20,
+            compAInterrupt: 0x22,
+            compBInterrupt: 0x24,
+            ovfInterrupt: 0x28,
+          }
         : timer1Config;
       const activeTimer2Config = isMega
-        ? { ...timer2Config, compAInterrupt: 0x1A, compBInterrupt: 0x1C, ovfInterrupt: 0x1E }
+        ? { ...timer2Config, compAInterrupt: 0x1a, compBInterrupt: 0x1c, ovfInterrupt: 0x1e }
         : timer2Config;
       const activeUsart0Config = isMega
-        ? { ...usart0Config, rxCompleteInterrupt: 0x32, dataRegisterEmptyInterrupt: 0x34, txCompleteInterrupt: 0x36 }
+        ? {
+            ...usart0Config,
+            rxCompleteInterrupt: 0x32,
+            dataRegisterEmptyInterrupt: 0x34,
+            txCompleteInterrupt: 0x36,
+          }
         : usart0Config;
-      const activeSpiConfig = isMega
-        ? { ...spiConfig, spiInterrupt: 0x30 }
-        : spiConfig;
-      const activeTwiConfig = isMega
-        ? { ...twiConfig, twiInterrupt: 0x4E }
-        : twiConfig;
+      const activeSpiConfig = isMega ? { ...spiConfig, spiInterrupt: 0x30 } : spiConfig;
+      const activeTwiConfig = isMega ? { ...twiConfig, twiInterrupt: 0x4e } : twiConfig;
 
       this.spi = new AVRSPI(this.cpu, activeSpiConfig, 16000000);
-      this.spi.onByte = (value) => { this.spi!.completeTransfer(value); };
+      this.spi.onByte = (value) => {
+        this.spi!.completeTransfer(value);
+      };
 
       this.usart = new AVRUSART(this.cpu, activeUsart0Config, 16000000);
       this.usart.onByteTransmit = (value: number) => {
@@ -296,9 +336,12 @@ export class AVRSimulator {
 
     this.setupPinHooks();
 
-    const boardName = this.boardVariant === 'mega' ? 'ATmega2560'
-      : this.boardVariant === 'tiny85' ? 'ATtiny85'
-      : 'ATmega328P';
+    const boardName =
+      this.boardVariant === 'mega'
+        ? 'ATmega2560'
+        : this.boardVariant === 'tiny85'
+          ? 'ATtiny85'
+          : 'ATmega328P';
     console.log(`AVR CPU initialized (${boardName}, ${this.peripherals.length} peripherals)`);
   }
 
@@ -457,6 +500,13 @@ export class AVRSimulator {
 
     this.running = true;
     console.log('Starting AVR simulation...');
+    try {
+      const dbg = (window as unknown as { __spiceDebug?: () => void }).__spiceDebug;
+      if (typeof dbg === 'function') dbg();
+      else console.warn('[spice] __spiceDebug not attached — wireElectricalSolver never mounted');
+    } catch (e) {
+      console.warn('[spice] debug dump failed', e);
+    }
 
     // ATmega328p @ 16MHz
     const CPU_HZ = 16_000_000;
@@ -477,15 +527,15 @@ export class AVRSimulator {
       // MAX_DELTA_MS already handles large initial deltas (e.g. first frame),
       // so no separate first-frame guard is needed.
       const rawDelta = timestamp - lastTimestamp;
-      const deltaMs  = Math.min(rawDelta, MAX_DELTA_MS);
-      lastTimestamp  = timestamp;
+      const deltaMs = Math.min(rawDelta, MAX_DELTA_MS);
+      lastTimestamp = timestamp;
 
       const cyclesPerFrame = Math.floor(CYCLES_PER_MS * deltaMs * this.speed);
 
       try {
         for (let i = 0; i < cyclesPerFrame; i++) {
-          avrInstruction(this.cpu);  // Execute the AVR instruction
-          this.cpu.tick();            // Update peripheral timers and cycles
+          avrInstruction(this.cpu); // Execute the AVR instruction
+          this.cpu.tick(); // Update peripheral timers and cycles
           if (this.scheduledPinChanges.length > 0) this.flushScheduledPinChanges();
         }
 
@@ -531,7 +581,8 @@ export class AVRSimulator {
     this.stop();
     if (this.program) {
       // Re-use the stored hex content path: just reload
-      const sramBytes = this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
+      const sramBytes =
+        this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
       console.log('Resetting AVR CPU...');
 
       this.cpu = new CPU(this.program, sramBytes);
@@ -543,7 +594,9 @@ export class AVRSimulator {
         this.usart = null;
       } else {
         this.spi = new AVRSPI(this.cpu, spiConfig, 16000000);
-        this.spi.onByte = (value) => { this.spi!.completeTransfer(value); };
+        this.spi.onByte = (value) => {
+          this.spi!.completeTransfer(value);
+        };
 
         this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
         this.usart.onByteTransmit = (value: number) => {
@@ -560,7 +613,9 @@ export class AVRSimulator {
           new AVRTimer(this.cpu, timer0Config),
           new AVRTimer(this.cpu, timer1Config),
           new AVRTimer(this.cpu, timer2Config),
-          this.usart, this.spi, this.twi,
+          this.usart,
+          this.spi,
+          this.twi,
         ];
         this.adc = new AVRADC(this.cpu, adcConfig);
 
@@ -659,7 +714,9 @@ export class AVRSimulator {
   // AVR handles all sensor protocols locally via schedulePinChange,
   // so these return false / no-op — the sensor runs its own frontend logic.
 
-  registerSensor(_type: string, _pin: number, _props: Record<string, unknown>): boolean { return false; }
+  registerSensor(_type: string, _pin: number, _props: Record<string, unknown>): boolean {
+    return false;
+  }
   updateSensor(_pin: number, _props: Record<string, unknown>): void {}
   unregisterSensor(_pin: number): void {}
 }

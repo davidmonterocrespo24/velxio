@@ -26,8 +26,29 @@ import app.models.user  # noqa: F401
 import app.models.project  # noqa: F401
 
 
+logger = logging.getLogger(__name__)
+
+
+def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """Prevent unhandled asyncio task exceptions from killing the uvicorn process.
+
+    Normally uvicorn re-raises unhandled task exceptions at the event-loop level,
+    which can crash the whole process. The main culprit is a race condition in
+    websockets <12.0 (legacy/protocol.py AssertionError during keepalive ping).
+    Upgrading websockets>=12.0 is the primary fix; this handler is a safety net.
+    """
+    exc = context.get("exception")
+    msg = context.get("message", "")
+    if exc is not None:
+        logger.error("Unhandled asyncio task exception (swallowed): %s — %r", msg, exc)
+    else:
+        # No exception object — let default handler deal with it
+        loop.default_exception_handler(context)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Add is_admin column to existing databases that predate this feature

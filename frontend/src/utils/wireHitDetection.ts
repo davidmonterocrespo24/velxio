@@ -81,9 +81,12 @@ export function getRenderedSegments(wire: Wire): RenderedSegment[] {
 
 /** Distance from point (px, py) to line segment (x1,y1)-(x2,y2). */
 export function distToSegment(
-  px: number, py: number,
-  x1: number, y1: number,
-  x2: number, y2: number,
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
 ): number {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -227,6 +230,9 @@ export function renderedPointsToPath(pts: { x: number; y: number }[]): string {
   if (pts.length < 2) return '';
   return (
     `M ${pts[0].x} ${pts[0].y}` +
-    pts.slice(1).map((p) => ` L ${p.x} ${p.y}`).join('')
+    pts
+      .slice(1)
+      .map((p) => ` L ${p.x} ${p.y}`)
+      .join('')
   );
 }

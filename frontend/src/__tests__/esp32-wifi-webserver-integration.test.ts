@@ -73,9 +73,17 @@ class MockWebSocket {
   onerror: (() => void) | null = null;
   sent: string[] = [];
 
-  send(data: string) { this.sent.push(data); }
-  close() { this.readyState = MockWebSocket.CLOSED; this.onclose?.(); }
-  open() { this.readyState = MockWebSocket.OPEN; this.onopen?.(); }
+  send(data: string) {
+    this.sent.push(data);
+  }
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.();
+  }
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
   receive(payload: object) {
     this.onmessage?.({ data: JSON.stringify(payload) });
   }
@@ -238,7 +246,7 @@ describe('WebServer sketch — Esp32Bridge WiFi payload', () => {
 
   it('uses esp32:esp32:esp32 FQBN for compilation', () => {
     const FQBN_MAP: Record<string, string> = {
-      'esp32': 'esp32:esp32:esp32',
+      esp32: 'esp32:esp32:esp32',
       'esp32-s3': 'esp32:esp32:esp32s3',
       'esp32-c3': 'esp32:esp32:esp32c3',
     };
@@ -273,7 +281,10 @@ describe('WebServer sketch — WiFi connection lifecycle', () => {
     // Simulate QEMU WiFi status events from serial parsing
     ws.receive({ type: 'wifi_status', data: { status: 'initializing' } });
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
-    ws.receive({ type: 'wifi_status', data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' } });
+    ws.receive({
+      type: 'wifi_status',
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+    });
 
     expect(statuses).toHaveLength(3);
     expect(statuses[0].status).toBe('initializing');

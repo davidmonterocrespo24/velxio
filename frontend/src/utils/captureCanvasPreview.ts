@@ -10,12 +10,7 @@ import type { ExampleProject } from '../data/examples';
  * Wait for all wokwi-elements components to be defined
  */
 async function waitForComponents(): Promise<void> {
-  const componentTags = [
-    'wokwi-arduino-uno',
-    'wokwi-led',
-    'wokwi-rgb-led',
-    'wokwi-pushbutton',
-  ];
+  const componentTags = ['wokwi-arduino-uno', 'wokwi-led', 'wokwi-rgb-led', 'wokwi-pushbutton'];
 
   const promises = componentTags.map((tag) => {
     if (customElements.get(tag)) {
@@ -176,7 +171,7 @@ export async function generateCanvasPreview(example: ExampleProject): Promise<st
  * Generate previews for all examples and return a map
  */
 export async function generateAllPreviews(
-  examples: ExampleProject[]
+  examples: ExampleProject[],
 ): Promise<Map<string, string>> {
   const previews = new Map<string, string>();
 

@@ -61,6 +61,23 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
+      # Install root deps (typescript, tsx) so the metadata generator runs
+      - name: Install root dev dependencies
+        run: npm ci
+
+      # Regenerate metadata and fail if committed JSON is stale. Catches PRs
+      # that modify component-overrides.json without running generate:metadata.
+      - name: Regenerate component metadata
+        run: cd frontend && npm run generate:metadata
+
+      - name: Fail if components-metadata.json is out of date
+        run: |
+          if ! git diff --quiet frontend/public/components-metadata.json; then
+            echo "::error::components-metadata.json is stale. Run 'cd frontend && npm run generate:metadata' and commit the result."
+            git diff frontend/public/components-metadata.json | head -100
+            exit 1
+          fi
+
       # Run all vitest tests
       - name: Run tests
         run: cd frontend && npm test

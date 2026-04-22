@@ -15,11 +15,11 @@ export const WIRE_KEY_COLORS: Record<string, string> = {
   '7': '#8B00FF', // Violet
   '8': '#808080', // Gray
   '9': '#FFFFFF', // White
-  'c': '#00FFFF', // Cyan
-  'l': '#32CD32', // Limegreen
-  'm': '#FF00FF', // Magenta
-  'p': '#800080', // Purple
-  'y': '#FFFF00', // Yellow
+  c: '#00FFFF', // Cyan
+  l: '#32CD32', // Limegreen
+  m: '#FF00FF', // Magenta
+  p: '#800080', // Purple
+  y: '#FFFF00', // Yellow
 };
 
 /** Default wire color when no specific signal is detected */
@@ -31,12 +31,7 @@ export const DEFAULT_WIRE_COLOR = '#22c55e';
  */
 export function autoWireColor(pinName: string): string {
   const lower = pinName.toLowerCase();
-  if (
-    lower.includes('gnd') ||
-    lower === 'ground' ||
-    lower === '-' ||
-    lower.startsWith('gnd')
-  ) {
+  if (lower.includes('gnd') || lower === 'ground' || lower === '-' || lower.startsWith('gnd')) {
     return '#000000';
   }
   if (
@@ -56,7 +51,10 @@ export function autoWireColor(pinName: string): string {
   return DEFAULT_WIRE_COLOR;
 }
 
-interface Point { x: number; y: number }
+interface Point {
+  x: number;
+  y: number;
+}
 
 /**
  * Generate an orthogonal SVG path through a sequence of points.

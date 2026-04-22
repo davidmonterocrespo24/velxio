@@ -65,7 +65,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'ESP32 Simulator', item: 'https://velxio.dev/esp32-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'ESP32 Simulator',
+        item: 'https://velxio.dev/esp32-simulator',
+      },
     ],
   },
 ];
@@ -79,18 +84,31 @@ export const Esp32SimulatorPage: React.FC = () => {
       <main>
         {/* Hero */}
         <section className="seo-hero">
-          <img src={esp32SvgUrl} alt="ESP32 DevKit V1 board" style={{ height: 120, marginBottom: 24 }} />
+          <img
+            src={esp32SvgUrl}
+            alt="ESP32 DevKit V1 board"
+            style={{ height: 120, marginBottom: 24 }}
+          />
           <h1>
-            Free ESP32 Simulator<br />
+            Free ESP32 Simulator
+            <br />
             <span className="accent">Xtensa LX6 Emulation in Your Browser</span>
           </h1>
           <p className="subtitle">
-            Write Arduino code for ESP32 and simulate it instantly — real Xtensa LX6 emulation at 240 MHz via QEMU.
-            48+ interactive components, Serial Monitor, no install required.
+            Write Arduino code for ESP32 and simulate it instantly — real Xtensa LX6 emulation at
+            240 MHz via QEMU. 48+ interactive components, Serial Monitor, no install required.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-simulator', '/editor')}>Open ESP32 Simulator →</Link>
-            <Link to="/examples" className="seo-btn-secondary">ESP32 Examples</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('esp32-simulator', '/editor')}
+            >
+              Open ESP32 Simulator →
+            </Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              ESP32 Examples
+            </Link>
           </div>
           <p className="seo-trust">Free &amp; open-source · No signup · QEMU-powered emulation</p>
         </section>
@@ -99,13 +117,16 @@ export const Esp32SimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>Supported ESP32 boards</h2>
           <p className="lead">
-            Velxio emulates the full ESP32 family — Xtensa LX6 (ESP32), Xtensa LX7 (ESP32-S3), and RISC-V (ESP32-C3).
-            Each board runs with real CPU emulation, not approximations.
+            Velxio emulates the full ESP32 family — Xtensa LX6 (ESP32), Xtensa LX7 (ESP32-S3), and
+            RISC-V (ESP32-C3). Each board runs with real CPU emulation, not approximations.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>ESP32 DevKit V1 / C V4</h3>
-              <p>Xtensa LX6 dual-core at 240 MHz. WiFi + Bluetooth. 34 GPIO pins, 12-bit ADC, 2× DAC, SPI, I2C, UART.</p>
+              <p>
+                Xtensa LX6 dual-core at 240 MHz. WiFi + Bluetooth. 34 GPIO pins, 12-bit ADC, 2× DAC,
+                SPI, I2C, UART.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32-S3 DevKitC</h3>
@@ -117,15 +138,23 @@ export const Esp32SimulatorPage: React.FC = () => {
             </div>
             <div className="seo-card">
               <h3>Arduino Nano ESP32</h3>
-              <p>ESP32-S3 in Arduino Nano form factor. USB-C, 14 digital + 8 analog pins, compatible with Arduino shields.</p>
+              <p>
+                ESP32-S3 in Arduino Nano form factor. USB-C, 14 digital + 8 analog pins, compatible
+                with Arduino shields.
+              </p>
             </div>
             <div className="seo-card">
               <h3>XIAO ESP32-S3</h3>
-              <p>Seeed Studio compact board. Xtensa LX7, 11 GPIO, ultra-small 21×17.5 mm form factor.</p>
+              <p>
+                Seeed Studio compact board. Xtensa LX7, 11 GPIO, ultra-small 21×17.5 mm form factor.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32-C3 (RISC-V)</h3>
-              <p>Single-core RISC-V RV32IMC at 160 MHz. Browser-native emulation — no QEMU needed. <Link to="/esp32-c3-simulator">Learn more →</Link></p>
+              <p>
+                Single-core RISC-V RV32IMC at 160 MHz. Browser-native emulation — no QEMU needed.{' '}
+                <Link to="/esp32-c3-simulator">Learn more →</Link>
+              </p>
             </div>
           </div>
         </section>
@@ -134,7 +163,8 @@ export const Esp32SimulatorPage: React.FC = () => {
         <section className="seo-section">
           <h2>ESP32 example projects</h2>
           <p className="lead">
-            Jump straight into simulation with ready-to-run ESP32 examples — from basic LED blink to sensor integrations.
+            Jump straight into simulation with ready-to-run ESP32 examples — from basic LED blink to
+            sensor integrations.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
@@ -143,27 +173,43 @@ export const Esp32SimulatorPage: React.FC = () => {
             </div>
             <div className="seo-card">
               <h3>ESP32 Serial Echo</h3>
-              <p>Read input from Serial Monitor and echo it back — test UART communication at 115200 baud.</p>
+              <p>
+                Read input from Serial Monitor and echo it back — test UART communication at 115200
+                baud.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32 DHT22 Sensor</h3>
-              <p>Read temperature and humidity from a DHT22 sensor and display values in the Serial Monitor.</p>
+              <p>
+                Read temperature and humidity from a DHT22 sensor and display values in the Serial
+                Monitor.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32 HC-SR04 Ultrasonic</h3>
-              <p>Measure distance with an ultrasonic sensor. Trigger/echo timing with real GPIO emulation.</p>
+              <p>
+                Measure distance with an ultrasonic sensor. Trigger/echo timing with real GPIO
+                emulation.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32 Servo Motor</h3>
-              <p>Sweep a servo motor from 0° to 180° using ESP32 PWM — uses the ESP32Servo library.</p>
+              <p>
+                Sweep a servo motor from 0° to 180° using ESP32 PWM — uses the ESP32Servo library.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32 7-Segment Display</h3>
-              <p>Drive a 7-segment display counting 0–9. Demonstrates digital output pin mapping on ESP32.</p>
+              <p>
+                Drive a 7-segment display counting 0–9. Demonstrates digital output pin mapping on
+                ESP32.
+              </p>
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: 24 }}>
-            <Link to="/examples" className="seo-btn-secondary">View All 68+ Examples →</Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              View All 68+ Examples →
+            </Link>
           </div>
         </section>
 
@@ -183,8 +229,17 @@ export const Esp32SimulatorPage: React.FC = () => {
         {/* Bottom CTA */}
         <div className="seo-bottom">
           <h2>Ready to simulate your ESP32?</h2>
-          <p>Open the editor, select an ESP32 board, and start coding — no setup, no install, no account needed.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-simulator', '/editor')}>Launch ESP32 Simulator →</Link>
+          <p>
+            Open the editor, select an ESP32 board, and start coding — no setup, no install, no
+            account needed.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('esp32-simulator', '/editor')}
+          >
+            Launch ESP32 Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/examples">Example Projects</Link>
             <Link to="/docs/esp32-emulation">ESP32 Docs</Link>

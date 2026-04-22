@@ -12,6 +12,7 @@ stdin  line 2+: JSON commands
                {"cmd": "set_pin",          "pin": N,       "value": V}
                {"cmd": "set_adc",          "channel": N,   "millivolts": V}
                {"cmd": "set_adc_raw",      "channel": N,   "raw": V}
+               {"cmd": "set_adc_waveform", "channel": N,   "samples_u12_b64": "<base64-LE-uint16>", "period_ns": P}
                {"cmd": "uart_send",        "uart": N,      "data": "<base64>"}
                {"cmd": "set_i2c_response", "addr": N,      "response": V}
                {"cmd": "set_spi_response", "response": V}
@@ -909,6 +910,47 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         elif c == 'set_adc_raw':
             lib.qemu_picsimlab_set_apin(int(cmd['channel']),
                                         max(0, min(4095, int(cmd['raw']))))
+
+        elif c == 'set_adc_waveform':
+            # Push a periodic 12-bit waveform LUT to QEMU so the SAR ADC
+            # peripheral can interpolate against its virtual clock on every
+            # MMIO read. Matches the per-read fidelity of AVR/RP2040.
+            #
+            # libqemu-xtensa must export `qemu_picsimlab_set_apin_waveform`;
+            # if not (older binary), silently downgrade to a single-sample
+            # `set_apin` so circuits with waveforms still produce *something*.
+            try:
+                ch = int(cmd['channel'])
+                b64 = cmd.get('samples_u12_b64', '') or ''
+                period_ns = int(cmd.get('period_ns', 0))
+                if b64 and period_ns > 0 and hasattr(lib, 'qemu_picsimlab_set_apin_waveform'):
+                    raw = base64.b64decode(b64)
+                    # Samples are little-endian uint16. Allocate a C buffer and
+                    # hand QEMU a pointer; the waveform setter copies the data
+                    # internally.
+                    n = len(raw) // 2
+                    if n > 0:
+                        arr_type = ctypes.c_uint16 * n
+                        arr = arr_type.from_buffer_copy(raw[:n * 2])
+                        lib.qemu_picsimlab_set_apin_waveform(
+                            ch,
+                            arr,
+                            ctypes.c_int(n),
+                            ctypes.c_uint64(period_ns),
+                        )
+                else:
+                    # Clear waveform: fall back to last-known DC value (no-op if
+                    # the API isn't available — QEMU just keeps whatever was
+                    # last written via `set_apin`).
+                    if hasattr(lib, 'qemu_picsimlab_set_apin_waveform'):
+                        lib.qemu_picsimlab_set_apin_waveform(
+                            ch, None, ctypes.c_int(0), ctypes.c_uint64(0)
+                        )
+            except Exception as err:
+                # Never let an ADC-waveform failure kill the worker — log to
+                # stderr and keep the guest running with its last DC sample.
+                print(f'[esp32_worker] set_adc_waveform failed: {err}',
+                      file=sys.stderr, flush=True)
 
         elif c == 'uart_send':
             data = base64.b64decode(cmd['data'])

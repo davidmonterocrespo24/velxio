@@ -45,9 +45,7 @@ const ESP32C3_FIXTURE_DIR = join(__dirname, 'fixtures/esp32c3-blink');
 
 // ── Helper: create a mock File from bytes ────────────────────────────────────
 function mockFile(name: string, content: Uint8Array | string): File {
-  const buf = typeof content === 'string'
-    ? new TextEncoder().encode(content)
-    : content;
+  const buf = typeof content === 'string' ? new TextEncoder().encode(content) : content;
   const blob = new Blob([buf]);
   return new File([blob], name);
 }
@@ -65,7 +63,7 @@ function buildElf32Header(opts: {
   // Minimum ELF32 header = 52 bytes
   const phoff = opts.phoff ?? 52;
   const phentsize = opts.phentsize ?? 32;
-  const phnum = opts.phnum ?? (opts.segments?.length ?? 0);
+  const phnum = opts.phnum ?? opts.segments?.length ?? 0;
   const segData = opts.segments ?? [];
 
   const totalSize = phoff + phnum * phentsize + segData.reduce((s, seg) => s + seg.filesz, 0);
@@ -74,7 +72,10 @@ function buildElf32Header(opts: {
   const arr = new Uint8Array(buf);
 
   // ELF magic
-  arr[0] = 0x7f; arr[1] = 0x45; arr[2] = 0x4c; arr[3] = 0x46;
+  arr[0] = 0x7f;
+  arr[1] = 0x45;
+  arr[2] = 0x4c;
+  arr[3] = 0x46;
   arr[4] = 1; // 32-bit
   arr[5] = le ? 1 : 2; // endianness
 
@@ -96,9 +97,9 @@ function buildElf32Header(opts: {
   for (let i = 0; i < segData.length; i++) {
     const off = phoff + i * phentsize;
     const seg = segData[i];
-    view.setUint32(off, seg.type, le);      // p_type
+    view.setUint32(off, seg.type, le); // p_type
     view.setUint32(off + 4, seg.offset, le); // p_offset
-    view.setUint32(off + 8, 0, le);          // p_vaddr (unused)
+    view.setUint32(off + 8, 0, le); // p_vaddr (unused)
     view.setUint32(off + 12, seg.paddr, le); // p_paddr
     view.setUint32(off + 16, seg.filesz, le); // p_filesz
     view.setUint32(off + 20, seg.filesz, le); // p_memsz
@@ -143,7 +144,7 @@ describe('firmwareLoader — format detection', () => {
   });
 
   it('defaults to bin for unknown formats', () => {
-    const data = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+    const data = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     expect(detectFirmwareFormat('firmware.bin', data)).toBe('bin');
     expect(detectFirmwareFormat('unknown_file', data)).toBe('bin');
   });
@@ -194,7 +195,7 @@ describe('firmwareLoader — ELF architecture detection', () => {
   });
 
   it('returns null for non-ELF data', () => {
-    const data = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF]);
+    const data = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     expect(detectArchitectureFromElf(data)).toBeNull();
   });
 
@@ -213,7 +214,7 @@ describe('firmwareLoader — ELF architecture detection', () => {
 
 describe('firmwareLoader — binaryToIntelHex round-trip', () => {
   it('converts 10 bytes and round-trips through hexParser', () => {
-    const original = new Uint8Array([0x0F, 0xEF, 0x04, 0xB9, 0x00, 0xE2, 0x05, 0xB9, 0xFF, 0xCF]);
+    const original = new Uint8Array([0x0f, 0xef, 0x04, 0xb9, 0x00, 0xe2, 0x05, 0xb9, 0xff, 0xcf]);
     const hex = binaryToIntelHex(original);
 
     // Should start with ':'
@@ -257,9 +258,7 @@ describe('firmwareLoader — extractLoadSegmentsFromElf', () => {
     const dataOffset = 52 + 32; // header + 1 program header
     const elf = buildElf32Header({
       machine: 0x53,
-      segments: [
-        { type: 1 /* PT_LOAD */, offset: dataOffset, paddr: 0x0000, filesz: 16 },
-      ],
+      segments: [{ type: 1 /* PT_LOAD */, offset: dataOffset, paddr: 0x0000, filesz: 16 }],
     });
     const result = extractLoadSegmentsFromElf(elf);
     expect(result.length).toBe(16);

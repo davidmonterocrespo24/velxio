@@ -11,7 +11,8 @@
 import React, { useEffect, useState } from 'react';
 
 /** Detect touch-capable device once */
-const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+const isTouchDevice =
+  typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
 /** Minimum visual pin size in *world* pixels at zoom 1 */
 const PIN_VISUAL = 12;
@@ -21,8 +22,8 @@ const TOUCH_MIN_SCREEN_PX = 44;
 
 interface PinInfo {
   name: string;
-  x: number;  // CSS pixels
-  y: number;  // CSS pixels
+  x: number; // CSS pixels
+  y: number; // CSS pixels
   signals?: Array<{ type: string; signal?: string }>;
 }
 
@@ -73,9 +74,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
 
   // On touch devices, compute world-space size so the pin is at least
   // TOUCH_MIN_SCREEN_PX on screen.  On desktop, keep the original 12px.
-  const pinSize = isTouchDevice
-    ? Math.max(PIN_VISUAL, TOUCH_MIN_SCREEN_PX / zoom)
-    : PIN_VISUAL;
+  const pinSize = isTouchDevice ? Math.max(PIN_VISUAL, TOUCH_MIN_SCREEN_PX / zoom) : PIN_VISUAL;
   const pinHalf = pinSize / 2;
 
   return (
@@ -98,12 +97,22 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
             data-pin-overlay="true"
             onClick={(e) => {
               e.stopPropagation();
-              onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
+              onPinClick(
+                componentId,
+                pin.name,
+                componentX + wrapperOffsetX + pinX,
+                componentY + wrapperOffsetY + pinY,
+              );
             }}
             onTouchEnd={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
+              onPinClick(
+                componentId,
+                pin.name,
+                componentX + wrapperOffsetX + pinX,
+                componentY + wrapperOffsetY + pinY,
+              );
             }}
             style={{
               position: 'absolute',

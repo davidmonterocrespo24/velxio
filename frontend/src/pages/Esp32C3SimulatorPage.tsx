@@ -64,7 +64,12 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'ESP32-C3 Simulator', item: 'https://velxio.dev/esp32-c3-simulator' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'ESP32-C3 Simulator',
+        item: 'https://velxio.dev/esp32-c3-simulator',
+      },
     ],
   },
 ];
@@ -77,43 +82,70 @@ export const Esp32C3SimulatorPage: React.FC = () => {
       <AppHeader />
       <main>
         <section className="seo-hero">
-          <img src={esp32C3SvgUrl} alt="ESP32-C3 DevKitM-1 board" style={{ height: 120, marginBottom: 24 }} />
+          <img
+            src={esp32C3SvgUrl}
+            alt="ESP32-C3 DevKitM-1 board"
+            style={{ height: 120, marginBottom: 24 }}
+          />
           <h1>
-            Free ESP32-C3 Simulator<br />
+            Free ESP32-C3 Simulator
+            <br />
             <span className="accent">RISC-V Emulation — Runs in Your Browser</span>
           </h1>
           <p className="subtitle">
-            Simulate ESP32-C3 and CH32V003 RISC-V code directly in your browser — no QEMU backend, no install.
-            RV32IMC at 160 MHz with 48+ interactive components.
+            Simulate ESP32-C3 and CH32V003 RISC-V code directly in your browser — no QEMU backend,
+            no install. RV32IMC at 160 MHz with 48+ interactive components.
           </p>
           <div className="seo-cta-group">
-            <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-c3-simulator', '/editor')}>Open ESP32-C3 Simulator →</Link>
-            <Link to="/examples" className="seo-btn-secondary">C3 Examples</Link>
+            <Link
+              to="/editor"
+              className="seo-btn-primary"
+              onClick={() => trackClickCTA('esp32-c3-simulator', '/editor')}
+            >
+              Open ESP32-C3 Simulator →
+            </Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              C3 Examples
+            </Link>
           </div>
-          <p className="seo-trust">Free &amp; open-source · 100% browser-native · No backend required</p>
+          <p className="seo-trust">
+            Free &amp; open-source · 100% browser-native · No backend required
+          </p>
         </section>
 
         <section className="seo-section">
           <h2>Supported RISC-V boards</h2>
           <p className="lead">
-            Velxio emulates RISC-V microcontrollers natively in the browser using WebAssembly — the fastest simulation path available, no server round-trip.
+            Velxio emulates RISC-V microcontrollers natively in the browser using WebAssembly — the
+            fastest simulation path available, no server round-trip.
           </p>
           <div className="seo-grid">
             <div className="seo-card">
               <h3>ESP32-C3 DevKitM-1</h3>
-              <p>RISC-V RV32IMC at 160 MHz. WiFi + BLE 5.0, 22 GPIO, 400 KB SRAM. The official Espressif dev board.</p>
+              <p>
+                RISC-V RV32IMC at 160 MHz. WiFi + BLE 5.0, 22 GPIO, 400 KB SRAM. The official
+                Espressif dev board.
+              </p>
             </div>
             <div className="seo-card">
               <h3>XIAO ESP32-C3</h3>
-              <p>Seeed Studio compact RISC-V board. 11 GPIO, USB-C, battery charging IC. 21×17.5 mm.</p>
+              <p>
+                Seeed Studio compact RISC-V board. 11 GPIO, USB-C, battery charging IC. 21×17.5 mm.
+              </p>
             </div>
             <div className="seo-card">
               <h3>ESP32-C3 SuperMini</h3>
-              <p>Aitewinrobot ultra-compact board. Same RISC-V core, minimal form factor for embedded projects.</p>
+              <p>
+                Aitewinrobot ultra-compact board. Same RISC-V core, minimal form factor for embedded
+                projects.
+              </p>
             </div>
             <div className="seo-card">
               <h3>CH32V003</h3>
-              <p>WCH RISC-V RV32EC at 48 MHz. Ultra-low-cost DIP-8 package, 2 KB SRAM, 16 KB flash. Just cents per chip.</p>
+              <p>
+                WCH RISC-V RV32EC at 48 MHz. Ultra-low-cost DIP-8 package, 2 KB SRAM, 16 KB flash.
+                Just cents per chip.
+              </p>
             </div>
           </div>
         </section>
@@ -134,7 +166,9 @@ export const Esp32C3SimulatorPage: React.FC = () => {
             </div>
             <div className="seo-card">
               <h3>C3 Button + LED</h3>
-              <p>Read a pushbutton on GPIO 9 and toggle an LED — digital input/output on ESP32-C3.</p>
+              <p>
+                Read a pushbutton on GPIO 9 and toggle an LED — digital input/output on ESP32-C3.
+              </p>
             </div>
             <div className="seo-card">
               <h3>C3 DHT22 Sensor</h3>
@@ -150,7 +184,9 @@ export const Esp32C3SimulatorPage: React.FC = () => {
             </div>
           </div>
           <div style={{ textAlign: 'center', marginTop: 24 }}>
-            <Link to="/examples" className="seo-btn-secondary">View All 68+ Examples →</Link>
+            <Link to="/examples" className="seo-btn-secondary">
+              View All 68+ Examples →
+            </Link>
           </div>
         </section>
 
@@ -168,8 +204,17 @@ export const Esp32C3SimulatorPage: React.FC = () => {
 
         <div className="seo-bottom">
           <h2>Ready to simulate ESP32-C3?</h2>
-          <p>Open the editor, pick an ESP32-C3 board, and start coding — runs instantly in your browser.</p>
-          <Link to="/editor" className="seo-btn-primary" onClick={() => trackClickCTA('esp32-c3-simulator', '/editor')}>Launch ESP32-C3 Simulator →</Link>
+          <p>
+            Open the editor, pick an ESP32-C3 board, and start coding — runs instantly in your
+            browser.
+          </p>
+          <Link
+            to="/editor"
+            className="seo-btn-primary"
+            onClick={() => trackClickCTA('esp32-c3-simulator', '/editor')}
+          >
+            Launch ESP32-C3 Simulator →
+          </Link>
           <div className="seo-internal-links">
             <Link to="/esp32-simulator">ESP32 Simulator</Link>
             <Link to="/esp32-s3-simulator">ESP32-S3 Simulator</Link>

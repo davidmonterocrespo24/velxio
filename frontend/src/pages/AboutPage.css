@@ -12,7 +12,7 @@
 .about-hero {
   padding: 100px 40px 60px;
   text-align: center;
-  background: linear-gradient(180deg, rgba(0,113,227,0.08) 0%, transparent 100%);
+  background: linear-gradient(180deg, rgba(0, 113, 227, 0.08) 0%, transparent 100%);
   border-bottom: 1px solid var(--border, #1d1d1f);
 }
 
@@ -245,7 +245,9 @@
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
-  transition: border-color 0.2s, color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .about-social-link:hover {
@@ -264,7 +266,7 @@
   border-left: 3px solid #0071e3;
   padding: 24px 32px;
   margin: 0;
-  background: rgba(0,113,227,0.04);
+  background: rgba(0, 113, 227, 0.04);
   border-radius: 0 12px 12px 0;
 }
 

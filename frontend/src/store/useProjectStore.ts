@@ -19,7 +19,5 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setCurrentProject: (project) => set({ currentProject: project }),
   clearCurrentProject: () => set({ currentProject: null }),
   setVisibility: (isPublic) =>
-    set((s) =>
-      s.currentProject ? { currentProject: { ...s.currentProject, isPublic } } : s,
-    ),
+    set((s) => (s.currentProject ? { currentProject: { ...s.currentProject, isPublic } } : s)),
 }));

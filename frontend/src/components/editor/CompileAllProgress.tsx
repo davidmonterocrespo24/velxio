@@ -19,23 +19,23 @@ interface CompileAllProgressProps {
 }
 
 const BOARD_ICON: Record<BoardKind, string> = {
-  'arduino-uno':       '⬤',
-  'arduino-nano':      '▪',
-  'arduino-mega':      '▬',
+  'arduino-uno': '⬤',
+  'arduino-nano': '▪',
+  'arduino-mega': '▬',
   'raspberry-pi-pico': '◆',
-  'raspberry-pi-3':    '⬛',
-  'esp32':    '⬡',
+  'raspberry-pi-3': '⬛',
+  esp32: '⬡',
   'esp32-s3': '⬡',
   'esp32-c3': '⬡',
 };
 
 const BOARD_COLOR: Record<BoardKind, string> = {
-  'arduino-uno':       '#4fc3f7',
-  'arduino-nano':      '#4fc3f7',
-  'arduino-mega':      '#4fc3f7',
+  'arduino-uno': '#4fc3f7',
+  'arduino-nano': '#4fc3f7',
+  'arduino-mega': '#4fc3f7',
   'raspberry-pi-pico': '#ce93d8',
-  'raspberry-pi-3':    '#ef9a9a',
-  'esp32':    '#a5d6a7',
+  'raspberry-pi-3': '#ef9a9a',
+  esp32: '#a5d6a7',
   'esp32-s3': '#a5d6a7',
   'esp32-c3': '#a5d6a7',
 };
@@ -50,19 +50,41 @@ function StateIcon({ state }: { state: BoardCompileState }) {
       );
     case 'compiling':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" strokeWidth="2" className="cap-spin">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#4fc3f7"
+          strokeWidth="2"
+          className="cap-spin"
+        >
           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
         </svg>
       );
     case 'success':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4caf50" strokeWidth="2.5">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#4caf50"
+          strokeWidth="2.5"
+        >
           <polyline points="20 6 9 17 4 12" />
         </svg>
       );
     case 'error':
       return (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef5350" strokeWidth="2.5">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#ef5350"
+          strokeWidth="2.5"
+        >
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
@@ -84,8 +106,11 @@ export const CompileAllProgress: React.FC<CompileAllProgressProps> = ({
 }) => {
   const [expandedError, setExpandedError] = useState<string | null>(null);
 
-  const allDone = !isRunning && statuses.every((s) => s.state !== 'pending' && s.state !== 'compiling');
-  const successCount = statuses.filter((s) => s.state === 'success' || s.state === 'skipped').length;
+  const allDone =
+    !isRunning && statuses.every((s) => s.state !== 'pending' && s.state !== 'compiling');
+  const successCount = statuses.filter(
+    (s) => s.state === 'success' || s.state === 'skipped',
+  ).length;
   const errorCount = statuses.filter((s) => s.state === 'error').length;
 
   return (
@@ -94,11 +119,23 @@ export const CompileAllProgress: React.FC<CompileAllProgressProps> = ({
         {/* Header */}
         <div style={styles.header}>
           <span style={styles.title}>
-            {isRunning ? 'Compiling all boards…' : allDone ? `Done — ${successCount} succeeded, ${errorCount} failed` : 'Compile All'}
+            {isRunning
+              ? 'Compiling all boards…'
+              : allDone
+                ? `Done — ${successCount} succeeded, ${errorCount} failed`
+                : 'Compile All'}
           </span>
           <button style={styles.closeBtn} onClick={onClose} title="Close">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -115,14 +152,21 @@ export const CompileAllProgress: React.FC<CompileAllProgressProps> = ({
                     {BOARD_ICON[s.boardKind]}
                   </span>
                   <span style={styles.boardLabel}>{BOARD_KIND_LABELS[s.boardKind]}</span>
-                  <span style={{
-                    ...styles.stateLabel,
-                    color: s.state === 'success' ? '#4caf50'
-                      : s.state === 'error' ? '#ef5350'
-                      : s.state === 'compiling' ? '#4fc3f7'
-                      : s.state === 'skipped' ? '#888'
-                      : '#555',
-                  }}>
+                  <span
+                    style={{
+                      ...styles.stateLabel,
+                      color:
+                        s.state === 'success'
+                          ? '#4caf50'
+                          : s.state === 'error'
+                            ? '#ef5350'
+                            : s.state === 'compiling'
+                              ? '#4fc3f7'
+                              : s.state === 'skipped'
+                                ? '#888'
+                                : '#555',
+                    }}
+                  >
                     {s.state === 'skipped' ? 'skipped (no compile needed)' : s.state}
                   </span>
                   {s.state === 'error' && s.error && (
@@ -135,9 +179,7 @@ export const CompileAllProgress: React.FC<CompileAllProgressProps> = ({
                     </button>
                   )}
                 </div>
-                {isExpanded && s.error && (
-                  <pre style={styles.errorDetail}>{s.error}</pre>
-                )}
+                {isExpanded && s.error && <pre style={styles.errorDetail}>{s.error}</pre>}
               </div>
             );
           })}
@@ -148,7 +190,7 @@ export const CompileAllProgress: React.FC<CompileAllProgressProps> = ({
           <button
             style={{
               ...styles.runAllBtn,
-              ...((!allDone || successCount === 0) ? styles.runAllBtnDisabled : {}),
+              ...(!allDone || successCount === 0 ? styles.runAllBtnDisabled : {}),
             }}
             disabled={!allDone || successCount === 0}
             onClick={onRunAll}

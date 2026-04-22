@@ -61,42 +61,58 @@ function makeADC() {
 /** Create a mock simulator whose pinManager is accessible via (sim as any).pinManager */
 function makeSimulator(adc?: ReturnType<typeof makeADC> | null) {
   const pinManager = {
-    onPinChange:  vi.fn().mockReturnValue(() => {}),
-    onPwmChange:  vi.fn().mockReturnValue(() => {}),
-    getPwmValue:  vi.fn().mockReturnValue(0),
-    updatePwm:    vi.fn(),
+    onPinChange: vi.fn().mockReturnValue(() => {}),
+    onPwmChange: vi.fn().mockReturnValue(() => {}),
+    getPwmValue: vi.fn().mockReturnValue(0),
+    updatePwm: vi.fn(),
     triggerPinChange: vi.fn(),
   };
   return {
     pinManager,
-    getADC:      vi.fn().mockReturnValue(adc ?? null),
+    getADC: vi.fn().mockReturnValue(adc ?? null),
     setPinState: vi.fn(),
-    isRunning:   vi.fn().mockReturnValue(true),
+    isRunning: vi.fn().mockReturnValue(true),
     getCurrentCycles: vi.fn().mockReturnValue(1000),
-    getClockHz:  vi.fn().mockReturnValue(16_000_000),
+    getClockHz: vi.fn().mockReturnValue(16_000_000),
     cpu: { data: new Uint8Array(512).fill(0), cycles: 1000 },
   };
 }
 
 /** Pin helper that always returns the same pin number regardless of pin name */
-const pinHelper = (pin: number) => (_name: string): number | null => pin;
+const pinHelper =
+  (pin: number) =>
+  (_name: string): number | null =>
+    pin;
 
 /** Pin helper that returns null for every name (no connections) */
 const noPins = (_name: string): number | null => null;
 
 /** Multi-pin helper: pass an object mapping pin names to pin numbers */
-const pinMap = (map: Record<string, number>) => (name: string): number | null =>
-  name in map ? map[name] : null;
+const pinMap =
+  (map: Record<string, number>) =>
+  (name: string): number | null =>
+    name in map ? map[name] : null;
 
 // ─── PartSimulationRegistry ───────────────────────────────────────────────────
 
 describe('PartSimulationRegistry — registration', () => {
   const EXPECTED = [
-    'pushbutton', 'pushbutton-6mm', 'slide-switch', 'dip-switch-8',
-    'led', 'led-bar-graph', '7segment',
-    'rgb-led', 'potentiometer', 'slide-potentiometer',
-    'photoresistor-sensor', 'analog-joystick',
-    'servo', 'buzzer', 'lcd1602', 'lcd2004',
+    'pushbutton',
+    'pushbutton-6mm',
+    'slide-switch',
+    'dip-switch-8',
+    'led',
+    'led-bar-graph',
+    '7segment',
+    'rgb-led',
+    'potentiometer',
+    'slide-potentiometer',
+    'photoresistor-sensor',
+    'analog-joystick',
+    'servo',
+    'buzzer',
+    'lcd1602',
+    'lcd2004',
   ];
 
   it('registers all expected component types', () => {
@@ -126,7 +142,7 @@ describe('LED — attachEvents (anode + cathode check)', () => {
     const el = makeElement({ value: false });
     const sim = makeSimulator();
     // A → GPIO pin 13, C → GND (-1)
-    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13, 'C': -1 }), 'led-1');
+    logic.attachEvents!(el, sim as any, pinMap({ A: 13, C: -1 }), 'led-1');
 
     // pinManager.onPinChange should be called for anode (pin 13)
     const calls = sim.pinManager.onPinChange.mock.calls;
@@ -143,7 +159,7 @@ describe('LED — attachEvents (anode + cathode check)', () => {
     const el = makeElement({ value: false });
     const sim = makeSimulator();
     // A → pin 13, C → not wired (null)
-    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13 }), 'led-2');
+    logic.attachEvents!(el, sim as any, pinMap({ A: 13 }), 'led-2');
 
     const calls = sim.pinManager.onPinChange.mock.calls;
     const anodeCall = calls.find((c: any) => c[0] === 13);
@@ -158,7 +174,7 @@ describe('LED — attachEvents (anode + cathode check)', () => {
     const logic = PartSimulationRegistry.get('led')!;
     const el = makeElement({ value: false });
     const sim = makeSimulator();
-    logic.attachEvents!(el, sim as any, pinMap({ 'A': 13, 'C': -1 }), 'led-3');
+    logic.attachEvents!(el, sim as any, pinMap({ A: 13, C: -1 }), 'led-3');
 
     const anodeCall = sim.pinManager.onPinChange.mock.calls.find((c: any) => c[0] === 13);
     anodeCall![1](13, true);
@@ -177,7 +193,9 @@ describe('Pushbutton — attachEvents', () => {
     const sim = makeSimulator();
     logic.attachEvents!(el, sim as any, pinHelper(7));
 
-    const events = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => c[0]);
+    const events = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c: unknown[]) => c[0],
+    );
     expect(events).toContain('button-press');
     expect(events).toContain('button-release');
   });
@@ -188,9 +206,11 @@ describe('Pushbutton — attachEvents', () => {
     const sim = makeSimulator();
 
     let pressHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'button-press') pressHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'button-press') pressHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinHelper(7));
     pressHandler();
@@ -205,9 +225,11 @@ describe('Pushbutton — attachEvents', () => {
     const sim = makeSimulator();
 
     let releaseHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'button-release') releaseHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'button-release') releaseHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinHelper(7));
     releaseHandler();
@@ -222,7 +244,9 @@ describe('Pushbutton — attachEvents', () => {
     const sim = makeSimulator();
     const cleanup = logic.attachEvents!(el, sim as any, pinHelper(2));
     cleanup();
-    expect((el.removeEventListener as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      (el.removeEventListener as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('returns no-op cleanup when no pin is connected', () => {
@@ -242,9 +266,11 @@ describe('Pushbutton-6mm — attachEvents', () => {
     const sim = makeSimulator();
 
     let pressHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'button-press') pressHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'button-press') pressHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinHelper(4));
     pressHandler();
@@ -278,9 +304,11 @@ describe('Slide-switch — attachEvents', () => {
     const sim = makeSimulator();
 
     let changeHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'change') changeHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'change') changeHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinHelper(6));
     (el as any).value = 1;
@@ -306,11 +334,20 @@ describe('DIP-switch-8 — attachEvents', () => {
     const el = makeElement({ values });
     const sim = makeSimulator();
 
-    const helper = pinMap({ '1A': 2, '2A': 3, '3A': 4, '4A': 5, '5A': 6, '6A': 7, '7A': 8, '8A': 9 });
+    const helper = pinMap({
+      '1A': 2,
+      '2A': 3,
+      '3A': 4,
+      '4A': 5,
+      '5A': 6,
+      '6A': 7,
+      '7A': 8,
+      '8A': 9,
+    });
     logic.attachEvents!(el, sim as any, helper);
 
     expect(sim.setPinState.mock.calls.length).toBe(8);
-    expect(sim.setPinState).toHaveBeenCalledWith(2, true);  // switch 1 ON
+    expect(sim.setPinState).toHaveBeenCalledWith(2, true); // switch 1 ON
     expect(sim.setPinState).toHaveBeenCalledWith(3, false); // switch 2 OFF
     expect(sim.setPinState).toHaveBeenCalledWith(9, false); // switch 8 OFF
   });
@@ -321,9 +358,11 @@ describe('DIP-switch-8 — attachEvents', () => {
     const sim = makeSimulator();
 
     let changeHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'change') changeHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'change') changeHandler = handler;
+      },
+    );
 
     const helper = pinMap({ '1A': 2 });
     logic.attachEvents!(el, sim as any, helper);
@@ -357,10 +396,12 @@ describe('LED-bar-graph — attachEvents', () => {
     const sim = makeSimulator();
 
     const callbacks: Array<(pin: number, state: boolean) => void> = [];
-    sim.pinManager.onPinChange.mockImplementation((_pin: number, cb: (pin: number, state: boolean) => void) => {
-      callbacks.push(cb);
-      return () => {};
-    });
+    sim.pinManager.onPinChange.mockImplementation(
+      (_pin: number, cb: (pin: number, state: boolean) => void) => {
+        callbacks.push(cb);
+        return () => {};
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ A1: 2 }));
     callbacks[0](2, true);
@@ -405,10 +446,12 @@ describe('7segment — attachEvents', () => {
     const sim = makeSimulator();
 
     let segACallback!: (pin: number, state: boolean) => void;
-    sim.pinManager.onPinChange.mockImplementation((_pin: number, cb: (pin: number, state: boolean) => void) => {
-      if (!segACallback) segACallback = cb;
-      return () => {};
-    });
+    sim.pinManager.onPinChange.mockImplementation(
+      (_pin: number, cb: (pin: number, state: boolean) => void) => {
+        if (!segACallback) segACallback = cb;
+        return () => {};
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ A: 2 }));
     segACallback(2, true);
@@ -449,10 +492,12 @@ describe('RGB LED — attachEvents', () => {
     const sim = makeSimulator();
 
     const digitalCbs: Record<number, (pin: number, state: boolean) => void> = {};
-    sim.pinManager.onPinChange.mockImplementation((pin: number, cb: (pin: number, state: boolean) => void) => {
-      digitalCbs[pin] = cb;
-      return () => {};
-    });
+    sim.pinManager.onPinChange.mockImplementation(
+      (pin: number, cb: (pin: number, state: boolean) => void) => {
+        digitalCbs[pin] = cb;
+        return () => {};
+      },
+    );
     sim.pinManager.onPwmChange.mockReturnValue(() => {});
 
     logic.attachEvents!(el, sim as any, pinMap({ R: 9 }));
@@ -469,10 +514,12 @@ describe('RGB LED — attachEvents', () => {
 
     const pwmCbs: Record<number, (pin: number, dc: number) => void> = {};
     sim.pinManager.onPinChange.mockReturnValue(() => {});
-    sim.pinManager.onPwmChange.mockImplementation((pin: number, cb: (pin: number, dc: number) => void) => {
-      pwmCbs[pin] = cb;
-      return () => {};
-    });
+    sim.pinManager.onPwmChange.mockImplementation(
+      (pin: number, cb: (pin: number, dc: number) => void) => {
+        pwmCbs[pin] = cb;
+        return () => {};
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ G: 10 }));
     pwmCbs[10](10, 0.5);
@@ -486,10 +533,12 @@ describe('RGB LED — attachEvents', () => {
 
     const pwmCbs: Record<number, (pin: number, dc: number) => void> = {};
     sim.pinManager.onPinChange.mockReturnValue(() => {});
-    sim.pinManager.onPwmChange.mockImplementation((pin: number, cb: (pin: number, dc: number) => void) => {
-      pwmCbs[pin] = cb;
-      return () => {};
-    });
+    sim.pinManager.onPwmChange.mockImplementation(
+      (pin: number, cb: (pin: number, dc: number) => void) => {
+        pwmCbs[pin] = cb;
+        return () => {};
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ B: 11 }));
     pwmCbs[11](11, 1.0);
@@ -520,9 +569,11 @@ describe('Potentiometer — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let inputHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'input') inputHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'input') inputHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SIG: 14 })); // A0 = pin 14
     inputHandler();
@@ -537,9 +588,11 @@ describe('Potentiometer — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let inputHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'input') inputHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'input') inputHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SIG: 14 }));
     inputHandler();
@@ -554,9 +607,11 @@ describe('Potentiometer — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let inputHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'input') inputHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'input') inputHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SIG: 14 }));
     inputHandler();
@@ -582,9 +637,11 @@ describe('Slide-potentiometer — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let inputHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'input') inputHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'input') inputHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SIG: 14 }));
     inputHandler();
@@ -613,9 +670,11 @@ describe('Photoresistor-sensor — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let inputHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'input') inputHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'input') inputHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ AO: 14 }));
     inputHandler();
@@ -653,9 +712,11 @@ describe('Analog-joystick — attachEvents', () => {
     const sim = makeSimulator(makeADC());
 
     let pressHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'button-press') pressHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'button-press') pressHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SW: 2 }));
     pressHandler();
@@ -669,9 +730,11 @@ describe('Analog-joystick — attachEvents', () => {
     const sim = makeSimulator(makeADC());
 
     let releaseHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'button-release') releaseHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'button-release') releaseHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ SW: 2 }));
     releaseHandler();
@@ -686,9 +749,11 @@ describe('Analog-joystick — attachEvents', () => {
     const sim = makeSimulator(adc);
 
     let moveHandler!: () => void;
-    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation((event: string, handler: () => void) => {
-      if (event === 'joystick-move') moveHandler = handler;
-    });
+    (el.addEventListener as ReturnType<typeof vi.fn>).mockImplementation(
+      (event: string, handler: () => void) => {
+        if (event === 'joystick-move') moveHandler = handler;
+      },
+    );
 
     logic.attachEvents!(el, sim as any, pinMap({ VRX: 14, VRY: 15 }));
     moveHandler();
@@ -721,10 +786,10 @@ describe('Servo — attachEvents', () => {
     const sim = makeSimulator();
 
     // ICR1L=0x86, ICR1H=0x87; OCR1AL=0x88, OCR1AH=0x89
-    sim.cpu.data[0x88] = 2944 & 0xFF;         // OCR1AL
-    sim.cpu.data[0x89] = (2944 >> 8) & 0xFF;  // OCR1AH
-    sim.cpu.data[0x86] = 40000 & 0xFF;        // ICR1L
-    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF; // ICR1H
+    sim.cpu.data[0x88] = 2944 & 0xff; // OCR1AL
+    sim.cpu.data[0x89] = (2944 >> 8) & 0xff; // OCR1AH
+    sim.cpu.data[0x86] = 40000 & 0xff; // ICR1L
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xff; // ICR1H
 
     logic.attachEvents!(el, sim as any, noPins);
     expect((el as any).angle).toBe(90);
@@ -736,8 +801,8 @@ describe('Servo — attachEvents', () => {
     const el = makeElement({ angle: -1 });
     const sim = makeSimulator();
 
-    sim.cpu.data[0x86] = 40000 & 0xFF;
-    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF;
+    sim.cpu.data[0x86] = 40000 & 0xff;
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xff;
     // OCR1A = 0 (default)
 
     logic.attachEvents!(el, sim as any, noPins);
@@ -751,10 +816,10 @@ describe('Servo — attachEvents', () => {
     const el = makeElement({ angle: -1 });
     const sim = makeSimulator();
 
-    sim.cpu.data[0x88] = 4800 & 0xFF;
-    sim.cpu.data[0x89] = (4800 >> 8) & 0xFF;
-    sim.cpu.data[0x86] = 40000 & 0xFF;
-    sim.cpu.data[0x87] = (40000 >> 8) & 0xFF;
+    sim.cpu.data[0x88] = 4800 & 0xff;
+    sim.cpu.data[0x89] = (4800 >> 8) & 0xff;
+    sim.cpu.data[0x86] = 40000 & 0xff;
+    sim.cpu.data[0x87] = (40000 >> 8) & 0xff;
 
     logic.attachEvents!(el, sim as any, noPins);
     expect((el as any).angle).toBe(180);
@@ -792,10 +857,10 @@ describe('Buzzer — attachEvents', () => {
     };
     function MockAudioContext(this: any) {
       this.createOscillator = vi.fn().mockReturnValue(mockOscillator);
-      this.createGain       = vi.fn().mockReturnValue(mockGain);
-      this.destination      = {};
-      this.currentTime      = 0;
-      this.close            = vi.fn().mockResolvedValue(undefined);
+      this.createGain = vi.fn().mockReturnValue(mockGain);
+      this.destination = {};
+      this.currentTime = 0;
+      this.close = vi.fn().mockResolvedValue(undefined);
     }
     vi.stubGlobal('AudioContext', MockAudioContext);
   });
@@ -817,16 +882,21 @@ describe('Buzzer — attachEvents', () => {
     const sim = makeSimulator();
 
     let pwmCallback!: (pin: number, dc: number) => void;
-    sim.pinManager.onPwmChange.mockImplementation((_pin: number, cb: (pin: number, dc: number) => void) => {
-      pwmCallback = cb;
-      return () => {};
-    });
+    sim.pinManager.onPwmChange.mockImplementation(
+      (_pin: number, cb: (pin: number, dc: number) => void) => {
+        pwmCallback = cb;
+        return () => {};
+      },
+    );
     sim.pinManager.onPinChange.mockReturnValue(() => {});
 
     // Track instantiation via a flag (AudioContext is a regular function, not a spy)
     let audioCtxCreated = false;
     const PrevMock = (globalThis as any).AudioContext;
-    function TrackingCtx(this: any) { audioCtxCreated = true; PrevMock.call(this); }
+    function TrackingCtx(this: any) {
+      audioCtxCreated = true;
+      PrevMock.call(this);
+    }
     TrackingCtx.prototype = Object.create(PrevMock.prototype);
     vi.stubGlobal('AudioContext', TrackingCtx);
 

@@ -57,7 +57,9 @@
   font-weight: 400;
   font-family: var(--font);
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
   white-space: nowrap;
 }
 
@@ -125,7 +127,9 @@
   font-size: 13px;
   font-weight: 400;
   font-family: var(--font);
-  transition: background 0.18s, color 0.18s;
+  transition:
+    background 0.18s,
+    color 0.18s;
 }
 
 .filter-button:hover {
@@ -153,8 +157,9 @@
   border-radius: 20px;
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.34, 1.46, 0.64, 1),
-              box-shadow 0.3s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.46, 0.64, 1),
+    box-shadow 0.3s ease;
   display: flex;
   flex-direction: column;
 }
@@ -277,7 +282,9 @@
   color: #888;
   display: flex;
   align-items: center;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 .example-copy-link:hover {
   color: #4fc3f7;
@@ -294,7 +301,9 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .examples-gallery { padding: 32px 20px; }
+  .examples-gallery {
+    padding: 32px 20px;
+  }
 
   .examples-grid {
     grid-template-columns: 1fr;
@@ -305,5 +314,7 @@
     align-items: flex-start;
   }
 
-  .filter-group label { min-width: auto; }
+  .filter-group label {
+    min-width: auto;
+  }
 }

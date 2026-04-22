@@ -53,9 +53,11 @@ export class ComponentRegistry {
   }
 
   private async _doLoad(): Promise<void> {
-
     try {
-      const response = await fetch('/components-metadata.json');
+      // `cache: 'no-store'` so adding a new component (or rebuilding the JSON)
+      // shows up after a single page refresh — without this, the browser keeps
+      // serving the stale copy until you do a hard reload.
+      const response = await fetch('/components-metadata.json', { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(`Failed to load metadata: ${response.statusText}`);
       }
@@ -65,15 +67,49 @@ export class ComponentRegistry {
       // Inject Raspberry Pi 3 metadata
       data.components.push({
         id: 'raspberry-pi-3',
-        tagName: 'wokwi-raspberry-pi-3',
+        tagName: 'velxio-raspberry-pi-3',
         name: 'Raspberry Pi 3',
         category: 'boards',
         description: 'Raspberry Pi 3 Model B with 40-pin GPIO. Connects to backend QEMU simulator.',
-        thumbnail: '<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" fill="#E60049" rx="4"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="10" fill="#FFF">RPi3</text></svg>',
+        thumbnail:
+          '<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" fill="#E60049" rx="4"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="10" fill="#FFF">RPi3</text></svg>',
         properties: [],
         defaultValues: {},
         pinCount: 40,
-        tags: ['raspberry', 'pi', 'rp3', 'board', 'qemu', 'linux']
+        tags: ['raspberry', 'pi', 'rp3', 'board', 'qemu', 'linux'],
+      });
+
+      // Inject SPICE probe instruments — these are Velxio-specific React
+      // components (not wokwi web elements), so they have no auto-generated
+      // metadata but still need a registry entry so the picker can offer
+      // them and the canvas can resolve them by id.
+      data.components.push({
+        id: 'instr-voltmeter',
+        tagName: 'velxio-instr-voltmeter',
+        name: 'Voltmeter',
+        category: 'analog',
+        description:
+          'SPICE probe — displays the voltage between V+ and V-. Used in electrical-mode circuits.',
+        thumbnail:
+          '<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="6" fill="#1f1f1f" stroke="#ffa500" stroke-width="2"/><text x="50%" y="42%" text-anchor="middle" font-family="monospace" font-size="9" fill="#ffa500">V METER</text><text x="50%" y="68%" text-anchor="middle" font-family="monospace" font-size="11" fill="#ffa500" font-weight="bold">3.30 V</text></svg>',
+        properties: [],
+        defaultValues: {},
+        pinCount: 2,
+        tags: ['voltmeter', 'meter', 'probe', 'instrument', 'spice', 'multimeter', 'dmm'],
+      });
+      data.components.push({
+        id: 'instr-ammeter',
+        tagName: 'velxio-instr-ammeter',
+        name: 'Ammeter',
+        category: 'analog',
+        description:
+          'SPICE probe — measures the current through its body (connect in series). Used in electrical-mode circuits.',
+        thumbnail:
+          '<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="64" rx="6" fill="#1f1f1f" stroke="#4dd0e1" stroke-width="2"/><text x="50%" y="42%" text-anchor="middle" font-family="monospace" font-size="9" fill="#4dd0e1">A METER</text><text x="50%" y="68%" text-anchor="middle" font-family="monospace" font-size="11" fill="#4dd0e1" font-weight="bold">12.4 mA</text></svg>',
+        properties: [],
+        defaultValues: {},
+        pinCount: 2,
+        tags: ['ammeter', 'meter', 'probe', 'instrument', 'spice', 'current', 'multimeter', 'dmm'],
       });
 
       this.processMetadata(data.components);
@@ -95,7 +131,7 @@ export class ComponentRegistry {
     this.categories.clear();
 
     // Index by ID
-    components.forEach(component => {
+    components.forEach((component) => {
       this.metadata.set(component.id, component);
 
       // Group by category
@@ -135,12 +171,12 @@ export class ComponentRegistry {
     }
 
     const lowerQuery = query.toLowerCase();
-    return this.allComponents.filter(component => {
+    return this.allComponents.filter((component) => {
       return (
         component.name.toLowerCase().includes(lowerQuery) ||
         component.id.toLowerCase().includes(lowerQuery) ||
         component.description?.toLowerCase().includes(lowerQuery) ||
-        component.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
+        component.tags.some((tag) => tag.toLowerCase().includes(lowerQuery))
       );
     });
   }
@@ -180,6 +216,9 @@ export class ComponentRegistry {
       motors: 'Motors',
       communication: 'Communication',
       passive: 'Passive',
+      logic: 'Logic Gates',
+      analog: 'Analog',
+      electromech: 'Electromechanical',
       other: 'Other',
     };
     return displayNames[category] || category;

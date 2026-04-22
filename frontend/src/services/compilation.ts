@@ -10,9 +10,9 @@ export interface SketchFile {
 export interface CompileResult {
   success: boolean;
   hex_content?: string;
-  binary_content?: string;  // base64-encoded .bin for RP2040
+  binary_content?: string; // base64-encoded .bin for RP2040
   binary_type?: 'bin' | 'uf2';
-  has_wifi?: boolean;        // True when sketch uses WiFi (ESP32 only)
+  has_wifi?: boolean; // True when sketch uses WiFi (ESP32 only)
   stdout: string;
   stderr: string;
   error?: string;
@@ -21,17 +21,20 @@ export interface CompileResult {
 
 export async function compileCode(
   files: SketchFile[],
-  board: string = 'arduino:avr:uno'
+  board: string = 'arduino:avr:uno',
 ): Promise<CompileResult> {
   try {
     console.log('Sending compilation request to:', `${API_BASE}/compile`);
     console.log('Board:', board);
-    console.log('Files:', files.map((f) => f.name));
+    console.log(
+      'Files:',
+      files.map((f) => f.name),
+    );
 
     const response = await axios.post<CompileResult>(
       `${API_BASE}/compile/`,
       { files, board_fqbn: board },
-      { withCredentials: true }
+      { withCredentials: true, timeout: 180000 },
     );
 
     console.log('Compilation response status:', response.status);
@@ -44,9 +47,7 @@ export async function compileCode(
         console.error('Error response data:', error.response.data);
         return error.response.data;
       } else if (error.request) {
-        throw new Error(
-          'No response from server. Is the backend running on port 8001?'
-        );
+        throw new Error('No response from server. Is the backend running on port 8001?');
       }
     }
 

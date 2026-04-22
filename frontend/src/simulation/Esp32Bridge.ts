@@ -38,8 +38,10 @@ import type { BoardKind } from '../types/board';
  * by the backend esp_qemu_manager.
  */
 export function toQemuBoardType(kind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
-  if (kind === 'esp32-s3' || kind === 'xiao-esp32-s3' || kind === 'arduino-nano-esp32') return 'esp32-s3';
-  if (kind === 'esp32-c3' || kind === 'xiao-esp32-c3' || kind === 'aitewinrobot-esp32c3-supermini') return 'esp32-c3';
+  if (kind === 'esp32-s3' || kind === 'xiao-esp32-s3' || kind === 'arduino-nano-esp32')
+    return 'esp32-s3';
+  if (kind === 'esp32-c3' || kind === 'xiao-esp32-c3' || kind === 'aitewinrobot-esp32c3-supermini')
+    return 'esp32-c3';
   return 'esp32'; // esp32, esp32-devkit-c-v4, esp32-cam, wemos-lolin32-lite
 }
 
@@ -59,10 +61,25 @@ export function getTabSessionId(): string {
   return id;
 }
 
-export interface Ws2812Pixel { r: number; g: number; b: number }
-export interface LedcUpdate  { channel: number; duty: number; duty_pct: number; gpio?: number }
-export interface WifiStatus  { status: string; ssid?: string; ip?: string }
-export interface BleStatus   { status: string }
+export interface Ws2812Pixel {
+  r: number;
+  g: number;
+  b: number;
+}
+export interface LedcUpdate {
+  channel: number;
+  duty: number;
+  duty_pct: number;
+  gpio?: number;
+}
+export interface WifiStatus {
+  status: string;
+  ssid?: string;
+  ip?: string;
+}
+export interface BleStatus {
+  status: string;
+}
 
 export class Esp32Bridge {
   readonly boardId: string;
@@ -72,21 +89,21 @@ export class Esp32Bridge {
   wifiEnabled = false;
 
   // Callbacks wired up by useSimulatorStore
-  onSerialData:    ((char: string, uart?: number) => void) | null = null;
-  onPinChange:     ((gpioPin: number, state: boolean) => void) | null = null;
-  onPinDir:        ((gpioPin: number, dir: 0 | 1) => void) | null = null;
-  onLedcUpdate:    ((update: LedcUpdate) => void) | null = null;
-  onWs2812Update:  ((channel: number, pixels: Ws2812Pixel[]) => void) | null = null;
-  onI2cEvent:        ((addr: number, data: number) => void) | null = null;
-  onI2cTransaction:  ((addr: number, data: number[]) => void) | null = null;
-  onSpiEvent:        ((data: number) => void) | null = null;
-  onConnected:     (() => void) | null = null;
-  onDisconnected:  (() => void) | null = null;
-  onError:         ((msg: string) => void) | null = null;
-  onSystemEvent:   ((event: string, data: Record<string, unknown>) => void) | null = null;
-  onCrash:         ((data: Record<string, unknown>) => void) | null = null;
-  onWifiStatus:    ((status: WifiStatus) => void) | null = null;
-  onBleStatus:     ((status: BleStatus) => void) | null = null;
+  onSerialData: ((char: string, uart?: number) => void) | null = null;
+  onPinChange: ((gpioPin: number, state: boolean) => void) | null = null;
+  onPinDir: ((gpioPin: number, dir: 0 | 1) => void) | null = null;
+  onLedcUpdate: ((update: LedcUpdate) => void) | null = null;
+  onWs2812Update: ((channel: number, pixels: Ws2812Pixel[]) => void) | null = null;
+  onI2cEvent: ((addr: number, data: number) => void) | null = null;
+  onI2cTransaction: ((addr: number, data: number[]) => void) | null = null;
+  onSpiEvent: ((data: number) => void) | null = null;
+  onConnected: (() => void) | null = null;
+  onDisconnected: (() => void) | null = null;
+  onError: ((msg: string) => void) | null = null;
+  onSystemEvent: ((event: string, data: Record<string, unknown>) => void) | null = null;
+  onCrash: ((data: Record<string, unknown>) => void) | null = null;
+  onWifiStatus: ((status: WifiStatus) => void) | null = null;
+  onBleStatus: ((status: BleStatus) => void) | null = null;
 
   private socket: WebSocket | null = null;
   private _connected = false;
@@ -104,7 +121,7 @@ export class Esp32Bridge {
   micropythonMode = false;
 
   constructor(boardId: string, boardKind: BoardKind) {
-    this.boardId   = boardId;
+    this.boardId = boardId;
     this.boardKind = boardKind;
   }
 
@@ -122,15 +139,18 @@ export class Esp32Bridge {
     const base = API_BASE();
     const wsProtocol = base.startsWith('https') ? 'wss:' : 'ws:';
     const sessionId = getTabSessionId();
-    const wsUrl = base.replace(/^https?:/, wsProtocol)
-      + `/simulation/ws/${encodeURIComponent(sessionId + '::' + this.boardId)}`;
+    const wsUrl =
+      base.replace(/^https?:/, wsProtocol) +
+      `/simulation/ws/${encodeURIComponent(sessionId + '::' + this.boardId)}`;
 
     const socket = new WebSocket(wsUrl);
     this.socket = socket;
 
     socket.onopen = () => {
       this._connected = true;
-      console.log(`[Esp32Bridge:${this.boardId}] WebSocket connected → sending start_esp32 (firmware: ${this._pendingFirmware ? `${Math.round(this._pendingFirmware.length * 0.75 / 1024)}KB` : 'none'})`);
+      console.log(
+        `[Esp32Bridge:${this.boardId}] WebSocket connected → sending start_esp32 (firmware: ${this._pendingFirmware ? `${Math.round((this._pendingFirmware.length * 0.75) / 1024)}KB` : 'none'})`,
+      );
       this.onConnected?.();
       this._send({
         type: 'start_esp32',
@@ -171,7 +191,7 @@ export class Esp32Bridge {
               this._replState = 'banner_seen';
               console.log('[Esp32Bridge] Stage 1: banner seen → poking UART with \\r');
               setTimeout(() => {
-                this._send({ type: 'esp32_serial_input', data: { bytes: [0x0D] } });
+                this._send({ type: 'esp32_serial_input', data: { bytes: [0x0d] } });
               }, 800);
             }
 
@@ -203,9 +223,11 @@ export class Esp32Bridge {
           break;
         }
         case 'gpio_change': {
-          const pin   = msg.data.pin as number;
+          const pin = msg.data.pin as number;
           const state = (msg.data.state as number) === 1;
-          console.log(`[Esp32Bridge:${this.boardId}] gpio_change pin=${pin} state=${state ? 'HIGH' : 'LOW'}`);
+          console.log(
+            `[Esp32Bridge:${this.boardId}] gpio_change pin=${pin} state=${state ? 'HIGH' : 'LOW'}`,
+          );
           this.onPinChange?.(pin, state);
           break;
         }
@@ -216,7 +238,9 @@ export class Esp32Bridge {
           break;
         }
         case 'ledc_update': {
-          console.log(`[Esp32Bridge:${this.boardId}] ledc_update ch=${msg.data.channel} duty=${msg.data.duty_pct}% gpio=${msg.data.gpio}`);
+          console.log(
+            `[Esp32Bridge:${this.boardId}] ledc_update ch=${msg.data.channel} duty=${msg.data.duty_pct}% gpio=${msg.data.gpio}`,
+          );
           this.onLedcUpdate?.(msg.data as unknown as LedcUpdate);
           break;
         }
@@ -255,7 +279,9 @@ export class Esp32Bridge {
         }
         case 'wifi_status': {
           const wifiStatus = msg.data as unknown as WifiStatus;
-          console.log(`[Esp32Bridge:${this.boardId}] wifi_status: ${wifiStatus.status} ssid=${wifiStatus.ssid ?? ''} ip=${wifiStatus.ip ?? ''}`);
+          console.log(
+            `[Esp32Bridge:${this.boardId}] wifi_status: ${wifiStatus.status} ssid=${wifiStatus.ssid ?? ''} ip=${wifiStatus.ip ?? ''}`,
+          );
           this.onWifiStatus?.(wifiStatus);
           break;
         }
@@ -339,6 +365,40 @@ export class Esp32Bridge {
   /** Set an ADC channel voltage (millivolts, 0–3300) */
   setAdc(channel: number, millivolts: number): void {
     this._send({ type: 'esp32_adc_set', data: { channel, millivolts } });
+  }
+
+  /**
+   * Push a periodic waveform LUT for an ADC channel. The backend forwards
+   * the samples to QEMU, which interpolates them against its virtual clock
+   * on every MMIO ADC read — matching the per-read fidelity AVR and RP2040
+   * get via `onADCRead` monkey-patching.
+   *
+   *   samples: 12-bit raw values (0-4095) aligned on a uniform time grid
+   *   periodNs: full period of the LUT in nanoseconds
+   *
+   * Samples are sent as base64-encoded uint16 little-endian. Clearing the
+   * waveform (returning to DC `setAdc` behavior) is done by passing an
+   * empty `samples` array.
+   */
+  setAdcWaveform(channel: number, samples: Uint16Array, periodNs: number): void {
+    // Encode little-endian uint16 → base64 (transport-safe for JSON stdin/WS).
+    const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 =
+      typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64');
+    this._send({
+      type: 'esp32_adc_waveform',
+      data: { channel, samples_u12_b64: base64, period_ns: periodNs },
+    });
+  }
+
+  /** Clear a previously-pushed ADC waveform, reverting to DC `setAdc`. */
+  clearAdcWaveform(channel: number): void {
+    this._send({
+      type: 'esp32_adc_waveform',
+      data: { channel, samples_u12_b64: '', period_ns: 0 },
+    });
   }
 
   /** Configure the byte an I2C device at addr returns */
@@ -431,24 +491,26 @@ export class Esp32Bridge {
     // 2. Normalize line endings to LF
     s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     // 3. Replace non-ASCII in line-comments with '?' so the line is preserved
-    s = s.replace(/^([ \t]*#.*)$/gm, (line) =>
-      line.replace(/[^\x00-\x7F]/g, '?')
-    );
+    s = s.replace(/^([ \t]*#.*)$/gm, (line) => line.replace(/[^\x00-\x7F]/g, '?'));
     // 4. Replace non-ASCII in inline comments (after code on the same line)
-    s = s.replace(/([ \t]+#.*)$/gm, (comment) =>
-      comment.replace(/[^\x00-\x7F]/g, '?')
-    );
+    s = s.replace(/([ \t]+#.*)$/gm, (comment) => comment.replace(/[^\x00-\x7F]/g, '?'));
     return s;
   }
 
   private _sendCodeInRawRepl(code: string): void {
     const sanitized = Esp32Bridge._sanitizeForRepl(code);
-    console.log(`[Esp32Bridge:${this.boardId}] Sending ${sanitized.length} bytes to raw REPL + Ctrl+D`);
+    console.log(
+      `[Esp32Bridge:${this.boardId}] Sending ${sanitized.length} bytes to raw REPL + Ctrl+D`,
+    );
     if (sanitized !== code) {
-      console.log(`[Esp32Bridge:${this.boardId}] Code was sanitized (non-ASCII in comments stripped)`);
+      console.log(
+        `[Esp32Bridge:${this.boardId}] Code was sanitized (non-ASCII in comments stripped)`,
+      );
     }
     const codeBytes = Array.from(new TextEncoder().encode(sanitized));
-    console.log(`[Esp32Bridge:${this.boardId}] Sending ${codeBytes.length} bytes in chunks to raw REPL`);
+    console.log(
+      `[Esp32Bridge:${this.boardId}] Sending ${codeBytes.length} bytes in chunks to raw REPL`,
+    );
 
     // The ESP32 UART RX FIFO is 128 bytes in hardware (and in QEMU's emulation).
     // Sending >128 bytes in one qemu_picsimlab_uart_receive() call overflows the
@@ -463,7 +525,7 @@ export class Esp32Bridge {
       if (offset >= codeBytes.length) {
         // All bytes delivered — wait for QEMU to finish processing the last chunk
         setTimeout(() => {
-          this.sendSerialBytes([0x04]);   // Ctrl+D → compile & execute
+          this.sendSerialBytes([0x04]); // Ctrl+D → compile & execute
           this._replState = 'idle';
           console.log(`[Esp32Bridge:${this.boardId}] Ctrl+D sent — code executing`);
         }, 300);

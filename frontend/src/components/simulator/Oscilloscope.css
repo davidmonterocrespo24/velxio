@@ -42,7 +42,9 @@
   cursor: pointer;
   font-size: 11px;
   white-space: nowrap;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .osc-btn:hover {
@@ -133,7 +135,9 @@
   cursor: pointer;
   font-size: 11px;
   font-family: inherit;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .osc-picker-board-tab:hover {
@@ -171,7 +175,9 @@
   cursor: pointer;
   font-size: 11px;
   text-align: center;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
 
 .osc-pin-btn:hover {

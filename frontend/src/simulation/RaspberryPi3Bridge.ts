@@ -48,7 +48,8 @@ export class RaspberryPi3Bridge {
 
     const base = API_BASE();
     const wsProtocol = base.startsWith('https') ? 'wss:' : 'ws:';
-    const wsUrl = base.replace(/^https?:/, wsProtocol) + `/simulation/ws/${encodeURIComponent(this.boardId)}`;
+    const wsUrl =
+      base.replace(/^https?:/, wsProtocol) + `/simulation/ws/${encodeURIComponent(this.boardId)}`;
 
     const socket = new WebSocket(wsUrl);
     this.socket = socket;

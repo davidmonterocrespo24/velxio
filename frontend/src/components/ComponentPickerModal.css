@@ -73,7 +73,9 @@
   padding: 4px 8px;
   line-height: 1;
   border-radius: 4px;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
 .close-btn:hover {
@@ -118,7 +120,9 @@
   font-size: 18px;
   line-height: 1;
   border-radius: 4px;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
 .clear-search-btn:hover {
@@ -176,6 +180,40 @@
   align-content: start;
 }
 
+/* Single scroll container wrapping the boards row + components grid in the
+   "All Components" view, so the modal shows only one scrollbar instead of
+   two stacked ones. */
+.components-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.components-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.components-scroll::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 4px;
+}
+
+.components-scroll::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}
+
+.components-scroll::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* When a grid lives inside .components-scroll it should NOT scroll on its
+   own — the wrapper handles all scrolling. */
+.components-grid--inline {
+  flex: none;
+  overflow: visible;
+}
+
 .loading-state {
   grid-column: 1 / -1;
   text-align: center;
@@ -197,8 +235,12 @@
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .no-results {
@@ -412,11 +454,13 @@
   color: #888;
 }
 
-.components-grid::-webkit-scrollbar-track {
+.components-grid::-webkit-scrollbar-track,
+.components-scroll::-webkit-scrollbar-track {
   background: #3d3d3d;
 }
 
-.components-grid::-webkit-scrollbar-thumb {
+.components-grid::-webkit-scrollbar-thumb,
+.components-scroll::-webkit-scrollbar-thumb {
   background: #555;
 }
 

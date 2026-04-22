@@ -137,7 +137,7 @@ describe('ESP32 WiFi auto-detection in sketches', () => {
 describe('ESP32 board FQBN mapping for compilation', () => {
   // Maps board types to their expected FQBN for arduino-cli
   const FQBN_MAP: Record<string, string> = {
-    'esp32': 'esp32:esp32:esp32',
+    esp32: 'esp32:esp32:esp32',
     'esp32-s3': 'esp32:esp32:esp32s3',
     'esp32-c3': 'esp32:esp32:esp32c3',
   };

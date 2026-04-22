@@ -39,10 +39,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { spawnSync } from 'child_process';
-import {
-  mkdtempSync, writeFileSync, readFileSync,
-  rmSync, mkdirSync, readdirSync,
-} from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -56,7 +53,11 @@ beforeEach(() => {
   let counter = 0;
   let depth = 0;
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-    if (depth === 0) { depth++; cb(0); depth--; }
+    if (depth === 0) {
+      depth++;
+      cb(0);
+      depth--;
+    }
     return ++counter;
   });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
@@ -77,18 +78,14 @@ const EMPTY_HEX = ':00000001FF\n';
  * TINY85_BLINK_HEX — sets PB1 HIGH then loops.
  * Uses ATtiny85 DDRB (I/O 0x17 → mem 0x37) and PORTB (I/O 0x18 → mem 0x38).
  */
-const TINY85_BLINK_HEX =
-  ':0A0000000FEF07BB02E008BBFFCFC3\n' +
-  ':00000001FF\n';
+const TINY85_BLINK_HEX = ':0A0000000FEF07BB02E008BBFFCFC3\n' + ':00000001FF\n';
 
 /**
  * TINY85_PB0_HEX — sets PB0 HIGH (bit 0).
  *   LDI r16, 0xFF → OUT DDRB → LDI r16, 0x01 → OUT PORTB → RJMP .-2
  * Checksum: 0xC4
  */
-const TINY85_PB0_HEX =
-  ':0A0000000FEF07BB01E008BBFFCFC4\n' +
-  ':00000001FF\n';
+const TINY85_PB0_HEX = ':0A0000000FEF07BB01E008BBFFCFC4\n' + ':00000001FF\n';
 
 /**
  * TINY85_PWM_HEX — writes 0x80 to OCR0B (I/O 0x3C → mem 0x5C) to test PWM.
@@ -99,9 +96,7 @@ const TINY85_PB0_HEX =
  *   word = 1011 1 11 10000 1100 = 0xBF0C → bytes 0x0C 0xBF
  * Checksum: 0xB5
  */
-const TINY85_PWM_HEX =
-  ':0A0000000FEF07BB00E80CBFFFCFB5\n' +
-  ':00000001FF\n';
+const TINY85_PWM_HEX = ':0A0000000FEF07BB00E80CBFFFCFB5\n' + ':00000001FF\n';
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -279,11 +274,11 @@ describe('ATtiny85 — PWM monitoring', () => {
     sim.loadHex(EMPTY_HEX);
 
     const pwmCb = vi.fn();
-    pm.onPwmChange(1, pwmCb);  // PB1 = OCR0B pin
+    pm.onPwmChange(1, pwmCb); // PB1 = OCR0B pin
 
     // Directly write a PWM value to OCR0B in CPU data memory
     const cpu = (sim as any).cpu;
-    cpu.data[0x5C] = 128;  // 50% duty cycle
+    cpu.data[0x5c] = 128; // 50% duty cycle
 
     sim.start();
     sim.stop();
@@ -297,7 +292,7 @@ describe('ATtiny85 — PWM monitoring', () => {
     sim.loadHex(EMPTY_HEX);
 
     const pwmCb = vi.fn();
-    pm.onPwmChange(0, pwmCb);  // PB0 = OCR0A pin
+    pm.onPwmChange(0, pwmCb); // PB0 = OCR0A pin
 
     const cpu = (sim as any).cpu;
     cpu.data[0x56] = 64;
@@ -311,9 +306,9 @@ describe('ATtiny85 — PWM monitoring', () => {
   it('ATtiny85 PWM covers 4 pins (OCR0A/OCR0B/OCR1A/OCR1B)', () => {
     const TINY85_PWM_MAP = [
       { addr: 0x56, pin: 0 }, // OCR0A → PB0
-      { addr: 0x5C, pin: 1 }, // OCR0B → PB1
-      { addr: 0x4E, pin: 1 }, // OCR1A → PB1
-      { addr: 0x4B, pin: 4 }, // OCR1B → PB4
+      { addr: 0x5c, pin: 1 }, // OCR0B → PB1
+      { addr: 0x4e, pin: 1 }, // OCR1A → PB1
+      { addr: 0x4b, pin: 4 }, // OCR1B → PB4
     ];
 
     const pm = new PinManager();
@@ -399,7 +394,7 @@ describe('ATtiny85 — end-to-end compilation', () => {
     return coreCheck.stdout?.includes('ATTinyCore') ?? false;
   }
 
-  it('compiles blink sketch and PB1 goes HIGH after setup()', () => {
+  it('compiles blink sketch and PB1 goes HIGH after setup()', { timeout: 90_000 }, () => {
     if (!isATTinyCoreAvailable()) {
       console.log('ATTinyCore not installed — skipping E2E compilation test');
       return;
@@ -408,17 +403,21 @@ describe('ATtiny85 — end-to-end compilation', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'attiny85-e2e-'));
     const sketchDir = join(tmpDir, 'sketch');
     mkdirSync(sketchDir);
-    writeFileSync(join(sketchDir, 'sketch.ino'), `
+    writeFileSync(
+      join(sketchDir, 'sketch.ino'),
+      `
 void setup() {
   pinMode(1, OUTPUT);
   digitalWrite(1, HIGH);
 }
 void loop() {}
-`);
+`,
+    );
 
     try {
       const result = spawnSync(
-        'arduino-cli', ['compile', '--fqbn', FQBN, '--output-dir', sketchDir, sketchDir],
+        'arduino-cli',
+        ['compile', '--fqbn', FQBN, '--output-dir', sketchDir, sketchDir],
         { encoding: 'utf8', timeout: 60000 },
       );
       expect(result.status).toBe(0);

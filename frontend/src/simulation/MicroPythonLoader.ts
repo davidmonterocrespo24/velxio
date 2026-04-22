@@ -53,7 +53,10 @@ export function loadUF2(uf2Data: Uint8Array, flash: Uint8Array): void {
     }
 
     const flashAddress = view.getUint32(offset + UF2_ADDR_OFFSET, true);
-    const payload = uf2Data.subarray(offset + UF2_DATA_OFFSET, offset + UF2_DATA_OFFSET + UF2_PAYLOAD_SIZE);
+    const payload = uf2Data.subarray(
+      offset + UF2_DATA_OFFSET,
+      offset + UF2_DATA_OFFSET + UF2_PAYLOAD_SIZE,
+    );
     const flashOffset = flashAddress - FLASH_START_ADDRESS;
 
     if (flashOffset >= 0 && flashOffset + UF2_PAYLOAD_SIZE <= flash.length) {
@@ -96,17 +99,18 @@ export async function loadUserFiles(
     'iiiiii',
   );
 
-  const flashErase = lfs.addFunction(
-    (_cfg: number, _block: number) => 0,
-    'iii',
-  );
+  const flashErase = lfs.addFunction((_cfg: number, _block: number) => 0, 'iii');
 
   const flashSync = lfs.addFunction(() => 0, 'ii');
 
   // Create LittleFS config and instance
   const config = lfs._new_lfs_config(
-    flashRead, flashProg, flashErase, flashSync,
-    MICROPYTHON_FS_BLOCK_COUNT, MICROPYTHON_FS_BLOCK_SIZE,
+    flashRead,
+    flashProg,
+    flashErase,
+    flashSync,
+    MICROPYTHON_FS_BLOCK_COUNT,
+    MICROPYTHON_FS_BLOCK_SIZE,
   );
   const lfsInstance = lfs._new_lfs();
 

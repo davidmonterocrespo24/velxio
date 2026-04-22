@@ -11,14 +11,14 @@ import type { WireSignalType, WireColorMap } from '../types/wire';
  * Color mapping for different signal types
  */
 export const WIRE_COLORS: WireColorMap = {
-  'power-vcc': '#ff0000',    // Red - Power positive
-  'power-gnd': '#000000',    // Black - Ground
-  'analog': '#4169e1',       // Royal Blue - Analog signals
-  'digital': '#00ff00',      // Green - Digital signals
-  'pwm': '#8b5cf6',          // Purple - PWM signals
-  'i2c': '#ffd700',          // Gold/Yellow - I2C bus
-  'spi': '#ff8c00',          // Orange - SPI bus
-  'usart': '#00ced1',        // Cyan - Serial UART
+  'power-vcc': '#ff0000', // Red - Power positive
+  'power-gnd': '#000000', // Black - Ground
+  analog: '#4169e1', // Royal Blue - Analog signals
+  digital: '#00ff00', // Green - Digital signals
+  pwm: '#8b5cf6', // Purple - PWM signals
+  i2c: '#ffd700', // Gold/Yellow - I2C bus
+  spi: '#ff8c00', // Orange - SPI bus
+  usart: '#00ced1', // Cyan - Serial UART
 };
 
 /**
@@ -32,7 +32,7 @@ export const WIRE_COLORS: WireColorMap = {
  */
 export function determineSignalType(signals: any[]): WireSignalType {
   if (!signals || signals.length === 0) {
-    return 'digital';  // Default for generic pins
+    return 'digital'; // Default for generic pins
   }
 
   // Priority 1: Power signals (highest priority)
@@ -70,7 +70,7 @@ export function determineSignalType(signals: any[]): WireSignalType {
  * @returns Hex color code as string
  */
 export function getWireColor(signalType: WireSignalType | null): string {
-  if (!signalType) return WIRE_COLORS['digital'];  // Default green
+  if (!signalType) return WIRE_COLORS['digital']; // Default green
   return WIRE_COLORS[signalType];
 }
 
@@ -85,12 +85,12 @@ export function getSignalTypeLabel(signalType: WireSignalType): string {
   const labels: Record<WireSignalType, string> = {
     'power-vcc': 'Power (VCC)',
     'power-gnd': 'Ground (GND)',
-    'analog': 'Analog Signal',
-    'digital': 'Digital Signal',
-    'pwm': 'PWM Signal',
-    'i2c': 'I2C Bus',
-    'spi': 'SPI Bus',
-    'usart': 'Serial UART',
+    analog: 'Analog Signal',
+    digital: 'Digital Signal',
+    pwm: 'PWM Signal',
+    i2c: 'I2C Bus',
+    spi: 'SPI Bus',
+    usart: 'Serial UART',
   };
 
   return labels[signalType];

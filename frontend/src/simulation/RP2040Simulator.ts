@@ -9,7 +9,7 @@ import { loadUF2, loadUserFiles, getFirmware } from './MicroPythonLoader';
  *
  * Features:
  * - ARM Cortex-M0+ dual-core Cortex-M0+ CPU at 125 MHz (single-core emulated)
- * - 30 GPIO pins (GPIO0-GPIO29)  xc fv       nn 
+ * - 30 GPIO pins (GPIO0-GPIO29)  xc fv       nn
  * - 2× UART, 2× SPI, 2× I2C
  * - ADC on GPIO26-GPIO29 (A0-A3) + internal temp sensor (ch4)
  * - PWM on any GPIO
@@ -35,7 +35,7 @@ export interface RP2040I2CDevice {
   /** 7-bit I2C address */
   address: number;
   /** Called when master writes a byte */
-  writeByte(value: number): boolean;   // return true for ACK
+  writeByte(value: number): boolean; // return true for ACK
   /** Called when master reads a byte */
   readByte(): number;
   /** Optional: called on STOP condition */
@@ -67,7 +67,10 @@ export class RP2040Simulator {
   public onPinChangeWithTime: ((pin: number, state: boolean, timeMs: number) => void) | null = null;
 
   /** I2C virtual devices on each bus */
-  private i2cDevices: [Map<number, RP2040I2CDevice>, Map<number, RP2040I2CDevice>] = [new Map(), new Map()];
+  private i2cDevices: [Map<number, RP2040I2CDevice>, Map<number, RP2040I2CDevice>] = [
+    new Map(),
+    new Map(),
+  ];
   private activeI2CDevice: [RP2040I2CDevice | null, RP2040I2CDevice | null] = [null, null];
 
   constructor(pinManager: PinManager) {
@@ -154,8 +157,12 @@ export class RP2040Simulator {
     };
     this.wireI2C(0);
     this.wireI2C(1);
-    this.rp2040.spi[0].onTransmit = (v: number) => { this.rp2040!.spi[0].completeTransmit(v); };
-    this.rp2040.spi[1].onTransmit = (v: number) => { this.rp2040!.spi[1].completeTransmit(v); };
+    this.rp2040.spi[0].onTransmit = (v: number) => {
+      this.rp2040!.spi[0].completeTransmit(v);
+    };
+    this.rp2040.spi[1].onTransmit = (v: number) => {
+      this.rp2040!.spi[1].completeTransmit(v);
+    };
     this.rp2040.adc.channelValues[0] = 2048;
     this.rp2040.adc.channelValues[1] = 2048;
     this.rp2040.adc.channelValues[2] = 2048;
@@ -167,7 +174,10 @@ export class RP2040Simulator {
     for (const pio of (this.rp2040 as any).pio) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pio.run = function (this: any) {
-        if (this.runTimer) { clearTimeout(this.runTimer); this.runTimer = null; }
+        if (this.runTimer) {
+          clearTimeout(this.runTimer);
+          this.runTimer = null;
+        }
       };
     }
     this.pioStepAccum = 0;
@@ -321,7 +331,7 @@ export class RP2040Simulator {
   }
 
   private setupGpioListeners(): void {
-    this.gpioUnsubscribers.forEach(fn => fn());
+    this.gpioUnsubscribers.forEach((fn) => fn());
     this.gpioUnsubscribers = [];
 
     if (!this.rp2040) return;
@@ -416,7 +426,6 @@ export class RP2040Simulator {
             this.flushScheduledPinChanges();
           }
         }
-
       } catch (error) {
         console.error('[RP2040] Simulation error:', error);
         this.stop();
@@ -470,13 +479,20 @@ export class RP2040Simulator {
         };
         this.wireI2C(0);
         this.wireI2C(1);
-        this.rp2040.spi[0].onTransmit = (v: number) => { this.rp2040!.spi[0].completeTransmit(v); };
-        this.rp2040.spi[1].onTransmit = (v: number) => { this.rp2040!.spi[1].completeTransmit(v); };
+        this.rp2040.spi[0].onTransmit = (v: number) => {
+          this.rp2040!.spi[0].completeTransmit(v);
+        };
+        this.rp2040.spi[1].onTransmit = (v: number) => {
+          this.rp2040!.spi[1].completeTransmit(v);
+        };
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const pio of (this.rp2040 as any).pio) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           pio.run = function (this: any) {
-            if (this.runTimer) { clearTimeout(this.runTimer); this.runTimer = null; }
+            if (this.runTimer) {
+              clearTimeout(this.runTimer);
+              this.runTimer = null;
+            }
           };
         }
         this.pioStepAccum = 0;
@@ -546,7 +562,10 @@ export class RP2040Simulator {
 
   private flushScheduledPinChanges(): void {
     if (this.scheduledPinChanges.length === 0) return;
-    while (this.scheduledPinChanges.length > 0 && this.scheduledPinChanges[0].cycle <= this.totalCycles) {
+    while (
+      this.scheduledPinChanges.length > 0 &&
+      this.scheduledPinChanges[0].cycle <= this.totalCycles
+    ) {
       const { pin, state } = this.scheduledPinChanges.shift()!;
       this.setPinState(pin, state);
     }
@@ -635,7 +654,9 @@ export class RP2040Simulator {
   // RP2040 handles all sensor protocols locally via schedulePinChange,
   // so these return false / no-op — the sensor runs its own frontend logic.
 
-  registerSensor(_type: string, _pin: number, _props: Record<string, unknown>): boolean { return false; }
+  registerSensor(_type: string, _pin: number, _props: Record<string, unknown>): boolean {
+    return false;
+  }
   updateSensor(_pin: number, _props: Record<string, unknown>): void {}
   unregisterSensor(_pin: number): void {}
 }

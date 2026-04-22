@@ -57,23 +57,33 @@ class SSD1306Core {
   readonly buffer = new Uint8Array(128 * 8);
 
   // GDDRAM cursor
-  private col      = 0;
-  private page     = 0;
+  private col = 0;
+  private page = 0;
   private colStart = 0;
-  private colEnd   = 127;
+  private colEnd = 127;
   private pageStart = 0;
-  private pageEnd   = 7;
-  private memMode   = 0;        // 0=horizontal, 1=vertical, 2=page
+  private pageEnd = 7;
+  private memMode = 0; // 0=horizontal, 1=vertical, 2=page
 
   // Multi-byte command accumulation
-  private cmdBuf: number[]  = [];
-  private cmdWant           = 0;
+  private cmdBuf: number[] = [];
+  private cmdWant = 0;
 
   /** How many parameter bytes does this command require? */
   static cmdParams(cmd: number): number {
-    if (cmd === 0x20 || cmd === 0x81 || cmd === 0x8D ||
-        cmd === 0xA8 || cmd === 0xD3 || cmd === 0xD5 ||
-        cmd === 0xD8 || cmd === 0xD9 || cmd === 0xDA || cmd === 0xDB) return 1;
+    if (
+      cmd === 0x20 ||
+      cmd === 0x81 ||
+      cmd === 0x8d ||
+      cmd === 0xa8 ||
+      cmd === 0xd3 ||
+      cmd === 0xd5 ||
+      cmd === 0xd8 ||
+      cmd === 0xd9 ||
+      cmd === 0xda ||
+      cmd === 0xdb
+    )
+      return 1;
     if (cmd === 0x21 || cmd === 0x22) return 2;
     return 0;
   }
@@ -92,7 +102,7 @@ class SSD1306Core {
       if (this.cmdWant === 0) this.applyCmd();
       return;
     }
-    this.cmdBuf  = [value];
+    this.cmdBuf = [value];
     this.cmdWant = SSD1306Core.cmdParams(value);
     if (this.cmdWant === 0) this.applyCmd();
   }
@@ -100,39 +110,46 @@ class SSD1306Core {
   private applyCmd(): void {
     const [cmd, p1, p2] = this.cmdBuf;
     switch (cmd) {
-      case 0x20: this.memMode = p1 & 0x03; break;
+      case 0x20:
+        this.memMode = p1 & 0x03;
+        break;
       case 0x21:
-        this.colStart = p1 & 0x7F;
-        this.colEnd   = p2 & 0x7F;
-        this.col      = this.colStart;
+        this.colStart = p1 & 0x7f;
+        this.colEnd = p2 & 0x7f;
+        this.col = this.colStart;
         break;
       case 0x22:
         this.pageStart = p1 & 0x07;
-        this.pageEnd   = p2 & 0x07;
-        this.page      = this.pageStart;
+        this.pageEnd = p2 & 0x07;
+        this.page = this.pageStart;
         break;
       default:
-        if (cmd >= 0x40 && cmd <= 0x7F) { /* display start line — visual, skip */ }
+        if (cmd >= 0x40 && cmd <= 0x7f) {
+          /* display start line — visual, skip */
+        }
         break;
     }
   }
 
   private advanceCursor(): void {
-    if (this.memMode === 0) {         // horizontal addressing
+    if (this.memMode === 0) {
+      // horizontal addressing
       this.col++;
       if (this.col > this.colEnd) {
         this.col = this.colStart;
         this.page++;
         if (this.page > this.pageEnd) this.page = this.pageStart;
       }
-    } else if (this.memMode === 1) {  // vertical addressing
+    } else if (this.memMode === 1) {
+      // vertical addressing
       this.page++;
       if (this.page > this.pageEnd) {
         this.page = this.pageStart;
         this.col++;
         if (this.col > this.colEnd) this.col = this.colStart;
       }
-    } else {                          // page addressing
+    } else {
+      // page addressing
       this.col++;
       if (this.col > this.colEnd) this.col = this.colStart;
     }
@@ -167,10 +184,10 @@ class SSD1306Core {
           const row = page * 8 + bit;
           const lit = (byte >> bit) & 1;
           const idx = (row * 128 + col) * 4;
-          px[idx]     = lit ? 200 : 0;   // R
-          px[idx + 1] = lit ? 230 : 0;   // G
-          px[idx + 2] = lit ? 255 : 0;   // B
-          px[idx + 3] = 255;             // A
+          px[idx] = lit ? 200 : 0; // R
+          px[idx + 1] = lit ? 230 : 0; // G
+          px[idx + 2] = lit ? 255 : 0; // B
+          px[idx + 3] = 255; // A
         }
       }
     }
@@ -191,18 +208,23 @@ class VirtualSSD1306 implements I2CDevice {
   private readonly core = new SSD1306Core();
 
   private ctrlByte = true;
-  private isData   = false;
+  private isData = false;
 
-  constructor(address: number, private element: HTMLElement) {
+  constructor(
+    address: number,
+    private element: HTMLElement,
+  ) {
     this.address = address;
   }
 
   /** Expose core buffer for tests. */
-  get buffer(): Uint8Array { return this.core.buffer; }
+  get buffer(): Uint8Array {
+    return this.core.buffer;
+  }
 
   writeByte(value: number): boolean {
     if (this.ctrlByte) {
-      this.isData   = (value & 0x40) !== 0;
+      this.isData = (value & 0x40) !== 0;
       this.ctrlByte = false;
       return true;
     }
@@ -214,7 +236,9 @@ class VirtualSSD1306 implements I2CDevice {
     return true;
   }
 
-  readByte(): number { return 0xFF; }
+  readByte(): number {
+    return 0xff;
+  }
 
   stop(): void {
     this.ctrlByte = true;
@@ -245,7 +269,9 @@ function attachSSD1306SPI(
   const pinDC = getPin('DC');
   if (pinDC !== null) {
     unsubs.push(
-      pinManager.onPinChange(pinDC, (_: number, s: boolean) => { dcState = s; }),
+      pinManager.onPinChange(pinDC, (_: number, s: boolean) => {
+        dcState = s;
+      }),
     );
   }
 
@@ -256,7 +282,10 @@ function attachSSD1306SPI(
     if (rafId !== null) return;
     rafId = requestAnimationFrame(() => {
       rafId = null;
-      if (dirty) { core.syncElement(element); dirty = false; }
+      if (dirty) {
+        core.syncElement(element);
+        dirty = false;
+      }
     });
   };
 
@@ -270,13 +299,13 @@ function attachSSD1306SPI(
       dirty = true;
       scheduleSync();
     }
-    spi.completeTransfer(0xFF);
+    spi.completeTransfer(0xff);
   };
 
   return () => {
     spi.onByte = prevOnByte;
     if (rafId !== null) cancelAnimationFrame(rafId);
-    unsubs.forEach(u => u());
+    unsubs.forEach((u) => u());
   };
 }
 
@@ -284,7 +313,7 @@ PartSimulationRegistry.register('ssd1306', {
   attachEvents: (element, simulator, getPin, componentId) => {
     // Read the protocol property from the component in the store
     const { components } = useSimulatorStore.getState();
-    const comp = components.find(c => c.id === componentId);
+    const comp = components.find((c) => c.id === componentId);
     const protocol = (comp?.properties?.protocol as string) ?? 'i2c';
 
     if (protocol === 'spi') {
@@ -293,14 +322,13 @@ PartSimulationRegistry.register('ssd1306', {
 
     // I2C mode (default)
     const sim = simulator as any;
-    const i2cAddr = 0x3C;
+    const i2cAddr = 0x3c;
 
     if (typeof sim.addI2CDevice === 'function') {
       // ── AVR / RP2040 path ──────────────────────────────────────────────────
       const device = new VirtualSSD1306(i2cAddr, element);
       sim.addI2CDevice(device);
       return () => removeI2CDevice(sim, device.address);
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: relay I2C writes via backend ───────────────────────────
       const virtualPin = 200 + i2cAddr;
@@ -335,7 +363,6 @@ PartSimulationRegistry.register('ds1307', {
       const rtc = new VirtualDS1307();
       sim.addI2CDevice(rtc);
       return () => removeI2CDevice(sim, rtc.address);
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: delegate to backend QEMU RTC slave ────────────────────
       const virtualPin = 200 + 0x68;
@@ -364,7 +391,7 @@ PartSimulationRegistry.register('ds1307', {
 class VirtualMPU6050 implements I2CDevice {
   address: number;
   registers = new Uint8Array(256);
-  private regPtr   = 0;
+  private regPtr = 0;
   private firstByte = true;
 
   constructor(address: number) {
@@ -373,21 +400,21 @@ class VirtualMPU6050 implements I2CDevice {
     // WHO_AM_I
     this.registers[0x75] = 0x68;
     // PWR_MGMT_1: device awake by default (0 = no sleep)
-    this.registers[0x6B] = 0x00;
+    this.registers[0x6b] = 0x00;
 
     // ACCEL: Z = +1g = +16384 (0x4000) at ±2g full-scale
-    this.registers[0x3B] = 0x00; // ACCEL_XOUT_H
-    this.registers[0x3C] = 0x00; // ACCEL_XOUT_L
-    this.registers[0x3D] = 0x00; // ACCEL_YOUT_H
-    this.registers[0x3E] = 0x00; // ACCEL_YOUT_L
-    this.registers[0x3F] = 0x40; // ACCEL_ZOUT_H (0x4000 = +16384 = +1g)
+    this.registers[0x3b] = 0x00; // ACCEL_XOUT_H
+    this.registers[0x3c] = 0x00; // ACCEL_XOUT_L
+    this.registers[0x3d] = 0x00; // ACCEL_YOUT_H
+    this.registers[0x3e] = 0x00; // ACCEL_YOUT_L
+    this.registers[0x3f] = 0x40; // ACCEL_ZOUT_H (0x4000 = +16384 = +1g)
     this.registers[0x40] = 0x00; // ACCEL_ZOUT_L
 
     // TEMP: T(°C) = TEMP_OUT / 340.0 + 36.53
     //  → TEMP_OUT = (25 - 36.53) × 340 ≈ -3920 = 0xF190
-    const tempRaw  = Math.round((25 - 36.53) * 340) & 0xFFFF;
-    this.registers[0x41] = (tempRaw >> 8) & 0xFF;
-    this.registers[0x42] =  tempRaw       & 0xFF;
+    const tempRaw = Math.round((25 - 36.53) * 340) & 0xffff;
+    this.registers[0x41] = (tempRaw >> 8) & 0xff;
+    this.registers[0x42] = tempRaw & 0xff;
 
     // GYRO: all zero (stationary)
     // 0x43–0x48 already 0 from Uint8Array initialization
@@ -395,18 +422,18 @@ class VirtualMPU6050 implements I2CDevice {
 
   writeByte(value: number): boolean {
     if (this.firstByte) {
-      this.regPtr   = value;
+      this.regPtr = value;
       this.firstByte = false;
     } else {
       this.registers[this.regPtr] = value;
-      this.regPtr = (this.regPtr + 1) & 0xFF;
+      this.regPtr = (this.regPtr + 1) & 0xff;
     }
     return true;
   }
 
   readByte(): number {
-    const val   = this.registers[this.regPtr];
-    this.regPtr = (this.regPtr + 1) & 0xFF;
+    const val = this.registers[this.regPtr];
+    this.regPtr = (this.regPtr + 1) & 0xff;
     return val;
   }
 
@@ -418,9 +445,9 @@ class VirtualMPU6050 implements I2CDevice {
 PartSimulationRegistry.register('mpu6050', {
   attachEvents: (element, simulator, _getPin, componentId) => {
     const sim = simulator as any;
-    const el  = element as any;
+    const el = element as any;
     // Respect AD0 pin: `el.ad0 = true` → address 0x69, else 0x68
-    const addr = (el.ad0 === true || el.ad0 === 'true') ? 0x69 : 0x68;
+    const addr = el.ad0 === true || el.ad0 === 'true' ? 0x69 : 0x68;
 
     if (typeof sim.addI2CDevice === 'function') {
       // ── AVR / RP2040 path: virtual I2C device in JavaScript ──────────────
@@ -428,26 +455,25 @@ PartSimulationRegistry.register('mpu6050', {
       sim.addI2CDevice(device);
 
       const writeI16 = (regH: number, raw: number) => {
-        const v = Math.max(-32768, Math.min(32767, Math.round(raw))) & 0xFFFF;
-        device.registers[regH]     = (v >> 8) & 0xFF;
-        device.registers[regH + 1] =  v       & 0xFF;
+        const v = Math.max(-32768, Math.min(32767, Math.round(raw))) & 0xffff;
+        device.registers[regH] = (v >> 8) & 0xff;
+        device.registers[regH + 1] = v & 0xff;
       };
 
       registerSensorUpdate(componentId, (values) => {
-        if ('accelX' in values) writeI16(0x3B, (values.accelX as number) * 16384);
-        if ('accelY' in values) writeI16(0x3D, (values.accelY as number) * 16384);
-        if ('accelZ' in values) writeI16(0x3F, (values.accelZ as number) * 16384);
-        if ('gyroX'  in values) writeI16(0x43, (values.gyroX  as number) * 131);
-        if ('gyroY'  in values) writeI16(0x45, (values.gyroY  as number) * 131);
-        if ('gyroZ'  in values) writeI16(0x47, (values.gyroZ  as number) * 131);
-        if ('temp'   in values) writeI16(0x41, ((values.temp as number) - 36.53) * 340);
+        if ('accelX' in values) writeI16(0x3b, (values.accelX as number) * 16384);
+        if ('accelY' in values) writeI16(0x3d, (values.accelY as number) * 16384);
+        if ('accelZ' in values) writeI16(0x3f, (values.accelZ as number) * 16384);
+        if ('gyroX' in values) writeI16(0x43, (values.gyroX as number) * 131);
+        if ('gyroY' in values) writeI16(0x45, (values.gyroY as number) * 131);
+        if ('gyroZ' in values) writeI16(0x47, (values.gyroZ as number) * 131);
+        if ('temp' in values) writeI16(0x41, ((values.temp as number) - 36.53) * 340);
       });
 
       return () => {
         removeI2CDevice(sim, device.address);
         unregisterSensorUpdate(componentId);
       };
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: delegate to backend QEMU I2C slave state machine ─────
       // Use (200 + addr) as a virtual pin for I2C sensors — above valid GPIO
@@ -493,18 +519,16 @@ PartSimulationRegistry.register('mpu6050', {
  * These can be changed by setting element properties: `el.temperature`, `el.humidity`.
  */
 function buildDHT22Payload(element: HTMLElement): Uint8Array {
-  const el          = element as any;
-  const humidity    = Math.round((el.humidity    ?? 50.0) * 10);    // tenths of %
-  const temperature = Math.round((el.temperature ?? 25.0) * 10);    // tenths of °C
-  const h_H = (humidity >> 8) & 0xFF;
-  const h_L =  humidity       & 0xFF;
+  const el = element as any;
+  const humidity = Math.round((el.humidity ?? 50.0) * 10); // tenths of %
+  const temperature = Math.round((el.temperature ?? 25.0) * 10); // tenths of °C
+  const h_H = (humidity >> 8) & 0xff;
+  const h_L = humidity & 0xff;
   // Temperature sign bit is bit 15 of the 16-bit value
-  const rawTemp = temperature < 0
-    ? ((-temperature) & 0x7FFF) | 0x8000
-    : temperature & 0x7FFF;
-  const t_H = (rawTemp >> 8) & 0xFF;
-  const t_L =  rawTemp       & 0xFF;
-  const chk = (h_H + h_L + t_H + t_L) & 0xFF;
+  const rawTemp = temperature < 0 ? (-temperature & 0x7fff) | 0x8000 : temperature & 0x7fff;
+  const t_H = (rawTemp >> 8) & 0xff;
+  const t_L = rawTemp & 0xff;
+  const chk = (h_H + h_L + t_H + t_L) & 0xff;
   return new Uint8Array([h_H, h_L, t_H, t_L, chk]);
 }
 
@@ -540,17 +564,16 @@ function scheduleDHT22Response(simulator: any, pin: number, element: HTMLElement
   const now = simulator.getCurrentCycles() as number;
 
   // Scale timing by CPU clock — AVR runs at 16 MHz, RP2040 at 125 MHz.
-  const clockHz: number = typeof simulator.getClockHz === 'function'
-      ? simulator.getClockHz()
-      : 16_000_000;
-  const us = (microseconds: number) => Math.round(microseconds * clockHz / 1_000_000);
+  const clockHz: number =
+    typeof simulator.getClockHz === 'function' ? simulator.getClockHz() : 16_000_000;
+  const us = (microseconds: number) => Math.round((microseconds * clockHz) / 1_000_000);
 
-  const RESPONSE_START = us(20);  // DHT22 response start (~20 µs after MCU releases)
-  const LOW80  = us(80);  // 80 µs LOW preamble
-  const HIGH80 = us(80);  // 80 µs HIGH preamble
-  const LOW50  = us(50);  // 50 µs LOW marker before each bit
-  const HIGH0  = us(26);  // 26 µs HIGH → bit '0'
-  const HIGH1  = us(70);  // 70 µs HIGH → bit '1'
+  const RESPONSE_START = us(20); // DHT22 response start (~20 µs after MCU releases)
+  const LOW80 = us(80); // 80 µs LOW preamble
+  const HIGH80 = us(80); // 80 µs HIGH preamble
+  const LOW50 = us(50); // 50 µs LOW marker before each bit
+  const HIGH0 = us(26); // 26 µs HIGH → bit '0'
+  const HIGH1 = us(70); // 70 µs HIGH → bit '1'
 
   let t = now + RESPONSE_START;
 
@@ -590,13 +613,14 @@ PartSimulationRegistry.register('dht22', {
     const temperature = el.temperature ?? 25.0;
     const humidity = el.humidity ?? 50.0;
 
-    const handledNatively = typeof (simulator as any).registerSensor === 'function'
-      && (simulator as any).registerSensor('dht22', pin, { temperature, humidity });
+    const handledNatively =
+      typeof (simulator as any).registerSensor === 'function' &&
+      (simulator as any).registerSensor('dht22', pin, { temperature, humidity });
 
     if (handledNatively) {
       registerSensorUpdate(componentId, (values) => {
         if ('temperature' in values) el.temperature = values.temperature as number;
-        if ('humidity'    in values) el.humidity    = values.humidity    as number;
+        if ('humidity' in values) el.humidity = values.humidity as number;
         (simulator as any).updateSensor(pin, {
           temperature: el.temperature ?? 25.0,
           humidity: el.humidity ?? 50.0,
@@ -614,12 +638,13 @@ PartSimulationRegistry.register('dht22', {
     // After the MCU releases DATA HIGH and we begin responding, we ignore all
     // pin-change callbacks until the full waveform has been emitted.
     // DHT22 response is ~5 ms; gate for ~12.5 ms scaled to the CPU clock.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const clockHz: number = typeof (simulator as any).getClockHz === 'function'
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ? (simulator as any).getClockHz()
+
+    const clockHz: number =
+      typeof (simulator as any).getClockHz === 'function'
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (simulator as any).getClockHz()
         : 16_000_000;
-    const RESPONSE_GATE_CYCLES = Math.round(12_500 * clockHz / 1_000_000);
+    const RESPONSE_GATE_CYCLES = Math.round((12_500 * clockHz) / 1_000_000);
     let responseEndCycle = 0;
     let responseEndTimeMs = 0; // time-based fallback for ESP32 (no cycle counter)
 
@@ -628,30 +653,27 @@ PartSimulationRegistry.register('dht22', {
         ? ((simulator as any).getCurrentCycles() as number)
         : -1;
 
-    const unsub = (simulator as any).pinManager.onPinChange(
-      pin,
-      (_: number, state: boolean) => {
-        // While DHT22 is driving the line, ignore our own scheduled changes.
-        const now = getCycles();
-        if (now >= 0 && now < responseEndCycle) return;
-        // Time-based fallback for ESP32 (no cycle counter available)
-        if (now < 0 && Date.now() < responseEndTimeMs) return;
+    const unsub = (simulator as any).pinManager.onPinChange(pin, (_: number, state: boolean) => {
+      // While DHT22 is driving the line, ignore our own scheduled changes.
+      const now = getCycles();
+      if (now >= 0 && now < responseEndCycle) return;
+      // Time-based fallback for ESP32 (no cycle counter available)
+      if (now < 0 && Date.now() < responseEndTimeMs) return;
 
-        if (!state) {
-          // MCU drove DATA LOW — start signal detected
-          wasLow = true;
-          return;
-        }
-        if (wasLow) {
-          // MCU released DATA HIGH — begin DHT22 response
-          wasLow = false;
-          const cur = getCycles();
-          responseEndCycle = cur >= 0 ? cur + RESPONSE_GATE_CYCLES : 0;
-          responseEndTimeMs = Date.now() + 20; // 20ms gate for non-cycle simulators
-          scheduleDHT22Response(simulator, pin, element);
-        }
-      },
-    );
+      if (!state) {
+        // MCU drove DATA LOW — start signal detected
+        wasLow = true;
+        return;
+      }
+      if (wasLow) {
+        // MCU released DATA HIGH — begin DHT22 response
+        wasLow = false;
+        const cur = getCycles();
+        responseEndCycle = cur >= 0 ? cur + RESPONSE_GATE_CYCLES : 0;
+        responseEndTimeMs = Date.now() + 20; // 20ms gate for non-cycle simulators
+        scheduleDHT22Response(simulator, pin, element);
+      }
+    });
 
     // Idle state: DATA HIGH (pulled up)
     simulator.setPinState(pin, true);
@@ -660,7 +682,7 @@ PartSimulationRegistry.register('dht22', {
     registerSensorUpdate(componentId, (values) => {
       const el = element as any;
       if ('temperature' in values) el.temperature = values.temperature as number;
-      if ('humidity'    in values) el.humidity    = values.humidity    as number;
+      if ('humidity' in values) el.humidity = values.humidity as number;
     });
 
     return () => {
@@ -691,7 +713,7 @@ PartSimulationRegistry.register('dht22', {
  */
 PartSimulationRegistry.register('hx711', {
   attachEvents: (element, simulator, getPin) => {
-    const pinSCK  = getPin('SCK');
+    const pinSCK = getPin('SCK');
     const pinDOUT = getPin('DOUT');
     if (pinSCK === null || pinDOUT === null) return () => {};
 
@@ -700,9 +722,9 @@ PartSimulationRegistry.register('hx711', {
     let finishing = false;
 
     function rawFromWeight(el: HTMLElement): number {
-      const w = (el as any).weight ?? 100;           // grams
-      const raw = Math.round(w * 1000);              // 24-bit fixed-point
-      return Math.max(-8_388_608, Math.min(8_388_607, raw)) & 0xFF_FFFF;
+      const w = (el as any).weight ?? 100; // grams
+      const raw = Math.round(w * 1000); // 24-bit fixed-point
+      return Math.max(-8_388_608, Math.min(8_388_607, raw)) & 0xff_ffff;
     }
 
     // DOUT LOW = next conversion ready
@@ -726,8 +748,8 @@ PartSimulationRegistry.register('hx711', {
           // Falling edge after the 25th pulse → conversion complete
           if (finishing) {
             finishing = false;
-            bitCount  = 0;
-            rawValue  = rawFromWeight(element);
+            bitCount = 0;
+            rawValue = rawFromWeight(element);
             // DOUT LOW = new conversion ready (simulate ~10 ms conversion time)
             setTimeout(() => simulator.setPinState(pinDOUT, false), 10);
           }
@@ -773,20 +795,16 @@ function necBitSequence(address: number, command: number): number[] {
   }
 
   // Preamble
-  push(9,   0);   // 9 ms mark
-  push(4.5, 1);   // 4.5 ms space
+  push(9, 0); // 9 ms mark
+  push(4.5, 1); // 4.5 ms space
 
   // Build 32 bits: addr, ~addr, cmd, ~cmd
-  const bytes = [
-    address & 0xFF,
-    (~address) & 0xFF,
-    command  & 0xFF,
-    (~command) & 0xFF,
-  ];
+  const bytes = [address & 0xff, ~address & 0xff, command & 0xff, ~command & 0xff];
   for (const byte of bytes) {
-    for (let b = 0; b < 8; b++) {   // LSB first for NEC
+    for (let b = 0; b < 8; b++) {
+      // LSB first for NEC
       const bit = (byte >> b) & 1;
-      push(0.562, 0);               // 562 µs mark (same for 0 and 1)
+      push(0.562, 0); // 562 µs mark (same for 0 and 1)
       push(bit ? 1.687 : 0.562, 1); // space: 1687 µs=1, 562 µs=0
     }
   }
@@ -797,12 +815,7 @@ function necBitSequence(address: number, command: number): number[] {
   return frames;
 }
 
-function driveNECSequence(
-  simulator: any,
-  pin: number,
-  address: number,
-  command: number,
-): void {
+function driveNECSequence(simulator: any, pin: number, address: number, command: number): void {
   const frames = necBitSequence(address, command);
   let i = 0;
 
@@ -812,7 +825,7 @@ function driveNECSequence(
       return;
     }
     const duration = frames[i++];
-    const level    = frames[i++];
+    const level = frames[i++];
     simulator.setPinState(pin, level === 1); // active-low: LOW=burst, HIGH=space
     setTimeout(next, duration);
   }
@@ -829,9 +842,9 @@ PartSimulationRegistry.register('ir-receiver', {
     simulator.setPinState(pin, true);
 
     const onClick = () => {
-      const el      = element as any;
-      const address = (el.irAddress ?? 0x00) & 0xFF;
-      const command = (el.irCommand  ?? 0x45) & 0xFF;
+      const el = element as any;
+      const address = (el.irAddress ?? 0x00) & 0xff;
+      const command = (el.irCommand ?? 0x45) & 0xff;
       driveNECSequence(simulator, pin, address, command);
     };
 
@@ -859,11 +872,27 @@ PartSimulationRegistry.register('ir-receiver', {
  * both 'button-press' from the element model and 'click' as fallback.
  */
 const IR_REMOTE_COMMANDS: Record<string, number> = {
-  '0': 0x16, '1': 0x0C, '2': 0x18, '3': 0x5E, '4': 0x08,
-  '5': 0x1C, '6': 0x5A, '7': 0x42, '8': 0x52, '9': 0x4A,
-  'vol+': 0x40, 'vol-': 0x00, 'ch+': 0x48, 'ch-': 0x0D,
-  'power': 0x45, 'mute': 0x09,
-  'ok': 0x1B, 'up': 0x46, 'down': 0x15, 'left': 0x44, 'right': 0x43,
+  '0': 0x16,
+  '1': 0x0c,
+  '2': 0x18,
+  '3': 0x5e,
+  '4': 0x08,
+  '5': 0x1c,
+  '6': 0x5a,
+  '7': 0x42,
+  '8': 0x52,
+  '9': 0x4a,
+  'vol+': 0x40,
+  'vol-': 0x00,
+  'ch+': 0x48,
+  'ch-': 0x0d,
+  power: 0x45,
+  mute: 0x09,
+  ok: 0x1b,
+  up: 0x46,
+  down: 0x15,
+  left: 0x44,
+  right: 0x43,
 };
 
 PartSimulationRegistry.register('ir-remote', {
@@ -874,25 +903,29 @@ PartSimulationRegistry.register('ir-remote', {
     if (pin !== null) simulator.setPinState(pin, true);
 
     const el = element as any;
-    const address = (el.irAddress ?? 0x00) & 0xFF;
+    const address = (el.irAddress ?? 0x00) & 0xff;
 
     const onButtonPress = (e: Event) => {
-      const key     = ((e as CustomEvent).detail?.key ?? '').toLowerCase();
-      const command = (IR_REMOTE_COMMANDS[key] ?? 0x45) & 0xFF;
-      element.dispatchEvent(new CustomEvent('ir-signal', {
-        bubbles: true,
-        detail: { address, command, key },
-      }));
+      const key = ((e as CustomEvent).detail?.key ?? '').toLowerCase();
+      const command = (IR_REMOTE_COMMANDS[key] ?? 0x45) & 0xff;
+      element.dispatchEvent(
+        new CustomEvent('ir-signal', {
+          bubbles: true,
+          detail: { address, command, key },
+        }),
+      );
       if (pin !== null) driveNECSequence(simulator, pin, address, command);
     };
 
     const onClick = () => {
       // Fallback for plain click — send POWER code
       const command = 0x45;
-      element.dispatchEvent(new CustomEvent('ir-signal', {
-        bubbles: true,
-        detail: { address, command, key: 'power' },
-      }));
+      element.dispatchEvent(
+        new CustomEvent('ir-signal', {
+          bubbles: true,
+          detail: { address, command, key: 'power' },
+        }),
+      );
       if (pin !== null) driveNECSequence(simulator, pin, address, command);
     };
 
@@ -935,52 +968,63 @@ PartSimulationRegistry.register('microsd-card', {
     if (!spi) return () => {};
 
     const respQueue: number[] = [];
-    let   cmdBuf: number[]    = [];
-    let   expectingAcmd       = false;
+    let cmdBuf: number[] = [];
+    let expectingAcmd = false;
 
     /** Resolve GPIO CS if wired — not strictly required since Arduino drives CS via GPIO */
-    function enqueueR1(r1: number): void { respQueue.push(r1); }
+    function enqueueR1(r1: number): void {
+      respQueue.push(r1);
+    }
     function enqueueR7(r1: number, v32: number): void {
-      respQueue.push(r1,
-        (v32 >> 24) & 0xFF, (v32 >> 16) & 0xFF,
-        (v32 >>  8) & 0xFF,  v32        & 0xFF,
-      );
+      respQueue.push(r1, (v32 >> 24) & 0xff, (v32 >> 16) & 0xff, (v32 >> 8) & 0xff, v32 & 0xff);
     }
 
     function processCmd(raw: number[]): void {
       if (raw.length < 6) return;
-      const cmdIndex = raw[0] & 0x3F;
-      const isAcmd   = expectingAcmd;
-      expectingAcmd  = false;
+      const cmdIndex = raw[0] & 0x3f;
+      const isAcmd = expectingAcmd;
+      expectingAcmd = false;
 
       if (isAcmd) {
         // ACMD41: send init — respond ready
-        if (cmdIndex === 41) { enqueueR1(0x00); return; }
+        if (cmdIndex === 41) {
+          enqueueR1(0x00);
+          return;
+        }
       }
 
       switch (cmdIndex) {
-        case 0:  enqueueR1(0x01); break;
-        case 8:  enqueueR7(0x01, 0x000001AA); break;
-        case 55: enqueueR1(0x01); expectingAcmd = true; break;
-        case 58: enqueueR7(0x00, 0x40000000); break;  // SDHC OCR
+        case 0:
+          enqueueR1(0x01);
+          break;
+        case 8:
+          enqueueR7(0x01, 0x000001aa);
+          break;
+        case 55:
+          enqueueR1(0x01);
+          expectingAcmd = true;
+          break;
+        case 58:
+          enqueueR7(0x00, 0x40000000);
+          break; // SDHC OCR
         case 17: // CMD17: read single block
-          respQueue.push(0x00);          // R1 ok
-          respQueue.push(0xFE);          // data token
-          for (let i = 0; i < 512; i++) respQueue.push(0xFF); // empty block
-          respQueue.push(0xFF, 0xFF);    // CRC (ignored)
+          respQueue.push(0x00); // R1 ok
+          respQueue.push(0xfe); // data token
+          for (let i = 0; i < 512; i++) respQueue.push(0xff); // empty block
+          respQueue.push(0xff, 0xff); // CRC (ignored)
           break;
         case 24: // CMD24: write single block
-          respQueue.push(0x00, 0x05);    // R1 ok, data response accepted
+          respQueue.push(0x00, 0x05); // R1 ok, data response accepted
           break;
         default:
-          enqueueR1(0x00);               // respond OK for unhandled commands
+          enqueueR1(0x00); // respond OK for unhandled commands
       }
     }
 
     const prevOnTransmit = spi.onTransmit as ((b: number) => void) | null | undefined;
 
     spi.onTransmit = (byte: number) => {
-      if ((byte & 0x40) && cmdBuf.length === 0) {
+      if (byte & 0x40 && cmdBuf.length === 0) {
         // New command — start accumulation
         cmdBuf = [byte];
       } else if (cmdBuf.length > 0 && cmdBuf.length < 6) {
@@ -992,7 +1036,7 @@ PartSimulationRegistry.register('microsd-card', {
       }
 
       // Drain response queue; idle reply is 0xFF
-      const reply = respQueue.length > 0 ? respQueue.shift()! : 0xFF;
+      const reply = respQueue.length > 0 ? respQueue.shift()! : 0xff;
       spi.completeTransmit(reply);
     };
 
@@ -1023,35 +1067,38 @@ PartSimulationRegistry.register('microsd-card', {
  */
 PartSimulationRegistry.register('bmp280', {
   attachEvents: (element, simulator, _getPin, componentId) => {
-    const sim  = simulator as any;
-    const el   = element as any;
-    const addr = (el.address === '0x77' || el.address === 0x77) ? 0x77 : 0x76;
+    const sim = simulator as any;
+    const el = element as any;
+    const addr = el.address === '0x77' || el.address === 0x77 ? 0x77 : 0x76;
 
     if (typeof sim.addI2CDevice === 'function') {
       // ── AVR / RP2040 path ──────────────────────────────────────────────────
       const dev = new VirtualBMP280(addr);
 
       if (el.temperature !== undefined) dev.temperatureC = parseFloat(el.temperature);
-      if (el.pressure    !== undefined) dev.pressureHPa  = parseFloat(el.pressure);
+      if (el.pressure !== undefined) dev.pressureHPa = parseFloat(el.pressure);
 
       sim.addI2CDevice(dev);
 
       registerSensorUpdate(componentId, (values) => {
         if ('temperature' in values) dev.temperatureC = values.temperature as number;
-        if ('pressure'    in values) dev.pressureHPa  = values.pressure    as number;
+        if ('pressure' in values) dev.pressureHPa = values.pressure as number;
       });
 
       return () => {
         removeI2CDevice(sim, dev.address);
         unregisterSensorUpdate(componentId);
       };
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: delegate to backend QEMU BMP280 slave ─────────────────
       const virtualPin = 200 + addr;
-      const initTemp     = el.temperature !== undefined ? parseFloat(el.temperature) : 25.0;
-      const initPressure = el.pressure    !== undefined ? parseFloat(el.pressure)    : 1013.25;
-      sim.registerSensor('bmp280', virtualPin, { addr, temperature: initTemp, pressure: initPressure });
+      const initTemp = el.temperature !== undefined ? parseFloat(el.temperature) : 25.0;
+      const initPressure = el.pressure !== undefined ? parseFloat(el.pressure) : 1013.25;
+      sim.registerSensor('bmp280', virtualPin, {
+        addr,
+        temperature: initTemp,
+        pressure: initPressure,
+      });
 
       registerSensorUpdate(componentId, (values) => {
         sim.updateSensor(virtualPin, values);
@@ -1084,7 +1131,7 @@ PartSimulationRegistry.register('bmp280', {
 PartSimulationRegistry.register('ds3231', {
   attachEvents: (element, simulator, _getPin, componentId) => {
     const sim = simulator as any;
-    const el  = element as any;
+    const el = element as any;
 
     if (typeof sim.addI2CDevice === 'function') {
       // ── AVR / RP2040 path ──────────────────────────────────────────────────
@@ -1092,11 +1139,10 @@ PartSimulationRegistry.register('ds3231', {
       if (el.temperature !== undefined) dev.temperatureC = parseFloat(el.temperature);
       sim.addI2CDevice(dev);
       return () => removeI2CDevice(sim, dev.address);
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: delegate to backend QEMU DS3231 slave ─────────────────
       const virtualPin = 200 + 0x68;
-      const initTemp   = el.temperature !== undefined ? parseFloat(el.temperature) : 25.0;
+      const initTemp = el.temperature !== undefined ? parseFloat(el.temperature) : 25.0;
       sim.registerSensor('ds3231', virtualPin, { addr: 0x68, temperature: initTemp });
       registerSensorUpdate(componentId, (values) => {
         sim.updateSensor(virtualPin, values);
@@ -1128,32 +1174,34 @@ PartSimulationRegistry.register('ds3231', {
 PartSimulationRegistry.register('pcf8574', {
   attachEvents: (element, simulator, _getPin) => {
     const sim = simulator as any;
-    const el  = element as any;
+    const el = element as any;
 
     // Parse address from element property (accepts '0x27', '39', or numeric)
     let addr = 0x27;
     if (el.i2cAddress !== undefined) {
-      const raw    = String(el.i2cAddress).trim();
-      const parsed = raw.startsWith('0x') || raw.startsWith('0X')
-        ? parseInt(raw, 16)
-        : parseInt(raw, 10);
+      const raw = String(el.i2cAddress).trim();
+      const parsed =
+        raw.startsWith('0x') || raw.startsWith('0X') ? parseInt(raw, 16) : parseInt(raw, 10);
       if (!isNaN(parsed)) addr = parsed;
     }
 
     if (typeof sim.addI2CDevice === 'function') {
       // ── AVR / RP2040 path ──────────────────────────────────────────────────
       const dev = new VirtualPCF8574(addr);
-      if (el.portState !== undefined) dev.portState = Number(el.portState) & 0xFF;
-      dev.onWrite = (value: number) => { el.value = value; };
+      if (el.portState !== undefined) dev.portState = Number(el.portState) & 0xff;
+      dev.onWrite = (value: number) => {
+        el.value = value;
+      };
       sim.addI2CDevice(dev);
       return () => removeI2CDevice(sim, dev.address);
-
     } else if (typeof sim.registerSensor === 'function') {
       // ── ESP32 path: relay I2C writes via backend ───────────────────────────
       const virtualPin = 200 + addr;
       const dev = new VirtualPCF8574(addr);
-      if (el.portState !== undefined) dev.portState = Number(el.portState) & 0xFF;
-      dev.onWrite = (value: number) => { el.value = value; };
+      if (el.portState !== undefined) dev.portState = Number(el.portState) & 0xff;
+      dev.onWrite = (value: number) => {
+        el.value = value;
+      };
       sim.registerSensor('pcf8574', virtualPin, { addr });
       sim.addI2CTransactionListener(addr, (data: number[]) => {
         if (data.length > 0) dev.writeByte(data[0]);

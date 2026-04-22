@@ -28,7 +28,9 @@
   flex-shrink: 0;
   white-space: nowrap;
   overflow: hidden;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .file-tab:hover {
@@ -71,7 +73,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .file-tab:hover .file-tab-close,

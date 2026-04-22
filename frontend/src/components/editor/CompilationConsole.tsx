@@ -94,14 +94,32 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
 
           {/* Clear */}
           <button onClick={onClear} style={styles.iconBtn} title="Clear output">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
             </svg>
           </button>
 
           {/* Close */}
           <button onClick={onClose} style={styles.iconBtn} title="Close">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -117,12 +135,15 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
           filteredLogs.map((log, i) => (
             <div key={i} style={styles.logLine}>
               <span style={styles.timestamp}>
-                {log.timestamp.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {log.timestamp.toLocaleTimeString('en-US', {
+                  hour12: false,
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })}
               </span>
               <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
-                {log.type === 'core-install' && (
-                  <span style={styles.coreTag}>CORE </span>
-                )}
+                {log.type === 'core-install' && <span style={styles.coreTag}>CORE </span>}
                 {log.message}
               </span>
             </div>
@@ -135,11 +156,16 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
 
 function logColor(type: CompilationLog['type']): string {
   switch (type) {
-    case 'error':        return '#ef5350';
-    case 'warning':      return '#ffa726';
-    case 'success':      return '#66bb6a';
-    case 'core-install': return '#4fc3f7';
-    default:             return '#cccccc';
+    case 'error':
+      return '#ef5350';
+    case 'warning':
+      return '#ffa726';
+    case 'success':
+      return '#66bb6a';
+    case 'core-install':
+      return '#4fc3f7';
+    default:
+      return '#cccccc';
   }
 }
 

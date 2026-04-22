@@ -50,7 +50,9 @@ export const UserProfilePage: React.FC = () => {
           <div className="profile-avatar">{username?.[0]?.toUpperCase()}</div>
           <h1 className="profile-username">{username}</h1>
           {isOwn && (
-            <Link to="/editor" className="profile-new-btn">+ New project</Link>
+            <Link to="/editor" className="profile-new-btn">
+              + New project
+            </Link>
           )}
         </div>
 
@@ -67,7 +69,9 @@ export const UserProfilePage: React.FC = () => {
               {p.description && <div className="profile-card-desc">{p.description}</div>}
               <div className="profile-card-meta">
                 <span className="profile-badge">{p.board_type}</span>
-                {!p.is_public && <span className="profile-badge profile-badge-private">Private</span>}
+                {!p.is_public && (
+                  <span className="profile-badge profile-badge-private">Private</span>
+                )}
                 <span className="profile-date">{new Date(p.updated_at).toLocaleDateString()}</span>
                 {p.is_public && (
                   <button
@@ -76,11 +80,29 @@ export const UserProfilePage: React.FC = () => {
                     title="Copy shareable link"
                   >
                     {copiedId === p.id ? (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#4ade80"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     ) : (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                       </svg>
