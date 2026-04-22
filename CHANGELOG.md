@@ -3,6 +3,34 @@
 All notable changes to Velxio will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.0.1] - 2026-04-22
+
+### Added
+- Enhanced electrical simulation with ngspice-WASM engine for accurate analog circuit analysis
+- Expanded component catalog with 44 SPICE-compatible parts including logic gates, transistors, op-amps, regulators, and electromechanical components
+- Added 40 new circuit examples demonstrating analog, digital, and electromechanical concepts
+- Introduced custom web components for electronic elements (relays, resistors, capacitors, inductors, transistors)
+- Implemented ESP32 ADC waveform simulation with periodic 12-bit waveform look-up tables and interpolation
+- Added voltmeter and ammeter instrument components for real-time circuit measurements
+- Created comprehensive end-to-end tests for electrical simulation including capacitor charging, rectifier behavior, and waveform analysis
+- Added GitHub Actions workflow for circuit simulation testing on every push and PR
+
+### Changed
+- Renamed all components to use 'velxio-' prefix for consistency
+- Enabled electrical simulation by default (always-on SPICE mode) instead of requiring manual activation
+- Enhanced LED brightness simulation to reflect actual current flow from SPICE calculations
+- Updated backend to handle unhandled asyncio exceptions and prevent process crashes
+- Improved component metadata generation to prevent CI drift and enforce up-to-date metadata
+- Refactored property synchronization in simulation parts to use event-based system
+- Expanded ADC pin mapping to support all 18 board types for full microcontroller integration
+
+### Fixed
+- Fixed sitemap generation to include all circuit examples for better SEO visibility
+- Resolved floating input node issues in RC low-pass filter circuits that caused SPICE singular matrix errors
+- Updated proxy configuration to use 127.0.0.1 for improved compatibility
+- Fixed metadata regeneration to properly include custom components in the component picker
+- Improved backend entrypoint script to ensure clean container restarts when processes die
+
 ## [2.0.1] - 2026-04-17
 
 ### Added
