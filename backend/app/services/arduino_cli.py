@@ -2,7 +2,14 @@ import subprocess
 import tempfile
 import asyncio
 import base64
+import time
 from pathlib import Path
+
+from app.services.compile_middleware import (
+    CompileRequestPayload,
+    CompileResultPayload,
+    get_compile_middleware_registry,
+)
 
 
 class ArduinoCLIService:
@@ -217,6 +224,39 @@ class ArduinoCLIService:
         """
         return "esp32c3" in fqbn or "xiao-esp32-c3" in fqbn or "aitewinrobot-esp32c3-supermini" in fqbn
 
+    async def _finalize_compile_result(
+        self,
+        transformed: CompileRequestPayload,
+        result_dict: dict,
+        t0: float,
+    ) -> dict:
+        """Run the post-compile middleware chain and return the result dict.
+
+        ``run_after`` is observe-only — exceptions and timeouts inside
+        middlewares are swallowed by the registry so a buggy plugin can
+        never corrupt a compile response. The middleware result type is
+        ignored here (the caller only cares about the original dict shape
+        which carries extra fields like ``binary_content``).
+        """
+        try:
+            await get_compile_middleware_registry().run_after(
+                transformed,
+                CompileResultPayload(
+                    success=bool(result_dict.get("success", False)),
+                    hex_content=result_dict.get("hex_content"),
+                    stdout=str(result_dict.get("stdout", "")),
+                    stderr=str(result_dict.get("stderr", "")),
+                    error=result_dict.get("error"),
+                    duration_ms=(time.perf_counter() - t0) * 1000.0,
+                ),
+            )
+        except Exception:
+            # Defensive: registry already swallows per-middleware errors.
+            # If anything escapes (e.g. asyncio cancellation), don't let it
+            # bubble into the HTTP handler.
+            pass
+        return result_dict
+
     async def compile(self, files: list[dict], board_fqbn: str = "arduino:avr:uno") -> dict:
         """
         Compile Arduino sketch using arduino-cli.
@@ -233,16 +273,42 @@ class ArduinoCLIService:
         print(f"Board: {board_fqbn}")
         print(f"Files: {[f['name'] for f in files]}")
 
+        t0 = time.perf_counter()
+
+        # Run pre-compile middleware chain. Built-ins (e.g. RP2040
+        # Serial → Serial1 redirect) live in compile_middleware.py so the
+        # transform is inspectable and replaceable. A throwing middleware
+        # aborts the compile and surfaces as a failure below.
+        middleware_registry = get_compile_middleware_registry()
+        try:
+            transformed = await middleware_registry.run_before(
+                CompileRequestPayload(files=list(files), board_fqbn=board_fqbn)
+            )
+        except Exception as exc:
+            return await self._finalize_compile_result(
+                transformed=CompileRequestPayload(files=list(files), board_fqbn=board_fqbn),
+                result_dict={
+                    "success": False,
+                    "hex_content": None,
+                    "stdout": "",
+                    "stderr": f"pre-compile middleware failed: {exc}",
+                    "error": str(exc),
+                },
+                t0=t0,
+            )
+
+        transformed_files = transformed.files
+
         # Create temporary directory for sketch
         with tempfile.TemporaryDirectory() as temp_dir:
             sketch_dir = Path(temp_dir) / "sketch"
             sketch_dir.mkdir()
 
             # Determine whether the caller already provides a "sketch.ino"
-            has_sketch_ino = any(f["name"] == "sketch.ino" for f in files)
+            has_sketch_ino = any(f["name"] == "sketch.ino" for f in transformed_files)
             main_ino_written = False
 
-            for file_entry in files:
+            for file_entry in transformed_files:
                 name: str = file_entry["name"]
                 content: str = file_entry["content"]
 
@@ -251,10 +317,6 @@ class ArduinoCLIService:
                 if not has_sketch_ino and name.endswith(".ino") and not main_ino_written:
                     write_name = "sketch.ino"
                     main_ino_written = True
-
-                # RP2040: redirect Serial → Serial1 in the main sketch file only
-                if "rp2040" in board_fqbn and write_name == "sketch.ino":
-                    content = "#define Serial Serial1\n" + content
 
                 (sketch_dir / write_name).write_text(content, encoding="utf-8")
 
@@ -329,23 +391,23 @@ class ArduinoCLIService:
                             binary_b64 = base64.b64encode(raw_bytes).decode('ascii')
                             print(f"[RP2040] Binary file: {target_file.name}, size: {len(raw_bytes)} bytes")
                             print("=== RP2040 Compilation successful ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": True,
                                 "hex_content": None,
                                 "binary_content": binary_b64,
                                 "binary_type": "bin" if target_file == bin_file else "uf2",
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                         else:
                             print(f"[RP2040] Binary file not found. Files: {list(build_dir.iterdir())}")
                             print("=== RP2040 Compilation failed: binary not found ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": False,
                                 "error": "RP2040 binary (.bin/.uf2) not found after compilation",
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                     elif self._is_esp32_board(board_fqbn):
                         # ESP32 outputs individual .bin files that must be merged into a
                         # single 4MB flash image for QEMU lcgamboa to boot correctly.
@@ -386,23 +448,23 @@ class ArduinoCLIService:
                             binary_b64 = base64.b64encode(raw_bytes).decode('ascii')
                             print(f"[ESP32] Binary file: {target_file.name}, size: {len(raw_bytes)} bytes")
                             print("=== ESP32 Compilation successful ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": True,
                                 "hex_content": None,
                                 "binary_content": binary_b64,
                                 "binary_type": "bin",
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                         else:
                             print(f"[ESP32] Binary file not found. Files: {list(build_dir.iterdir())}")
                             print("=== ESP32 Compilation failed: binary not found ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": False,
                                 "error": "ESP32 binary (.bin) not found after compilation",
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                     else:
                         # AVR outputs a .hex file (Intel HEX format)
                         hex_file = build_dir / "sketch.ino.hex"
@@ -413,41 +475,41 @@ class ArduinoCLIService:
                             hex_content = hex_file.read_text()
                             print(f"Hex file size: {len(hex_content)} bytes")
                             print("=== AVR Compilation successful ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": True,
                                 "hex_content": hex_content,
                                 "binary_content": None,
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                         else:
                             print(f"Files in build dir: {list(build_dir.iterdir())}")
                             print("=== Compilation failed: hex file not found ===\n")
-                            return {
+                            return await self._finalize_compile_result(transformed, {
                                 "success": False,
                                 "error": "Hex file not found after compilation",
                                 "stdout": result.stdout,
                                 "stderr": result.stderr
-                            }
+                            }, t0)
                 else:
                     print("=== Compilation failed ===\n")
-                    return {
+                    return await self._finalize_compile_result(transformed, {
                         "success": False,
                         "error": "Compilation failed",
                         "stdout": result.stdout,
                         "stderr": result.stderr
-                    }
+                    }, t0)
 
             except Exception as e:
                 print(f"=== Exception during compilation: {e} ===\n")
                 import traceback
                 traceback.print_exc()
-                return {
+                return await self._finalize_compile_result(transformed, {
                     "success": False,
                     "error": str(e),
                     "stdout": "",
                     "stderr": ""
-                }
+                }, t0)
 
     async def list_boards(self) -> list:
         """

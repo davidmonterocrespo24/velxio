@@ -1,0 +1,94 @@
+name: Release
+
+# Publishes @velxio/sdk to npm via changesets.
+#
+# Flow:
+#   1. PR adds a `.changeset/*.md` file describing the bump.
+#   2. PR merges to master.
+#   3. This workflow runs: if there are pending changesets it opens (or
+#      updates) a "Version Packages" PR that bumps versions and writes
+#      CHANGELOG.md. When that PR is merged, this same workflow re-runs
+#      and `changesets/action` publishes to npm.
+#
+# Requirements (one-time, configured outside this file):
+#   - NPM_TOKEN secret (Automation token, scope = @velxio org).
+#   - The bot/user that opens the PR must have write access to the repo
+#     (default GITHUB_TOKEN works).
+
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write       # version PR commits + tags
+  pull-requests: write  # open the "Version Packages" PR
+  id-token: write       # required for npm provenance
+
+jobs:
+  release:
+    name: Version or publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # changesets needs the full history to compute changelogs
+          # and to detect which packages have unreleased commits.
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Install root devDeps (changesets CLI + tsx) without touching the
+      # workspace packages — those install their own deps in their own
+      # lockfiles. We deliberately do not run `npm ci` from the root
+      # because the SDK package has its own package-lock.json.
+      - name: Install root tooling
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Install SDK dependencies
+        working-directory: packages/sdk
+        run: npm ci --no-audit --no-fund
+
+      # Defense in depth: the SDK's `prepublishOnly` script also runs
+      # these, but failing here means we never even reach `changeset
+      # publish` and so we never push a broken Version Packages PR.
+      - name: Lint, typecheck, test, build SDK
+        working-directory: packages/sdk
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+      # Smoke-test the packed tarball before publishing. If this fails
+      # we will not publish a broken package.
+      - name: Smoke-test packed SDK tarball
+        run: node packages/sdk/scripts/smoke-test.mjs
+
+      - name: Create Release PR or publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # When there are pending changesets and no Version Packages PR
+          # is open, this command bumps versions + writes CHANGELOG and
+          # opens the PR. When the Version Packages PR has already been
+          # merged (i.e. versions are bumped on master), `publish` runs.
+          version: npm run version-packages
+          publish: npm run release
+          title: 'chore(release): version packages'
+          commit: 'chore(release): version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Provenance attaches a verifiable link from the published
+          # tarball back to this workflow run. Requires id-token: write.
+          NPM_CONFIG_PROVENANCE: 'true'

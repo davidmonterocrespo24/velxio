@@ -10,6 +10,9 @@ export default defineConfig({
       'avr8js': path.resolve(__dirname, '../wokwi-libs/avr8js/dist/esm'),
       'rp2040js': path.resolve(__dirname, '../wokwi-libs/rp2040js/dist/esm'),
       '@wokwi/elements': path.resolve(__dirname, '../wokwi-libs/wokwi-elements/dist/esm'),
+      '@velxio/sdk': path.resolve(__dirname, '../packages/sdk/src/index.ts'),
+      '@velxio/sdk/manifest': path.resolve(__dirname, '../packages/sdk/src/manifest.ts'),
+      '@velxio/sdk/events': path.resolve(__dirname, '../packages/sdk/src/events.ts'),
     },
   },
   server: {
@@ -22,7 +25,7 @@ export default defineConfig({
   },
   assetsInclude: ['**/*.wasm'],
   optimizeDeps: {
-    include: ['avr8js', 'rp2040js', '@wokwi/elements', 'littlefs'],
+    include: ['avr8js', 'rp2040js', '@wokwi/elements', 'littlefs', 'zod'],
     // Force Vite to re-bundle local wokwi-elements after adding new components
     force: true,
   },

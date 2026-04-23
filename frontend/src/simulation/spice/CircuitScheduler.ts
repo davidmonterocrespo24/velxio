@@ -13,6 +13,12 @@
 import type { BuildNetlistInput, ElectricalSolveResult, TimeWaveforms } from './types';
 import { buildNetlist } from './NetlistBuilder';
 import { runNetlist } from './SpiceEngine.lazy';
+import {
+  getEventBus,
+  shouldEmitThrottled,
+  SPICE_STEP_INTERVAL_MS,
+  type ThrottleState,
+} from '../EventBus';
 
 type Listener = (result: ElectricalSolveResult) => void;
 
@@ -28,6 +34,8 @@ class CircuitScheduler {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<Listener>();
   private debounceMs = DEFAULT_DEBOUNCE_MS;
+  private readonly bus = getEventBus();
+  private readonly stepThrottle: ThrottleState = { lastEmitMs: 0 };
 
   setDebounceMs(ms: number): void {
     this.debounceMs = Math.max(0, ms);
@@ -173,6 +181,19 @@ class CircuitScheduler {
     }
 
     for (const cb of this.listeners) cb(result);
+
+    // Emit throttled spice:step — only pay the cost of building the nodes
+    // snapshot when a plugin is listening.
+    if (
+      result.converged &&
+      this.bus.hasListeners('spice:step') &&
+      shouldEmitThrottled(this.stepThrottle, performance.now(), SPICE_STEP_INTERVAL_MS)
+    ) {
+      this.bus.emit('spice:step', {
+        time: 0,
+        nodes: { ...result.nodeVoltages },
+      });
+    }
 
     // If new requests arrived while we were solving, drain them now.
     if (this.pending) {

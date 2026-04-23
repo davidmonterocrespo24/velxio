@@ -1143,27 +1143,45 @@ for (const [presetId, baseId] of Object.entries(PASSIVE_PRESETS)) {
   MAPPERS[presetId] = MAPPERS[baseId];
 }
 
+// ── Seed the host SpiceMapperRegistry with every built-in mapper ──────────
+//
+// Keeping the giant MAPPERS literal in this file (where it's reviewable
+// alongside the helpers and PASSIVE_PRESETS) but routing all runtime
+// lookups through the registry. The registry is the single source of
+// truth — plugins layer on top of it via `register()`, and the UI
+// queries it for "what's SPICE-aware".
+import { getSpiceMapperRegistry } from './SpiceMapperRegistry';
+
+const _registry = getSpiceMapperRegistry();
+for (const [metadataId, mapper] of Object.entries(MAPPERS)) {
+  _registry.register(metadataId, mapper);
+}
+
 /**
  * Public entry: map one Velxio component to SPICE cards.
  * Returns null if we have no mapping for this metadataId (caller should
  * skip the component gracefully — it just won't participate in the solve).
+ *
+ * Delegates to the SpiceMapperRegistry so plugins that registered their
+ * own mappers (via `ctx.spice.registerMapper`) win over the built-ins
+ * with the same metadataId.
  */
 export function componentToSpice(
   comp: ComponentForSpice,
   netLookup: NetLookup,
   ctx: MapperContext,
 ): SpiceEmission | null {
-  const mapper = MAPPERS[comp.metadataId];
+  const mapper = getSpiceMapperRegistry().lookup(comp.metadataId);
   if (!mapper) return null;
   return mapper(comp, netLookup, ctx);
 }
 
 /** True if we have a mapping for this metadataId. */
 export function isSpiceMapped(metadataId: string): boolean {
-  return metadataId in MAPPERS;
+  return getSpiceMapperRegistry().has(metadataId);
 }
 
 /** All metadataIds with a SPICE mapping (for docs / UI hints). */
 export function mappedMetadataIds(): string[] {
-  return Object.keys(MAPPERS);
+  return getSpiceMapperRegistry().list();
 }

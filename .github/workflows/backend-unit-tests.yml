@@ -45,3 +45,12 @@ jobs:
         # Tests decorated with @unittest.skipIf(CI=='true', ...) are skipped here
         # (e.g. timing-sensitive tests that use busy-wait).
         run: pytest test/backend/unit/ -v --tb=short
+
+      # Run service-level tests living next to the FastAPI app (backend/tests/).
+      # These test the SDK-facing pieces (compile middleware chain, etc.) and
+      # use plain asyncio.run() so they don't need pytest-asyncio installed.
+      # They run from the backend/ directory so `from app.services...` imports
+      # resolve correctly.
+      - name: Run backend service tests
+        working-directory: backend
+        run: pytest tests/ -v --tb=short

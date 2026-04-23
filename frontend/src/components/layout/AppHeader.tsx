@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { ShareModal } from './ShareModal';
+import { InstalledPluginsModal } from './InstalledPluginsModal';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
@@ -19,6 +20,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showPluginsModal, setShowPluginsModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -165,6 +167,39 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
             </button>
           )}
 
+          {/* Installed Plugins button */}
+          <button
+            onClick={() => setShowPluginsModal(true)}
+            style={{
+              background: 'transparent',
+              border: '1px solid #555',
+              borderRadius: 4,
+              padding: '4px 10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              color: '#ccc',
+              fontSize: 13,
+            }}
+            title="Installed plugins"
+            aria-label="Installed plugins"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 2v6M15 2v6M5 8h14v8a4 4 0 0 1-4 4h-1v2h-4v-2H9a4 4 0 0 1-4-4V8z" />
+            </svg>
+            <span className="header-plugins-text">Plugins</span>
+          </button>
+
           {/* Auth UI */}
           {user ? (
             <div style={{ position: 'relative' }} ref={dropdownRef}>
@@ -301,6 +336,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
       </div>
 
       {showShareModal && <ShareModal onClose={() => setShowShareModal(false)} />}
+      {showPluginsModal && <InstalledPluginsModal onClose={() => setShowPluginsModal(false)} />}
     </header>
   );
 };

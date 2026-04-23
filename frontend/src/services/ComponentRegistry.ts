@@ -10,6 +10,10 @@ import type {
   ComponentCategory,
   ComponentMetadataCollection,
 } from '../types/component-metadata';
+import type {
+  ComponentDefinition as SdkComponentDefinition,
+  Disposable as SdkDisposable,
+} from '@velxio/sdk';
 
 export class ComponentRegistry {
   private static instance: ComponentRegistry;
@@ -201,6 +205,107 @@ export class ComponentRegistry {
    */
   getComponentCount(): number {
     return this.allComponents.length;
+  }
+
+  // ── SDK contract surface ────────────────────────────────────────────────
+  //
+  // The `register/get/list` trio matches the @velxio/sdk
+  // `ComponentRegistry` interface so plugins can swap host and SDK
+  // shapes without an adapter layer. Built-ins continue to load via
+  // `processMetadata()` and the legacy `getById()` helper; SDK
+  // registrations land in the same `metadata` Map and participate in
+  // every existing query (search, getByCategory, etc.).
+
+  /**
+   * Register a SDK-shaped `ComponentDefinition`. Translates pins and
+   * properties into the host's `ComponentMetadata` shape so the picker
+   * UI and canvas treat plugin-provided components identically to
+   * built-ins. Returns a Disposable that unregisters the definition.
+   */
+  register(definition: SdkComponentDefinition): SdkDisposable {
+    const metadata: ComponentMetadata = {
+      id: definition.id,
+      tagName: definition.element,
+      name: definition.name,
+      category: definition.category as ComponentCategory,
+      description: definition.description,
+      thumbnail: definition.icon ?? '',
+      properties: (definition.properties ?? []).map((p) => ({
+        name: p.name,
+        // SDK 'enum' maps to host 'select'; the rest are 1:1.
+        type: (p.kind === 'enum' ? 'select' : p.kind) as
+          | 'string'
+          | 'number'
+          | 'boolean'
+          | 'color'
+          | 'select',
+        defaultValue: p.default,
+        ...(p.label !== undefined && { description: p.label }),
+        ...(p.options !== undefined && { options: p.options.map((o) => o.value) }),
+        ...(p.min !== undefined && { min: p.min }),
+        ...(p.max !== undefined && { max: p.max }),
+      })),
+      defaultValues: Object.fromEntries(
+        (definition.properties ?? []).map((p) => [p.name, p.default]),
+      ),
+      pinCount: definition.pins.length,
+      tags: [...(definition.keywords ?? [])],
+    };
+
+    const previous = this.metadata.get(definition.id);
+    this.metadata.set(definition.id, metadata);
+    if (!previous) {
+      this.allComponents.push(metadata);
+      const list = this.categories.get(metadata.category) ?? [];
+      list.push(metadata);
+      this.categories.set(metadata.category, list);
+    } else {
+      // Replace the existing entry in allComponents and the category list.
+      this.allComponents = this.allComponents.map((c) =>
+        c.id === definition.id ? metadata : c,
+      );
+      const list = this.categories.get(metadata.category) ?? [];
+      const idx = list.findIndex((c) => c.id === definition.id);
+      if (idx >= 0) list[idx] = metadata;
+      else list.push(metadata);
+      this.categories.set(metadata.category, list);
+    }
+
+    return {
+      dispose: () => {
+        // Only undo if no later register() replaced our slot.
+        if (this.metadata.get(definition.id) !== metadata) return;
+        if (previous) {
+          this.metadata.set(definition.id, previous);
+          this.allComponents = this.allComponents.map((c) =>
+            c.id === definition.id ? previous : c,
+          );
+          const list = this.categories.get(metadata.category) ?? [];
+          const idx = list.findIndex((c) => c.id === definition.id);
+          if (idx >= 0) list[idx] = previous;
+        } else {
+          this.metadata.delete(definition.id);
+          this.allComponents = this.allComponents.filter(
+            (c) => c.id !== definition.id,
+          );
+          const list = this.categories.get(metadata.category) ?? [];
+          this.categories.set(
+            metadata.category,
+            list.filter((c) => c.id !== definition.id),
+          );
+        }
+      },
+    };
+  }
+
+  /** SDK-contract alias for `getById()`. Stable name for plugin code. */
+  get(id: string): ComponentMetadata | undefined {
+    return this.metadata.get(id);
+  }
+
+  /** SDK-contract alias for `getAllComponents()`. */
+  list(): ReadonlyArray<ComponentMetadata> {
+    return this.allComponents;
   }
 
   /**

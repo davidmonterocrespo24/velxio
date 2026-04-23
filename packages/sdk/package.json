@@ -1,0 +1,90 @@
+{
+  "name": "@velxio/sdk",
+  "version": "0.1.0",
+  "description": "Public types and runtime helpers for building Velxio plugins and the core's internal registries.",
+  "license": "MIT",
+  "author": "David Montero <davidmonterocrespo24@gmail.com>",
+  "homepage": "https://velxio.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidmonterocrespo24/velxio.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/davidmonterocrespo24/velxio/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js",
+      "require": "./dist/manifest.cjs"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js",
+      "require": "./dist/events.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "schema:emit": "tsx scripts/emit-json-schema.ts",
+    "smoke": "node scripts/smoke-test.mjs",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.11.0",
+    "eslint": "^9.39.1",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.59.0",
+    "vitest": "^4.0.18",
+    "zod-to-json-schema": "^3.24.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "velxio",
+    "sdk",
+    "plugin",
+    "arduino",
+    "spice",
+    "simulator",
+    "wokwi",
+    "avr",
+    "rp2040",
+    "circuit",
+    "embedded"
+  ]
+}

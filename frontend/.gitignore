@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 data/*
+
+# Bench results (per-run); baseline.json IS committed.
+bench/results/

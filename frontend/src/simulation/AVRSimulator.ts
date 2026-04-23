@@ -32,6 +32,12 @@ import { PinManager } from './PinManager';
 import { hexToUint8Array } from '../utils/hexParser';
 import { I2CBusManager } from './I2CBusManager';
 import type { I2CDevice } from './I2CBusManager';
+import {
+  getEventBus,
+  shouldEmitThrottled,
+  TICK_INTERVAL_MS,
+  type ThrottleState,
+} from './EventBus';
 
 /**
  * AVRSimulator - Emulates Arduino Uno (ATmega328p) using avr8js
@@ -199,6 +205,9 @@ export class AVRSimulator {
   private lastPortDValue = 0;
   private lastOcrValues: number[] = [];
 
+  private readonly bus = getEventBus();
+  private readonly tickThrottle: ThrottleState = { lastEmitMs: 0 };
+
   constructor(pinManager: PinManager, boardVariant: 'uno' | 'mega' | 'tiny85' = 'uno') {
     this.pinManager = pinManager;
     this.boardVariant = boardVariant;
@@ -295,6 +304,9 @@ export class AVRSimulator {
       this.usart = new AVRUSART(this.cpu, activeUsart0Config, 16000000);
       this.usart.onByteTransmit = (value: number) => {
         if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+        if (this.bus.hasListeners('serial:tx')) {
+          this.bus.emit('serial:tx', { port: 0, data: new Uint8Array([value]) });
+        }
       };
       this.usart.onConfigurationChange = () => {
         if (this.onBaudRateChange && this.usart) this.onBaudRateChange(this.usart.baudRate);
@@ -399,7 +411,13 @@ export class AVRSimulator {
     pinMap: number[] | null,
     offset = 0,
   ): void {
-    if (!this.onPinChangeWithTime || !this.cpu) return;
+    if (!this.cpu) return;
+    // Fast-path guard: if nobody cares about per-bit changes, skip the loop
+    // entirely. This keeps the port-listener hot path at near-zero overhead
+    // when no plugins and no local callbacks are attached.
+    const busHasListeners = this.bus.hasListeners('pin:change');
+    if (!this.onPinChangeWithTime && !busHasListeners) return;
+
     const timeMs = this.cpu.cycles / 16_000;
     const changed = newVal ^ oldVal;
     for (let bit = 0; bit < 8; bit++) {
@@ -407,7 +425,14 @@ export class AVRSimulator {
         const pin = pinMap ? pinMap[bit] : offset + bit;
         if (pin < 0) continue;
         const state = (newVal & (1 << bit)) !== 0;
-        this.onPinChangeWithTime(pin, state, timeMs);
+        if (this.onPinChangeWithTime) this.onPinChangeWithTime(pin, state, timeMs);
+        if (busHasListeners) {
+          this.bus.emit('pin:change', {
+            componentId: 'board:mcu',
+            pinName: `D${pin}`,
+            state: state ? 1 : 0,
+          });
+        }
       }
     }
   }
@@ -500,6 +525,15 @@ export class AVRSimulator {
 
     this.running = true;
     console.log('Starting AVR simulation...');
+
+    const boardKind =
+      this.boardVariant === 'mega'
+        ? 'arduino-mega'
+        : this.boardVariant === 'tiny85'
+          ? 'arduino-uno'
+          : 'arduino-uno';
+    this.bus.emit('simulator:start', { board: boardKind, mode: 'mcu' });
+
     try {
       const dbg = (window as unknown as { __spiceDebug?: () => void }).__spiceDebug;
       if (typeof dbg === 'function') dbg();
@@ -542,12 +576,25 @@ export class AVRSimulator {
         // Poll PWM registers every frame
         this.pollPwmRegisters();
 
+        // Throttled simulator:tick — only if a plugin is listening. The
+        // hasListeners() guard keeps the common case (no plugin) at one
+        // cheap branch per frame.
+        if (this.bus.hasListeners('simulator:tick')) {
+          if (shouldEmitThrottled(this.tickThrottle, timestamp, TICK_INTERVAL_MS)) {
+            this.bus.emit('simulator:tick', {
+              cycle: this.cpu.cycles,
+              ts: timestamp,
+            });
+          }
+        }
+
         frameCount++;
         if (frameCount % 60 === 0) {
           console.log(`[CPU] Frame ${frameCount}, PC: ${this.cpu.pc}, Cycles: ${this.cpu.cycles}`);
         }
       } catch (error) {
         console.error('Simulation error:', error);
+        this.bus.emit('simulator:stop', { reason: 'crash' });
         this.stop();
         return;
       }
@@ -570,7 +617,11 @@ export class AVRSimulator {
       this.animationFrame = null;
     }
     this.scheduledPinChanges = [];
+    // Reset throttle so a fresh run fires tick immediately.
+    this.tickThrottle.lastEmitMs = 0;
+    this.tickThrottle.primed = false;
 
+    this.bus.emit('simulator:stop', { reason: 'user' });
     console.log('AVR simulation stopped');
   }
 
@@ -579,6 +630,7 @@ export class AVRSimulator {
    */
   reset(): void {
     this.stop();
+    this.bus.emit('simulator:reset', {});
     if (this.program) {
       // Re-use the stored hex content path: just reload
       const sramBytes =
@@ -601,6 +653,9 @@ export class AVRSimulator {
         this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
         this.usart.onByteTransmit = (value: number) => {
           if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+          if (this.bus.hasListeners('serial:tx')) {
+            this.bus.emit('serial:tx', { port: 0, data: new Uint8Array([value]) });
+          }
         };
         this.usart.onConfigurationChange = () => {
           if (this.onBaudRateChange && this.usart) this.onBaudRateChange(this.usart.baudRate);

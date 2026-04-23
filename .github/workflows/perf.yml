@@ -1,0 +1,87 @@
+name: Performance Gate
+
+# Catches simulator hot-path regressions. Runs on PRs that touch the
+# simulator (AVR, SPICE, RP2040), the bench suite itself, or its
+# dependencies. The job runs `npm run bench:check` which fails non-zero
+# if any benchmark regressed beyond the per-prefix tolerance defined in
+# bench/compare.mjs. See docs/PERFORMANCE.md.
+#
+# We do NOT run perf on every PR — most PRs (UI, docs, backend) can't
+# affect simulator throughput, so spending 90s of CI on them is waste.
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'frontend/src/simulation/**'
+      - 'frontend/src/utils/hexParser.ts'
+      - 'frontend/bench/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - '.github/workflows/perf.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'frontend/src/simulation/**'
+      - 'frontend/src/utils/hexParser.ts'
+      - 'frontend/bench/**'
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Same workaround as frontend-tests.yml: submodule pointers are stale.
+      - name: Clone wokwi-libs
+        run: |
+          git clone --depth=1 https://github.com/wokwi/avr8js.git wokwi-libs/avr8js
+          git clone --depth=1 https://github.com/wokwi/rp2040js.git wokwi-libs/rp2040js
+          git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-libs/wokwi-elements
+
+      - name: Cache wokwi-libs node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            wokwi-libs/avr8js/node_modules
+            wokwi-libs/rp2040js/node_modules
+            wokwi-libs/wokwi-elements/node_modules
+          key: wokwi-libs-${{ hashFiles('wokwi-libs/avr8js/package-lock.json', 'wokwi-libs/rp2040js/package-lock.json', 'wokwi-libs/wokwi-elements/package-lock.json') }}
+
+      - name: Cache frontend node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: frontend-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Build avr8js
+        run: cd wokwi-libs/avr8js && npm install && npm run build
+
+      - name: Build rp2040js
+        run: cd wokwi-libs/rp2040js && npm install && npm run build
+
+      - name: Build wokwi-elements
+        run: cd wokwi-libs/wokwi-elements && npm install && npm run build
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Run benchmarks (best-of-3) and compare against baseline
+        run: cd frontend && npm run bench:check
+
+      - name: Upload bench results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            frontend/bench/results/last-run.json
+            frontend/bench/baseline.json
+          retention-days: 30

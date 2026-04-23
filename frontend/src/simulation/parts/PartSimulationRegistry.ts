@@ -1,3 +1,4 @@
+import type { PartSimulation as SdkPartSimulation, SimulatorHandle } from '@velxio/sdk';
 import { AVRSimulator } from '../AVRSimulator';
 import { RP2040Simulator } from '../RP2040Simulator';
 
@@ -45,15 +46,95 @@ export interface PartSimulationLogic {
   ) => () => void;
 }
 
+/**
+ * Handle returned by `register()`/`registerSdkPart()` — calling `dispose()`
+ * removes the part again, but only if no later `register()` has replaced
+ * it (last-writer-wins is intentional for plugin overrides).
+ */
+export interface PartSimulationHandle {
+  dispose(): void;
+}
+
 class PartRegistry {
   private parts: Map<string, PartSimulationLogic> = new Map();
 
-  register(metadataId: string, logic: PartSimulationLogic) {
+  /**
+   * Register the legacy (host-shaped) part simulation. Returns a handle
+   * for symmetry with the SDK contract — built-ins generally keep their
+   * registration for the lifetime of the app and don't bother disposing.
+   */
+  register(metadataId: string, logic: PartSimulationLogic): PartSimulationHandle {
+    const previous = this.parts.get(metadataId);
     this.parts.set(metadataId, logic);
+    return {
+      dispose: () => {
+        if (this.parts.get(metadataId) !== logic) return;
+        if (previous === undefined) {
+          this.parts.delete(metadataId);
+        } else {
+          this.parts.set(metadataId, previous);
+        }
+      },
+    };
   }
 
   get(metadataId: string): PartSimulationLogic | undefined {
     return this.parts.get(metadataId);
+  }
+
+  /** True if this id has a part registered. */
+  has(metadataId: string): boolean {
+    return this.parts.has(metadataId);
+  }
+
+  /** Stable list of every registered part id (sorted, for diagnostics). */
+  list(): string[] {
+    return [...this.parts.keys()].sort();
+  }
+
+  /** Number of registered parts. */
+  size(): number {
+    return this.parts.size;
+  }
+
+  /**
+   * Register a SDK-shaped `PartSimulation` (the contract third-party
+   * plugins consume). The SDK uses a smaller `attachEvents(element,
+   * SimulatorHandle)` signature than the host's 4-arg legacy form, so
+   * this method wraps it: the host packs `componentId`, `getArduinoPin`,
+   * and the live simulator into a `SimulatorHandle` before invoking the
+   * plugin's hook.
+   *
+   * Built-ins use the legacy `register()` directly. Plugins should never
+   * touch `register()` — `ctx.simulator.parts.register()` (future
+   * SDK-002 work) will route through here.
+   */
+  registerSdkPart(
+    metadataId: string,
+    sdkPart: SdkPartSimulation,
+  ): PartSimulationHandle {
+    const adapted: PartSimulationLogic = {};
+    if (sdkPart.onPinStateChange) {
+      adapted.onPinStateChange = sdkPart.onPinStateChange;
+    }
+    if (sdkPart.attachEvents) {
+      const sdkAttach = sdkPart.attachEvents;
+      adapted.attachEvents = (element, simulator, getArduinoPin, componentId) => {
+        const handle: SimulatorHandle = {
+          componentId,
+          isRunning: () => simulator.isRunning(),
+          setPinState: (pin, state) => simulator.setPinState(pin, state),
+          getArduinoPin,
+        };
+        return sdkAttach(element, handle);
+      };
+    }
+    return this.register(metadataId, adapted);
+  }
+
+  /** Test-only — drop every part. */
+  __clearForTests(): void {
+    this.parts.clear();
   }
 }
 

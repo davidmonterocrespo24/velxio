@@ -1,0 +1,61 @@
+name: SDK Package Tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-tests.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-tests.yml'
+
+# The SDK package has no native deps and no submodules — keep this job
+# fast and isolated so it can fail loudly without dragging the heavier
+# frontend / backend matrices down with it.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: packages/sdk/package-lock.json
+
+      - name: Install SDK dependencies
+        working-directory: packages/sdk
+        run: npm ci
+
+      - name: Lint SDK
+        working-directory: packages/sdk
+        run: npm run lint
+
+      - name: Type-check SDK
+        working-directory: packages/sdk
+        run: npm run typecheck
+
+      - name: Run SDK tests
+        working-directory: packages/sdk
+        run: npm test
+
+      # Build the package so the produced ESM/CJS/d.ts artifacts are
+      # exercised by CI. tsup failing to emit any of the three would
+      # break consumers in subtle ways that the unit suite cannot catch.
+      - name: Build SDK package
+        working-directory: packages/sdk
+        run: npm run build
+
+      # Confirm the JSON Schema emitter runs end-to-end. The output is
+      # not committed — this catches schema regressions where Zod compiles
+      # but zod-to-json-schema cannot serialize a refinement.
+      - name: Emit JSON Schema (smoke test)
+        working-directory: packages/sdk
+        run: npm run schema:emit
