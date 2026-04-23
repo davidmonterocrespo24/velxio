@@ -127,7 +127,7 @@ These are bright lines. Adding a permission that loosens any of them requires a 
 
 ## Pre-install consent dialog
 
-(Specification — implementation lives in **SDK-008b** because it consumes CORE-008's "Installed Plugins" panel.)
+(Implemented in **SDK-008b**. Components live at `frontend/src/components/plugin-host/PluginConsentDialog.tsx` and `PluginUpdateDiffDialog.tsx`. The runtime catalog backing both is `@velxio/sdk/permissions-catalog`.)
 
 When the user clicks **Install** on a plugin:
 
@@ -145,7 +145,7 @@ Wording must be plain English, no jargon. The catalog's "What it allows" text is
 
 ## Permission diff on update
 
-(Specification — implementation in **SDK-008b**.)
+(Implemented in **SDK-008b**. The `<PluginUpdateDiffDialog />` component is driven by `classifyUpdateDiff()` from `@velxio/sdk/permissions-catalog`, which returns one of three discriminated cases — `auto-approve` / `auto-approve-with-toast` / `requires-consent`. The dialog renders only the latter two; `auto-approve` is consumed silently by the caller.)
 
 When a plugin update arrives (CORE-007 loader detects a new version in the registry):
 
@@ -181,9 +181,66 @@ Re-classifying an existing permission's risk class:
 
 ---
 
+## SDK-008b implementation reference
+
+### Runtime catalog (`@velxio/sdk/permissions-catalog`)
+
+The TS catalog `PERMISSION_CATALOG` is the runtime source of truth for the dialog UX — never parse this markdown at runtime. The CI test `packages/sdk/test/permissions-catalog-sync.test.ts` parses the table above and fails the build if the two drift in either direction. To add or change a permission, update **both** in the same PR.
+
+Public surface from `@velxio/sdk/permissions-catalog`:
+
+| Symbol | Purpose |
+| --- | --- |
+| `PERMISSION_CATALOG` | `ReadonlyArray<{ permission, risk, allows, denies }>`, one entry per `PluginPermission`. |
+| `getPermissionEntry(perm)` | O(1) Map lookup. Returns `undefined` for unknown strings. |
+| `partitionPermissionsByRisk(perms)` | Returns `{ low, medium, high, unknown }`. Order-stable inside each bucket. |
+| `requiresConsent(perms)` | `true` iff any Medium/High/unknown. |
+| `diffPermissions(oldPerms, newPerms)` | `{ added, removed }`. De-duplicates inputs; order-stable. |
+| `classifyUpdateDiff(diff)` | Discriminated union: `auto-approve` / `auto-approve-with-toast` / `requires-consent`. Centralizes the policy decision. |
+
+### Pre-install consent component
+
+`<PluginConsentDialog plugin permissions httpAllowlist? onConfirm onCancel />`. Pure presentational — owns no install state. The caller decides what `onConfirm`/`onCancel` mean.
+
+Behavioral invariants (covered by `frontend/src/__tests__/PluginConsentDialog.test.tsx`):
+
+- All-Low permissions → "safe plugin" notice, **no** scroll gate, Install enabled immediately.
+- Any Medium/High/unknown → consent section + scroll-to-bottom anti-clickjacking gate before Install enables. The 4 px tolerance is exposed via `isScrolledToBottom(el, toleranceMs)` so tests can drive the math without jsdom layout.
+- `http.fetch` row expands to show the manifest's `http.allowlist` verbatim.
+- Default focus on Cancel; Escape key fires `onCancel`; backdrop click fires `onCancel`; modal-body click does **not**.
+- Unknown permissions trigger a defensive fail-closed banner (the SDK and host disagree on catalog version — surface it, don't hide it).
+
+### Update-diff component
+
+`<PluginUpdateDiffDialog plugin fromVersion toVersion decision httpAllowlist? onUpdate onSkipVersion onUninstall onCancel />`. Driven by an already-classified `UpdateDiffDecision`. The caller MUST call `classifyUpdateDiff(diffPermissions(...))` first and only mount the dialog when `shouldShowUpdateDiffDialog(decision)` returns `true`.
+
+Three render modes derived from `decision.kind`:
+
+| `decision.kind` | Render | Update gated by scroll? | Caller behavior |
+| --- | --- | --- | --- |
+| `auto-approve` | "No new permissions" notice (defensive — caller should not have rendered this). | No | Install silently. |
+| `auto-approve-with-toast` | Informational list of added Low permissions. | No | Surface a toast then install. |
+| `requires-consent` | Full risk-grouped list with NEW badges + "Permissions removed" footer + scroll gate. | Yes | Block until user re-consents. |
+
+Behavioral invariants (covered by `frontend/src/__tests__/PluginUpdateDiffDialog.test.tsx`):
+
+- `Skip this version` is per-version (vNew+1 re-prompts). The caller persists the rejection.
+- `Uninstall` is offered as an escape hatch — nothing forces an update.
+- The "Permissions removed" footer is collapsed by default and only renders when `decision.removed.length > 0`. `auto-approve` discards removed info by construction.
+- Helper `decisionNeedsScrollGate(decision)` lets callers conditionally skip the gate (e.g. for trusted publishers the marketplace already vetted).
+
+### Wiring
+
+- The marketplace install flow (PRO-005) consumes `<PluginConsentDialog />` directly when the user clicks Install on a listing.
+- The CORE-007 loader's update path will consume `<PluginUpdateDiffDialog />` once the registry surfaces a newer version (deferred to **SDK-008c**, gated on PRO-003 marketplace catalog endpoint).
+- The `Report` button currently routes to `mailto:abuse@velxio.dev`. Marketplace-side abuse queue is **PRO-011**.
+
 ## References
 
 - Catalog source: [`packages/sdk/src/permissions.ts`](../packages/sdk/src/permissions.ts)
+- Runtime catalog: [`packages/sdk/src/permissions-catalog.ts`](../packages/sdk/src/permissions-catalog.ts)
+- Consent dialog: [`frontend/src/components/plugin-host/PluginConsentDialog.tsx`](../frontend/src/components/plugin-host/PluginConsentDialog.tsx)
+- Update diff dialog: [`frontend/src/components/plugin-host/PluginUpdateDiffDialog.tsx`](../frontend/src/components/plugin-host/PluginUpdateDiffDialog.tsx)
 - Manifest validation rule for `http.fetch` ⇒ `http.allowlist`: [`packages/sdk/src/manifest.ts`](../packages/sdk/src/manifest.ts)
 - Host gate implementation: [`frontend/src/plugin-host/PermissionGate.ts`](../frontend/src/plugin-host/PermissionGate.ts)
 - ScopedFetch caps & enforcer: [`frontend/src/plugin-host/ScopedFetch.ts`](../frontend/src/plugin-host/ScopedFetch.ts)

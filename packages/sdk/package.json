@@ -43,6 +43,11 @@
       "import": "./dist/events.js",
       "require": "./dist/events.cjs"
     },
+    "./permissions-catalog": {
+      "types": "./dist/permissions-catalog.d.ts",
+      "import": "./dist/permissions-catalog.js",
+      "require": "./dist/permissions-catalog.cjs"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,

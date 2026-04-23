@@ -22,6 +22,7 @@ export * from './spice';
 export * from './ui';
 export * from './events';
 export * from './permissions';
+export * from './permissions-catalog';
 export * from './manifest';
 export * from './lifecycle';
 export * from './compile';

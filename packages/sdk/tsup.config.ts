@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     manifest: 'src/manifest.ts',
     events: 'src/events.ts',
+    'permissions-catalog': 'src/permissions-catalog.ts',
   },
   format: ['esm', 'cjs'],
   dts: true,
