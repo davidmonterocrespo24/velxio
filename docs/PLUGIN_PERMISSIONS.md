@@ -161,6 +161,41 @@ The `manifest.permissions` array is sorted at validation time (SDK-001) so the d
 
 ---
 
+## Install/update flow controller (SDK-008c)
+
+The dialogs from SDK-008b are mounted by `InstallFlowController`, a host-side singleton at `frontend/src/plugin-host/InstallFlowController.ts`. It is the single entry point any caller (marketplace listing, Installed Plugins modal, loader-driven update flow) goes through to surface a consent prompt.
+
+The controller is intentionally split in two layers so the consent logic stays unit-testable in plain Vitest:
+
+- **Pure logic** — `InstallFlowController.ts` exposes `requestInstall(manifest, options?)` and `requestUpdate(installed, latest)`. Imports zero React APIs. Maintains an `ActiveDialog | null` snapshot and a `Set<listener>`. Each `requestX` decides whether a dialog is needed (delegating to the SDK's `requiresConsent` / `classifyUpdateDiff` helpers) and either resolves immediately ("auto-approve" path) or constructs a `Promise` that resolves when the user acts.
+- **React overlay** — `frontend/src/components/plugin-host/InstallFlowOverlay.tsx` subscribes via `useSyncExternalStore` and renders the dialog matching `ActiveDialog.kind`. `App.tsx` mounts a single `<InstallFlowOverlay controller={getInstallFlowController()} />` inside the router.
+
+### Singleton + sync-throw discipline
+
+Only one consent dialog can be open at a time — overlapping install + update would steal focus. A second `requestX` while a dialog is mounted throws `InstallFlowBusyError` **synchronously**: the public method is **not** declared `async`, so the throw lands on the caller's stack instead of becoming an unhandled rejection on a microtask. The body returns `Promise.resolve(...)` for auto-approve paths and `new Promise((resolve) => …)` for dialog paths to honour the public Promise-returning signature.
+
+Callers SHOULD treat `InstallFlowBusyError` as a programmer error (the marketplace UI MUST disable "Install" buttons while a dialog is open), not a recoverable state.
+
+### Skipped versions persistence
+
+When the user clicks **Skip this version** in `<PluginUpdateDiffDialog />`, the controller calls `sinks.markVersionSkipped(pluginId, version)`. `App.tsx` wires this to `useInstalledPluginsStore.markVersionSkipped`, which writes to a `ReadonlyMap<pluginId, version>` persisted in `localStorage` under `velxio.skippedVersions`.
+
+The store's `buildRows` suppresses the `latestVersion` badge whenever `latest === skippedVersions.get(id)`. A strictly newer release (`latest > skipped`) replaces the cursor (the previous skip no longer applies — the user has not yet seen this one).
+
+The skip is permanent across reloads but **per-version**, not per-plugin — the user is never permanently silenced.
+
+### Auto-approve-with-toast
+
+When `classifyUpdateDiff` returns `auto-approve-with-toast`, the controller invokes `sinks.emitToast?.(InstallToastEvent)` and resolves immediately with `{ kind: 'updated' }` — **no modal mounts**. The event payload carries `pluginId`, `fromVersion`, `toVersion`, and the `PermissionCatalogEntry[]` that were added, ready for the host's notification surface to render. App.tsx leaves the hook unset until the marketplace UI ships its toast container (SDK-008d / PRO-005); events drop silently in the meantime, but the install still proceeds.
+
+### What's NOT in SDK-008c
+
+- The marketplace listing's **Install** button does not yet call `requestInstall` — the caller wiring lands in PRO-005 (the Pro repo).
+- The Installed Plugins modal's update badge currently fetches a *placeholder* manifest (clone-and-bump-version) which always classifies as `auto-approve` — the real catalog manifest fetch lands in PRO-003. Until then the dialog only opens via test paths.
+- The loader does not auto-trigger `requestUpdate` when polling discovers drift — manual click via the badge is the only entry point. SDK-008d covers loader-driven detection.
+
+---
+
 ## Adding or changing a permission
 
 To add a new permission to the catalog:

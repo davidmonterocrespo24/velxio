@@ -27,6 +27,12 @@ import { SettingsForm } from '../plugin-host/SettingsForm';
 import { getSettingsRegistry } from '../../plugin-host/SettingsRegistry';
 import { useLocale, useTranslate } from '../../i18n/useLocale';
 import { setEditorLocale, supportedLocales } from '../../i18n/LocaleProvider';
+import {
+  getInstallFlowController,
+  type InstallFlowController,
+  type UpdateDecision,
+} from '../../plugin-host/InstallFlowController';
+import type { PluginManifest } from '@velxio/sdk';
 
 /**
  * 24h cadence for the denylist refresh timer. A token revoked centrally
@@ -241,7 +247,12 @@ const PluginRow: React.FC<PluginRowProps> = ({ row, onUninstallClick, onSettings
           )}
           <StatusBadge status={status} />
           {row.latestVersion !== undefined && (
-            <PluginUpdateBadge currentVersion={row.version} latestVersion={row.latestVersion} />
+            <PluginUpdateBadge
+              row={row}
+              currentVersion={row.version}
+              latestVersion={row.latestVersion}
+              onRequestUninstall={onUninstallClick}
+            />
           )}
         </div>
         {isFailed && row.error !== undefined && (
@@ -410,18 +421,77 @@ const LICENSE_COPY: Record<LoadLicenseReason, { headline: string; body: string }
 
 // ── PluginUpdateBadge ────────────────────────────────────────────────────
 
+/**
+ * Pill that announces a newer version is available. Clicking it routes
+ * through `InstallFlowController.requestUpdate` (SDK-008c) so the user
+ * sees the permission diff before re-loading the worker. The badge is
+ * suppressed automatically when the user has previously skipped the
+ * exact version surfaced here (the store strips `latestVersion` from
+ * the row before we render).
+ */
 const PluginUpdateBadge: React.FC<{
+  row: PluginPanelRow;
   currentVersion: string;
   latestVersion: string;
-}> = ({ currentVersion, latestVersion }) => (
-  <span
-    style={styles.updateBadge}
-    title={`v${currentVersion} → v${latestVersion}`}
-    data-testid="plugin-update-badge"
-  >
-    Update available — v{latestVersion}
-  </span>
-);
+  onRequestUninstall: () => void;
+}> = ({ row, currentVersion, latestVersion, onRequestUninstall }) => {
+  const onClick = async () => {
+    let controller: InstallFlowController;
+    try {
+      controller = getInstallFlowController();
+    } catch {
+      // Controller is wired at editor startup; if absent we are inside
+      // a stripped-down test render — best-effort no-op.
+      return;
+    }
+    const installedManifest = row.entry?.manifest;
+    if (installedManifest === undefined) return;
+    const latestManifest = synthesizeLatestManifest(installedManifest, latestVersion);
+    let decision: UpdateDecision;
+    try {
+      decision = await controller.requestUpdate(
+        { manifest: installedManifest },
+        { manifest: latestManifest },
+      );
+    } catch {
+      // Busy: another flow is already open. Silently bail — the user
+      // will see the existing modal.
+      return;
+    }
+    if (decision.kind === 'uninstalled') onRequestUninstall();
+    // 'updated' / 'skipped' / 'cancelled' need no extra UI hooks here:
+    // - 'updated' will be wired to the loader reload by PRO-003.
+    // - 'skipped' already persisted via the store's markVersionSkipped.
+    // - 'cancelled' leaves the row untouched.
+  };
+  return (
+    <button
+      type="button"
+      onClick={() => void onClick()}
+      style={styles.updateBadge}
+      title={`v${currentVersion} → v${latestVersion}`}
+      data-testid="plugin-update-badge"
+    >
+      Update available — v{latestVersion}
+    </button>
+  );
+};
+
+/**
+ * Until PRO-003 ships the marketplace catalog endpoint, the badge has no
+ * way to fetch the *new* manifest's permissions. We synthesize one by
+ * cloning the installed manifest and bumping `version`. The diff
+ * machinery sees `added=∅` and the controller resolves through the
+ * `auto-approve` path — i.e. the dialog stays closed for installs that
+ * have not actually changed permissions. PRO-003 will replace this
+ * synthesizer with the real catalog fetch.
+ */
+function synthesizeLatestManifest(
+  installed: PluginManifest,
+  latestVersion: string,
+): PluginManifest {
+  return { ...installed, version: latestVersion };
+}
 
 // ── StatusBadge ──────────────────────────────────────────────────────────
 
@@ -786,6 +856,8 @@ const styles = {
     fontSize: 11,
     fontWeight: 500,
     border: '1px solid #2a5a7a',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   } as React.CSSProperties,
   errorBanner: {
     background: '#5a1a1a',

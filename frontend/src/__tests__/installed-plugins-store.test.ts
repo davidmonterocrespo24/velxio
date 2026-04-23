@@ -517,3 +517,75 @@ describe('useInstalledPluginsStore — paused entries (CORE-008c)', () => {
     expect(rows[0]?.licenseReason).toBeUndefined();
   });
 });
+
+describe('useInstalledPluginsStore — SDK-008c skipped versions', () => {
+  it('starts empty when localStorage has no entry', () => {
+    expect(useInstalledPluginsStore.getState().skippedVersions.size).toBe(0);
+  });
+
+  it('markVersionSkipped persists the value and surfaces via isVersionSkipped', () => {
+    const s = useInstalledPluginsStore.getState();
+    s.markVersionSkipped('p', '1.2.3');
+    expect(useInstalledPluginsStore.getState().isVersionSkipped('p', '1.2.3')).toBe(true);
+    expect(useInstalledPluginsStore.getState().isVersionSkipped('p', '1.2.4')).toBe(false);
+    expect(useInstalledPluginsStore.getState().isVersionSkipped('q', '1.2.3')).toBe(false);
+    // Persisted to localStorage as JSON.
+    const raw = localStorage.getItem('velxio.skippedVersions');
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!)).toEqual({ p: '1.2.3' });
+  });
+
+  it('marking the same (id, version) twice is a no-op (no tick churn)', () => {
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.0.0');
+    const tickAfter1 = useInstalledPluginsStore.getState().tick;
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.0.0');
+    expect(useInstalledPluginsStore.getState().tick).toBe(tickAfter1);
+  });
+
+  it('marking a NEW version replaces the previous skip cursor', () => {
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.0.0');
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.1.0');
+    expect(useInstalledPluginsStore.getState().isVersionSkipped('p', '1.0.0')).toBe(false);
+    expect(useInstalledPluginsStore.getState().isVersionSkipped('p', '1.1.0')).toBe(true);
+  });
+
+  it('hides latestVersion in getRows when it equals the skip cursor', () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    configureInstalledPlugins({
+      latestVersionResolver: { getLatestVersion: () => '1.5.0' },
+    });
+    expect(useInstalledPluginsStore.getState().getRows()[0]?.latestVersion).toBe('1.5.0');
+
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.5.0');
+    expect(useInstalledPluginsStore.getState().getRows()[0]?.latestVersion).toBeUndefined();
+  });
+
+  it('a strictly newer version re-surfaces the badge after a skip', () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    let stub = '1.5.0';
+    configureInstalledPlugins({
+      latestVersionResolver: { getLatestVersion: () => stub },
+    });
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.5.0');
+    expect(useInstalledPluginsStore.getState().getRows()[0]?.latestVersion).toBeUndefined();
+    stub = '1.6.0';
+    expect(useInstalledPluginsStore.getState().getRows()[0]?.latestVersion).toBe('1.6.0');
+  });
+
+  it('survives a corrupt localStorage blob (returns empty map)', () => {
+    localStorage.setItem('velxio.skippedVersions', 'not json');
+    useInstalledPluginsStore.getState().__resetForTests();
+    expect(useInstalledPluginsStore.getState().skippedVersions.size).toBe(0);
+  });
+
+  it('__resetForTests clears the localStorage entry', () => {
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '1.0.0');
+    expect(localStorage.getItem('velxio.skippedVersions')).not.toBeNull();
+    useInstalledPluginsStore.getState().__resetForTests();
+    expect(localStorage.getItem('velxio.skippedVersions')).toBeNull();
+  });
+});

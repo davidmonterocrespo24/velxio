@@ -123,6 +123,13 @@ export interface InstalledPluginsStoreState {
    * Empty when no resolver is configured.
    */
   readonly latestVersions: ReadonlyMap<string, string>;
+  /**
+   * Per-plugin skip cursor (SDK-008c). When the user clicks "Skip this
+   * version" in the update-diff dialog we remember the version that was
+   * just declined so the badge stays hidden until a *newer* one ships.
+   * Persisted to `localStorage` so a reload doesn't re-prompt.
+   */
+  readonly skippedVersions: ReadonlyMap<string, string>;
   /** Increment whenever something downstream changed — drives re-render. */
   readonly tick: number;
 
@@ -135,6 +142,23 @@ export interface InstalledPluginsStoreState {
   toggleEnabled(id: string): Promise<void>;
   uninstall(id: string): Promise<void>;
   refresh(): Promise<void>;
+
+  /**
+   * Mark `version` as the most-recent declined update for `id`. The badge
+   * stays hidden while `latestVersion === skippedVersion`; a strictly
+   * newer release re-prompts.
+   *
+   * Persisted to localStorage under `velxio.skippedVersions` (single JSON
+   * blob) — no per-key churn, no schema migrations needed.
+   */
+  markVersionSkipped(id: string, version: string): void;
+  /**
+   * Whether the badge should stay hidden for this `(id, version)` pair.
+   * `true` iff the user has previously declined exactly this version
+   * (string equality — semver-aware comparison would silently re-prompt
+   * for `1.2.3` vs `1.2.3+build.5`, which is the right thing to do).
+   */
+  isVersionSkipped(id: string, version: string): boolean;
   /**
    * Pull the marketplace denylist (and other refreshable data) again
    * without touching local optimistic state. Called from the modal on
@@ -148,6 +172,43 @@ export interface InstalledPluginsStoreState {
 }
 
 // ── Internals ────────────────────────────────────────────────────────────
+
+const SKIPPED_VERSIONS_STORAGE_KEY = 'velxio.skippedVersions';
+
+/**
+ * Hydrate the skip cursor from localStorage. Returns an empty Map on any
+ * failure (Safari private mode, malformed JSON, non-string values) — a
+ * corrupt blob must never break the modal.
+ */
+function loadSkippedVersionsFromStorage(): Map<string, string> {
+  const out = new Map<string, string>();
+  try {
+    if (typeof localStorage === 'undefined') return out;
+    const raw = localStorage.getItem(SKIPPED_VERSIONS_STORAGE_KEY);
+    if (raw === null) return out;
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+    for (const [id, version] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof id !== 'string' || typeof version !== 'string') continue;
+      out.set(id, version);
+    }
+  } catch {
+    // localStorage access threw or JSON parse failed — fall back to empty.
+  }
+  return out;
+}
+
+function persistSkippedVersions(map: ReadonlyMap<string, string>): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const obj: Record<string, string> = {};
+    for (const [id, version] of map) obj[id] = version;
+    localStorage.setItem(SKIPPED_VERSIONS_STORAGE_KEY, JSON.stringify(obj));
+  } catch {
+    // Quota exceeded / private mode: silently drop. The skip is in-memory
+    // for the rest of this session, so the badge stays hidden until reload.
+  }
+}
 
 let managerUnsubscribe: (() => void) | null = null;
 
@@ -232,6 +293,7 @@ function buildRows(
   localUninstalled: ReadonlySet<string>,
   licenseReasons: ReadonlyMap<string, LoadLicenseReason>,
   latestVersions: ReadonlyMap<string, string>,
+  skippedVersions: ReadonlyMap<string, string>,
 ): readonly PluginPanelRow[] {
   const byId = new Map<string, PluginPanelRow>();
   const licenseById = new Map<string, LicenseRecord>();
@@ -242,6 +304,9 @@ function buildRows(
     const enabled = !localDisabled.has(inst.id) && inst.enabled;
     const reason = licenseReasons.get(inst.id);
     const latest = latestVersions.get(inst.id);
+    const skipped = skippedVersions.get(inst.id);
+    const showsLatest =
+      latest !== undefined && latest !== inst.version && latest !== skipped;
     byId.set(inst.id, {
       id: inst.id,
       version: inst.version,
@@ -255,7 +320,7 @@ function buildRows(
       install: inst,
       ...(licenseById.has(inst.id) ? { license: licenseById.get(inst.id)! } : {}),
       ...(reason !== undefined ? { licenseReason: reason } : {}),
-      ...(latest !== undefined && latest !== inst.version ? { latestVersion: latest } : {}),
+      ...(showsLatest ? { latestVersion: latest } : {}),
     });
   }
 
@@ -267,6 +332,11 @@ function buildRows(
     const enabled = prev?.enabled ?? !localDisabled.has(entry.id);
     const reason = licenseReasons.get(entry.id);
     const latest = latestVersions.get(entry.id);
+    const skipped = skippedVersions.get(entry.id);
+    const showsLatest =
+      latest !== undefined &&
+      latest !== entry.manifest.version &&
+      latest !== skipped;
     // A pause from the loader's expiry timer (CORE-008c) bypasses the
     // licenseReasons map — the loader doesn't re-run loadOne for pauses.
     // Surface the typed reason so the LicenseStatus component renders
@@ -294,9 +364,7 @@ function buildRows(
       // the loader only re-stamps reasons on failed paths.
       ...(effectiveLicenseReason !== undefined ? { licenseReason: effectiveLicenseReason } : {}),
       ...(entry.pauseReason !== undefined ? { pauseReason: entry.pauseReason } : {}),
-      ...(latest !== undefined && latest !== entry.manifest.version
-        ? { latestVersion: latest }
-        : {}),
+      ...(showsLatest ? { latestVersion: latest } : {}),
     });
   }
 
@@ -366,6 +434,7 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
     localUninstalled: new Set<string>(),
     licenseReasons: new Map<string, LoadLicenseReason>(),
     latestVersions: new Map<string, string>(),
+    skippedVersions: loadSkippedVersionsFromStorage(),
     tick: 0,
 
     getRows() {
@@ -392,6 +461,7 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
         get().localUninstalled,
         get().licenseReasons,
         latest,
+        get().skippedVersions,
       );
     },
 
@@ -493,6 +563,18 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
       }
     },
 
+    markVersionSkipped(id: string, version: string) {
+      const next = new Map(get().skippedVersions);
+      if (next.get(id) === version) return;
+      next.set(id, version);
+      persistSkippedVersions(next);
+      set({ skippedVersions: next, tick: get().tick + 1 });
+    },
+
+    isVersionSkipped(id: string, version: string) {
+      return get().skippedVersions.get(id) === version;
+    },
+
     __resetForTests() {
       if (managerUnsubscribe !== null) {
         try { managerUnsubscribe(); } catch { /* ignore */ }
@@ -501,6 +583,11 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
       runtimeLoader = null;
       latestVersionResolver = null;
       manifestCache.clear();
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(SKIPPED_VERSIONS_STORAGE_KEY);
+        }
+      } catch { /* ignore */ }
       set({
         busyIds: new Set<string>(),
         lastError: null,
@@ -508,6 +595,7 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
         localUninstalled: new Set<string>(),
         licenseReasons: new Map<string, LoadLicenseReason>(),
         latestVersions: new Map<string, string>(),
+        skippedVersions: new Map<string, string>(),
         tick: 0,
       });
     },

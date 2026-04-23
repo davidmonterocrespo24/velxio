@@ -26,6 +26,9 @@ import { useAuthStore } from './store/useAuthStore';
 import { getSettingsRegistry } from './plugin-host/SettingsRegistry';
 import { IndexedDBSettingsBackend } from './plugin-host/IndexedDBSettingsBackend';
 import { bootEditorLocale } from './i18n/LocaleProvider';
+import { configureInstallFlow } from './plugin-host/InstallFlowController';
+import { useInstalledPluginsStore } from './store/useInstalledPluginsStore';
+import { InstallFlowOverlay } from './components/plugin-host/InstallFlowOverlay';
 import './App.css';
 
 // Resolve the user's locale before any plugin context is constructed —
@@ -44,6 +47,18 @@ if (typeof indexedDB !== 'undefined') {
   }
 }
 
+// Wire the install/update consent dialog controller (SDK-008c). The
+// controller is host-singleton state — `configureInstallFlow` is
+// idempotent so HMR replaces it cleanly.
+configureInstallFlow({
+  markVersionSkipped: (id, version) => {
+    useInstalledPluginsStore.getState().markVersionSkipped(id, version);
+  },
+  // The toast surface lands with the marketplace UI in PRO-005; until
+  // then the auto-approve-with-toast events are dropped silently — the
+  // install still proceeds, the user just doesn't see a notification.
+});
+
 function App() {
   const checkSession = useAuthStore((s) => s.checkSession);
 
@@ -53,6 +68,7 @@ function App() {
 
   return (
     <Router>
+      <InstallFlowOverlay />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/editor" element={<EditorPage />} />
