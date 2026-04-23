@@ -1,0 +1,56 @@
+name: SDK API Docs
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-docs.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-docs.yml'
+
+# Build the TypeDoc-generated reference for `@velxio/sdk` and upload it
+# as a workflow artifact. We deliberately do NOT publish to GitHub Pages
+# here — that requires repo-settings changes (Pages source, custom
+# domain) tracked in the human_review folder. Once that lands, this job
+# gains a deploy step.
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: packages/sdk/package-lock.json
+
+      - name: Install SDK dependencies
+        working-directory: packages/sdk
+        run: npm ci
+
+      # TypeDoc resolves entry-point types by reading source — no build
+      # needed. We do still run typecheck so the docs run flags broken
+      # types early instead of silently emitting incomplete output.
+      - name: Type-check SDK
+        working-directory: packages/sdk
+        run: npm run typecheck
+
+      - name: Generate API docs
+        working-directory: packages/sdk
+        run: npm run docs:api
+
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-api-docs
+          path: packages/sdk/docs-api/
+          retention-days: 14
+          if-no-files-found: error

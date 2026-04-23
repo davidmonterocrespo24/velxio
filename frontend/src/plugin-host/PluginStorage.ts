@@ -26,15 +26,28 @@ import {
 export type StorageBucket = 'user' | 'workspace';
 
 /**
- * Pluggable backend so we can swap the in-memory map for IndexedDB later
- * without changing `InMemoryPluginStorage`. Sync API on purpose — async
- * backends still satisfy this by maintaining their own write-through cache.
+ * Pluggable backend so we can swap the in-memory map for IndexedDB
+ * (`IndexedDBPluginStorageBackend`) without changing `InMemoryPluginStorage`.
+ *
+ * Reads + writes are sync on purpose — async backends still satisfy this
+ * by maintaining their own write-through cache (mirror Map). The optional
+ * `flushed()` hook lets an async backend signal "all pending IDB puts
+ * have completed", which `InMemoryPluginStorage.set/delete` awaits so the
+ * caller's `await ctx.userStorage.set(k, v)` doesn't return before the
+ * bytes are durable.
  */
 export interface StorageBackend {
   get(key: string): unknown | undefined;
   set(key: string, value: unknown): void;
   delete(key: string): void;
   keys(): string[];
+  /**
+   * Optional. Resolve once every queued async write has completed (or
+   * failed — error reporting is the backend's responsibility). Sync
+   * backends can omit this; the wrapper treats absence as "writes are
+   * already durable".
+   */
+  flushed?(): Promise<void>;
 }
 
 export class MapStorageBackend implements StorageBackend {
@@ -85,10 +98,18 @@ export class InMemoryPluginStorage implements PluginStorage {
       throw new StorageQuotaError(this.bucket, total + proposed, this.quotaBytes);
     }
     this.backend.set(key, value);
+    // Async backends (IndexedDB) expose `flushed()` so we can await
+    // persistence. Sync backends omit it and we return immediately.
+    if (this.backend.flushed !== undefined) {
+      await this.backend.flushed();
+    }
   }
 
   async delete(key: string): Promise<void> {
     this.backend.delete(key);
+    if (this.backend.flushed !== undefined) {
+      await this.backend.flushed();
+    }
   }
 
   async keys(): Promise<ReadonlyArray<string>> {

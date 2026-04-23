@@ -1,0 +1,34 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/index.ts",
+    "src/manifest.ts",
+    "src/events.ts",
+    "src/permissions-catalog.ts"
+  ],
+  "out": "docs-api",
+  "name": "@velxio/sdk",
+  "readme": "README.md",
+  "tsconfig": "./tsconfig.json",
+  "includeVersion": true,
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeInternal": true,
+  "excludeNotDocumented": false,
+  "categorizeByGroup": true,
+  "navigationLinks": {
+    "Velxio": "https://velxio.dev",
+    "GitHub": "https://github.com/davidmonterocrespo24/velxio",
+    "Permissions catalog": "https://github.com/davidmonterocrespo24/velxio/blob/master/docs/PLUGIN_PERMISSIONS.md"
+  },
+  "treatWarningsAsErrors": false,
+  "skipErrorChecking": false,
+  "validation": {
+    "notExported": false,
+    "invalidLink": true,
+    "notDocumented": false
+  },
+  "githubPages": false,
+  "hideGenerator": false,
+  "searchInComments": true
+}

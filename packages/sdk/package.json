@@ -60,6 +60,7 @@
     "typecheck": "tsc --noEmit",
     "schema:emit": "tsx scripts/emit-json-schema.ts",
     "smoke": "node scripts/smoke-test.mjs",
+    "docs:api": "typedoc",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
@@ -71,6 +72,7 @@
     "eslint": "^9.39.1",
     "tsup": "^8.5.0",
     "tsx": "^4.19.0",
+    "typedoc": "^0.28.19",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.59.0",
     "vitest": "^4.0.18",

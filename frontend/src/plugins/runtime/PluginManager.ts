@@ -30,8 +30,24 @@
 import type { PluginManifest } from '@velxio/sdk';
 
 import type { PluginHostServices } from '../../plugin-host/createPluginContext';
+import type { StorageBackend, StorageBucket } from '../../plugin-host/PluginStorage';
 import { PluginHost, type PluginHostStats, type WorkerLike } from './PluginHost';
 import type { InitMessage } from './pluginWorker';
+
+// ── Storage backend factory ──────────────────────────────────────────────
+
+/**
+ * Per-plugin storage backend factory. The manager awaits this for each
+ * bucket before constructing the `PluginHost`, so plugin code sees a
+ * populated `ctx.userStorage`/`ctx.workspaceStorage` from its first read.
+ *
+ * Production wires `(id, bucket) => IndexedDBPluginStorageBackend.create(id, bucket)`.
+ * Tests can omit it (falls back to in-memory) or inject a fake.
+ */
+export type PluginStorageBackendFactory = (
+  pluginId: string,
+  bucket: StorageBucket,
+) => Promise<StorageBackend>;
 
 // ── Worker factory ───────────────────────────────────────────────────────
 
@@ -94,14 +110,25 @@ class PluginManagerImpl {
   private readonly subscribers = new Set<() => void>();
   private defaultFactory: WorkerFactory | null = null;
   private defaultServices: PluginHostServices | null = null;
+  private storageBackendFactory: PluginStorageBackendFactory | null = null;
 
   /**
    * Wire production defaults. Call once at editor startup. Safe to call
    * multiple times — each call overwrites.
+   *
+   * `storageBackendFactory` is optional: when present, `load()` awaits it
+   * for both buckets per plugin and stitches the resulting backends into
+   * the per-plugin services overlay so `ctx.userStorage`/`workspaceStorage`
+   * persist across reloads. When absent, both buckets stay in-memory.
    */
-  configure(opts: { factory: WorkerFactory; services: PluginHostServices }): void {
+  configure(opts: {
+    factory: WorkerFactory;
+    services: PluginHostServices;
+    storageBackendFactory?: PluginStorageBackendFactory;
+  }): void {
     this.defaultFactory = opts.factory;
     this.defaultServices = opts.services;
+    this.storageBackendFactory = opts.storageBackendFactory ?? null;
   }
 
   /**
@@ -120,8 +147,8 @@ class PluginManagerImpl {
     if (factory === null || factory === undefined) {
       throw new Error('PluginManager not configured: no worker factory');
     }
-    const services = opts.services ?? this.defaultServices;
-    if (services === null || services === undefined) {
+    const baseServices = opts.services ?? this.defaultServices;
+    if (baseServices === null || baseServices === undefined) {
       throw new Error('PluginManager not configured: no host services');
     }
 
@@ -130,6 +157,39 @@ class PluginManagerImpl {
       manifest,
       status: 'loading',
     });
+
+    // Per-plugin storage backends. When the loader configured an
+    // `IndexedDBPluginStorageBackend` factory, we await both buckets in
+    // parallel so the plugin's first storage read is sync-fast (the
+    // pre-loaded mirror is already populated). When no factory is wired,
+    // we leave the slots undefined and `createPluginContext` falls back
+    // to in-memory.
+    let services = baseServices;
+    if (this.storageBackendFactory !== null && baseServices.userStorageBackend === undefined) {
+      const factoryFn = this.storageBackendFactory;
+      try {
+        const [userBackend, workspaceBackend] = await Promise.all([
+          factoryFn(manifest.id, 'user'),
+          factoryFn(manifest.id, 'workspace'),
+        ]);
+        services = {
+          ...baseServices,
+          userStorageBackend: userBackend,
+          workspaceStorageBackend: workspaceBackend,
+        };
+      } catch (err) {
+        this.setEntry({
+          id: manifest.id,
+          manifest,
+          status: 'failed',
+          error: {
+            name: err instanceof Error ? err.name : 'Error',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        });
+        throw err;
+      }
+    }
 
     const worker = factory.create();
     const host = new PluginHost({ manifest, worker, services });
@@ -264,6 +324,7 @@ class PluginManagerImpl {
     this.subscribers.clear();
     this.defaultFactory = null;
     this.defaultServices = null;
+    this.storageBackendFactory = null;
   }
 
   // ── Internals ──────────────────────────────────────────────────────────

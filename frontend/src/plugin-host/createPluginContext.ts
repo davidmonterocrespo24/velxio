@@ -71,7 +71,7 @@ import {
   InMemoryStatusBarRegistry,
   InMemoryToolbarRegistry,
 } from './UIRegistries';
-import { InMemoryPluginStorage } from './PluginStorage';
+import { InMemoryPluginStorage, type StorageBackend } from './PluginStorage';
 import { createScopedFetch, type ScopedFetchOptions } from './ScopedFetch';
 import { createPluginLogger } from './PluginLogger';
 import { SpiceModelRegistry } from './SpiceModelRegistry';
@@ -89,6 +89,11 @@ import { getHostSlotRegistry } from './HostSlotRegistry';
 /**
  * Host-provided services that every plugin sees. Tests can pass mocks here;
  * the production wiring (in `loadPlugin()` / CORE-007) hands the singletons.
+ *
+ * The two storage backend slots are populated PER PLUGIN by
+ * `PluginManager.load()` — it awaits `storageBackendFactory(id, bucket)`
+ * before constructing the `PluginHost`. `createPluginContext` itself is
+ * still synchronous; it just consumes already-built backends.
  */
 export interface PluginHostServices {
   readonly events: EventBusReader;
@@ -96,6 +101,10 @@ export interface PluginHostServices {
   readonly fetchImpl?: typeof fetch;
   /** Optional override for max body bytes. */
   readonly fetchMaxBytes?: number;
+  /** Pre-built backend for `ctx.userStorage`. Defaults to `MapStorageBackend` (in-memory). */
+  readonly userStorageBackend?: StorageBackend;
+  /** Pre-built backend for `ctx.workspaceStorage`. Defaults to `MapStorageBackend` (in-memory). */
+  readonly workspaceStorageBackend?: StorageBackend;
 }
 
 /**
@@ -394,14 +403,26 @@ export function createPluginContext(
   };
 
   // ── storage + fetch ──────────────────────────────────────────────────────
+  // Use pre-built backends if the loader injected them (production: IndexedDB
+  // backends pre-loaded asynchronously). Otherwise fall back to in-memory —
+  // valid for tests, ephemeral plugin sessions, and the dev path before the
+  // loader is wired in.
+  const userBackend = services.userStorageBackend;
+  const userStorageImpl = userBackend !== undefined
+    ? new InMemoryPluginStorage('user', userBackend)
+    : new InMemoryPluginStorage('user');
+  const workspaceBackend = services.workspaceStorageBackend;
+  const workspaceStorageImpl = workspaceBackend !== undefined
+    ? new InMemoryPluginStorage('workspace', workspaceBackend)
+    : new InMemoryPluginStorage('workspace');
   const userStorage: PluginStorage = wrapStorage(
-    new InMemoryPluginStorage('user'),
+    userStorageImpl,
     manifest,
     'storage.user.read',
     'storage.user.write',
   );
   const workspaceStorage: PluginStorage = wrapStorage(
-    new InMemoryPluginStorage('workspace'),
+    workspaceStorageImpl,
     manifest,
     'storage.workspace.read',
     'storage.workspace.write',

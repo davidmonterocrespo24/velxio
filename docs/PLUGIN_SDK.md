@@ -965,6 +965,109 @@ The SDK-003 contract intentionally defers a few higher-level conveniences:
 These are pure additions on top of the current contract and do not break
 anything in SDK-003.
 
+## SDK-002b — host integration follow-ups
+
+SDK-002 shipped the `PluginContext` surface and the in-memory host
+implementation. SDK-002b closes the four gaps that made it unsafe to flip
+the runtime on for paid plugins. Each one is independently shippable; the
+order below matches the order in the source task.
+
+### 1. Streaming response cap in `ScopedFetch` (Part A)
+
+Before SDK-002b, `ScopedFetch` only validated the `Content-Length` header
+upfront. A server that omitted the header (or sent a chunked transfer
+encoding) could push arbitrary bytes through the plugin's `fetch()` until
+something else OOM'd the tab. The fix is two-layer:
+
+1. **Header check** — same as before, throws synchronously if the declared
+   length exceeds `SCOPED_FETCH_MAX_BYTES` (4 MB default).
+2. **Mid-stream check** — `response.body` is wrapped in a counting
+   `ReadableStream` that aborts with `HttpResponseTooLargeError(url,
+   observed, max)` the moment a chunk pushes the running total over the
+   cap. The cap is enforced even when the server lies about the length or
+   omits the header entirely.
+
+`HttpResponseTooLargeError` is a new SDK-level error (exported from the
+barrel) so callers can catch it without importing host internals.
+
+### 2. IndexedDB plugin storage backend (Part B)
+
+The default `MapStorageBackend` is in-memory only — every refresh wipes
+`ctx.userStorage` / `ctx.workspaceStorage`. SDK-002b adds an
+IndexedDB-backed `StorageBackend` that gives plugins cross-session
+persistence **without changing the SDK contract**. The seam is the same
+`StorageBackend` interface SDK-002 already shipped; the host just
+constructs a different implementation.
+
+**Implementation:** `frontend/src/plugin-host/IndexedDBPluginStorageBackend.ts`
+
+- One DB (`velxio.plugin-storage`), one object store (`entries`), keys
+  prefixed `${pluginId}:${bucket}:${key}`. One store with prefixed keys
+  instead of one store per plugin because IDB requires every store to be
+  declared in `onupgradeneeded` — dynamic per-plugin stores would force a
+  version bump on every install.
+- **Async construction, sync reads.** `IndexedDBPluginStorageBackend.create()`
+  scans the bucket prefix into an in-memory `Map` mirror via a cursor +
+  `IDBKeyRange.bound(prefix, prefix + '￿')` (the BMP highest code point as
+  upper bound). After construction, `get`/`keys` are O(1) Map lookups so
+  the sync `StorageBackend` interface holds. Memory cost ≤ the bucket
+  quota (1 MB).
+- **Write-through queue.** `set`/`delete` mutate the mirror synchronously
+  and enqueue the IDB put on a single-track promise chain. The new
+  optional `flushed?(): Promise<void>` hook on `StorageBackend` lets
+  `InMemoryPluginStorage.set/delete` await persistence so the caller's
+  `await ctx.userStorage.set(k, v)` doesn't return before the bytes are
+  durable. A tab close mid-flight loses *at most* the most recent op.
+- **Errors during persistence** are reported via the injected `onError`
+  callback (default `console.error`). The host wires this to
+  `PluginLogger.error` so failures are tagged with the plugin id; the
+  mirror keeps the new value so the next write retries.
+
+**Wiring:** `PluginManager.configure({ storageBackendFactory })` accepts
+an optional `(pluginId, bucket) => Promise<StorageBackend>` factory.
+`load()` awaits it for both buckets in parallel **before** constructing
+the worker, then injects per-plugin backends into the services overlay
+that `createPluginContext` consumes (`services.userStorageBackend`,
+`services.workspaceStorageBackend`). On factory throw, the entry is
+marked `failed` and the worker is never constructed — the failure
+surfaces in the Installed Plugins panel like any other load-time error.
+
+If the factory is omitted, plugins fall back to `MapStorageBackend`
+(the SDK-002 baseline) — backwards-compatible.
+
+### 3. TypeDoc API reference (Part C)
+
+`packages/sdk/typedoc.json` configures TypeDoc 0.28 with four entry
+points: `src/index.ts`, `src/manifest.ts`, `src/events.ts`, and
+`src/permissions-catalog.ts` (matching the four `exports` subpaths).
+`npm run docs:api` from `packages/sdk/` emits static HTML to
+`docs-api/` (gitignored). `excludeInternal` + `excludePrivate`
+keep the surface limited to what plugin authors actually call;
+`validation.invalidLink: true` fails the build if a docstring
+references a missing symbol.
+
+`.github/workflows/sdk-docs.yml` runs typecheck + `docs:api` on every
+push/PR that touches `packages/sdk/**` and uploads the HTML as a workflow
+artifact (`sdk-api-docs`, 14-day retention). The publish step to
+GitHub Pages is **deliberately deferred** — enabling Pages requires a
+repo-settings change (Pages source + custom domain config) tracked in
+`task_plan/human_review/SDK-002b-followup-pages-deploy.md`. Once that
+lands, the workflow gains a deploy step.
+
+### What did NOT land in SDK-002b
+
+- **Slot UI rendering.** Already shipped in CORE-002b
+  (`SlotIds.ts` + `HostSlotRegistry` + `<SlotOutlet />` + `mountPlugin`)
+  before SDK-002b started. The 7 `MapBackedRegistry<T>` registries from
+  SDK-002 are now consumed by real React surfaces.
+- **App.tsx wiring of the IndexedDB factory.** The backend is exposed as
+  a building block; the production `PluginManager.configure({...,
+  storageBackendFactory: createPluginStorageBackends })` call lands with
+  the loader integration story (CORE-007 already shipped, but the editor
+  startup still constructs `PluginManager` lazily — wiring the factory is
+  a one-line edit deferred so it can land alongside the eventual
+  "production loader boot" task).
+
 ## See also
 
 - [docs/EVENT_BUS.md](EVENT_BUS.md) — `ctx.events` payload catalog.
@@ -974,3 +1077,7 @@ anything in SDK-003.
 - `frontend/src/plugin-host/SlotIds.ts` + `HostSlotRegistry.ts` +
   `frontend/src/components/plugin-host/SlotOutlet.tsx` — slot UI
   infrastructure (CORE-002b).
+- `frontend/src/plugin-host/IndexedDBPluginStorageBackend.ts` — IndexedDB
+  storage backend for plugins (SDK-002b).
+- `packages/sdk/typedoc.json` + `.github/workflows/sdk-docs.yml` — API
+  reference generation pipeline (SDK-002b).
