@@ -86,10 +86,19 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   const cards: string[] = [];
   const modelLines = new Set<string>();
   const dominantVcc = boards[0]?.vcc ?? 5;
+  // Internal nodes minted by mappers via ctx.internalNode(...). Tracked so
+  // detectFloatingNets() knows they are real nets and can include them in
+  // the graph walk (otherwise its "stop at first unknown token" parser
+  // would miss any card that mentions an internal node).
+  const mintedInternalNodes = new Set<string>();
 
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
-    const emission = componentToSpice(comp, localLookup, { vcc: dominantVcc });
+    const internalNode = makeTrackingInternalNodeMinter(comp.id, mintedInternalNodes);
+    const emission = componentToSpice(comp, localLookup, {
+      vcc: dominantVcc,
+      internalNode,
+    });
     if (!emission) continue;
     cards.push(...emission.cards);
     for (const m of emission.modelsUsed) modelLines.add(m);
@@ -113,7 +122,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   }
 
   // ── 7. Auto pull-downs for floating nets ─────────────────────────────────
-  const floating = detectFloatingNets(netNames, cards);
+  const floating = detectFloatingNets(netNames, cards, mintedInternalNodes);
   for (const net of floating) {
     cards.push(`R_autopull_${net} ${net} 0 100Meg`);
   }
@@ -162,6 +171,52 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Build the per-component `internalNode(suffix)` minter the SDK contract
+ * promises plugin SPICE mappers (and built-ins). Identifier-safe, stable
+ * across builds (same inputs → same string), and idempotent within a
+ * single mapper invocation.
+ *
+ * Sanitization rule: anything outside `[A-Za-z0-9_]` is replaced with `_`.
+ * This keeps the resulting net name acceptable to ngspice tokenizers and
+ * prevents collisions with the auto-named `n0`/`n1`/... namespace (those
+ * have no underscore and are pure digits after the `n`).
+ */
+function makeInternalNodeMinter(componentId: string): (suffix: string) => string {
+  const safeId = sanitizeForSpiceNet(componentId);
+  return (suffix: string) => {
+    if (typeof suffix !== 'string' || suffix.length === 0) {
+      throw new Error(
+        `internalNode(suffix) requires a non-empty string, got ${JSON.stringify(suffix)}`,
+      );
+    }
+    return `n_${safeId}_${sanitizeForSpiceNet(suffix)}`;
+  };
+}
+
+/**
+ * Wrap `makeInternalNodeMinter` so every minted name is also added to a
+ * caller-supplied tracking set. The set is then handed to
+ * `detectFloatingNets` so its DC-path graph walk recognizes internal nodes
+ * as valid net tokens (otherwise the parser would stop at the first
+ * unknown token in any card that references one).
+ */
+function makeTrackingInternalNodeMinter(
+  componentId: string,
+  trackingSet: Set<string>,
+): (suffix: string) => string {
+  const mint = makeInternalNodeMinter(componentId);
+  return (suffix: string) => {
+    const net = mint(suffix);
+    trackingSet.add(net);
+    return net;
+  };
+}
+
+function sanitizeForSpiceNet(s: string): string {
+  return s.replace(/[^A-Za-z0-9_]/g, '_');
+}
 
 function pinsReferencedByWires(componentId: string, wires: WireForSpice[]): string[] {
   const pins = new Set<string>();
@@ -218,9 +273,21 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
  * actually traces back to node "0".
  *
  * Returns the set of nets that should receive an auto 100 MΩ pull-down.
+ *
+ * `mintedInternalNodes` carries any nets minted by mappers via
+ * `ctx.internalNode(...)`. They aren't in `netNames` (which only knows the
+ * UF-derived nets), but cards can reference them — so they must be in the
+ * `nets` set the parser uses to decide where a token list ends. An internal
+ * node with no DC path to ground gets the same auto pull-down treatment as
+ * any other floating net (per SDK contract).
  */
-function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set<string> {
+function detectFloatingNets(
+  netNames: Map<string, string>,
+  cards: string[],
+  mintedInternalNodes: ReadonlySet<string> = new Set(),
+): Set<string> {
   const nets = new Set(netNames.values());
+  for (const n of mintedInternalNodes) nets.add(n);
 
   // Build an undirected adjacency list over DC-conducting elements.
   // For a 2-terminal element the two nets on it become connected.

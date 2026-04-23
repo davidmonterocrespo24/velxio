@@ -232,6 +232,54 @@ ctx.spice.registerMapper('demo.fancy-diode', defineSpiceMapper((comp, netLookup)
 The host emits matching `.model` cards into the netlist when any mapper's
 `modelsUsed` references their name.
 
+### Internal nets — `ctx.internalNode(suffix)`
+
+A mapper that needs an extra node — a BJT with an intermediate base tap, an
+op-amp with a virtual-ground point, an integrator with a feedback midpoint —
+must NEVER invent its own net name from `comp.id`. Two instances of the same
+component would produce identical strings and short their internal state
+together.
+
+`ctx.internalNode(suffix)` is the only safe way to mint one. The host scopes
+the returned name by the current component id, so two instances of the same
+mapper get distinct nets:
+
+```ts
+import { defineSpiceMapper } from '@velxio/sdk';
+
+ctx.spice.registerMapper('demo.bjt-with-tap', defineSpiceMapper((comp, netLookup, ctx) => {
+  const c = netLookup('C');
+  const e = netLookup('E');
+  if (!c || !e) return null;
+
+  const internal = ctx.internalNode('vbe_tap');   // → "n_<comp.id>_vbe_tap"
+
+  return {
+    cards: [
+      `Q_${comp.id} ${c} ${internal} ${e} BJT_NPN`,
+      `R_${comp.id}_base ${internal} 0 1k`,
+    ],
+    modelsUsed: new Set(['BJT_NPN']),
+  };
+}));
+```
+
+**Contract** (host-enforced):
+
+| Property                     | Behavior |
+|------------------------------|----------|
+| Namespace                    | `n_${componentId}_${suffix}` after both are sanitized to `[A-Za-z0-9_]` (so `comp-12345-abc` + `vbe.tap` → `n_comp_12345_abc_vbe_tap`). |
+| Per-component scoping        | Two instances of the same mapper → distinct nets, even with the same `suffix`. |
+| Idempotent within one call   | `ctx.internalNode('foo')` twice in one invocation → the same string. |
+| Stable across rebuilds       | Same inputs → same name. AC analyses can reference internal nodes across rebuilds. |
+| Floating detection           | Internal nodes participate in the auto pull-down detector. A node connected only via a capacitor to the rest of the circuit gets a 100 MΩ pull-down to ground, just like any other floating net. |
+| Empty / non-string `suffix`  | Throws `Error("internalNode(suffix) requires a non-empty string, …")` — the host refuses to mint debug-hostile names like `n_<id>_undefined`. |
+
+**Why per-component scoping matters.** Auto-named nets in the host are pure
+`n0` / `n1` / `n2` … (no underscore). Internal nodes use `n_<id>_<suffix>`,
+so plugin internal nodes can never collide with the auto-named namespace
+either.
+
 ## Compact authoring — `defineCompoundComponent` + `registerCompound`
 
 The three-call flow above (component + part-sim + spice + spice-models) is the
@@ -1101,9 +1149,12 @@ The SDK-003 contract intentionally defers a few higher-level conveniences:
   `attachEvents(element, SimulatorHandle)` directly. (The per-pin building
   block landed in CORE-002c-step1: `SimulatorHandle.onPinChange(pinName, cb)`
   — see "Subscribing to pin transitions" below.)
-- **Richer `NetlistMapContext`** with `internalNode(suffix)` for reserving
-  unique internal nets — remaining SDK-003b work. Today you mint your own
-  (e.g. `comp.id + '_n_internal'`).
+- ~~**Richer `NetlistMapContext`** with `internalNode(suffix)` for reserving
+  unique internal nets.~~ Shipped in **SDK-003b step 3** — see
+  "Internal nets — `ctx.internalNode(suffix)`" below. Today every SPICE
+  mapper receives `ctx.internalNode(suffix)` directly on
+  `SpiceMapperContext`; no need to mint your own (`comp.id + '_n_internal'`)
+  — collisions across instances would short their internal state together.
 
 These are pure additions on top of the current contract and do not break
 anything in SDK-003.

@@ -27,6 +27,13 @@ export type NetLookup = (pinName: string) => string | null;
 export interface MapperContext {
   /** Supply voltage in effect (V). Boards set this; ground is 0. */
   vcc: number;
+  /**
+   * Mint a SPICE net name unique to this component instance. Mirrors the
+   * SDK's `SpiceMapperContext.internalNode`. The host (NetlistBuilder)
+   * builds this closure per-component so it captures the current
+   * `comp.id`. See `packages/sdk/src/spice.ts` for the contract.
+   */
+  internalNode(suffix: string): string;
 }
 
 type Mapper = (
