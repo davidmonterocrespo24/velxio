@@ -13,6 +13,7 @@ import {
   PermissionDeniedError,
   StorageQuotaError,
   HttpAllowlistDeniedError,
+  HttpResponseTooLargeError,
   type EventBusReader,
   type PluginManifest,
   type PluginPermission,
@@ -169,7 +170,10 @@ describe('createScopedFetch', () => {
     const fetchSpy = vi.fn(async () => fakeResponse);
     const f = createScopedFetch(m, { fetchImpl: fetchSpy as never });
     const res = await f('https://api.example.com/things');
-    expect(res).toBe(fakeResponse);
+    // The cap wraps the body in a counting ReadableStream, so identity is
+    // not preserved — but status, text, and bytes round-trip exactly.
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [, init] = fetchSpy.mock.calls[0];
     expect((init as RequestInit).headers).toMatchObject({
@@ -189,7 +193,75 @@ describe('createScopedFetch', () => {
       fetchImpl: (async () => huge) as never,
       maxBytes: 1024,
     });
-    await expect(f('https://big.example.com/x')).rejects.toThrow(/too large/);
+    await expect(f('https://big.example.com/x')).rejects.toBeInstanceOf(
+      HttpResponseTooLargeError,
+    );
+  });
+
+  it('passes through chunked responses under the cap', async () => {
+    const m = manifest(['http.fetch'], {
+      http: { allowlist: ['https://big.example.com/'] },
+    });
+    // Stream three 1-byte chunks; total 3 bytes, well under cap.
+    const chunked = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1]));
+          controller.enqueue(new Uint8Array([2]));
+          controller.enqueue(new Uint8Array([3]));
+          controller.close();
+        },
+      }),
+    );
+    const f = createScopedFetch(m, {
+      fetchImpl: (async () => chunked) as never,
+      maxBytes: 1024,
+    });
+    const res = await f('https://big.example.com/x');
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(body)).toEqual([1, 2, 3]);
+  });
+
+  it('aborts mid-stream when a no-Content-Length response exceeds the cap', async () => {
+    const m = manifest(['http.fetch'], {
+      http: { allowlist: ['https://big.example.com/'] },
+    });
+    // Server omits Content-Length and streams more than the cap. Each chunk
+    // is 100 bytes; the cap is 250 bytes. The third chunk pushes the total
+    // to 300, triggering mid-stream abort.
+    const chunk = new Uint8Array(100);
+    const oversized = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.enqueue(chunk);
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      }),
+    );
+    const f = createScopedFetch(m, {
+      fetchImpl: (async () => oversized) as never,
+      maxBytes: 250,
+    });
+    const res = await f('https://big.example.com/x');
+    await expect(res.arrayBuffer()).rejects.toBeInstanceOf(
+      HttpResponseTooLargeError,
+    );
+  });
+
+  it('passes through bodyless responses (e.g. 204) without wrapping', async () => {
+    const m = manifest(['http.fetch'], {
+      http: { allowlist: ['https://api.example.com/'] },
+    });
+    const noContent = new Response(null, { status: 204 });
+    const f = createScopedFetch(m, {
+      fetchImpl: (async () => noContent) as never,
+      maxBytes: 100,
+    });
+    const res = await f('https://api.example.com/x');
+    expect(res.status).toBe(204);
+    expect(res.body).toBeNull();
   });
 });
 

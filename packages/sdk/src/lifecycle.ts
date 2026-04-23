@@ -83,6 +83,34 @@ export class HttpAllowlistDeniedError extends Error {
   }
 }
 
+/**
+ * Thrown by `ScopedFetch` when a response body exceeds the byte cap. The
+ * cap is enforced two ways:
+ *
+ *   - Upfront via `Content-Length` header — fast-fail before the body starts
+ *     streaming. `observedBytes` equals the declared header value.
+ *   - Mid-stream — when the server omits Content-Length (or lies), the
+ *     body is read through a counting `ReadableStream` that errors out as
+ *     soon as the running total crosses the cap. `observedBytes` is the
+ *     count at the point of abort (always `> maxBytes`).
+ *
+ * Plugins should treat this as a hostile/buggy upstream — the manifest
+ * should narrow `http.allowlist` to known-good endpoints, or split large
+ * downloads into ranged requests.
+ */
+export class HttpResponseTooLargeError extends Error {
+  public override readonly name = 'HttpResponseTooLargeError';
+  constructor(
+    public readonly url: string,
+    public readonly observedBytes: number,
+    public readonly maxBytes: number,
+  ) {
+    super(
+      `Plugin fetch refused: response from "${url}" is too large (${observedBytes} bytes, cap ${maxBytes} bytes).`,
+    );
+  }
+}
+
 /** Host-provided logger — routes to the devtools console with plugin-id prefix. */
 export interface PluginLogger {
   debug(message: string, ...args: unknown[]): void;
