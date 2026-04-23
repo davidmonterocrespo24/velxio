@@ -6,6 +6,7 @@ import { ShareModal } from './ShareModal';
 import { InstalledPluginsModal } from './InstalledPluginsModal';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
+import { useTranslate } from '../../i18n/useLocale';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
 const DISCORD_URL = 'https://discord.gg/3mARjJrh4E';
@@ -18,6 +19,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const currentProject = useProjectStore((s) => s.currentProject);
+  const t = useTranslate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -76,19 +78,19 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
           {/* Main nav links (desktop) */}
           <nav className={'header-nav-links' + (menuOpen ? ' header-nav-open' : '')}>
             <Link to="/" className={'header-nav-link' + isActive('/')}>
-              Home
+              {t('nav.home')}
             </Link>
             <Link to="/docs" className={'header-nav-link' + isActive('/docs')}>
-              Documentation
+              {t('nav.documentation')}
             </Link>
             <Link to="/examples" className={'header-nav-link' + isActive('/examples')}>
-              Examples
+              {t('nav.examples')}
             </Link>
             <Link to="/editor" className={'header-nav-link' + isActive('/editor')}>
-              Editor
+              {t('nav.editor')}
             </Link>
             <Link to="/about" className={'header-nav-link' + isActive('/about')}>
-              About
+              {t('nav.about')}
             </Link>
             <a
               href={GITHUB_URL}
@@ -147,7 +149,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                 color: '#ccc',
                 fontSize: 13,
               }}
-              title="Share project"
+              title={t('header.share.title')}
             >
               <svg
                 width="14"
@@ -165,7 +167,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                 <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
-              Share
+              {t('header.share')}
             </button>
           )}
 
@@ -185,8 +187,8 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                 color: '#ccc',
                 fontSize: 13,
               }}
-              title="New from template"
-              aria-label="New from template"
+              title={t('header.templates.title')}
+              aria-label={t('header.templates.title')}
             >
               <svg
                 width="14"
@@ -203,7 +205,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                 <line x1="12" y1="18" x2="12" y2="12" />
                 <line x1="9" y1="15" x2="15" y2="15" />
               </svg>
-              <span className="header-plugins-text">Templates</span>
+              <span className="header-plugins-text">{t('header.templates')}</span>
             </button>
           )}
 
@@ -222,8 +224,8 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
               color: '#ccc',
               fontSize: 13,
             }}
-            title="Installed plugins"
-            aria-label="Installed plugins"
+            title={t('header.plugins.title')}
+            aria-label={t('header.plugins.title')}
           >
             <svg
               width="14"
@@ -237,7 +239,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
             >
               <path d="M9 2v6M15 2v6M5 8h14v8a4 4 0 0 1-4 4h-1v2h-4v-2H9a4 4 0 0 1-4-4V8z" />
             </svg>
-            <span className="header-plugins-text">Plugins</span>
+            <span className="header-plugins-text">{t('header.plugins')}</span>
           </button>
 
           {/* Auth UI */}
@@ -310,7 +312,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                       fontSize: 13,
                     }}
                   >
-                    My projects
+                    {t('header.myProjects')}
                   </Link>
                   <div style={{ borderTop: '1px solid #3c3c3c' }} />
                   <button
@@ -326,7 +328,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                       fontSize: 13,
                     }}
                   >
-                    Sign out
+                    {t('header.signOut')}
                   </button>
                 </div>
               )}
@@ -344,7 +346,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                   borderRadius: 4,
                 }}
               >
-                Sign in
+                {t('header.signIn')}
               </Link>
               <Link
                 to="/register"
@@ -357,7 +359,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                   borderRadius: 4,
                 }}
               >
-                Sign up
+                {t('header.signUp')}
               </Link>
             </div>
           )}
@@ -366,7 +368,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
           <button
             className="header-hamburger"
             onClick={() => setMenuOpen((v) => !v)}
-            aria-label="Toggle menu"
+            aria-label={t('header.toggleMenu')}
           >
             <span />
             <span />

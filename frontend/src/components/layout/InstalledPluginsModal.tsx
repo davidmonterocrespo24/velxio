@@ -25,6 +25,8 @@ import {
 import type { LoadLicenseReason } from '../../plugins/loader';
 import { SettingsForm } from '../plugin-host/SettingsForm';
 import { getSettingsRegistry } from '../../plugin-host/SettingsRegistry';
+import { useLocale, useTranslate } from '../../i18n/useLocale';
+import { setEditorLocale, supportedLocales } from '../../i18n/LocaleProvider';
 
 /**
  * 24h cadence for the denylist refresh timer. A token revoked centrally
@@ -44,6 +46,7 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
   const refresh = useInstalledPluginsStore((s) => s.refresh);
   const marketplaceStatus = useMarketplaceStore((s) => s.status);
   const authRequired = useMarketplaceStore((s) => s.authRequired);
+  const t = useTranslate();
 
   const rows = useInstalledPluginsStore.getState().getRows();
   void tick; // re-render trigger — rows are read fresh on every render
@@ -74,12 +77,13 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Installed Plugins">
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={t('plugins.title')}>
         <header style={styles.header}>
-          <h2 style={styles.title}>Installed Plugins</h2>
+          <h2 style={styles.title}>{t('plugins.title')}</h2>
           <div style={styles.headerActions}>
+            <LocalePicker />
             <button onClick={() => void refresh()} style={styles.linkBtn}>
-              Refresh
+              {t('plugins.refresh')}
             </button>
             <a
               href="https://velxio.dev/marketplace"
@@ -87,9 +91,9 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
               rel="noopener noreferrer"
               style={styles.marketplaceLink}
             >
-              Marketplace →
+              {t('plugins.marketplace')}
             </a>
-            <button onClick={onClose} style={styles.closeBtn} aria-label="Close">
+            <button onClick={onClose} style={styles.closeBtn} aria-label={t('plugins.close')}>
               ×
             </button>
           </div>
@@ -136,6 +140,40 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
         />
       )}
     </div>
+  );
+};
+
+// ── LocalePicker ─────────────────────────────────────────────────────────
+
+/**
+ * Editor-wide language dropdown. Lives in the modal's header instead of
+ * a dedicated Settings panel because today this is the only "preferences"
+ * surface. When more cross-cutting settings appear, lift this into its
+ * own `<EditorSettings />` panel and stop bundling it here.
+ *
+ * The picker writes through `setEditorLocale` which (a) persists to
+ * `localStorage` and (b) drives the host's `LocaleStore` — same fan-out
+ * that re-translates plugin UI in `onLocaleChange` listeners.
+ */
+const LocalePicker: React.FC = () => {
+  const t = useTranslate();
+  const locale = useLocale();
+  return (
+    <label style={styles.localePicker} aria-label={t('plugins.language')}>
+      <span style={styles.localeLabel}>{t('plugins.language')}</span>
+      <select
+        value={locale}
+        onChange={(e) => setEditorLocale(e.target.value)}
+        style={styles.localeSelect}
+        data-testid="editor-locale-picker"
+      >
+        {supportedLocales.map((loc) => (
+          <option key={loc.code} value={loc.code}>
+            {loc.flag} {loc.nativeName}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 };
 
@@ -489,22 +527,23 @@ function messageForReason(reason: string): string {
 
 // ── EmptyState ───────────────────────────────────────────────────────────
 
-const EmptyState: React.FC = () => (
-  <div style={styles.empty}>
-    <p style={styles.emptyTitle}>No plugins installed</p>
-    <p style={styles.emptyBody}>
-      Plugins extend Velxio with new components, simulations, templates, and tools.
-    </p>
-    <a
-      href="https://velxio.dev/marketplace"
-      target="_blank"
-      rel="noopener noreferrer"
-      style={styles.emptyCta}
-    >
-      Browse the marketplace →
-    </a>
-  </div>
-);
+const EmptyState: React.FC = () => {
+  const t = useTranslate();
+  return (
+    <div style={styles.empty}>
+      <p style={styles.emptyTitle}>{t('plugins.empty.title')}</p>
+      <p style={styles.emptyBody}>{t('plugins.empty.body')}</p>
+      <a
+        href="https://velxio.dev/marketplace"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.emptyCta}
+      >
+        {t('plugins.empty.cta')}
+      </a>
+    </div>
+  );
+};
 
 // ── UninstallConfirm ─────────────────────────────────────────────────────
 
@@ -512,24 +551,22 @@ const UninstallConfirm: React.FC<{
   row: PluginPanelRow;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
-}> = ({ row, onCancel, onConfirm }) => (
-  <div style={styles.overlayInner} onClick={onCancel}>
-    <div style={styles.confirm} onClick={(e) => e.stopPropagation()}>
-      <h3 style={styles.confirmTitle}>Uninstall {row.displayName}?</h3>
-      <p style={styles.confirmBody}>
-        This will remove the plugin from this editor session. Components, templates,
-        and other registrations it provided will disappear immediately.
-      </p>
-      <p style={styles.confirmBody}>
-        Your purchase remains valid — you can reinstall from the marketplace at any time.
-      </p>
-      <div style={styles.confirmActions}>
-        <button onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
-        <button onClick={() => void onConfirm()} style={styles.dangerBtn}>Uninstall</button>
+}> = ({ row, onCancel, onConfirm }) => {
+  const t = useTranslate();
+  return (
+    <div style={styles.overlayInner} onClick={onCancel}>
+      <div style={styles.confirm} onClick={(e) => e.stopPropagation()}>
+        <h3 style={styles.confirmTitle}>{t('plugins.uninstall.title', { name: row.displayName })}</h3>
+        <p style={styles.confirmBody}>{t('plugins.uninstall.body1')}</p>
+        <p style={styles.confirmBody}>{t('plugins.uninstall.body2')}</p>
+        <div style={styles.confirmActions}>
+          <button onClick={onCancel} style={styles.cancelBtn}>{t('common.cancel')}</button>
+          <button onClick={() => void onConfirm()} style={styles.dangerBtn}>{t('plugins.uninstall.confirm')}</button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ── PluginSettingsDialog ─────────────────────────────────────────────────
 
@@ -537,29 +574,30 @@ const PluginSettingsDialog: React.FC<{
   row: PluginPanelRow;
   onClose: () => void;
 }> = ({ row, onClose }) => {
+  const t = useTranslate();
   const hasSchema = getSettingsRegistry().get(row.id) !== undefined;
   return (
     <div style={styles.overlayInner} onClick={onClose}>
       <div style={{ ...styles.confirm, width: 'min(560px, 92vw)' }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={styles.confirmTitle}>{row.displayName} — Settings</h3>
+        <h3 style={styles.confirmTitle}>{t('plugins.settings.title', { name: row.displayName })}</h3>
         {hasSchema ? (
           <SettingsForm pluginId={row.id} />
         ) : (
           <>
             <p style={styles.confirmBody}>
-              This plugin hasn't declared any settings yet. Once it calls
-              <code> ctx.settings.declare(...) </code> the form will appear here.
+              {t('plugins.settings.empty')}
+              <code> ctx.settings.declare(...) </code>
             </p>
             {row.entry?.manifest !== undefined && (
               <details style={styles.details}>
-                <summary style={styles.detailsSummary}>Plugin metadata</summary>
+                <summary style={styles.detailsSummary}>{t('plugins.settings.metadata')}</summary>
                 <pre style={styles.metaPre}>{JSON.stringify(row.entry.manifest, null, 2)}</pre>
               </details>
             )}
           </>
         )}
         <div style={styles.confirmActions}>
-          <button onClick={onClose} style={styles.primaryBtn}>Close</button>
+          <button onClick={onClose} style={styles.primaryBtn}>{t('plugins.close')}</button>
         </div>
       </div>
     </div>
@@ -606,6 +644,26 @@ const styles = {
   },
   title: { color: '#ccc', margin: 0, fontSize: 18, fontWeight: 600 },
   headerActions: { display: 'flex', alignItems: 'center', gap: 10 },
+  localePicker: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  } as React.CSSProperties,
+  localeLabel: {
+    color: '#888',
+    fontSize: 11,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  },
+  localeSelect: {
+    background: '#1f1f20',
+    border: '1px solid #3c3c3c',
+    color: '#ccc',
+    padding: '4px 8px',
+    borderRadius: 4,
+    fontSize: 12,
+    cursor: 'pointer',
+  } as React.CSSProperties,
   linkBtn: {
     background: 'transparent',
     border: '1px solid #555',

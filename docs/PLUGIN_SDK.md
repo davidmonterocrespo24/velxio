@@ -560,6 +560,106 @@ but ships a bundle with only `en` will simply fall back to `en` for
 Spanish users; the marketplace badge will be wrong but no runtime error
 fires. The CLI in SDK-009 will lint this.
 
+### SDK-005b — editor locale picker + shell strings
+
+SDK-005 shipped the SDK contract and host registry. SDK-005b mounts the
+**user-facing UI** so the editor shell uses the same `LocaleStore` that
+plugins subscribe to — a single picker change re-translates both at
+once.
+
+**Module map** (`frontend/src/i18n/`):
+
+- `locales/en.ts` — English shell strings as `as const`. Exports
+  `ShellTranslationKey = keyof typeof en`. Adding a new shell string
+  means adding a key here first; every other locale file mirrors it as
+  `Partial<Record<ShellTranslationKey, string>>` so the type system
+  forces missing-key visibility.
+- `locales/es.ts` — Spanish strings. Missing keys fall back to English,
+  then to the key itself.
+- `locales/index.ts` — `SHELL_LOCALES` map + `SUPPORTED_LOCALES`
+  descriptors (with `nativeName` always in the locale's own language so
+  a user who can't read the current UI can still find their language).
+- `translator.ts` — pure `translate(locale, key, vars?)`. Same chain as
+  the SDK plugin-side resolver (`resolveLocale` → `interpolate`); plus
+  a final **key-as-debug fallback** so missing strings render as visible
+  output instead of empty space.
+- `LocaleProvider.ts` — host-side wiring on top of the SDK's
+  `LocaleStore` singleton. Exports `bootEditorLocale()`,
+  `setEditorLocale(code)`, `getEditorLocale()`,
+  `subscribeEditorLocale(fn)`. Persists to `localStorage` under
+  `velxio.locale` with a try/catch around `setItem` for Safari private
+  mode.
+- `useLocale.ts` — `useLocale()` and `useTranslate()` React hooks via
+  `useSyncExternalStore`. `useTranslate()` returns a
+  `useCallback`-memoised `t(key, vars?)` whose **identity is stable
+  until the locale changes** — so a downstream `React.memo` keeps its
+  identity, mirroring the `<SlotOutlet />` render-fn discipline.
+
+**Boot order discipline** — `App.tsx` calls `bootEditorLocale()`
+**before** wiring the IndexedDB settings backend, and far before the
+first plugin context is constructed. Plugins read the active locale at
+`registerBundle` time, so a late boot would silently lock plugins to the
+SDK default `en` until the user manually flipped the picker.
+
+```ts
+// frontend/src/App.tsx
+import { bootEditorLocale } from './i18n/LocaleProvider';
+bootEditorLocale();              // ← MUST come first
+if (typeof indexedDB !== 'undefined') {
+  getSettingsRegistry().setBackend(new IndexedDBSettingsBackend());
+}
+```
+
+**Resolution chain on boot** — `localStorage[velxio.locale]` (validated
+against `SUPPORTED_LOCALE_CODES`) → `navigator.language` (resolved via
+the SDK's `resolveLocale`, so `es-MX` collapses to `es`) →
+`I18N_DEFAULT_LOCALE` (`en`). The resolved value is **persisted back**
+so subsequent loads are deterministic — even if `navigator.language`
+changes because the user flipped OS preferences, the explicit choice
+survives.
+
+**Picker UI** lives in the Installed Plugins modal header (the only
+"editor preferences" surface today). When more cross-cutting settings
+appear, lift `<LocalePicker />` into a dedicated `<EditorSettings />`
+panel and stop bundling it. The picker writes via `setEditorLocale`,
+which (a) persists to localStorage and (b) calls
+`setActiveLocale(code)` on the host store — the same dispatch that
+fires every plugin's `onLocaleChange` listener.
+
+**Shell components currently translated**:
+
+- `<AppHeader />` — every nav link, button label, button title, dropdown
+  entry.
+- `<InstalledPluginsModal />` — modal title/refresh/marketplace/close,
+  EmptyState, UninstallConfirm dialog, PluginSettingsDialog.
+
+`<FileExplorer />`, `<SaveProjectModal />`, `<LoginPromptModal />`,
+`<EditorToolbar />` and `<TemplatePickerModal />` still ship English-only
+strings. The i18n module is mounted; adding `t()` is mechanical and
+deferred to **SDK-005c** to keep diffs reviewable.
+
+**Tests** (24 total):
+
+- `frontend/src/__tests__/i18n.test.ts` — 11 pure tests on `translate()`:
+  en/es happy path, English fallback for missing es key, key-as-debug
+  fallback, region collapse (`es-MX` → `es`), unknown-language fallback,
+  empty locale tolerance, missing-var literal preservation.
+- `frontend/src/__tests__/i18n-boot.test.ts` — 9 jsdom tests on
+  `bootEditorLocale` + `setEditorLocale`: priority chain, malformed
+  stored value rejection, persistence on first boot, Safari private-mode
+  tolerance (`Storage.prototype.setItem` throws → no exception bubbles
+  out).
+- `frontend/src/__tests__/useLocale.test.tsx` — 4 jsdom tests using
+  `createRoot` + `act`: hook re-renders on `setEditorLocale`, multi-
+  consumer fan-out, `useTranslate` identity stability across same-locale
+  re-renders.
+
+**LocaleStore singleton reset for tests** — both jsdom test files import
+`resetLocaleStoreForTests()` from `plugin-host/I18nRegistry` in their
+`beforeEach`. The hook tests also pin the locale to `'en'` before each
+test so a `set('es')` is always a real change (the store deduplicates
+same-value writes by design).
+
 ## User-tunable settings — `ctx.settings`
 
 A plugin declares the **shape** of its user-facing configuration as a

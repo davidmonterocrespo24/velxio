@@ -25,7 +25,14 @@ import { AboutPage } from './pages/AboutPage';
 import { useAuthStore } from './store/useAuthStore';
 import { getSettingsRegistry } from './plugin-host/SettingsRegistry';
 import { IndexedDBSettingsBackend } from './plugin-host/IndexedDBSettingsBackend';
+import { bootEditorLocale } from './i18n/LocaleProvider';
 import './App.css';
+
+// Resolve the user's locale before any plugin context is constructed —
+// plugins read the active locale at registerBundle time, so a late boot
+// would leave them stuck on the SDK default until the first user-driven
+// change. See `frontend/src/i18n/LocaleProvider.ts`.
+bootEditorLocale();
 
 // Wire the persistent backend before any plugin can declare a schema.
 // SSR/test contexts that lack `indexedDB` keep the in-memory default.
