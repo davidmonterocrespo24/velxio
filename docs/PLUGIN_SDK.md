@@ -232,6 +232,110 @@ ctx.spice.registerMapper('demo.fancy-diode', defineSpiceMapper((comp, netLookup)
 The host emits matching `.model` cards into the netlist when any mapper's
 `modelsUsed` references their name.
 
+## Compact authoring — `defineCompoundComponent` + `registerCompound`
+
+The three-call flow above (component + part-sim + spice + spice-models) is the
+foundation, but most components want every layer at once. `defineCompoundComponent`
+is the identity helper that lets you describe everything in **one literal**, and
+`ctx.components.registerCompound()` fans it out to the same gated registries as
+the discrete calls — under the same permission rules, with the same disposables.
+
+```ts
+import {
+  defineCompoundComponent,
+  definePartSimulation,
+  defineSpiceMapper,
+} from '@velxio/sdk';
+
+export const oledLite = defineCompoundComponent({
+  // ── ComponentDefinition fields (always required) ──
+  id: 'demo.oled-lite',
+  name: 'OLED-lite 0.96"',
+  category: 'displays',
+  element: 'wokwi-ssd1306',
+  description: 'A monochrome 128x64 OLED',
+  pins: [
+    { name: 'VCC', x: 0, y: 0,  signal: 'power-vcc' },
+    { name: 'GND', x: 0, y: 5,  signal: 'power-gnd' },
+    { name: 'SCL', x: 0, y: 10, signal: 'i2c-scl' },
+    { name: 'SDA', x: 0, y: 15, signal: 'i2c-sda' },
+  ],
+
+  // ── Optional: MCU-side behavior ──
+  simulation: definePartSimulation({
+    attachEvents: (el, sim) => {
+      // ... draw to the canvas, listen for I2C, etc.
+      return () => { /* cleanup */ };
+    },
+  }),
+
+  // ── Optional: SPICE mapper ──
+  spice: defineSpiceMapper((c, netLookup) => {
+    const v = netLookup('VCC');
+    const g = netLookup('GND');
+    if (!v || !g) return null;
+    return { cards: [`R_${c.id}_load ${v} ${g} 250`], modelsUsed: new Set() };
+  }),
+
+  // ── Optional: SPICE .model cards your mapper references ──
+  spiceModels: [
+    { name: 'D_OLED', card: '.model D_OLED D(Is=1e-15)' },
+  ],
+});
+
+export function activate(ctx) {
+  const handle = ctx.components.registerCompound(oledLite);
+  ctx.subscriptions.add(handle);
+}
+```
+
+### Permission union
+
+`registerCompound` requires the **union** of the underlying register calls:
+
+| Field set on the literal | Permission added                |
+|--------------------------|---------------------------------|
+| _always_                 | `components.register`           |
+| `simulation`             | `simulator.pins.read`           |
+| `spice` or `spiceModels` | `simulator.spice.read`          |
+
+Permissions are enforced naturally — `registerCompound` calls the same gated
+adapters one at a time, so a missing permission throws `PermissionDeniedError`
+from the same gate as the discrete call would.
+
+### Rollback on partial failure
+
+If any sub-registration throws (typically because a permission is missing, or
+because the component id collides with `DuplicateComponentError`), every
+already-acquired sub-handle is disposed in **LIFO order** before the error is
+re-raised. The component never appears half-registered in the picker, no
+orphan part-sim or mapper is left behind, and the plugin can catch the error
+at activation time.
+
+### Single dispose tears down everything
+
+The returned `Disposable` is a thin wrapper around the LIFO unwind of every
+acquired sub-handle. Disposing it once releases the picker entry, the part
+simulation, the SPICE mapper, and every `.model` card in one call. Calling
+`dispose()` a second time is a safe no-op (matches `ctx.subscriptions`
+contract — every host disposable is idempotent).
+
+### When to prefer the three-call flow
+
+The discrete `register()`, `partSimulations.register()`, `spice.registerMapper()`
+calls are still the canonical surface and remain fully supported. Reach for them
+when:
+
+- you want different `Disposable` lifetimes per layer (e.g. swap the SPICE
+  mapper at runtime without touching the picker entry);
+- you're consuming an **external** `ComponentDefinition` and only contributing
+  one of the three layers (e.g. adding a SPICE mapper to a built-in element);
+- a parent module owns the component definition and individual modules
+  contribute their own layer.
+
+Otherwise — for self-contained components — `defineCompoundComponent` cuts the
+boilerplate by ~3× and keeps the entire definition in one reviewable literal.
+
 ## Disposal & teardown — `ctx.subscriptions`
 
 Every `register()` returns a `Disposable` (`{ dispose(): void }`). The host's
@@ -989,16 +1093,17 @@ Don't subscribe-then-unsubscribe inside a tick.
 
 The SDK-003 contract intentionally defers a few higher-level conveniences:
 
-- **Single-call definition shape.** Today you call `register()` three times.
-  A future `defineCompoundComponent({ id, render, simulation, spice })`
-  helper that emits all three registrations from one record is tracked in
-  SDK-003b.
+- ~~**Single-call definition shape.**~~ Shipped in **SDK-003b step 1** —
+  see "Compact authoring — `defineCompoundComponent` + `registerCompound`"
+  above.
 - **High-level `PartSimulationAPI`** with `pin().state/onChange/set`, plus
-  built-in `serial`/`i2c` helpers — also SDK-003b. Today you use
-  `attachEvents(element, SimulatorHandle)` directly.
+  built-in `serial`/`i2c` helpers — remaining SDK-003b work. Today you use
+  `attachEvents(element, SimulatorHandle)` directly. (The per-pin building
+  block landed in CORE-002c-step1: `SimulatorHandle.onPinChange(pinName, cb)`
+  — see "Subscribing to pin transitions" below.)
 - **Richer `NetlistMapContext`** with `internalNode(suffix)` for reserving
-  unique internal nets — also SDK-003b. Today you mint your own (e.g.
-  `comp.id + '_n_internal'`).
+  unique internal nets — remaining SDK-003b work. Today you mint your own
+  (e.g. `comp.id + '_n_internal'`).
 
 These are pure additions on top of the current contract and do not break
 anything in SDK-003.

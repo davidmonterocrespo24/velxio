@@ -106,6 +106,21 @@ export type ComponentCategory =
 export interface ComponentRegistry {
   /** Register a new component definition. Returns a Disposable that unregisters it. */
   register(definition: ComponentDefinition): Disposable;
+  /**
+   * Compact authoring shape: register a component plus its part simulation
+   * and SPICE mapper/models in one call. The returned `Disposable` tears
+   * down all registrations LIFO. If a sub-registration throws (typically
+   * because of a missing permission), the prior ones are rolled back so
+   * the component never appears half-registered in the picker.
+   *
+   * Permission requirements are the union of the underlying calls:
+   *   - always: `components.register`
+   *   - if `simulation` is set: `simulator.pins.read`
+   *   - if `spice` or `spiceModels` is set: `simulator.spice.read`
+   *
+   * See `defineCompoundComponent` for the authoring helper.
+   */
+  registerCompound(definition: CompoundComponentDefinition): Disposable;
   /** Lookup by `id`. Returns `undefined` when not registered. */
   get(id: string): ComponentDefinition | undefined;
   /** Enumerate every known definition (including built-ins). */
@@ -136,6 +151,59 @@ export class DuplicateComponentError extends Error {
       `Plugin "${pluginId}" tried to register component "${componentId}", but that id is already registered. Dispose the existing registration first, or pick a unique id (e.g. "${pluginId}.${componentId}").`,
     );
   }
+}
+
+/**
+ * Compact authoring shape used by `defineCompoundComponent` /
+ * `registry.registerCompound`. Bundles a `ComponentDefinition` together
+ * with its optional part simulation, SPICE mapper, and SPICE models so
+ * that a plugin can describe the entire component in one literal:
+ *
+ * ```ts
+ * import { defineCompoundComponent, definePartSimulation, defineSpiceMapper } from '@velxio/sdk';
+ *
+ * export const myLed = defineCompoundComponent({
+ *   id: 'my-led', name: 'My LED', category: 'basic',
+ *   element: 'wokwi-led', description: '',
+ *   pins: [
+ *     { name: 'A', x: 0, y: 0, signal: 'gpio' },
+ *     { name: 'C', x: 0, y: 10, signal: 'power-gnd' },
+ *   ],
+ *   simulation: definePartSimulation({
+ *     onPinStateChange(pinName, state, element) { ... },
+ *   }),
+ *   spice: defineSpiceMapper((comp, netLookup) => ({ ... })),
+ *   spiceModels: [{ name: 'D_LED', card: '.model D_LED D ...' }],
+ * });
+ *
+ * // In activate(ctx):
+ * const reg = ctx.components.registerCompound(myLed);
+ * ctx.subscriptions.add(reg);
+ * ```
+ *
+ * Each of `simulation`, `spice`, `spiceModels` is optional — the author
+ * only declares what their component needs. A picker-only component is
+ * just `defineCompoundComponent({ ...componentFields })`; the host runs
+ * exactly one underlying registration.
+ */
+export interface CompoundComponentDefinition extends ComponentDefinition {
+  readonly simulation?: import('./simulation').PartSimulation;
+  readonly spice?: import('./spice').SpiceMapper;
+  readonly spiceModels?: ReadonlyArray<{
+    readonly name: string;
+    readonly card: string;
+  }>;
+}
+
+/**
+ * Identity helper for `CompoundComponentDefinition` records. Same shape
+ * as `defineComponent`/`definePartSimulation`/`defineSpiceMapper` so
+ * authors get type inference without a runtime wrapper.
+ */
+export function defineCompoundComponent<T extends CompoundComponentDefinition>(
+  definition: T,
+): T {
+  return definition;
 }
 
 /**

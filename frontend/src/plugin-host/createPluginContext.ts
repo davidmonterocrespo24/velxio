@@ -27,6 +27,7 @@ import type {
   CommandRegistry,
   ComponentDefinition,
   ComponentRegistry as SdkComponentRegistry,
+  CompoundComponentDefinition,
   ContextMenuItemDefinition,
   ContextMenuRegistry,
   Disposable,
@@ -205,6 +206,67 @@ export function createPluginContext(
       }
       const handle = componentRegistry.register(definition);
       subscriptions.add(handle);
+      return handle;
+    },
+    registerCompound: (definition: CompoundComponentDefinition) => {
+      // Fan out to the existing register*() entry points so each call goes
+      // through its own permission gate + fault-isolation envelope. The
+      // closure references `partSimulations` and `spice` declared further
+      // down — resolved at call time, never synchronously between consts.
+      //
+      // Rollback contract: if any sub-registration throws (typically a
+      // missing permission), every prior handle is disposed in LIFO order
+      // before the throw is re-raised. The component never appears
+      // half-registered in the picker.
+      const acquired: Disposable[] = [];
+      try {
+        acquired.push(components.register(definition));
+        if (definition.simulation) {
+          acquired.push(partSimulations.register(definition.id, definition.simulation));
+        }
+        if (definition.spice) {
+          acquired.push(spice.registerMapper(definition.id, definition.spice));
+        }
+        if (definition.spiceModels) {
+          for (const m of definition.spiceModels) {
+            acquired.push(spice.registerModel(m.name, m.card));
+          }
+        }
+      } catch (err) {
+        for (let i = acquired.length - 1; i >= 0; i--) {
+          try {
+            acquired[i].dispose();
+          } catch (rollbackErr) {
+            logger.error(
+              `registerCompound rollback dispose threw for "${definition.id}":`,
+              rollbackErr,
+            );
+          }
+        }
+        throw err;
+      }
+      // The acquired sub-handles are already in `subscriptions` (each
+      // register*() pushed one). The compound handle is a thin wrapper
+      // that disposes them eagerly when the plugin asks; on plugin
+      // teardown, `subscriptions.dispose()` would run them again — safe
+      // because every host disposable is idempotent.
+      let disposed = false;
+      const handle: Disposable = {
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          for (let i = acquired.length - 1; i >= 0; i--) {
+            try {
+              acquired[i].dispose();
+            } catch (err) {
+              logger.error(
+                `registerCompound dispose threw for "${definition.id}":`,
+                err,
+              );
+            }
+          }
+        },
+      };
       return handle;
     },
     get: (id) => componentRegistry.get(id),
