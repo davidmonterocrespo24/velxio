@@ -4,6 +4,7 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { ShareModal } from './ShareModal';
 import { InstalledPluginsModal } from './InstalledPluginsModal';
+import { TemplatePickerModal } from './TemplatePickerModal';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
@@ -21,6 +22,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPluginsModal, setShowPluginsModal] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -164,6 +166,44 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
               Share
+            </button>
+          )}
+
+          {/* New from template — visible only on the editor route */}
+          {location.pathname === '/editor' && (
+            <button
+              onClick={() => setShowTemplateModal(true)}
+              style={{
+                background: 'transparent',
+                border: '1px solid #555',
+                borderRadius: 4,
+                padding: '4px 10px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                color: '#ccc',
+                fontSize: 13,
+              }}
+              title="New from template"
+              aria-label="New from template"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="18" x2="12" y2="12" />
+                <line x1="9" y1="15" x2="15" y2="15" />
+              </svg>
+              <span className="header-plugins-text">Templates</span>
             </button>
           )}
 
@@ -337,6 +377,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
 
       {showShareModal && <ShareModal onClose={() => setShowShareModal(false)} />}
       {showPluginsModal && <InstalledPluginsModal onClose={() => setShowPluginsModal(false)} />}
+      {showTemplateModal && <TemplatePickerModal onClose={() => setShowTemplateModal(false)} />}
     </header>
   );
 };

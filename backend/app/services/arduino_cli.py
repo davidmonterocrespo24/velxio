@@ -257,7 +257,40 @@ class ArduinoCLIService:
             pass
         return result_dict
 
-    async def compile(self, files: list[dict], board_fqbn: str = "arduino:avr:uno") -> dict:
+    def _materialize_libraries(self, libraries: list[dict] | None, sketch_dir: Path) -> Path | None:
+        """Write each validated library bundle to ``<sketch_dir>/libraries/<id>/...``.
+
+        ``libraries`` is the post-validation dict shape produced by
+        :func:`app.api.routes.compile._validated_libraries`. Paths and bytes
+        have already been bounded by ``library_validation.validate_libraries``,
+        so this method assumes the input is safe and writes without re-checking.
+
+        Returns the libraries root path so the caller can pass it to
+        ``arduino-cli compile --libraries``, or ``None`` when there are no
+        libraries (so the flag can be omitted entirely).
+        """
+        if not libraries:
+            return None
+        libs_root = sketch_dir / "libraries"
+        libs_root.mkdir()
+        for lib in libraries:
+            lib_dir = libs_root / lib["id"]
+            lib_dir.mkdir()
+            for file_entry in lib["files"]:
+                rel_path = file_entry["path"]
+                target = lib_dir / rel_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(file_entry["content"], encoding="utf-8")
+            print(f"[arduino-cli] Mounted library {lib['id']}@{lib['version']} "
+                  f"({len(lib['files'])} files)")
+        return libs_root
+
+    async def compile(
+        self,
+        files: list[dict],
+        board_fqbn: str = "arduino:avr:uno",
+        libraries: list[dict] | None = None,
+    ) -> dict:
         """
         Compile Arduino sketch using arduino-cli.
 
@@ -266,12 +299,21 @@ class ArduinoCLIService:
         name matches the directory ("sketch").  If none exists we promote the
         first .ino file to sketch.ino automatically.
 
+        ``libraries`` is the validated dict shape from
+        :func:`app.api.routes.compile._validated_libraries`. Each entry is
+        materialized at ``<sketch_dir>/libraries/<id>/...`` and exposed to
+        arduino-cli via ``--libraries``. The temp dir cleans them up after
+        every compile, so vendored bundles never leak across requests.
+
         Returns:
             dict with keys: success, hex_content, stdout, stderr, error
         """
         print(f"\n=== Starting compilation ===")
         print(f"Board: {board_fqbn}")
         print(f"Files: {[f['name'] for f in files]}")
+        if libraries:
+            lib_summary = [f"{lib['id']}@{lib['version']}" for lib in libraries]
+            print(f"Libraries: {lib_summary}")
 
         t0 = time.perf_counter()
 
@@ -324,6 +366,8 @@ class ArduinoCLIService:
             if not any(f["name"].endswith(".ino") for f in files):
                 (sketch_dir / "sketch.ino").write_text("void setup(){}\nvoid loop(){}", encoding="utf-8")
 
+            libs_root = self._materialize_libraries(libraries, sketch_dir)
+
             print(f"Sketch directory contents: {[p.name for p in sketch_dir.iterdir()]}")
 
             build_dir = sketch_dir / "build"
@@ -359,6 +403,12 @@ class ArduinoCLIService:
                     cmd = [self.cli_path, "compile", "--fqbn", board_fqbn,
                            "--output-dir", str(build_dir),
                            str(sketch_dir)]
+
+                # ``--libraries`` points arduino-cli at the per-request
+                # vendored library root. Inserted before the sketch-dir
+                # positional so arduino-cli still parses correctly.
+                if libs_root is not None:
+                    cmd[-1:-1] = ["--libraries", str(libs_root)]
                 print(f"Running command: {' '.join(cmd)}")
 
                 # Use subprocess.run in a thread for Windows compatibility

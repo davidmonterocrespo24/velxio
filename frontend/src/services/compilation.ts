@@ -1,6 +1,8 @@
 import axios from 'axios';
+import type { LibraryPlatform } from '@velxio/sdk';
 import { getEventBus } from '../simulation/EventBus';
 import { getCompileMiddlewareChain } from '../simulation/CompileMiddleware';
+import { getLibraryRegistry } from '../plugin-host/LibraryRegistry';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -10,6 +12,62 @@ const nextRunId = (): string => `compile-${++runIdCounter}-${Date.now().toString
 export interface SketchFile {
   name: string;
   content: string;
+}
+
+/** Wire shape for `CompileRequest.libraries[]` on the backend. */
+interface CompileLibraryPayload {
+  id: string;
+  version: string;
+  files: Array<{ path: string; content: string }>;
+}
+
+/**
+ * Map an arduino-cli FQBN to a `LibraryPlatform` so we can filter plugin
+ * libraries to only the ones declaring support for the active board.
+ *
+ * Returns `null` for boards we don't recognise — in that case the caller
+ * skips library injection rather than ship a payload that is guaranteed
+ * not to compile.
+ */
+function platformForFqbn(fqbn: string): LibraryPlatform | null {
+  if (fqbn.startsWith('arduino:avr:')) return 'avr';
+  if (fqbn.startsWith('esp32:')) return 'esp32';
+  if (
+    fqbn.startsWith('rp2040:') ||
+    fqbn.startsWith('arduino:mbed_rp2040:') ||
+    fqbn.includes('rp2040') ||
+    fqbn.includes('rp2350')
+  ) {
+    return 'rp2040';
+  }
+  return null;
+}
+
+/**
+ * Read the host library registry, keep only entries whose `platforms`
+ * cover the active board, then strip down to the wire shape the backend
+ * expects. The dependency closure is resolved through `registry.resolve()`
+ * so transitive deps land in the payload — DFS topological order keeps
+ * the build log diff-friendly even though arduino-cli doesn't care.
+ */
+function collectLibrariesForBoard(fqbn: string): CompileLibraryPayload[] {
+  const platform = platformForFqbn(fqbn);
+  if (platform === null) return [];
+  const registry = getLibraryRegistry();
+  const all = registry.list();
+  if (all.length === 0) return [];
+  const ids = all
+    .filter((entry) => entry.definition.platforms.includes(platform))
+    .map((entry) => entry.definition.id);
+  if (ids.length === 0) return [];
+  return registry.resolve(ids).map((entry) => ({
+    id: entry.definition.id,
+    version: entry.definition.version,
+    files: entry.definition.files.map((file) => ({
+      path: file.path,
+      content: file.content,
+    })),
+  }));
 }
 
 export interface CompileResult {
@@ -64,9 +122,19 @@ export async function compileCode(
       transformedFiles.map((f) => f.name),
     );
 
+    const libraries = collectLibrariesForBoard(board);
+    const requestBody: {
+      files: SketchFile[];
+      board_fqbn: string;
+      libraries?: CompileLibraryPayload[];
+    } = { files: transformedFiles, board_fqbn: board };
+    if (libraries.length > 0) {
+      requestBody.libraries = libraries;
+    }
+
     const response = await axios.post<CompileResult>(
       `${API_BASE}/compile/`,
-      { files: transformedFiles, board_fqbn: board },
+      requestBody,
       { withCredentials: true, timeout: 180000 },
     );
 

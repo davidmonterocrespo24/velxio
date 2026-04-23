@@ -25,6 +25,13 @@ class HostTemplateRegistry implements TemplateRegistry {
   private readonly entries = new Map<string, RegisteredTemplate>();
   /** Notified after every register/unregister so the React UI can re-render. */
   private readonly listeners = new Set<() => void>();
+  /**
+   * Cached sorted snapshot. ``useSyncExternalStore`` requires the
+   * snapshot to be reference-stable between mutations or it logs
+   * "The result of getSnapshot should be cached to avoid an infinite
+   * loop". Recomputed lazily on the first ``list()`` after any mutation.
+   */
+  private snapshotCache: ReadonlyArray<RegisteredTemplate> | null = null;
 
   /**
    * Register from a plugin. The caller (`createPluginContext`) is the one
@@ -41,12 +48,14 @@ class HostTemplateRegistry implements TemplateRegistry {
     validateProjectSnapshot(definition.snapshot, definition.id, pluginId);
     const record: RegisteredTemplate = { definition, pluginId };
     this.entries.set(definition.id, record);
+    this.snapshotCache = null;
     this.notify();
     return {
       dispose: () => {
         const current = this.entries.get(definition.id);
         if (current === record) {
           this.entries.delete(definition.id);
+          this.snapshotCache = null;
           this.notify();
         }
       },
@@ -60,12 +69,15 @@ class HostTemplateRegistry implements TemplateRegistry {
   list(): ReadonlyArray<RegisteredTemplate> {
     // Stable order: category bucket then alphabetical name. UI relies on
     // this so picker columns don't reorder when a plugin loads after others.
-    return Array.from(this.entries.values()).sort((a, b) => {
+    if (this.snapshotCache !== null) return this.snapshotCache;
+    const sorted = Array.from(this.entries.values()).sort((a, b) => {
       if (a.definition.category !== b.definition.category) {
         return a.definition.category.localeCompare(b.definition.category);
       }
       return a.definition.name.localeCompare(b.definition.name);
     });
+    this.snapshotCache = Object.freeze(sorted);
+    return this.snapshotCache;
   }
 
   size(): number {
@@ -81,6 +93,7 @@ class HostTemplateRegistry implements TemplateRegistry {
   /** Test helper — wipe state between tests. */
   clearForTests(): void {
     this.entries.clear();
+    this.snapshotCache = null;
     this.notify();
   }
 

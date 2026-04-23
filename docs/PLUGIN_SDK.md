@@ -375,6 +375,89 @@ Library ids are folder names in arduino-cli, so two libraries with the
 same id would silently collide in the temp build dir. The host throws
 `DuplicateLibraryError` to surface the conflict at activation.
 
+### SDK-004b — wiring templates and libraries to the host
+
+SDK-004 shipped the pure data contracts; SDK-004b connects them to the
+two pipelines users actually touch:
+
+#### Compile pipeline injection
+
+`compileCode()` (`frontend/src/services/compilation.ts`) reads the
+`HostLibraryRegistry` before each POST to `/api/compile`:
+
+1. `platformForFqbn(boardFqbn)` maps the FQBN to one of `'avr' | 'esp32'
+   | 'rp2040'` (or `null` for unrecognized boards). RP2040 matches both
+   the official `arduino:mbed_rp2040:*` and the earlephilhower
+   `rp2040:rp2040:*` variants.
+2. `collectLibrariesForBoard(fqbn)` filters the registry by
+   `LibraryDefinition.platforms`, asks `LibraryRegistry.resolve(ids)` to
+   return the topological closure (so each library lands after its
+   `dependsOn` deps), then maps to the wire shape `{id, version, files:
+   [{path, content}]}`. All other fields (`examples`, `dependsOn`,
+   `description`, …) are stripped — the backend only needs what it
+   mounts on disk.
+3. The `libraries` field is **only set when non-empty**. An empty list
+   omits the field entirely so requests from boards with no matching
+   plugins look identical to a stock Velxio install.
+
+The backend (`backend/app/api/routes/compile.py`) re-validates every
+incoming library through `app/services/library_validation.py`, which
+mirrors the SDK's Zod rules byte-for-byte (path-safety regex, depth ≤ 8,
+extension allowlist, `#pragma` allowlist, ≤ 512 KB per file, ≤ 2 MB
+total). Status mapping is precise:
+
+- 400 → semantic violation (path traversal, hidden segments, banned
+  pragma, duplicate ids inside the same request)
+- 413 → size violation (per-file or total cap)
+- 422 → Pydantic structural failure (e.g. empty `files` list)
+
+Validation always runs server-side because the Vite client is
+untrusted — a modified browser cannot bypass it.
+
+`arduino_cli._materialize_libraries()` writes each accepted library to
+`<sketch_dir>/libraries/<id>/<file.path>` inside the existing
+`tempfile.TemporaryDirectory()` so cleanup is automatic, then injects
+`--libraries <root>` into the `arduino-cli` command via `cmd[-1:-1] =
+[...]` so the sketch positional stays last on both AVR and ESP32 build
+branches.
+
+#### Template picker
+
+`<TemplatePickerModal />` (`frontend/src/components/layout/`) reads the
+template registry through `useSyncExternalStore`. Two consequences worth
+calling out:
+
+- Both `HostTemplateRegistry` and `HostLibraryRegistry` cache their
+  sorted `list()` snapshot and invalidate it on every register / dispose
+  / reset. Without this, `useSyncExternalStore` raises *"The result of
+  getSnapshot should be cached to avoid an infinite loop"* because each
+  call returned a fresh `Array.from(...).sort(...)`.
+- The SDK's `TemplateDefinition.snapshot.wires[]` only carries
+  `{componentId, pinName}` per endpoint — wire `(x, y)` are DOM-derived.
+  After mounting components, the modal awaits **two `requestAnimationFrame`
+  ticks** before resolving pin coordinates: the first commits the React
+  tree, the second gives wokwi-elements time to populate `pinInfo`.
+  Endpoints whose pins still don't resolve fall back to `(0, 0)`; the
+  next interaction calls `updateWirePositions()` and snaps them into
+  place.
+
+The Templates button in `AppHeader` is gated on `pathname === '/editor'`
+so it only appears on the editor surface.
+
+#### Tests
+
+| File | Count | What it locks down |
+|------|-------|--------------------|
+| `backend/tests/test_library_validation.py` | 28 | Path safety params, allowed extensions/pragmas, batch behaviour, 400 vs 413 status hint |
+| `backend/tests/test_compile_route_libraries.py` | 6 | TestClient happy path, traversal → 400, oversize → 413, empty → 422, duplicate ids → 400 |
+| `frontend/src/__tests__/compilation-libraries.test.ts` | 8 | Platform filter for avr/esp32/rp2040, topo sort (Core before Wrapper), `{id,version,files}` shape, omit-when-empty |
+| `frontend/src/__tests__/TemplatePickerModal.test.tsx` | 6 | Empty state, grouping, default preview, switching, instantiation drives stores, properties cloning |
+
+End-to-end coverage with a real plugin bundle (worker + license gate +
+loader cache) waits on a CORE-007 plugin fixture; today the registries
+are exercised through `registerFromPlugin()` directly, which traverses
+the same code paths.
+
 ## Translatable strings — `ctx.i18n`
 
 Plugins ship UI text (command labels, panel titles, error messages) as a

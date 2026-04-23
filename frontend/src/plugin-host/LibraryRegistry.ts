@@ -24,6 +24,12 @@ import {
 class HostLibraryRegistry implements LibraryRegistry {
   private readonly entries = new Map<string, RegisteredLibrary>();
   private readonly listeners = new Set<() => void>();
+  /**
+   * Cached sorted snapshot. Same rationale as TemplateRegistry — keeps
+   * `useSyncExternalStore` happy and lets `compileCode()` pay the sort
+   * cost once per mutation instead of once per compile.
+   */
+  private snapshotCache: ReadonlyArray<RegisteredLibrary> | null = null;
 
   register(definition: LibraryDefinition): Disposable {
     return this.registerFromPlugin(definition, '<host>');
@@ -36,12 +42,14 @@ class HostLibraryRegistry implements LibraryRegistry {
     validateLibraryDefinition(definition, pluginId);
     const record: RegisteredLibrary = { definition, pluginId };
     this.entries.set(definition.id, record);
+    this.snapshotCache = null;
     this.notify();
     return {
       dispose: () => {
         const current = this.entries.get(definition.id);
         if (current === record) {
           this.entries.delete(definition.id);
+          this.snapshotCache = null;
           this.notify();
         }
       },
@@ -53,9 +61,12 @@ class HostLibraryRegistry implements LibraryRegistry {
   }
 
   list(): ReadonlyArray<RegisteredLibrary> {
-    return Array.from(this.entries.values()).sort((a, b) =>
+    if (this.snapshotCache !== null) return this.snapshotCache;
+    const sorted = Array.from(this.entries.values()).sort((a, b) =>
       a.definition.id.localeCompare(b.definition.id),
     );
+    this.snapshotCache = Object.freeze(sorted);
+    return this.snapshotCache;
   }
 
   /**
@@ -115,6 +126,7 @@ class HostLibraryRegistry implements LibraryRegistry {
   /** Test helper. */
   clearForTests(): void {
     this.entries.clear();
+    this.snapshotCache = null;
     this.notify();
   }
 

@@ -1,9 +1,15 @@
 import logging
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.services.arduino_cli import ArduinoCLIService
 from app.services.espidf_compiler import espidf_compiler
+from app.services.library_validation import (
+    LibraryFileSpec,
+    LibrarySpec,
+    LibraryValidationError,
+    validate_libraries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +22,30 @@ class SketchFile(BaseModel):
     content: str
 
 
+class CompileLibraryFile(BaseModel):
+    path: str
+    content: str
+
+
+class CompileLibrary(BaseModel):
+    """A vendored Arduino library shipped by a plugin.
+
+    Mirrors ``LibraryDefinition`` from ``@velxio/sdk`` but only the fields the
+    backend needs to materialize the library on disk. ``version`` is logged
+    so build output identifies what was compiled (arduino-cli does not
+    resolve from a registry — these libraries are vendored, not searched).
+    """
+
+    id: str = Field(..., min_length=1, max_length=128)
+    version: str = Field(..., min_length=1, max_length=32)
+    files: list[CompileLibraryFile] = Field(..., min_length=1, max_length=512)
+
+
 class CompileRequest(BaseModel):
-    # New multi-file API
     files: list[SketchFile] | None = None
-    # Legacy single-file API (kept for backward compat)
     code: str | None = None
     board_fqbn: str = "arduino:avr:uno"
+    libraries: list[CompileLibrary] | None = None
 
 
 class CompileResponse(BaseModel):
@@ -36,6 +60,36 @@ class CompileResponse(BaseModel):
     core_install_log: str | None = None
 
 
+def _validated_libraries(libraries: list[CompileLibrary] | None) -> list[dict]:
+    """Run server-side validation and convert to the dict shape the
+    arduino-cli wrapper consumes. Validation runs even when the request
+    looks well-formed at the Pydantic layer because Pydantic enforces
+    structural caps but not the byte/path/preprocessor rules from the SDK.
+    """
+    if not libraries:
+        return []
+    specs = [
+        LibrarySpec(
+            id=lib.id,
+            version=lib.version,
+            files=tuple(LibraryFileSpec(path=f.path, content=f.content) for f in lib.files),
+        )
+        for lib in libraries
+    ]
+    try:
+        validated = validate_libraries(specs)
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=str(exc)) from exc
+    return [
+        {
+            "id": spec.id,
+            "version": spec.version,
+            "files": [{"path": f.path, "content": f.content} for f in spec.files],
+        }
+        for spec in validated
+    ]
+
+
 @router.post("/", response_model=CompileResponse)
 async def compile_sketch(request: CompileRequest):
     """
@@ -43,7 +97,6 @@ async def compile_sketch(request: CompileRequest):
     Accepts either `files` (multi-file) or legacy `code` (single file).
     Auto-installs the required board core if not present.
     """
-    # Resolve files list
     if request.files:
         files = [{"name": f.name, "content": f.content} for f in request.files]
     elif request.code is not None:
@@ -54,10 +107,21 @@ async def compile_sketch(request: CompileRequest):
             detail="Provide either 'files' or 'code' in the request body.",
         )
 
+    libraries = _validated_libraries(request.libraries)
+
     try:
         # ESP32 targets: use ESP-IDF compiler for QEMU-compatible output
         if request.board_fqbn.startswith("esp32:") and espidf_compiler.available:
             logger.info(f"[compile] Using ESP-IDF for {request.board_fqbn}")
+            if libraries:
+                # ESP-IDF compiler does not consume vendored libraries today;
+                # silently ignoring would be a foot-gun. Log so a missing
+                # symbol error in the build output ties back to this branch.
+                logger.warning(
+                    "[compile] ESP-IDF path ignores %d plugin-supplied librar%s",
+                    len(libraries),
+                    "y" if len(libraries) == 1 else "ies",
+                )
             result = await espidf_compiler.compile(files, request.board_fqbn)
             return CompileResponse(
                 success=result["success"],
@@ -82,7 +146,11 @@ async def compile_sketch(request: CompileRequest):
                 error=f"Failed to install required core: {core_status.get('core_id')}",
             )
 
-        result = await arduino_cli.compile(files, request.board_fqbn)
+        result = await arduino_cli.compile(
+            files,
+            request.board_fqbn,
+            libraries=libraries,
+        )
         return CompileResponse(
             success=result["success"],
             hex_content=result.get("hex_content"),
@@ -93,6 +161,8 @@ async def compile_sketch(request: CompileRequest):
             error=result.get("error"),
             core_install_log=core_log if core_log else None,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
