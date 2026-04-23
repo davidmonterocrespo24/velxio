@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
+import { PinManager } from '../simulation/PinManager';
 import type { PartSimulation as SdkPartSimulation, SimulatorHandle } from '@velxio/sdk';
 
 describe('PartSimulationRegistry — SDK contract', () => {
@@ -157,6 +158,189 @@ describe('PartSimulationRegistry — SDK contract', () => {
       expect(PartSimulationRegistry.has('disposable')).toBe(true);
       handle.dispose();
       expect(PartSimulationRegistry.has('disposable')).toBe(false);
+    });
+  });
+
+  describe('SimulatorHandle.onPinChange', () => {
+    /**
+     * Build a fake simulator wrapping a real PinManager so the new
+     * onPinChange path actually flows through the host pin-change
+     * pipeline (no mocks in the wire).
+     */
+    function buildFakeSim(pinManager: PinManager) {
+      return {
+        setPinState: (pin: number, state: boolean) => pinManager.setPinState(pin, state),
+        isRunning: () => true,
+        pinManager,
+      } as never;
+    }
+
+    it('subscribes via the resolved arduino pin and fires on pin changes', () => {
+      const pinManager = new PinManager();
+      const observed: boolean[] = [];
+      let capturedHandle: SimulatorHandle | undefined;
+
+      PartSimulationRegistry.registerSdkPart('pin-sub', {
+        attachEvents: (_el, handle) => {
+          capturedHandle = handle;
+          handle.onPinChange('DOUT', (state) => observed.push(state));
+          return () => {};
+        },
+      });
+
+      const adapted = PartSimulationRegistry.get('pin-sub')!;
+      adapted.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        (name) => (name === 'DOUT' ? 5 : null),
+        'comp-1',
+      );
+
+      expect(capturedHandle).toBeDefined();
+      pinManager.triggerPinChange(5, true);
+      pinManager.triggerPinChange(5, false);
+      expect(observed).toEqual([true, false]);
+    });
+
+    it('returns a Disposable whose dispose() removes the subscription', () => {
+      const pinManager = new PinManager();
+      const cb = vi.fn();
+      let disposable: { dispose: () => void } | undefined;
+
+      PartSimulationRegistry.registerSdkPart('pin-dispose', {
+        attachEvents: (_el, handle) => {
+          disposable = handle.onPinChange('DOUT', (s) => cb(s));
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('pin-dispose')!.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        () => 9,
+        'comp-1',
+      );
+
+      pinManager.triggerPinChange(9, true);
+      expect(cb).toHaveBeenCalledTimes(1);
+
+      disposable!.dispose();
+      pinManager.triggerPinChange(9, false);
+      // No further calls after dispose
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns a no-op Disposable when the pin name is not wired', () => {
+      const pinManager = new PinManager();
+      const cb = vi.fn();
+      let disposable: { dispose: () => void } | undefined;
+
+      PartSimulationRegistry.registerSdkPart('pin-unwired', {
+        attachEvents: (_el, handle) => {
+          disposable = handle.onPinChange('DOUT', cb);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('pin-unwired')!.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        () => null, // not wired
+        'comp-1',
+      );
+
+      // No subscription exists — triggering any pin should not call cb
+      pinManager.triggerPinChange(0, true);
+      pinManager.triggerPinChange(13, true);
+      expect(cb).not.toHaveBeenCalled();
+      expect(pinManager.getListenersCount()).toBe(0);
+
+      // Dispose on a no-op handle must be safe
+      expect(() => disposable!.dispose()).not.toThrow();
+    });
+
+    it('keeps multi-pin subscriptions independent', () => {
+      const pinManager = new PinManager();
+      const cbA = vi.fn();
+      const cbB = vi.fn();
+
+      PartSimulationRegistry.registerSdkPart('pin-multi', {
+        attachEvents: (_el, handle) => {
+          handle.onPinChange('A', cbA);
+          handle.onPinChange('B', cbB);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('pin-multi')!.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        (name) => (name === 'A' ? 2 : name === 'B' ? 7 : null),
+        'comp-1',
+      );
+
+      pinManager.triggerPinChange(2, true);
+      expect(cbA).toHaveBeenCalledTimes(1);
+      expect(cbB).not.toHaveBeenCalled();
+
+      pinManager.triggerPinChange(7, true);
+      expect(cbA).toHaveBeenCalledTimes(1);
+      expect(cbB).toHaveBeenCalledTimes(1);
+    });
+
+    it('translates the (pin, state) PinManager callback to (state) for the plugin', () => {
+      const pinManager = new PinManager();
+      const cb = vi.fn();
+
+      PartSimulationRegistry.registerSdkPart('pin-shape', {
+        attachEvents: (_el, handle) => {
+          handle.onPinChange('DOUT', cb);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('pin-shape')!.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        () => 11,
+        'comp-1',
+      );
+
+      pinManager.triggerPinChange(11, true);
+      // Plugin callback receives ONLY the boolean state — not (pin, state)
+      expect(cb).toHaveBeenCalledWith(true);
+      expect(cb.mock.calls[0]).toHaveLength(1);
+    });
+
+    it('resolves the pin once at subscription time (not on every dispatch)', () => {
+      const pinManager = new PinManager();
+      const cb = vi.fn();
+      const getPin = vi.fn((name: string) => (name === 'DOUT' ? 4 : null));
+
+      PartSimulationRegistry.registerSdkPart('pin-resolve-once', {
+        attachEvents: (_el, handle) => {
+          handle.onPinChange('DOUT', cb);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('pin-resolve-once')!.attachEvents!(
+        document.createElement('div'),
+        buildFakeSim(pinManager),
+        getPin,
+        'comp-1',
+      );
+
+      // getArduinoPin called exactly once at subscription
+      expect(getPin).toHaveBeenCalledTimes(1);
+
+      pinManager.triggerPinChange(4, true);
+      pinManager.triggerPinChange(4, false);
+      pinManager.triggerPinChange(4, true);
+
+      // Still only the original resolve call — not re-resolved per dispatch
+      expect(getPin).toHaveBeenCalledTimes(1);
+      expect(cb).toHaveBeenCalledTimes(3);
     });
   });
 });

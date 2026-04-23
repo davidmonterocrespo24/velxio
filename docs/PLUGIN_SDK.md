@@ -137,8 +137,46 @@ interface SimulatorHandle {
   isRunning(): boolean;
   setPinState(pin: number, state: boolean): void;       // needs simulator.pins.write
   getArduinoPin(componentPinName: string): number | null;
+  onPinChange(pinName: string, callback: (state: PinState) => void): Disposable;
 }
 ```
+
+#### Subscribing to pin transitions — `onPinChange`
+
+`onPinChange` is the canonical way to react to digital edges on **this
+component's own pin**. It resolves the pin name once (via the same wire
+graph `getArduinoPin` reads) and subscribes to the host's pin manager —
+plugins do not see Arduino board pin numbers, only their own
+component-side names like `'DOUT'` or `'CS'`.
+
+```ts
+ctx.partSimulations.register('demo.tally-counter', definePartSimulation({
+  attachEvents(element, sim) {
+    let count = 0;
+    const sub = sim.onPinChange('TRIG', (state) => {
+      if (state) count++;            // count rising edges
+      element.textContent = String(count);
+    });
+    return () => sub.dispose();      // tear down on simulator stop
+  },
+}));
+```
+
+Important contract details:
+
+- **Resolved at subscription time.** If `getArduinoPin(pinName)` returns
+  `null` (the pin is not wired), `onPinChange` returns a no-op
+  `Disposable` and the callback never fires. Plugins that need to react
+  to wires being added later should re-subscribe on
+  `events.on('wire:connect', …)`.
+- **Single pin signature.** The callback receives only the boolean
+  `state`. The `pin` and `componentId` are implicit (the handle is
+  per-component, the pin name was passed at subscribe time).
+- **Caller owns the dispose.** Subscriptions are NOT auto-tracked
+  inside `attachEvents` — if you wire one up, return a teardown that
+  calls `sub.dispose()`. Long-lived subscriptions made outside
+  `attachEvents` should be added to `ctx.subscriptions` so they fire on
+  plugin deactivation.
 
 #### Fault isolation
 

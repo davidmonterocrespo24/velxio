@@ -10,6 +10,7 @@
  */
 
 import type { PinState } from './events';
+import type { Disposable } from './components';
 export type { PinState };
 
 /**
@@ -32,6 +33,28 @@ export interface SimulatorHandle {
   getArduinoPin(componentPinName: string): number | null;
   /** The stable id of the component instance this call is for. */
   readonly componentId: string;
+  /**
+   * Subscribe to digital pin transitions on this component's own pin
+   * (resolved via the handle's `componentId` + `getArduinoPin(pinName)`).
+   *
+   * Returns a `Disposable` — call `.dispose()` to unsubscribe. The subscription
+   * is auto-released when the host tears the part down (parent `attachEvents`
+   * cleanup), but plugins that wire ad-hoc subscriptions in long-lived
+   * activation hooks should manage the disposable themselves.
+   *
+   * If the pin is not wired (`getArduinoPin(pinName) === null`), the callback
+   * is never invoked and `dispose()` is a no-op. The subscription is **not**
+   * retroactively wired if the user later connects a wire — plugins that
+   * need that should re-subscribe on `events.on('wire:connect', …)`.
+   *
+   * Why this is on the handle (and not raw `PinManager.onPinChange`):
+   *   1. Plugins author against component-pin **names** (`'DOUT'`, `'CS'`),
+   *      not against board pin numbers — the host owns the wire-graph
+   *      lookup and the API mirrors that.
+   *   2. The PinManager surface intentionally stays out of the SDK to keep
+   *      the contract minimal and to centralize permission gating.
+   */
+  onPinChange(pinName: string, callback: (state: PinState) => void): Disposable;
 }
 
 /**

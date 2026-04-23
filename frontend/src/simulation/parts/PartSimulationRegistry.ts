@@ -125,6 +125,20 @@ class PartRegistry {
           isRunning: () => simulator.isRunning(),
           setPinState: (pin, state) => simulator.setPinState(pin, state),
           getArduinoPin,
+          onPinChange: (pinName, callback) => {
+            // Resolve once at subscription time. If the pin isn't wired now,
+            // the subscription is a no-op — plugins that need late-arriving
+            // wires should re-subscribe on `events.on('wire:connect', …)`.
+            const arduinoPin = getArduinoPin(pinName);
+            if (arduinoPin === null) {
+              return { dispose: () => {} };
+            }
+            const unsubscribe = simulator.pinManager.onPinChange(
+              arduinoPin,
+              (_pin, state) => callback(state),
+            );
+            return { dispose: unsubscribe };
+          },
         };
         return sdkAttach(element, handle);
       };
