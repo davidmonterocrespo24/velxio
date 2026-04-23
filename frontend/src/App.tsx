@@ -23,7 +23,19 @@ import { RaspberryPiSimulatorPage } from './pages/RaspberryPiSimulatorPage';
 import { Velxio2Page } from './pages/Velxio2Page';
 import { AboutPage } from './pages/AboutPage';
 import { useAuthStore } from './store/useAuthStore';
+import { getSettingsRegistry } from './plugin-host/SettingsRegistry';
+import { IndexedDBSettingsBackend } from './plugin-host/IndexedDBSettingsBackend';
 import './App.css';
+
+// Wire the persistent backend before any plugin can declare a schema.
+// SSR/test contexts that lack `indexedDB` keep the in-memory default.
+if (typeof indexedDB !== 'undefined') {
+  try {
+    getSettingsRegistry().setBackend(new IndexedDBSettingsBackend());
+  } catch (err) {
+    console.error('failed to wire IndexedDB settings backend:', err);
+  }
+}
 
 function App() {
   const checkSession = useAuthStore((s) => s.checkSession);

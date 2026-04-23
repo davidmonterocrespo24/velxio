@@ -585,6 +585,76 @@ schema is declared, reads, writes, resets, and subscriptions need
 no further permission — the values belong to the plugin's own
 namespace and are not user-visible to other plugins.
 
+### Settings form renderer + IndexedDB backend (SDK-006b)
+
+`frontend/src/components/plugin-host/SettingsForm.tsx` is the editor
+view that turns a declared `SettingsSchema` into a live form. The
+"Installed Plugins" modal mounts it from the per-row settings dialog —
+plugins never import or render it themselves; they only declare the
+schema and the host owns the UI.
+
+Three things make this component non-trivial:
+
+1. **Live re-render on `declare`.** The form subscribes to
+   `getSettingsRegistry().subscribe(...)` via `useSyncExternalStore`,
+   so a plugin re-declaring (or disposing) its schema redraws the form
+   immediately. The body is keyed by a `schemaFingerprint(schema)` so a
+   shape change unmounts the old controls and mounts a fresh tree —
+   stale per-field state can't survive a schema migration.
+2. **Two-layer validation.** Every keystroke runs
+   `applyAndValidate(schema, values, current)` from `@velxio/sdk` to
+   surface inline schema errors (Save stays disabled while any leaf is
+   invalid). On Save, the form additionally awaits the plugin's own
+   async `validate(values)` if it was supplied at `declare()` time, so
+   cross-field rules the schema can't express still run before the
+   write — identical to what `createPluginSettings.set()` would do
+   internally. Backend errors take precedence over live errors so the
+   user always sees the most recent rejection.
+3. **Round-trippable JSON.** Per-plugin Export downloads
+   `${pluginId}-settings.json` shaped as `{ pluginId, values }`;
+   Import accepts either that shape or a bare values object and routes
+   through the same `applyAndValidate` so a malformed import surfaces
+   inline rather than corrupting the persisted state.
+
+Type dispatch: `string` → `<input>` / `<select enum>` / `<textarea
+multiline>` / `<input type="password|email|url">`; `number`/`integer` →
+`<input type="number">` with `min`/`max`/`step`; `boolean` →
+checkbox; `array` of strings → tag/chip list; `object` (one nesting
+level) → fieldset routing inner errors via the dotted path the schema
+validator emits (`outer.inner`).
+
+`IndexedDBSettingsBackend`
+(`frontend/src/plugin-host/IndexedDBSettingsBackend.ts`) is the
+production `SettingsBackend` wired in `App.tsx` at module load:
+
+```ts
+if (typeof indexedDB !== 'undefined') {
+  getSettingsRegistry().setBackend(new IndexedDBSettingsBackend());
+}
+```
+
+DB `velxio.plugin-settings`, store `settings`, key = `pluginId`,
+value = `{ values, updatedAt }`. SSR/test contexts that lack
+`indexedDB` keep the in-memory default. The SDK contract does not
+change — `set()` and `get()` were already async, so swapping backends
+is invisible to plugins.
+
+What ships in SDK-006b vs what's deferred:
+
+- **Shipped** — form renderer with all six leaf control types,
+  inline validation, async-validate path, Save / Reset-with-confirm,
+  Export, Import, IndexedDB persistence, App-level wire-up.
+- **Deferred** to a follow-up:
+  - "Export all plugin settings" panel-level button (operates over
+    every persisted plugin id).
+  - Wire to `plugin_installs.settings_json` on the Pro backend (lives
+    with PRO-003 marketplace install endpoints).
+
+Tests: `frontend/src/__tests__/SettingsForm.test.tsx` (14 tests, jsdom)
+covers the empty state, every leaf control type, inline schema
+validation, Save flow with cached-value update, Reset, and the
+backend round-trip.
+
 ## Slot UI infrastructure (CORE-002b)
 
 When a plugin calls `ctx.commands.register()`, `ctx.toolbar.register()`,

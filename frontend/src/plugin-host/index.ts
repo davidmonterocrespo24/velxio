@@ -50,6 +50,7 @@ export {
   type HostSettingsRegistry,
   type SettingsBackend,
 } from './SettingsRegistry';
+export { IndexedDBSettingsBackend } from './IndexedDBSettingsBackend';
 export {
   createPluginContext,
   type CreatedPluginContext,

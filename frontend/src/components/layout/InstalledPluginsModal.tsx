@@ -11,8 +11,8 @@
  * coupled to the modal's layout and have no other call sites:
  *   - <PluginRow>  — one row per plugin (listing + actions)
  *   - <UninstallConfirm> — confirmation overlay before destructive op
- *   - <PluginSettingsDialog> — placeholder until SDK-006b ships the
- *     real schema-driven form renderer
+ *   - <PluginSettingsDialog> — schema-driven form mounted via
+ *     <SettingsForm /> (SDK-006b)
  */
 
 import { useEffect, useState } from 'react';
@@ -23,6 +23,8 @@ import {
   type PluginPanelRow,
 } from '../../store/useInstalledPluginsStore';
 import type { LoadLicenseReason } from '../../plugins/loader';
+import { SettingsForm } from '../plugin-host/SettingsForm';
+import { getSettingsRegistry } from '../../plugin-host/SettingsRegistry';
 
 /**
  * 24h cadence for the denylist refresh timer. A token revoked centrally
@@ -534,27 +536,35 @@ const UninstallConfirm: React.FC<{
 const PluginSettingsDialog: React.FC<{
   row: PluginPanelRow;
   onClose: () => void;
-}> = ({ row, onClose }) => (
-  <div style={styles.overlayInner} onClick={onClose}>
-    <div style={styles.confirm} onClick={(e) => e.stopPropagation()}>
-      <h3 style={styles.confirmTitle}>{row.displayName} — Settings</h3>
-      <p style={styles.confirmBody}>
-        Schema-driven settings forms ship in <strong>SDK-006b</strong>. Until then,
-        the plugin can declare a settings schema via <code>ctx.settings.declare()</code>
-        and store values, but the editor does not yet render an editable form.
-      </p>
-      {row.entry?.manifest !== undefined && (
-        <details style={styles.details}>
-          <summary style={styles.detailsSummary}>Plugin metadata</summary>
-          <pre style={styles.metaPre}>{JSON.stringify(row.entry.manifest, null, 2)}</pre>
-        </details>
-      )}
-      <div style={styles.confirmActions}>
-        <button onClick={onClose} style={styles.primaryBtn}>Close</button>
+}> = ({ row, onClose }) => {
+  const hasSchema = getSettingsRegistry().get(row.id) !== undefined;
+  return (
+    <div style={styles.overlayInner} onClick={onClose}>
+      <div style={{ ...styles.confirm, width: 'min(560px, 92vw)' }} onClick={(e) => e.stopPropagation()}>
+        <h3 style={styles.confirmTitle}>{row.displayName} — Settings</h3>
+        {hasSchema ? (
+          <SettingsForm pluginId={row.id} />
+        ) : (
+          <>
+            <p style={styles.confirmBody}>
+              This plugin hasn't declared any settings yet. Once it calls
+              <code> ctx.settings.declare(...) </code> the form will appear here.
+            </p>
+            {row.entry?.manifest !== undefined && (
+              <details style={styles.details}>
+                <summary style={styles.detailsSummary}>Plugin metadata</summary>
+                <pre style={styles.metaPre}>{JSON.stringify(row.entry.manifest, null, 2)}</pre>
+              </details>
+            )}
+          </>
+        )}
+        <div style={styles.confirmActions}>
+          <button onClick={onClose} style={styles.primaryBtn}>Close</button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ── styles ───────────────────────────────────────────────────────────────
 
