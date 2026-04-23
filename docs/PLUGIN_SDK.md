@@ -585,6 +585,115 @@ schema is declared, reads, writes, resets, and subscriptions need
 no further permission — the values belong to the plugin's own
 namespace and are not user-visible to other plugins.
 
+## Slot UI infrastructure (CORE-002b)
+
+When a plugin calls `ctx.commands.register()`, `ctx.toolbar.register()`,
+`ctx.panels.register()`, etc. the contribution lives in a **per-plugin**
+registry first (see SDK-002). The editor needs a single source-of-truth
+across every loaded plugin so React surfaces (toolbar, command palette,
+panel docks) can render the union without re-subscribing per plugin.
+
+### `HostSlotRegistry` — the aggregator
+
+`frontend/src/plugin-host/HostSlotRegistry.ts` is a singleton that owns:
+
+- A two-level map `slots: Map<SlotId, Map<pluginId, Map<itemId, SlotEntry>>>`.
+- A snapshot cache per slot — `getEntries(slotId)` returns the **same frozen
+  array reference** until a mutation in that slot invalidates it. React's
+  `useSyncExternalStore` uses identity comparison to skip re-renders, so
+  this guarantee is load-bearing.
+- A subscriber set per slot — `subscribe(slotId, fn)` only notifies on
+  mutations that touch that slot. Toolbar items registering does not wake
+  the command palette.
+
+The aggregator exposes one mutation entry point: `mountPlugin(pluginId,
+ui)`. `createPluginContext()` calls it once per plugin after wiring all
+seven UI registries. The bridge subscribes to each per-plugin registry
+and **reconciles by diff** on every notify (add/update/remove) so the
+slot snapshot always matches the plugin's current state.
+
+The bridge's `dispose()` is **not** tracked in the plugin's
+`ctx.subscriptions` store — it's host infrastructure. The dispose wrapper
+in `createPluginContext` calls `slotBridge.dispose()` first, then
+`subscriptions.dispose()`, so the slot snapshots clear before any
+plugin-tracked teardown runs.
+
+### `<SlotOutlet />` — the React surface
+
+`frontend/src/components/plugin-host/SlotOutlet.tsx` is the React side:
+
+```tsx
+<SlotOutlet slot="editor.toolbar.left">
+  {(entry) => <ToolbarButton item={entry.item} pluginId={entry.pluginId} />}
+</SlotOutlet>
+```
+
+- `slot` is a stable id from `SlotIds.ts`. Renaming a slot is a breaking
+  change — the slot id is the only contract between host UI and plugin
+  contributions.
+- `children` is a renderer for **one** entry. The outlet does not decide
+  what the item looks like — toolbars render `<button>`s, panels render
+  whatever fits the dock, etc. The render function MUST be stable
+  (declared at module scope or wrapped in `useCallback`) — the outlet
+  is `React.memo`'d and a fresh closure on every render defeats the memo.
+- `fallback` is rendered when the slot is empty (default `null`).
+
+The outlet does NOT execute commands. A toolbar button referencing a
+`commandId` needs the surface layer to resolve the owning plugin's
+command registry and call `commands.execute(id)`. The outlet only
+enumerates.
+
+### Slot routing — how items reach the right slot
+
+`SlotIds.ts` declares the `SlotId` union and a `SLOT_ROUTING` table that
+maps each slot to its source registry plus an optional `accepts`
+predicate. For example:
+
+```ts
+'editor.toolbar.left':  { source: 'toolbar', accepts: (i) => i.position === 'left' },
+'editor.toolbar.right': { source: 'toolbar', accepts: (i) => i.position === 'right' },
+```
+
+Toolbar items declare `position: 'left' | 'right'`; the aggregator routes
+each item to exactly one slot. To add a new slot, add the id to
+`ALL_SLOT_IDS` and a row to `SLOT_ROUTING` — the test suite enforces that
+every slot has a routing row and every routing row points at a known
+registry.
+
+## La regla de oro — lookup at setup, not on the hot path
+
+Every registry (`registry.lookup()`, `partSimulations.list()`,
+`spice.lookup()`, slot snapshots) runs an `O(1)` `Map` lookup. That is
+fast — but a frame tick at 60 fps gives you ≤16.6 ms total budget for the
+AVR step, the scheduler tick, every part-sim's `onPinStateChange`, and
+the React paint. Touching the registry inside a hot path adds work that
+**scales with the number of installed plugins**, which is exactly the
+work that the SDK is trying to make zero-cost.
+
+**Rule:** resolve the reference once at setup (component construction,
+netlist build, plugin activate) and keep the captured reference. The
+frame loop calls the captured reference directly.
+
+```ts
+// ✅ Good — lookup runs once at setup, frame loop calls the ref directly.
+function attachLed(componentId: string) {
+  const sim = partSimulations.lookup('led');
+  if (!sim) return;
+  sim.onPinStateChange?.(componentId, 'A', 1);
+  return sim;
+}
+
+// ❌ Bad — every frame pays a Map lookup that scales with plugin count.
+function tickLed(componentId: string) {
+  partSimulations.lookup('led')?.onPinStateChange?.(componentId, 'A', 1);
+}
+```
+
+The same rule applies to `ctx.events.on(...)`: subscribe at activate,
+keep the disposable in `ctx.subscriptions`, and let the EventBus's
+zero-listener fast-path optimize out emits when nobody is listening.
+Don't subscribe-then-unsubscribe inside a tick.
+
 ## What's NOT in SDK-003
 
 The SDK-003 contract intentionally defers a few higher-level conveniences:
@@ -609,3 +718,6 @@ anything in SDK-003.
 - [docs/COMPILE_MIDDLEWARE.md](COMPILE_MIDDLEWARE.md) — middleware contract.
 - [docs/PERFORMANCE.md](PERFORMANCE.md) — the hard performance budgets every
   registered part-sim and SPICE mapper must respect.
+- `frontend/src/plugin-host/SlotIds.ts` + `HostSlotRegistry.ts` +
+  `frontend/src/components/plugin-host/SlotOutlet.tsx` — slot UI
+  infrastructure (CORE-002b).

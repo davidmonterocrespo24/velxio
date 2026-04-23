@@ -84,6 +84,7 @@ import { getTemplateRegistry } from './TemplateRegistry';
 import { getLibraryRegistry } from './LibraryRegistry';
 import { createPluginI18n } from './I18nRegistry';
 import { createPluginSettings } from './SettingsRegistry';
+import { getHostSlotRegistry } from './HostSlotRegistry';
 
 /**
  * Host-provided services that every plugin sees. Tests can pass mocks here;
@@ -171,6 +172,15 @@ export function createPluginContext(
   // LIFO list — no risk of double-dispose, no risk of an
   // adapter-tracked handle living past the plugin's deactivate.
   const subscriptions = new HostDisposableStore(logger, `plugin "${manifest.id}"`);
+
+  // Bridge this plugin's per-plugin UI registries into the host-wide slot
+  // aggregator (CORE-002b). The bridge is added LAST so it's first to be
+  // disposed on plugin tear-down — that way the SlotOutlet sees the
+  // plugin's items leave before the per-plugin registries themselves are
+  // torn down. The mount happens at the end of this function, once `ui`
+  // is fully constructed. We just reserve the disposal slot here so the
+  // tear-down order is documented even though the bridge itself doesn't
+  // exist yet.
 
   // ── gated registry adapters ──────────────────────────────────────────────
   const components: SdkComponentRegistry = {
@@ -432,6 +442,17 @@ export function createPluginContext(
     addDisposable: (d: Disposable) => subscriptions.add(d),
   };
 
+  // ── slot bridge ──────────────────────────────────────────────────────────
+  // Wire this plugin's UI registries into the global slot aggregator so
+  // `<SlotOutlet />` sees them. We KEEP the bridge handle outside
+  // `subscriptions` on purpose: that store reflects what the plugin and
+  // the host adapters explicitly tracked, and is read by tests + future
+  // diagnostics. The slot bridge is pure host infrastructure — counting
+  // it would inflate `subscriptions.size` by 1 for every plugin and
+  // surprise authors. Disposed FIRST in the host wrapper so the slot
+  // tables empty before the per-plugin registries go away.
+  const slotBridge = getHostSlotRegistry().mountPlugin(manifest.id, ui);
+
   return {
     context,
     ui,
@@ -439,7 +460,14 @@ export function createPluginContext(
     // the host wrapper just delegates. After this returns, every later
     // `subscriptions.add()` (e.g. from a still-pending plugin async task)
     // disposes its argument immediately so nothing leaks past activation.
-    dispose: () => subscriptions.dispose(),
+    dispose: () => {
+      try {
+        slotBridge.dispose();
+      } catch (err) {
+        logger.error('slot bridge dispose threw:', err);
+      }
+      subscriptions.dispose();
+    },
   };
 }
 

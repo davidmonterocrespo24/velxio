@@ -189,6 +189,73 @@ never trigger a CDN fetch (egress cost) or worker spawn (memory + CPU).
 A malformed token is treated as `no-license` (parse-fail = no token).
 PRO-007 will lock the canonical encoding in its issuer specification.
 
+## Pause-on-expiry timer (CORE-008c)
+
+The license gate runs only at **load time**. A subscription that
+expires *while the editor is open* would otherwise stay usable until
+the next page reload. The loader closes that gap by arming a
+`setTimeout` for any plugin whose license carries a future
+`expiresAt`. When the timer fires, the loader calls
+`PluginManager.pause(id, 'license-expired')` — the worker stays alive
+(renewing + `manager.resume(id)` is O(1) and avoids a re-`import()`),
+but the entry's `status` flips to `'paused'` so the UI surfaces the
+expired state with a "Renew" CTA.
+
+```
+loadOne success ──► armExpiryTimer(id)
+                          │
+                          ├── licenseResolver.getLicense(id).payload.expiresAt
+                          │       (undefined → no timer; perpetual / free)
+                          │
+                          ▼
+                     scheduleExpiryStep(id, expiryMs)
+                          │
+                          ├── remaining ≤ 0 → manager.pause('license-expired') (sync)
+                          │
+                          └── setTimeout(min(remaining, 24 h), …)
+                                     │
+                                     ▼
+                                fires → recompute now
+                                     ├── still pre-expiry → re-arm
+                                     └── reached         → manager.pause(…)
+```
+
+### Why 24-hour chunks
+
+Browsers clamp `setTimeout` values larger than `2^31 − 1` ms (~24.8
+days) to immediate firing. To keep the contract intuitive for
+multi-month subscriptions, every arm is capped at
+`MAX_TIMER_DELAY_MS = 24h` and re-arms itself in the callback. The
+24-hour cadence also dovetails with the modal's denylist refresh
+interval (CORE-008b), so a freshly-revoked token gets caught either
+way without us shipping two parallel timers.
+
+### Cleanup
+
+The loader subscribes to the manager once (lazily, on first arm) and
+sweeps its timer map on every notify. Any id whose entry is
+`unloaded` / `failed` / missing has its pending timer cancelled — so
+explicit `manager.unload(id)` from the Installed Plugins panel never
+results in a late `pause()` against a dead worker.
+
+`loader.dispose()` clears every pending timer and unsubscribes from
+the manager. Production wiring keeps the loader alive for the page
+lifetime, but tests call `dispose()` between specs.
+
+### Soft pause vs hard pause
+
+`PluginManager.pause()` is a **soft** pause: it flips status and
+notifies subscribers, but does not freeze the worker's RPC channel.
+Already-registered host disposables (commands, panels, event
+subscriptions) keep firing. This is enough for the licensing flow —
+the user renews, the marketplace refresh wakes the row, and
+`useInstalledPluginsStore.toggleEnabled` re-routes through
+`PluginLoader.loadOne()` which arms a fresh timer.
+
+A **hard** pause (RPC freeze, drop pending callbacks, gate `pin:change`
+forwarding) is deferred to **CORE-006b** because it requires a
+`pause`/`resume` round-trip the worker runtime does not yet implement.
+
 ## Wiring at editor startup
 
 ```ts
@@ -227,9 +294,10 @@ const loader = new PluginLoader({
 });
 ```
 
-This is enough to drive the five test files (`plugin-loader-*.ts`,
-44 tests total) without touching the network or IndexedDB. The
-`plugin-loader-license-gate.test.ts` file uses the host's real
+This is enough to drive the six test files (`plugin-loader-*.ts`,
+56 tests total) without touching the network or IndexedDB. The
+`plugin-loader-license-gate.test.ts` and
+`plugin-loader-pause-on-expiry.test.ts` files use the host's real
 `crypto.subtle` (jsdom in Node 20+) to generate Ed25519 keypairs and
 sign payloads end-to-end — no key material is mocked.
 

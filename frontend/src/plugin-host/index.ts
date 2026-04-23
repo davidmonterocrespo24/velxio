@@ -56,3 +56,19 @@ export {
   type PluginHostServices,
   type PluginUIRegistries,
 } from './createPluginContext';
+export {
+  getHostSlotRegistry,
+  __resetHostSlotRegistry,
+  type HostSlotRegistry,
+  type SlotEntry,
+} from './HostSlotRegistry';
+export {
+  ALL_SLOT_IDS,
+  SLOT_ROUTING,
+  type EditorSlotId,
+  type GlobalSlotId,
+  type RegistrySource,
+  type SimulatorSlotId,
+  type SlotId,
+  type SlotRouting,
+} from './SlotIds';

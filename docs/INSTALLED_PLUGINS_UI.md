@@ -67,6 +67,7 @@ plugin failed to load and the manifest is unavailable).
 | `loading`                    | manager just received `load()`, awaiting `ready`        |
 | `failed`                     | activate threw / handshake timed out / integrity bad    |
 | `unloaded`                   | user disabled it OR install record `enabled: false`     |
+| `paused`                     | `manager.pause(id, reason)` ran (CORE-008c expiry timer or future "snooze") |
 | `installed-not-loaded`       | install record present + enabled, manager has no entry  |
 | `no-license`                 | a license-gate failure is cached for this id (CORE-008b) |
 
@@ -74,6 +75,14 @@ When the loader returns `license-failed`, the typed `LoadLicenseReason`
 is stamped onto the row as `licenseReason` (separate from `status`) so
 the panel can render the per-reason copy + CTA without parsing prose.
 A subsequent successful load implicitly clears the cached reason.
+
+`paused` entries also surface a `pauseReason: PluginPauseReason`
+(`license-expired` / `license-revoked` / `manual`). For the two
+license-driven reasons, the store *also* derives `licenseReason`
+(`expired` / `revoked`) so the same `<LicenseStatus />` renderer used
+for `license-failed` rows works without a parallel branch. `manual`
+pauses (today: tests + future snooze affordances) skip the license
+CTA and just show the "Paused" badge.
 
 ## Why a join layer instead of two stores in components
 
@@ -221,7 +230,7 @@ nothing else in the page tree is affected.
 
 ## Tests
 
-`__tests__/installed-plugins-store.test.ts` (27 tests) covers:
+`__tests__/installed-plugins-store.test.ts` (31 tests) covers:
 
 **CORE-008 baseline (15 tests)**
 - empty / install-only / entry-only / both-overlap row cases
@@ -245,6 +254,16 @@ nothing else in the page tree is affected.
 - a throwing resolver does not break `getRows()` for sibling rows
 - `refreshDenylist()` swallows transport errors
 - `refreshDenylist()` bumps `tick` on success
+
+**CORE-008c (4 tests)**
+- paused entry surfaces `status: 'paused'` and `pauseReason` on the row
+- `license-expired` pause derives `licenseReason: 'expired'`
+- `license-revoked` pause derives `licenseReason: 'revoked'`
+- `manual` pause does NOT surface a license CTA
+
+Pause-on-expiry timer behaviour is covered separately in
+`__tests__/plugin-loader-pause-on-expiry.test.ts` (12 tests, real
+Ed25519 sign/verify with fake timers).
 
 The modal itself is intentionally not unit-tested at the DOM level —
 this repo does not pull in `@testing-library/react`. The store covers
