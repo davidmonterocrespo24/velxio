@@ -1,20 +1,30 @@
 /**
- * ChipParts.ts — Simulation logic for complex IC chips
+ * ChipParts.ts — Simulation logic for complex IC chips.
  *
  * Implements:
  *  - 74HC595 8-bit Serial-to-Parallel Shift Register
- *  - wokwi-7segment display (driven by 74HC595 outputs)
+ *  - wokwi-7segment display (direct-drive or 74HC595-driven)
+ *
+ * Migrated in CORE-002c-step4 from the legacy host shape to the SDK
+ * `PartSimulation` contract. `pinManager.triggerPinChange(pin, true)`
+ * (used to default OE HIGH) is now `handle.setPinState(pin, true)` —
+ * the SDK handle's direct pin drive is semantically equivalent from
+ * the component side.
  */
 
+import type { PartSimulation, PinState } from '@velxio/sdk';
+import { definePartSimulation } from '@velxio/sdk';
 import type { PartRegistry } from './PartSimulationRegistry';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+
+const isHigh = (state: PinState): boolean => state === 1;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Given a 74HC595 component ID and a pin name (e.g. 'Q0'), find the DOM element
- * of whatever component is connected on the other side of that wire, plus the
- * pin name on that component.
+ * Given a 74HC595 component ID and a pin name (e.g. 'Q0'), find the DOM
+ * element of whatever component is connected on the other side of that
+ * wire, plus the pin name on that component.
  */
 function getConnectedToPin(
   componentId: string,
@@ -60,88 +70,59 @@ function set7SegPin(element: HTMLElement, pinName: string, state: boolean) {
   const idx = segmentIndex[pinName.toUpperCase()];
   if (idx === undefined) return;
 
-  const el = element as any;
+  const el = element as HTMLElement & { values?: number[] };
   const current: number[] = Array.isArray(el.values) ? [...el.values] : [0, 0, 0, 0, 0, 0, 0, 0];
   current[idx] = state ? 1 : 0;
   el.values = current;
 }
 
-/**
- * Register every ChipParts entry on the given registry. Called once at boot
- * by `src/builtin/registerCoreParts.ts`. Stays on the legacy host shape —
- * `pinManager.triggerPinChange` isn't exposed through the narrow SDK
- * `SimulatorHandle` (tracked as CORE-002c-step3 / step4).
- */
-export function registerChipParts(registry: PartRegistry): void {
+// ─── 74HC595 8-bit Serial-to-Parallel Shift Register ─────────────────────────
 
-// ─── 74HC595 simulation ───────────────────────────────────────────────────────
-
-registry.register('74hc595', {
-  attachEvents: (element, simulator, getArduinoPinHelper) => {
-    const pinManager = (simulator as any).pinManager;
-    if (!pinManager) return () => {};
-
-    // Internal state
-    let shiftReg = 0; // 8-bit shift register
-    let storageReg = 0; // 8-bit storage register (output)
-    let oeActive = false; // output enable (active low)
-    let mrActive = true; // master reset (active low — HIGH = not reset)
+export const hc595Part: PartSimulation = definePartSimulation({
+  attachEvents: (element, handle) => {
+    let shiftReg = 0;
+    let storageReg = 0;
+    let oeActive = false;
+    let mrActive = true;
 
     let prevShcp = false;
     let prevStcp = false;
+    let dsState = false;
 
-    // Resolve connected Arduino pins
-    const pinDS = getArduinoPinHelper('DS');
-    const pinSHCP = getArduinoPinHelper('SHCP');
-    const pinSTCP = getArduinoPinHelper('STCP');
-    const pinMR = getArduinoPinHelper('MR');
-    const pinOE = getArduinoPinHelper('OE');
+    const pinOE = handle.getArduinoPin('OE');
+    const pinMR = handle.getArduinoPin('MR');
 
-    const unsubscribers: (() => void)[] = [];
+    const disposables: Array<{ dispose(): void }> = [];
 
-    // Helper: propagate current storage reg outputs to connected components
     const propagateOutputs = () => {
       if (!oeActive) return; // outputs disabled (OE high = disabled)
-      const compId = element.id;
 
-      // Q0-Q7 maps to bits 0-7 of storageReg
       const outputPins = ['Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7'];
       for (let i = 0; i < 8; i++) {
         const state = ((storageReg >> i) & 1) === 1;
-        const connected = getConnectedToPin(compId, outputPins[i]);
+        const connected = getConnectedToPin(handle.componentId, outputPins[i]);
         if (connected) {
-          // Update 7-segment or LED or any other component
           const tagName = connected.element.tagName.toLowerCase();
           if (tagName === 'wokwi-7segment') {
             set7SegPin(connected.element, connected.pinName, state);
           } else if (tagName === 'wokwi-led') {
-            (connected.element as any).value = state ? 1 : 0;
-          }
-          // Update 74HC595 chained via Q7S
-          if (tagName === 'velxio-74hc595' && outputPins[i] === 'Q7S') {
-            // Q7S is serial out — drives DS of next chip (handled via wire logic)
+            (connected.element as HTMLElement & { value: number }).value = state ? 1 : 0;
           }
         }
       }
 
-      // Update this element's visual (Q0-Q7 output dots)
-      const el = element as any;
+      const el = element as HTMLElement & { values: number[] };
       el.values = outputPins.map((_, i) => (storageReg >> i) & 1);
-
-      // Also propagate Q7S (serial output = bit 7 of shift register, not storage)
-      const q7sConn = getConnectedToPin(element.id, 'Q7S');
-      if (q7sConn) {
-        // Q7S is used to chain to the DS pin of next 74HC595 — this is handled
-        // by the DS monitoring of the downstream chip
-      }
     };
 
-    // OE (active low — LOW enables outputs)
+    // OE (active low — LOW enables outputs). Default the pin HIGH from the
+    // component side so downstream logic sees a stable "disabled" state
+    // until the user drives OE.
     if (pinOE !== null) {
-      pinManager.triggerPinChange(pinOE, true); // default HIGH = disabled
-      unsubscribers.push(
-        pinManager.onPinChange(pinOE, (_: number, state: boolean) => {
-          oeActive = !state; // OE low = active
+      handle.setPinState(pinOE, true);
+      disposables.push(
+        handle.onPinChange('OE', (s) => {
+          oeActive = !isHigh(s);
           propagateOutputs();
         }),
       );
@@ -151,12 +132,10 @@ registry.register('74hc595', {
 
     // MR (active low — LOW resets shift register)
     if (pinMR !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinMR, (_: number, state: boolean) => {
-          mrActive = state; // MR high = no reset, low = reset
-          if (!mrActive) {
-            shiftReg = 0;
-          }
+      disposables.push(
+        handle.onPinChange('MR', (s) => {
+          mrActive = isHigh(s);
+          if (!mrActive) shiftReg = 0;
         }),
       );
     } else {
@@ -164,25 +143,21 @@ registry.register('74hc595', {
     }
 
     // DS — latched on SHCP rising edge; just track current value
-    let dsState = false;
-    if (pinDS !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinDS, (_: number, state: boolean) => {
-          dsState = state;
+    if (handle.getArduinoPin('DS') !== null) {
+      disposables.push(
+        handle.onPinChange('DS', (s) => {
+          dsState = isHigh(s);
         }),
       );
     }
 
     // SHCP — rising edge shifts DS into shift register
-    if (pinSHCP !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinSHCP, (_: number, state: boolean) => {
-          if (state && !prevShcp) {
-            // Rising edge
-            if (mrActive) {
-              // Shift: MSB shifts out via Q7S, DS enters at LSB
-              shiftReg = ((shiftReg << 1) | (dsState ? 1 : 0)) & 0xff;
-            }
+    if (handle.getArduinoPin('SHCP') !== null) {
+      disposables.push(
+        handle.onPinChange('SHCP', (s) => {
+          const state = isHigh(s);
+          if (state && !prevShcp && mrActive) {
+            shiftReg = ((shiftReg << 1) | (dsState ? 1 : 0)) & 0xff;
           }
           prevShcp = state;
         }),
@@ -190,11 +165,11 @@ registry.register('74hc595', {
     }
 
     // STCP — rising edge latches shift register to storage register
-    if (pinSTCP !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinSTCP, (_: number, state: boolean) => {
+    if (handle.getArduinoPin('STCP') !== null) {
+      disposables.push(
+        handle.onPinChange('STCP', (s) => {
+          const state = isHigh(s);
           if (state && !prevStcp) {
-            // Rising edge — latch
             storageReg = shiftReg;
             propagateOutputs();
           }
@@ -203,41 +178,45 @@ registry.register('74hc595', {
       );
     }
 
-    // Initial state propagation
     propagateOutputs();
 
-    return () => unsubscribers.forEach((u) => u());
+    return () => disposables.forEach((d) => d.dispose());
   },
 });
 
-// ─── 7-segment display (direct-drive, when connected directly to Arduino) ────
+// ─── 7-segment display (direct-drive) ────────────────────────────────────────
 
-registry.register('7segment', {
-  attachEvents: (element, simulator, getArduinoPinHelper) => {
-    const pinManager = (simulator as any).pinManager;
-    if (!pinManager) return () => {};
-
-    const unsubscribers: (() => void)[] = [];
-
+export const sevenSegmentPart: PartSimulation = definePartSimulation({
+  attachEvents: (element, handle) => {
     const segments = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'DP'];
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const arduinoPin = getArduinoPinHelper(seg);
-      if (arduinoPin !== null) {
-        unsubscribers.push(
-          pinManager.onPinChange(arduinoPin, (_: number, state: boolean) => {
-            set7SegPin(element, seg, state);
-          }),
-        );
-      }
+    const disposables: Array<{ dispose(): void }> = [];
+
+    for (const seg of segments) {
+      if (handle.getArduinoPin(seg) === null) continue;
+      disposables.push(
+        handle.onPinChange(seg, (s) => {
+          set7SegPin(element, seg, isHigh(s));
+        }),
+      );
     }
 
-    return () => unsubscribers.forEach((u) => u());
+    return () => disposables.forEach((d) => d.dispose());
   },
-  // Called by SimulatorCanvas for boards without a local simulator (e.g. ESP32 via QEMU backend).
-  // pinName is the segment identifier (A, B, C, D, E, F, G, DP).
-  onPinStateChange: (pinName: string, state: boolean, element: HTMLElement) => {
+  // Called by SimulatorCanvas for boards without a local simulator (e.g. ESP32
+  // via QEMU backend). pinName is the segment identifier (A, B, C, D, E, F,
+  // G, DP).
+  onPinStateChange: (pinName, state, element) => {
     set7SegPin(element, pinName, state);
   },
 });
+
+// ─── Seeding ──────────────────────────────────────────────────────────────────
+
+/**
+ * Register every ChipParts entry on the given registry. Called once at
+ * boot by `src/builtin/registerCoreParts.ts`.
+ */
+export function registerChipParts(registry: PartRegistry): void {
+  registry.registerSdkPart('74hc595', hc595Part);
+  registry.registerSdkPart('7segment', sevenSegmentPart);
 }
