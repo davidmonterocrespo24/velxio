@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!-- Content Security Policy (fallback when the HTTP header is not set) — see docs/CSP.md.
+         `frame-ancestors` is intentionally omitted: the meta tag does not support it,
+         the X-Frame-Options header above covers the same intent, and the nginx config
+         re-asserts the full policy for production. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; worker-src 'self' blob:; script-src 'self' 'wasm-unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com; connect-src 'self' https://api.velxio.dev https://cdn.velxio.dev https://www.google-analytics.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
+
     <!-- ═══════════════════════════════════════════════
          PRIMARY SEO
          Replace https://velxio.dev with your real domain
@@ -24,12 +30,7 @@
          (analytics.google.com → Admin → Data Streams → Measurement ID)
     ═══════════════════════════════════════════════ -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-HPD8HTV3TG"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-HPD8HTV3TG');
-    </script>
+    <script src="/gtag-init.js"></script>
 
     <!-- ═══════════════════════════════════════════════
          OPEN GRAPH (Facebook, LinkedIn, WhatsApp, Telegram, Discord, Slack…)
