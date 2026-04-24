@@ -1,4 +1,8 @@
-import type { PartSimulation as SdkPartSimulation, SimulatorHandle } from '@velxio/sdk';
+import type {
+  I2cSlaveHandler,
+  PartSimulation as SdkPartSimulation,
+  SimulatorHandle,
+} from '@velxio/sdk';
 import { AVRSimulator } from '../AVRSimulator';
 import { RP2040Simulator } from '../RP2040Simulator';
 
@@ -143,6 +147,103 @@ export class PartRegistry {
             );
             return { dispose: unsubscribe };
           },
+          onPwmChange: (pinName, callback) => {
+            // Same late-arriving-wire rule as `onPinChange`: resolve once,
+            // no-op Disposable when the wire isn't present.
+            const arduinoPin = getArduinoPin(pinName);
+            if (arduinoPin === null) {
+              return { dispose: () => {} };
+            }
+            const unsubscribe = simulator.pinManager.onPwmChange(
+              arduinoPin,
+              (_pin, duty) => callback(duty),
+            );
+            return { dispose: unsubscribe };
+          },
+          onSpiTransmit: (callback) => {
+            // AVRSPI exposes a single `onTransmit` property rather than a
+            // subscriber list, so we build a small fan-out over it. If the
+            // host simulator doesn't own an SPI peripheral (ESP32, or the
+            // sim hasn't started yet), the subscription degrades to a no-op.
+            const spi = simulator.spi as
+              | { onTransmit?: ((value: number) => void) | null }
+              | null
+              | undefined;
+            if (!spi) {
+              return { dispose: () => {} };
+            }
+            const previous = spi.onTransmit ?? null;
+            const wrapped = (byte: number) => {
+              if (previous) {
+                try {
+                  previous(byte);
+                } catch {
+                  // Previous subscriber threw — isolate so `callback` still fires.
+                }
+              }
+              try {
+                callback(byte);
+              } catch {
+                // Plugin callback threw — isolate so subsequent bytes keep flowing.
+              }
+            };
+            spi.onTransmit = wrapped;
+            return {
+              dispose: () => {
+                // Only restore if we're still the active handler. A later
+                // `onSpiTransmit` call layers its own wrapper around ours;
+                // skipping the restore when that happened avoids tearing
+                // down the later subscriber mid-stream.
+                if (spi.onTransmit === wrapped) {
+                  spi.onTransmit = previous;
+                }
+              },
+            };
+          },
+          schedulePinChange: (pinName, state, cyclesFromNow) => {
+            const arduinoPin = getArduinoPin(pinName);
+            if (arduinoPin === null) return;
+            if (typeof simulator.schedulePinChange !== 'function') return;
+            if (typeof simulator.getCurrentCycles !== 'function') return;
+            const delta = Math.max(0, cyclesFromNow | 0);
+            const now = simulator.getCurrentCycles() as number;
+            simulator.schedulePinChange(arduinoPin, state, now + delta);
+          },
+          registerI2cSlave: (addr, handler) => {
+            // AVR exposes the bus via `i2cBus.addDevice(device)` where device
+            // matches the `I2CDevice` interface — superset of the SDK's
+            // `I2cSlaveHandler`. Adapt by pinning `address`.
+            const bus = simulator.i2cBus as
+              | {
+                  addDevice(d: { address: number } & I2cSlaveHandler): void;
+                  removeDevice(a: number): void;
+                }
+              | null
+              | undefined;
+            if (!bus) {
+              return { dispose: () => {} };
+            }
+            const device = {
+              address: addr,
+              writeByte: handler.writeByte.bind(handler),
+              readByte: handler.readByte.bind(handler),
+              stop: handler.stop ? handler.stop.bind(handler) : undefined,
+            };
+            bus.addDevice(device);
+            return {
+              dispose: () => {
+                bus.removeDevice(addr);
+              },
+            };
+          },
+          cyclesNow: () =>
+            typeof simulator.getCurrentCycles === 'function'
+              ? (simulator.getCurrentCycles() as number)
+              : 0,
+          clockHz: () =>
+            typeof simulator.getClockHz === 'function'
+              ? (simulator.getClockHz() as number)
+              : 16_000_000,
         };
         return sdkAttach(element, handle);
       };

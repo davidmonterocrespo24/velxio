@@ -55,6 +55,139 @@ export interface SimulatorHandle {
    *      the contract minimal and to centralize permission gating.
    */
   onPinChange(pinName: string, callback: (state: PinState) => void): Disposable;
+
+  /**
+   * Subscribe to PWM duty-cycle changes on one of this component's pins.
+   *
+   * The callback fires every time the MCU writes a new OCR value (for AVR) or
+   * the platform's PWM peripheral updates the channel backing this pin. `duty`
+   * is a float in `[0, 1]` — 0 is "always low", 1 is "always high", 0.5 is
+   * 50% duty cycle.
+   *
+   * Permission: `simulator.pwm.read` (Low risk — read-only observer).
+   *
+   * Returns a `Disposable`. If the component pin isn't wired when `onPwmChange`
+   * is called, the subscription is a **no-op** and `dispose()` does nothing.
+   * Same late-arriving-wire rule as `onPinChange`.
+   *
+   * Design note: the frequency of the PWM signal is not part of the callback.
+   * Callers that need it should read it at `attach` time from their component
+   * metadata — the host does not track a per-pin frequency independently of
+   * duty. This keeps the callback tight for hot-path consumers (servos fire
+   * at 50 Hz, RGB LEDs at up to 100 kHz).
+   */
+  onPwmChange(pinName: string, callback: (duty: number) => void): Disposable;
+
+  /**
+   * Subscribe to every byte the MCU's hardware SPI peripheral transmits.
+   *
+   * The callback receives each byte *after* the MCU has completed its shift
+   * out — the part is expected to respond on the MISO/MOSI pair in the next
+   * transaction (which the host arranges separately for you; plugins are
+   * currently observation-only).
+   *
+   * Permission: `simulator.spi.read` (Low risk — read-only observer).
+   *
+   * Returns a `Disposable`. Subscriptions stack — multiple parts can observe
+   * the same bus. Host guarantees fault-isolated dispatch: a throwing listener
+   * does not block the others.
+   *
+   * Today the platform has a single hardware SPI bus per MCU (AVR SPI0, RP2040
+   * SPI0), so there is no bus selector. If multi-bus support is added later,
+   * the signature will grow an optional `busId` parameter — existing callers
+   * will be the default bus and keep working.
+   *
+   * If the running board has no SPI peripheral (ESP32 software SPI,
+   * not-yet-started simulation), the subscription is a no-op and `dispose()`
+   * does nothing.
+   */
+  onSpiTransmit(callback: (byte: number) => void): Disposable;
+
+  /**
+   * Schedule a pin transition on this component's pin at a precise future
+   * cycle count — the MCU's scheduler runs the change between instructions,
+   * giving cycle-accurate protocol timing (DHT22 handshake, HC-SR04 echo
+   * pulse, IR receiver NEC decode).
+   *
+   * `cyclesFromNow` is **relative** to `cyclesNow()`; plugins never need to
+   * call `cyclesNow()` themselves just to add to it. A negative or zero
+   * value is treated as "as soon as possible".
+   *
+   * Permission: `simulator.pins.write` (same gate as `setPinState` — this is
+   * a temporal variant of that capability, not a new one).
+   *
+   * No-op when the pin isn't wired or the board doesn't support scheduling
+   * (e.g. ESP32 — scheduling is an AVR-specific cycle-accurate feature).
+   */
+  schedulePinChange(pinName: string, state: boolean, cyclesFromNow: number): void;
+
+  /**
+   * Register this component as a virtual I²C slave at `addr`. The host routes
+   * every `Wire.beginTransmission(addr)` / `Wire.requestFrom(addr, n)` to the
+   * registered `handler`, which participates in the bus protocol synchronously
+   * (return `true` from `writeByte` for ACK, return bytes from `readByte`).
+   *
+   * Permission: `simulator.i2c.write` (High risk — the slave drives the bus,
+   * which affects MCU-visible state in a way observation can't).
+   *
+   * Returns a `Disposable`. Calling `dispose()` removes the slave from the
+   * bus — subsequent `connectToSlave(addr, ...)` will NACK as if no device
+   * were there. Two slaves at the same address is "last writer wins" (the
+   * later `registerI2cSlave` displaces the earlier one until it disposes).
+   *
+   * If the running board doesn't have an I²C bus (not-yet-started simulation,
+   * platforms without TWI peripheral), the registration is a no-op and
+   * `dispose()` does nothing.
+   */
+  registerI2cSlave(addr: number, handler: I2cSlaveHandler): Disposable;
+
+  /**
+   * Current MCU cycle count — monotonically non-decreasing throughout the
+   * simulation run, reset to 0 on simulator reset. Used by timing-sensitive
+   * parts (HC-SR04 distance calculation, DHT22 bit timing, IR decode) that
+   * need a common time base.
+   *
+   * O(1), no permission required (read-only getter, no observation capability).
+   *
+   * Returns 0 when the simulation isn't running — same contract as
+   * `getCurrentCycles()` on the host.
+   */
+  cyclesNow(): number;
+
+  /**
+   * MCU clock frequency in Hz. Stable for the lifetime of the simulator run
+   * (no support for DVFS / clock scaling in any current board). Used with
+   * `cyclesNow()` to convert cycles to wall-clock time for protocol timing.
+   *
+   * Examples: 16_000_000 for AVR/Arduino Uno, 133_000_000 for RP2040,
+   * 240_000_000 for ESP32.
+   *
+   * O(1), no permission required.
+   */
+  clockHz(): number;
+}
+
+/**
+ * Handler for a virtual I²C slave registered via
+ * `SimulatorHandle.registerI2cSlave`. The host invokes these synchronously
+ * from within the TWI transaction state machine — implementations must
+ * return promptly and not do async work.
+ */
+export interface I2cSlaveHandler {
+  /**
+   * Called when the MCU writes a byte after addressing this slave for write.
+   * Return `true` to ACK (the master will keep sending), `false` to NACK
+   * (the master will stop).
+   */
+  writeByte(value: number): boolean;
+  /**
+   * Called when the MCU requests a byte from this slave in read mode. Return
+   * the data byte (0–255). If the register pointer is out of range the
+   * slave may return `0xff` (the canonical open-drain default).
+   */
+  readByte(): number;
+  /** Optional: called on a bus STOP condition so the slave can reset per-transaction state (register pointer, etc.). */
+  stop?(): void;
 }
 
 /**

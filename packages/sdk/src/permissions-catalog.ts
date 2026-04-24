@@ -61,9 +61,41 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionCatalogEntry> = [
     permission: 'simulator.pins.write',
     risk: 'medium',
     allows:
-      'Driving inputs of a component your simulation owns (e.g. button → MCU pin). Reserved for the high-level PartSimulationAPI.',
+      'Driving inputs of a component your simulation owns (e.g. button → MCU pin) and scheduling cycle-accurate pin transitions via handle.schedulePinChange().',
     denies:
       'Forcing pins on components your plugin did not register, mutating MCU registers directly.',
+  },
+  {
+    permission: 'simulator.pwm.read',
+    risk: 'low',
+    allows:
+      'Subscribing to PWM duty-cycle changes on one of your component pins via handle.onPwmChange(pinName, duty => …). Read-only observer.',
+    denies:
+      "Driving PWM on the MCU side, observing PWM on pins your plugin did not register, intercepting another part's PWM callbacks.",
+  },
+  {
+    permission: 'simulator.spi.read',
+    risk: 'low',
+    allows:
+      'Observing bytes the MCU transmits on the hardware SPI bus via handle.onSpiTransmit(byte => …). Read-only observer, shared bus today.',
+    denies:
+      'Transmitting SPI bytes as a master, modifying in-flight bytes, observing SPI on another plugin\'s parts in isolation — every subscriber sees the same bus stream.',
+  },
+  {
+    permission: 'simulator.i2c.read',
+    risk: 'low',
+    allows:
+      'Observing completed I²C transactions on the bus via handle.onI2cTransfer(event => …) (reserved for future use — not emitted by the AVR host yet).',
+    denies:
+      'Driving the bus as slave, modifying transaction payloads, intercepting another plugin\'s slave traffic.',
+  },
+  {
+    permission: 'simulator.i2c.write',
+    risk: 'high',
+    allows:
+      'Registering as a virtual I²C slave at a 7-bit address via handle.registerI2cSlave(addr, handler). The slave participates in the bus protocol and drives MCU-visible state.',
+    denies:
+      'Registering on the host\'s reserved ranges, displacing another plugin\'s slave without disposing first (last-writer-wins, but the dispose handle is yours to manage), acting as master.',
   },
   {
     permission: 'simulator.spice.read',

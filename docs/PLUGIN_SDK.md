@@ -135,9 +135,15 @@ The `sim` argument is a `SimulatorHandle`:
 interface SimulatorHandle {
   readonly componentId: string;
   isRunning(): boolean;
-  setPinState(pin: number, state: boolean): void;       // needs simulator.pins.write
+  setPinState(pin: number, state: boolean): void;                            // needs simulator.pins.write
   getArduinoPin(componentPinName: string): number | null;
-  onPinChange(pinName: string, callback: (state: PinState) => void): Disposable;
+  onPinChange(pinName: string, cb: (state: PinState) => void): Disposable;   // needs simulator.pins.read
+  onPwmChange(pinName: string, cb: (duty: number) => void): Disposable;      // needs simulator.pwm.read
+  onSpiTransmit(cb: (byte: number) => void): Disposable;                     // needs simulator.spi.read
+  schedulePinChange(pinName: string, state: boolean, cyclesFromNow: number): void; // needs simulator.pins.write
+  registerI2cSlave(addr: number, handler: I2cSlaveHandler): Disposable;      // needs simulator.i2c.write
+  cyclesNow(): number;
+  clockHz(): number;
 }
 ```
 
@@ -177,6 +183,138 @@ Important contract details:
   calls `sub.dispose()`. Long-lived subscriptions made outside
   `attachEvents` should be added to `ctx.subscriptions` so they fire on
   plugin deactivation.
+
+#### Observing PWM duty — `onPwmChange`
+
+Digital edges are enough for LEDs and buttons. Servos, fan controllers,
+tone generators, and most analog-looking outputs need the PWM duty cycle
+instead. `onPwmChange` fires whenever the MCU's PWM unit updates the
+duty for the subscribed pin; `duty` is a 0‒1 fraction.
+
+```ts
+// servo: map duty → angle (0.05 ≈ 1 ms → 0°, 0.10 ≈ 2 ms → 180°)
+ctx.partSimulations.register('demo.servo-sg90', definePartSimulation({
+  attachEvents(element, sim) {
+    const sub = sim.onPwmChange('SIG', (duty) => {
+      const angle = Math.max(0, Math.min(180, (duty - 0.05) * 1800));
+      (element as HTMLElement).style.setProperty('--angle', `${angle}deg`);
+    });
+    return () => sub.dispose();
+  },
+}));
+```
+
+Same late-arriving-wire rules as `onPinChange`: unwired at subscribe
+time → no-op Disposable, no auto-retry. Requires `simulator.pwm.read`.
+
+#### Observing SPI traffic — `onSpiTransmit`
+
+SPI displays (ILI9341, ST7789, SSD1331) and flash chips need to see
+every byte the MCU shifts out. `onSpiTransmit` gives a per-byte
+callback. The host wraps AVRSPI's single `onTransmit` slot, so multiple
+subscribers stack in dispose order — disposing one subscription does
+not tear down another.
+
+```ts
+ctx.partSimulations.register('demo.ili9341', definePartSimulation({
+  attachEvents(element, sim) {
+    let inCommand = false;
+
+    const dc = sim.onPinChange('DC', (state) => { inCommand = !state; });
+    const spi = sim.onSpiTransmit((byte) => {
+      if (inCommand) handleCommand(byte);
+      else           handlePixel(byte);
+    });
+
+    return () => { dc.dispose(); spi.dispose(); };
+  },
+}));
+```
+
+Callbacks are fault-isolated — a throw inside one subscriber does not
+block the next. Requires `simulator.spi.read`. On boards without SPI
+(ESP32 bridge, pre-start), the subscription is a no-op Disposable.
+
+#### Scheduling a future edge — `schedulePinChange`
+
+HC-SR04 ultrasonic sensors echo back after a distance-proportional
+delay. DHT22 sensors drive the data line in precise microsecond
+windows. Plugins express this as "drive pin X to state S, N cycles from
+now" — the host converts to an absolute cycle via `cyclesNow() + N` and
+enqueues it on the simulator's scheduler.
+
+```ts
+// HC-SR04: when TRIG goes high, echo back after ~2 * distance_cm * 58 µs
+ctx.partSimulations.register('demo.hcsr04', definePartSimulation({
+  attachEvents(element, sim) {
+    const distanceCm = 42;
+    const clk = sim.clockHz();
+    const usToCycles = (us: number) => Math.round((us / 1_000_000) * clk);
+
+    const trig = sim.onPinChange('TRIG', (state) => {
+      if (!state) return;                                   // rising edge only
+      const pulseUs = Math.round(distanceCm * 58);
+      sim.schedulePinChange('ECHO', true,  usToCycles(10));           // echo start
+      sim.schedulePinChange('ECHO', false, usToCycles(10 + pulseUs)); // echo end
+    });
+
+    return () => trig.dispose();
+  },
+}));
+```
+
+`cyclesFromNow` is **relative**, clamped to `Math.max(0, n | 0)` — the
+host does the add. Requires `simulator.pins.write`. Silent no-op when
+the pin is not wired or the host scheduler is missing.
+
+#### Acting as an I²C slave — `registerI2cSlave`
+
+OLED displays, RTCs, IMUs, and most sensor fusion chips speak I²C.
+`registerI2cSlave` lets a plugin participate in the bus as a virtual
+slave at a fixed 7-bit address. The handler mirrors the host's
+`I2CDevice` shape 1:1 — `writeByte` returns `true` to ACK, `false` to
+NAK; `readByte` returns the next byte the master will read; optional
+`stop` fires on bus release.
+
+```ts
+// minimal SSD1306 at 0x3C — just ACK everything, latch the last command
+ctx.partSimulations.register('demo.ssd1306-lite', definePartSimulation({
+  attachEvents(element, sim) {
+    let lastCmd = 0;
+    const slave = sim.registerI2cSlave(0x3c, {
+      writeByte(v) { lastCmd = v; return true; },
+      readByte()   { return 0xff; },
+      stop()       { /* flush framebuffer, etc. */ },
+    });
+    return () => slave.dispose();
+  },
+}));
+```
+
+Requires `simulator.i2c.write` (a virtual slave can drive bytes back
+to the master, hence the write tier rather than the passive-read
+tier). Silent no-op when the host has no I²C bus.
+
+#### Timing primitives — `cyclesNow` / `clockHz`
+
+Two small reads that bit-banged protocols and timing-sensitive sensors
+need. `cyclesNow()` returns the simulator's monotonic cycle counter;
+`clockHz()` returns the MCU clock (16 MHz on AVR, varies on RP2040).
+Together they let a plugin compute µs/ms windows without reaching
+around the handle.
+
+```ts
+// DHT22: the 1-wire protocol encodes bits as pulse widths
+const clk = sim.clockHz();
+const startCycle = sim.cyclesNow();
+// … later, inside a pin-change handler …
+const elapsedUs = ((sim.cyclesNow() - startCycle) / clk) * 1_000_000;
+```
+
+Both have conservative fallbacks: `cyclesNow()` returns `0` if the
+host can't provide a counter; `clockHz()` returns `16_000_000`.
+Neither requires a permission — they expose no new capability beyond
+what the handle already gives plugins.
 
 #### Fault isolation
 
@@ -1245,9 +1383,11 @@ The SDK-003 contract intentionally defers a few higher-level conveniences:
   above.
 - **High-level `PartSimulationAPI`** with `pin().state/onChange/set`, plus
   built-in `serial`/`i2c` helpers — remaining SDK-003b work. Today you use
-  `attachEvents(element, SimulatorHandle)` directly. (The per-pin building
-  block landed in CORE-002c-step1: `SimulatorHandle.onPinChange(pinName, cb)`
-  — see "Subscribing to pin transitions" below.)
+  `attachEvents(element, SimulatorHandle)` directly. (The building blocks
+  landed across CORE-002c-step1 and step3: `onPinChange`, `onPwmChange`,
+  `onSpiTransmit`, `schedulePinChange`, `registerI2cSlave`, `cyclesNow`,
+  `clockHz` — see "Subscribing to pin transitions" and the five sections
+  that follow it above.)
 - ~~**Richer `NetlistMapContext`** with `internalNode(suffix)` for reserving
   unique internal nets.~~ Shipped in **SDK-003b step 3** — see
   "Internal nets — `ctx.internalNode(suffix)`" below. Today every SPICE
