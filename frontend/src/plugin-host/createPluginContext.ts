@@ -71,6 +71,9 @@ import {
 } from '@velxio/sdk';
 
 import { requirePermission } from './PermissionGate';
+import { validateSvgNode } from '@velxio/sdk';
+import { mountDeclarativeSvg } from './mountDeclarativeSvg';
+import { delegatePartEvents } from './delegatePartEvents';
 import {
   InMemoryCanvasOverlayRegistry,
   InMemoryCommandRegistry,
@@ -307,28 +310,78 @@ export function createPluginContext(
           }
         };
       }
-      if (sim.attachEvents) {
+      // Declarative event delegation (`sim.events` + `sim.onEvent`) is the
+      // worker-safe alternative to `attachEvents`. Both can coexist; the
+      // host installs delegated listeners AND invokes `attachEvents` if
+      // both are provided. Worker plugins that declare `onEvent` without
+      // an `attachEvents` still end up with a synthesized attach path so
+      // the listener teardown hooks into the existing lifecycle.
+      const hasDelegation =
+        Array.isArray(sim.events) && sim.events.length > 0 && typeof sim.onEvent === 'function';
+      if (sim.attachEvents || hasDelegation) {
         const original = sim.attachEvents;
+        const eventsList = hasDelegation ? (sim.events as ReadonlyArray<import('@velxio/sdk').PartEventKind>) : null;
+        const onEventFn = hasDelegation ? sim.onEvent! : null;
         safeSim.attachEvents = (element: HTMLElement, simHandle: SimulatorHandle) => {
-          try {
-            const cleanup = original(element, simHandle);
-            return () => {
+          let delegationHandle: { dispose(): void } | null = null;
+          if (eventsList && onEventFn) {
+            try {
+              delegationHandle = delegatePartEvents({
+                element,
+                events: eventsList,
+                onEvent: (ev) => {
+                  try {
+                    onEventFn(ev);
+                  } catch (err) {
+                    logger.error(
+                      `onEvent threw for component "${componentId}":`,
+                      err,
+                    );
+                  }
+                },
+                pluginId: manifest.id,
+                componentId,
+                logger,
+              });
+            } catch (err) {
+              logger.error(
+                `delegatePartEvents threw for component "${componentId}":`,
+                err,
+              );
+            }
+          }
+          let userCleanup: () => void = () => {};
+          if (original) {
+            try {
+              userCleanup = original(element, simHandle);
+            } catch (err) {
+              logger.error(
+                `attachEvents threw for component "${componentId}":`,
+                err,
+              );
+              userCleanup = () => {};
+            }
+          }
+          return () => {
+            try {
+              userCleanup();
+            } catch (err) {
+              logger.error(
+                `attachEvents cleanup threw for component "${componentId}":`,
+                err,
+              );
+            }
+            if (delegationHandle) {
               try {
-                cleanup();
+                delegationHandle.dispose();
               } catch (err) {
                 logger.error(
-                  `attachEvents cleanup threw for component "${componentId}":`,
+                  `event delegation teardown threw for component "${componentId}":`,
                   err,
                 );
               }
-            };
-          } catch (err) {
-            logger.error(
-              `attachEvents threw for component "${componentId}":`,
-              err,
-            );
-            return () => {};
-          }
+            }
+          };
         };
       }
       const handle = hostPartRegistry.registerSdkPart(componentId, safeSim);
@@ -511,7 +564,30 @@ export function createPluginContext(
   const canvasOverlays: CanvasOverlayRegistry = {
     register: (overlay: CanvasOverlayDefinition) => {
       requirePermission(manifest, 'ui.canvas.overlay.register');
-      const handle = ui.canvasOverlays.register(overlay);
+      // Declarative `svg` path: validate at the boundary so a malformed
+      // tree throws before anything is registered. If the plugin also
+      // shipped an imperative `mount` the safer path wins — we synthesize
+      // a `mount(rootSvg)` that walks the validated tree and log a
+      // one-line warning so authors know `mount` is ignored.
+      let effectiveOverlay: CanvasOverlayDefinition = overlay;
+      if (overlay.svg !== undefined) {
+        validateSvgNode(overlay.svg, manifest.id);
+        if (overlay.mount !== undefined) {
+          logger.warn(
+            `canvasOverlays: overlay "${overlay.id}" ships both \`svg\` and \`mount\`; \`mount\` is ignored (declarative path wins).`,
+          );
+        }
+        const declarativeNode = overlay.svg;
+        effectiveOverlay = {
+          id: overlay.id,
+          zIndex: overlay.zIndex,
+          mount: (rootSvg: SVGGElement) => {
+            const handle = mountDeclarativeSvg(rootSvg, declarativeNode, manifest.id);
+            return () => handle.dispose();
+          },
+        };
+      }
+      const handle = ui.canvasOverlays.register(effectiveOverlay);
       subscriptions.add(handle);
       return handle;
     },

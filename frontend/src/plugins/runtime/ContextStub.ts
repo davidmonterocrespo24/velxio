@@ -220,9 +220,20 @@ export function buildContextStub(init: ContextStubInit): {
   };
 
   // ── partSimulations ─────────────────────────────────────────────────────
+  // Two event-plumbing paths exist and compose:
+  //   - `attachEvents(element, handle)` — main-thread only. Warn on worker
+  //     plugins because DOM access will never fire.
+  //   - `events` + `onEvent(DelegatedPartEvent)` — worker-safe. The host
+  //     installs delegated listeners on the main thread and pushes events
+  //     back through the RPC channel (a function in `sim` is replaced with
+  //     a `{__cb}` handle by `stripFunctions`).
+  // The warning fires only when `attachEvents` is used alone. A plugin that
+  // declared the declarative path alongside is doing the right thing.
   const partSimulations: SdkPartSimulationRegistry = {
     register: (componentId: string, sim: PartSimulation) => {
-      if (sim.attachEvents !== undefined) {
+      const hasDelegation =
+        Array.isArray(sim.events) && sim.events.length > 0 && typeof sim.onEvent === 'function';
+      if (sim.attachEvents !== undefined && !hasDelegation) {
         warnDomBound('partSimulations.register({ attachEvents })');
       }
       return wrapDisposable(call('partSimulations.register', [componentId, sim]));
@@ -291,9 +302,15 @@ export function buildContextStub(init: ContextStubInit): {
   const editorActions: EditorActionRegistry = {
     register: (action: EditorActionDefinition) => wrapDisposable(call('editorActions.register', [action])),
   };
+  // Declarative SVG path (`overlay.svg`) is worker-safe: pure JSON survives
+  // the `postMessage` hop, and the host builds real DOM on the main thread.
+  // Only warn when the plugin uses the imperative `mount` path alone.
   const canvasOverlays: CanvasOverlayRegistry = {
     register: (overlay: CanvasOverlayDefinition) => {
-      warnDomBound('canvasOverlays.register({ render })');
+      const hasDeclarativeSvg = overlay.svg !== undefined;
+      if (overlay.mount !== undefined && !hasDeclarativeSvg) {
+        warnDomBound('canvasOverlays.register({ mount })');
+      }
       return wrapDisposable(call('canvasOverlays.register', [overlay]));
     },
   };

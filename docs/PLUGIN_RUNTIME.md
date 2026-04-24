@@ -190,20 +190,33 @@ When the in-process call throws (e.g. `PermissionDeniedError`), the throw
 serializes, crosses the boundary, and rejects the worker-side promise with
 the rehydrated error name preserved.
 
-### DOM-bound APIs (deferred)
+### DOM-bound APIs — worker-safe paths
 
-A handful of `PluginContext` methods accept render callbacks that need DOM
-access:
+Three `PluginContext` surfaces touch the DOM. Functions cannot cross the
+structured-clone boundary and DOM nodes cannot leave the main thread, so
+each surface gets a *declarative* alternative. The runtime prefers the
+declarative path, falls back to a warning + no-op for the function-valued
+path:
 
-- `partSimulations.attachEvents(callback)` — DOM event attach
-- `panels.render(domNode)` — host hands the plugin an `HTMLElement`
-- `canvasOverlays.render(svgNode)` — same for `<svg>`
+| Surface | Worker-safe path | Status |
+|---|---|---|
+| `partSimulations.attachEvents(el, handle)` | `sim.events: PartEventKind[]` + `sim.onEvent(DelegatedPartEvent)` — host installs the listeners, coalesces coordinates to element-local, forwards through RPC. | ✅ CORE-006b-step5 |
+| `canvasOverlays.register({ mount })` | `canvasOverlays.register({ svg: SvgNode })` — Zod-validated, tag/attr allowlisted, depth+count capped. Host renders via `createElementNS` at mount time. | ✅ CORE-006b-step5 |
+| `panels.register({ render(domNode) })` | Pending: either a declarative component schema, a Web Component registration, or an iframe sandbox. | 🚧 CORE-006b-step5b |
 
-Functions cannot reach into the worker's address space, and DOM nodes
-cannot leave the main thread. The runtime accepts these calls, logs a
-one-time warning, and returns a no-op `Disposable`. **CORE-006b** tracks
-the actual implementation: a declarative `render.kind: 'svg'` schema, plus
-an opt-in `Web Component` registration for richer panels.
+When a plugin uses the declarative path from a worker, everything works
+natively — no warning, no no-op. When a plugin still passes a function
+(legacy `attachEvents`, or `panels.render`), the ContextStub logs a
+one-time warning and returns a no-op `Disposable` so the plugin doesn't
+crash. Main-thread callers (built-in seeding, dev-mode plugins loaded
+without a worker) are unaffected either way — they take the function
+path verbatim.
+
+Both shipped paths are **fault-isolated**: a throwing `onEvent` or
+`mount()` is logged via `ctx.logger.error` and swallowed — the simulator
+loop never sees a plugin exception. The declarative SVG tree is
+re-validated at mount time (defence-in-depth: worker could have crafted
+an SvgNode by bypassing the SDK helper) before any element hits the DOM.
 
 ---
 

@@ -1620,6 +1620,118 @@ lands, the workflow gains a deploy step.
   a one-line edit deferred so it can land alongside the eventual
   "production loader boot" task).
 
+## Worker-safe UI — declarative SVG overlays + delegated part events (CORE-006b-step5)
+
+Plugins that run inside the worker sandbox (CORE-006 runtime) have no DOM
+access: a `mount(element)` or `attachEvents(element, handle)` callback
+cannot cross the `postMessage` boundary. Two additive surfaces give those
+plugins the same expressive power without handing them a live DOM node.
+
+### Declarative canvas overlays — `overlay.svg`
+
+`CanvasOverlayDefinition` gained an optional `svg?: SvgNode` field. The
+plugin emits a pure-data tree; the host validates it at register time and
+renders real SVG on the main thread via `document.createElementNS`.
+
+```ts
+import { defineSvgOverlay } from '@velxio/sdk';
+
+const gridOverlay = defineSvgOverlay({
+  id: 'demo.grid',
+  zIndex: 5,
+  svg: {
+    tag: 'g',
+    attrs: { stroke: '#88888844', 'stroke-width': 1 },
+    children: [
+      { tag: 'line', attrs: { x1: 0, y1: 0, x2: 1000, y2: 0 } },
+      { tag: 'line', attrs: { x1: 0, y1: 0, x2: 0, y2: 1000 } },
+    ],
+  },
+});
+// in activate(ctx):
+ctx.canvasOverlays.register(gridOverlay);
+```
+
+**What the schema enforces** (`packages/sdk/src/svg.ts`):
+- Tag allowlist: `g`, `rect`, `circle`, `ellipse`, `line`, `path`,
+  `polygon`, `polyline`, `text`, `tspan`, `use`, `defs`, `title`, `desc`.
+  `<script>`, `<foreignObject>`, `<style>`, `<image>`, `<animate*>` are
+  rejected.
+- Per-tag attribute allowlist plus a small set of global styling
+  attributes (`fill`, `stroke*`, `transform`, `opacity`, `clip-path`,
+  etc.). `data-*` attributes are always allowed.
+- `on*` event-handler attributes rejected structurally regardless of tag.
+- `style` attribute rejected — inline CSS would bypass the per-attr
+  allowlist.
+- `javascript:` / `data:text/html` URI schemes rejected in every value.
+- `<use href="#id">` — fragment references only.
+- Caps: `MAX_SVG_NODES = 256`, `MAX_SVG_DEPTH = 8`,
+  `MAX_SVG_ATTR_LENGTH = 1024`, `MAX_SVG_TEXT_LENGTH = 1024`.
+
+Validation runs at the SDK boundary (inside
+`ctx.canvasOverlays.register`) and again inside `mountDeclarativeSvg()`
+as a defence-in-depth measure — the cost is linear in node count.
+Failures throw `InvalidSvgNodeError { pluginId, reason }`.
+
+If the plugin ships **both** `mount` and `svg`, the declarative path
+wins and a warning is logged through `ctx.logger`. Static only for now —
+a re-render hook arrives with the panels follow-up.
+
+### Delegated part events — `sim.events` + `sim.onEvent`
+
+`PartSimulation` gained two optional fields:
+
+```ts
+export type PartEventKind =
+  | 'click' | 'mousedown' | 'mouseup'
+  | 'mouseenter' | 'mouseleave' | 'contextmenu';
+
+export interface DelegatedPartEvent {
+  readonly type: PartEventKind;
+  readonly x: number; readonly y: number;  // element-local
+  readonly button: number;
+  readonly shiftKey: boolean; readonly altKey: boolean;
+  readonly ctrlKey: boolean; readonly metaKey: boolean;
+  readonly pluginId?: string;
+}
+```
+
+Declaring them swaps out the DOM-bound `attachEvents` with a
+`postMessage`-safe channel:
+
+```ts
+ctx.partSimulations.register('demo.pushbutton', definePartSimulation({
+  events: ['mousedown', 'mouseup'],
+  onEvent(ev) {
+    // ev is a plain JSON object — survives structuredClone/postMessage
+    if (ev.type === 'mousedown') pressed = true;
+    if (ev.type === 'mouseup')   pressed = false;
+  },
+}));
+```
+
+The host installs one listener per kind on the part's root element and
+forwards each event as a flat JSON payload. `x` / `y` are relative to
+the element's bounding rect, so plugins can hit-test without CTM or DOM
+reads. A throwing `onEvent` is logged via `ctx.logger.error` and
+swallowed — a buggy plugin never blocks sibling parts.
+
+`events` + `attachEvents` compose: if both are set the host installs
+delegated listeners AND calls `attachEvents`. Teardown fires both on
+stop. Plugins authored for the worker sandbox should leave
+`attachEvents` unset; plugins authored for the main-thread loader can
+ignore `events` / `onEvent`.
+
+**Worker stub behaviour.** `ContextStub.ts` only emits the
+`warnDomBound` warning when the imperative path (`mount` /
+`attachEvents`) is used **without** its declarative counterpart. A
+correctly-authored worker plugin sees no warning.
+
+See also: `frontend/src/plugin-host/mountDeclarativeSvg.ts`,
+`frontend/src/plugin-host/delegatePartEvents.ts`,
+`packages/sdk/src/svg.ts`, and
+`frontend/src/__tests__/plugin-host-event-delegation.test.ts`.
+
 ## See also
 
 - [docs/EVENT_BUS.md](EVENT_BUS.md) — `ctx.events` payload catalog.
