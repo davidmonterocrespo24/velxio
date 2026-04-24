@@ -28,6 +28,10 @@ import { registerAvrBenches, AVR_BENCH_METADATA } from './avr.bench';
 import { registerSpiceBenches } from './spice.bench';
 import { registerEventBusBenches } from './eventbus.bench';
 import { registerPartsBenches, PART_BENCH_METADATA } from './parts.bench';
+import {
+  registerPluginHostBenches,
+  PLUGIN_HOST_BENCH_METADATA,
+} from './plugin-host.bench';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -81,6 +85,7 @@ function makeBench(): Bench {
   registerSpiceBenches(b);
   registerEventBusBenches(b);
   registerPartsBenches(b);
+  registerPluginHostBenches(b);
   return b;
 }
 
@@ -141,6 +146,13 @@ async function main(): Promise<void> {
     }
     if (name.startsWith('BENCH-PART')) {
       derived.dispatchesMhz = PART_BENCH_METADATA.hzToDispatchesMhz(s.hz);
+    }
+    if (name.startsWith('BENCH-AVR-PLUGINS-')) {
+      derived.equivalentMhz = PLUGIN_HOST_BENCH_METADATA.hzToMhz(s.hz);
+    }
+    if (name.startsWith('BENCH-FRAME-')) {
+      derived.msPerFrame = PLUGIN_HOST_BENCH_METADATA.hzToMsPerFrame(s.hz);
+      derived.budgetMs = PLUGIN_HOST_BENCH_METADATA.FRAME_BUDGET_MS;
     }
     results.push({
       name,

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "startedAt": "2026-04-24T04:49:28.870Z",
-  "durationMs": 211177,
+  "startedAt": "2026-04-24T17:31:35.678Z",
+  "durationMs": 300399,
   "node": "v22.14.0",
   "platform": "win32",
   "arch": "x64",
@@ -10,127 +10,205 @@
   "results": [
     {
       "name": "BENCH-AVR-01 blink loop, no port listeners",
-      "hz": 250.89677415798175,
-      "meanMs": 4.004883199999947,
-      "rmeStddevPct": 0.6339784180534768,
-      "samples": 500,
+      "hz": 289.12928488972193,
+      "meanMs": 3.7453617977530214,
+      "rmeStddevPct": 2.673832992547913,
+      "samples": 534,
       "rounds": 3,
       "derived": {
-        "equivalentMhz": 25.089677415798175
+        "equivalentMhz": 28.912928488972195
       }
     },
     {
       "name": "BENCH-AVR-02 toggle PORTB, no listeners",
-      "hz": 251.38806604679183,
-      "meanMs": 3.998264670658627,
-      "rmeStddevPct": 0.6596883178740977,
-      "samples": 501,
+      "hz": 355.14885943046704,
+      "meanMs": 2.8552808844509796,
+      "rmeStddevPct": 0.994333211804279,
+      "samples": 701,
       "rounds": 3,
       "derived": {
-        "equivalentMhz": 25.138806604679182
+        "equivalentMhz": 35.51488594304671
       }
     },
     {
       "name": "BENCH-AVR-03 NOP loop, dispatch baseline",
-      "hz": 268.2382584572633,
-      "meanMs": 3.741981308411167,
-      "rmeStddevPct": 0.5666175526060635,
-      "samples": 535,
+      "hz": 329.37522673768285,
+      "meanMs": 3.200636480000103,
+      "rmeStddevPct": 1.9661809106215244,
+      "samples": 625,
       "rounds": 3,
       "derived": {
-        "equivalentMhz": 26.823825845726333
+        "equivalentMhz": 32.937522673768285
       }
     },
     {
       "name": "BENCH-AVR-04 toggle PORTB with 1 listener",
-      "hz": 232.63323344883307,
-      "meanMs": 4.323463066954572,
-      "rmeStddevPct": 0.7516089932054604,
-      "samples": 463,
+      "hz": 284.10072247082763,
+      "meanMs": 3.7489638576771416,
+      "rmeStddevPct": 2.3282002672145587,
+      "samples": 534,
       "rounds": 3,
       "derived": {
-        "equivalentMhz": 23.263323344883307
+        "equivalentMhz": 28.410072247082763
       }
     },
     {
       "name": "BENCH-AVR-05 toggle PORTB with all 3 ports + listeners",
-      "hz": 235.6181467436755,
-      "meanMs": 4.262215957446879,
-      "rmeStddevPct": 0.6190514484531499,
-      "samples": 470,
+      "hz": 295.95743219068675,
+      "meanMs": 3.5797711985690976,
+      "rmeStddevPct": 2.265905622195867,
+      "samples": 559,
       "rounds": 3,
       "derived": {
-        "equivalentMhz": 23.56181467436755
+        "equivalentMhz": 29.595743219068677
       }
     },
     {
       "name": "BENCH-SPICE-01 NetlistBuilder voltage divider (2 R)",
-      "hz": 135901.10641860843,
-      "meanMs": 0.00815187349955017,
-      "rmeStddevPct": 0.5712782586576273,
-      "samples": 245343,
+      "hz": 177671.0558298023,
+      "meanMs": 0.006592930088706361,
+      "rmeStddevPct": 0.5277850361673893,
+      "samples": 303356,
       "rounds": 3
     },
     {
       "name": "BENCH-SPICE-02 NetlistBuilder 30-resistor mesh",
-      "hz": 14735.032072851305,
-      "meanMs": 0.07225116321074396,
-      "rmeStddevPct": 0.8652592366808277,
-      "samples": 27682,
+      "hz": 21400.115037453696,
+      "meanMs": 0.04914313234061343,
+      "rmeStddevPct": 0.4543431640995413,
+      "samples": 40698,
       "rounds": 3
     },
     {
       "name": "BENCH-SPICE-03 ngspice .op voltage divider",
-      "hz": 1386.452185575421,
-      "meanMs": 0.7825167840375008,
-      "rmeStddevPct": 1.6058225024524673,
-      "samples": 2556,
+      "hz": 1517.0029772351115,
+      "meanMs": 0.8024933012434611,
+      "rmeStddevPct": 3.128112286132441,
+      "samples": 2493,
       "rounds": 3
     },
     {
       "name": "BENCH-EVENT-01 — emit with 0 listeners",
-      "hz": 11676021.383683411,
-      "meanMs": 0.00006861326962717501,
-      "rmeStddevPct": 0.44903399342025896,
-      "samples": 29148882,
+      "hz": 15234459.042942494,
+      "meanMs": 0.00005000429036756744,
+      "rmeStddevPct": 0.2549364721154651,
+      "samples": 39996570,
       "rounds": 3
     },
     {
       "name": "BENCH-EVENT-02 — emit with 100 listeners (noop)",
-      "hz": 3097419.0504304,
-      "meanMs": 0.0003579074369052244,
-      "rmeStddevPct": 1.7963098811611493,
-      "samples": 5588037,
+      "hz": 2043005.0628965949,
+      "meanMs": 0.00057501599262339,
+      "rmeStddevPct": 3.8837684942211856,
+      "samples": 3478165,
       "rounds": 3
     },
     {
       "name": "BENCH-PIN-01 — guarded emit with 0 listeners",
-      "hz": 11575253.5540981,
-      "meanMs": 0.0000692991904545281,
-      "rmeStddevPct": 0.4237617147447675,
-      "samples": 28860366,
+      "hz": 16792188.829869993,
+      "meanMs": 0.00004574852547967985,
+      "rmeStddevPct": 0.46971198350271,
+      "samples": 43717256,
       "rounds": 3
     },
     {
       "name": "BENCH-PART-01 legacy pinManager.onPinChange dispatch",
-      "hz": 28521.509157838205,
-      "meanMs": 0.04227118611829632,
-      "rmeStddevPct": 4.240086015236043,
-      "samples": 47314,
+      "hz": 38829.2465348396,
+      "meanMs": 0.0354462161491002,
+      "rmeStddevPct": 6.782636374838185,
+      "samples": 56424,
       "rounds": 3,
       "derived": {
-        "dispatchesMhz": 28.521509157838207
+        "dispatchesMhz": 38.8292465348396
       }
     },
     {
       "name": "BENCH-PART-02 SDK adapter handle.onPinChange dispatch",
-      "hz": 28096.458877126635,
-      "meanMs": 0.04148607936277103,
-      "rmeStddevPct": 1.4048052594550566,
-      "samples": 48209,
+      "hz": 36920.62147423675,
+      "meanMs": 0.036085840548374104,
+      "rmeStddevPct": 1.9052568339927936,
+      "samples": 55440,
       "rounds": 3,
       "derived": {
-        "dispatchesMhz": 28.096458877126633
+        "dispatchesMhz": 36.92062147423675
+      }
+    },
+    {
+      "name": "BENCH-PIN-02-N0 — emit pin:change with 0 plugin listeners",
+      "hz": 670487.6528758573,
+      "meanMs": 0.0016377392326777096,
+      "rmeStddevPct": 0.2240140968517252,
+      "samples": 1221196,
+      "rounds": 3
+    },
+    {
+      "name": "BENCH-PIN-02-N1 — emit pin:change with 1 plugin listeners",
+      "hz": 5000.083333210675,
+      "meanMs": 0.23143587132609947,
+      "rmeStddevPct": 1.9384856215486368,
+      "samples": 8642,
+      "rounds": 3
+    },
+    {
+      "name": "BENCH-PIN-02-N3 — emit pin:change with 3 plugin listeners",
+      "hz": 1619.5121302062728,
+      "meanMs": 0.7323721185509917,
+      "rmeStddevPct": 2.7795286696274344,
+      "samples": 2733,
+      "rounds": 3
+    },
+    {
+      "name": "BENCH-PIN-02-N10 — emit pin:change with 10 plugin listeners",
+      "hz": 502.4757034949767,
+      "meanMs": 2.1042870662469384,
+      "rmeStddevPct": 1.73269418972668,
+      "samples": 951,
+      "rounds": 3
+    },
+    {
+      "name": "BENCH-AVR-PLUGINS-N0 — toggle PORTB with 0 plugin listeners",
+      "hz": 326.02086561075174,
+      "meanMs": 3.1360553291533777,
+      "rmeStddevPct": 1.3490930296980552,
+      "samples": 638,
+      "rounds": 3,
+      "derived": {
+        "equivalentMhz": 32.602086561075176
+      }
+    },
+    {
+      "name": "BENCH-AVR-PLUGINS-N3 — toggle PORTB with 3 plugin listeners",
+      "hz": 303.07217837948497,
+      "meanMs": 3.476427951389218,
+      "rmeStddevPct": 2.1184104382113587,
+      "samples": 576,
+      "rounds": 3,
+      "derived": {
+        "equivalentMhz": 30.307217837948496
+      }
+    },
+    {
+      "name": "BENCH-FRAME-02-N0 — one frame (16MHz/60fps) with 0 plugins",
+      "hz": 108.2149982665427,
+      "meanMs": 9.630286057691594,
+      "rmeStddevPct": 3.1802853811676592,
+      "samples": 208,
+      "rounds": 3,
+      "derived": {
+        "msPerFrame": 9.2408632446393,
+        "budgetMs": 16.666666666666668
+      }
+    },
+    {
+      "name": "BENCH-FRAME-02-N3 — one frame (16MHz/60fps) with 3 plugins",
+      "hz": 109.658259609343,
+      "meanMs": 9.437961792453414,
+      "rmeStddevPct": 2.8755145583427755,
+      "samples": 212,
+      "rounds": 3,
+      "derived": {
+        "msPerFrame": 9.11924011526806,
+        "budgetMs": 16.666666666666668
       }
     }
   ]

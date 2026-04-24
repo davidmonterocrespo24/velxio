@@ -81,3 +81,25 @@ jobs:
       # Run all vitest tests
       - name: Run tests
         run: cd frontend && npm test
+
+      # Smoke-test the bench harness. We DO NOT gate on the regression
+      # deltas here because CI runners differ from dev hardware (the
+      # committed baseline.json is captured on the maintainer's box and
+      # would false-fire ~30% on slower/noisier CI). The goal of this
+      # step is to catch breakage in the bench code itself — a missing
+      # import, a thrown setup error, a fixture compile failure — before
+      # it lands on master and blocks the next dev-side `bench:check`.
+      #
+      # Single round (BENCH_ROUNDS=1) keeps this step under ~2 min while
+      # still exercising every registered bench. Real perf gating happens
+      # locally; CI publishes the JSON as an artifact for inspection.
+      - name: Smoke-run benchmarks
+        run: cd frontend && BENCH_ROUNDS=1 npx vite-node bench/run.ts
+
+      - name: Upload bench results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: frontend/bench/results/last-run.json
+          retention-days: 14

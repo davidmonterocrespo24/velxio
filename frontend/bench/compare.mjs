@@ -55,6 +55,14 @@ const TOLERANCES = [
   // that would invalidate CORE-002c-step4's "adapter overhead is noise"
   // claim.
   { prefix: 'BENCH-PART', tolerance: 0.02 },
+  // BENCH-AVR-PLUGINS-* and BENCH-FRAME-* — added in CORE-006b-step3.
+  // Both classes share the AVR jitter band (they wrap an AVR CPU loop +
+  // EventBus + N RpcChannel listeners). 2% mirrors the AVR gate; the
+  // per-plugin overhead claim itself is principle #0 (≤1% from N=0 to
+  // N=3) and is ASSERTED inside the bench file's docs / verified by
+  // diffing the baseline rows manually after a `bench:save`.
+  { prefix: 'BENCH-AVR-PLUGINS', tolerance: 0.02 },
+  { prefix: 'BENCH-FRAME', tolerance: 0.02 },
 ];
 const DEFAULT_TOLERANCE = 0.05;
 
@@ -67,7 +75,7 @@ function toleranceFor(name) {
 }
 
 /**
- * Walk vitest's bench output and yield { name, hz } per measured benchmark.
+ * Walk vitest's bench output and yield { name, hz, derived } per measured benchmark.
  * Vitest 4 emits one of two shapes; we tolerate both.
  */
 function* extractBenches(json) {
@@ -81,7 +89,7 @@ function* extractBenches(json) {
     if (typeof node.name === 'string') {
       const hz = node.result?.hz ?? node.hz;
       if (typeof hz === 'number' && Number.isFinite(hz) && hz > 0) {
-        return out.push({ name: node.name, hz });
+        return out.push({ name: node.name, hz, derived: node.derived ?? node.result?.derived });
       }
     }
     for (const value of Object.values(node)) visit(value);
@@ -105,6 +113,20 @@ function indexBenches(json) {
     // If a name appears twice (shouldn't), keep the slowest — conservative.
     const prev = map.get(name);
     if (prev === undefined || hz < prev) map.set(name, hz);
+  }
+  return map;
+}
+
+/**
+ * Index `derived` blobs from the latest run, keyed by bench name.
+ * Used for the absolute frame-budget gate (BENCH-FRAME-* must hit
+ * `msPerFrame ≤ budgetMs` regardless of how the relative delta moved).
+ */
+function indexDerived(json) {
+  const map = new Map();
+  if (!json) return map;
+  for (const { name, derived } of extractBenches(json)) {
+    if (derived !== undefined && derived !== null) map.set(name, derived);
   }
   return map;
 }
@@ -138,6 +160,7 @@ function main() {
 
   const last = indexBenches(lastJson);
   const baseline = indexBenches(baselineJson);
+  const lastDerived = indexDerived(lastJson);
 
   if (last.size === 0) {
     console.error('No benchmark results found in last-run.json.');
@@ -150,6 +173,7 @@ function main() {
   const onlyInLast = [];
   const missingFromLast = [];
   const rows = [];
+  const budgetViolations = [];
 
   for (const [name, hz] of last) {
     const baseHz = baseline.get(name);
@@ -172,6 +196,23 @@ function main() {
   }
   for (const name of baseline.keys()) {
     if (!last.has(name)) missingFromLast.push(name);
+  }
+
+  // Absolute budget gates — independent of baseline. The frame budget
+  // is principle #0 territory: with 3 plugins active, one frame's worth
+  // of CPU + EventBus dispatch must fit inside 16.6 ms (60 fps). A
+  // regression that stays within the 2% relative tolerance but breaks
+  // the absolute ceiling is still a fail — this gate catches it.
+  for (const [name, derived] of lastDerived) {
+    if (typeof derived.msPerFrame === 'number' && typeof derived.budgetMs === 'number') {
+      if (derived.msPerFrame > derived.budgetMs) {
+        budgetViolations.push({
+          name,
+          msPerFrame: derived.msPerFrame,
+          budgetMs: derived.budgetMs,
+        });
+      }
+    }
   }
 
   // Print the table.
@@ -209,8 +250,18 @@ function main() {
   if (missingFromLast.length > 0) {
     console.log(`Baseline benches missing from this run: ${missingFromLast.join(', ')}`);
   }
+  if (budgetViolations.length > 0) {
+    console.log('');
+    console.log('ABSOLUTE BUDGET VIOLATIONS:');
+    for (const v of budgetViolations) {
+      console.log(
+        `  ${v.name}: ${v.msPerFrame.toFixed(3)} ms/frame > ${v.budgetMs.toFixed(3)} ms budget`,
+      );
+    }
+  }
   console.log('');
-  process.exit(regressed > 0 ? 1 : 0);
+  const failed = regressed > 0 || budgetViolations.length > 0;
+  process.exit(failed ? 1 : 0);
 }
 
 main();
