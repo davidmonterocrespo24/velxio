@@ -300,9 +300,73 @@ export interface SpiSlaveHandler {
 }
 
 /**
+ * Delegated DOM event kinds a worker plugin can subscribe to for its
+ * component's root element. The host installs a single listener per kind
+ * on the main thread, captures the position in the component's local SVG
+ * coordinate space, and forwards a `DelegatedPartEvent` over RPC to the
+ * plugin's `onEvent` callback.
+ *
+ * Why these six and not the full DOM catalog: they cover the interactive
+ * patterns every built-in sensor part uses today (pushbutton click,
+ * potentiometer drag, slide-switch hover-hint, context-menu block).
+ * Opening the list further grows the worker-host trust surface — CORE-006b
+ * step5 starts conservative.
+ */
+export type PartEventKind =
+  | 'click'
+  | 'mousedown'
+  | 'mouseup'
+  | 'mouseenter'
+  | 'mouseleave'
+  | 'contextmenu';
+
+/**
+ * One delegated UI event forwarded from the main thread to a worker
+ * plugin's `PartSimulation.onEvent` handler. `x` / `y` are in the
+ * component's local coordinate space (relative to the top-left of the
+ * element the host attached listeners to) so the plugin can do hit-
+ * testing without needing access to the live DOM or the canvas CTM.
+ *
+ * `button` matches the DOM convention (0 = main / left, 2 = secondary /
+ * right). `shiftKey`, `altKey`, `ctrlKey`, `metaKey` follow the standard
+ * `MouseEvent` booleans.
+ *
+ * The payload is intentionally flat and JSON-serialisable so it can
+ * survive `postMessage` / `structuredClone` without loss.
+ */
+export interface DelegatedPartEvent {
+  readonly type: PartEventKind;
+  readonly x: number;
+  readonly y: number;
+  readonly button: number;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly pluginId?: string;
+}
+
+/**
  * Lifecycle + event contract that each part can implement. Every hook is
- * optional — implement only the ones you need. Return a teardown function
- * from `attachEvents` if you attach DOM listeners.
+ * optional — implement only the ones you need.
+ *
+ * Two ways to receive user interaction:
+ *
+ *   1. **Main-thread `attachEvents`** — the historical form. Receives a
+ *      live DOM element and the `SimulatorHandle`; plugin wires its own
+ *      DOM listeners and returns a teardown function. Works only for
+ *      plugins loaded in-process; worker-sandboxed plugins cannot use
+ *      this (DOM isn't reachable across `postMessage`).
+ *
+ *   2. **Declarative `events` + `onEvent`** — worker-safe alternative.
+ *      The plugin declares the event kinds it cares about and the host
+ *      installs a single delegated listener per kind on the main thread,
+ *      forwarding payloads to `onEvent` as `DelegatedPartEvent`. No DOM
+ *      access in the plugin; each payload is a plain JSON object.
+ *
+ * Authors pick whichever fits their runtime. If both are supplied the
+ * host installs the delegated listeners AND calls `attachEvents`; the
+ * two mechanisms do not interfere.
  */
 export interface PartSimulation {
   /**
@@ -314,8 +378,32 @@ export interface PartSimulation {
   /**
    * Called once when the sim starts. Attach DOM listeners and kick off any
    * periodic work. Return a teardown function — the host calls it on stop.
+   *
+   * Main-thread-only. Plugins running inside the worker sandbox should
+   * use `events` + `onEvent` instead.
    */
   attachEvents?: (element: HTMLElement, simulator: SimulatorHandle) => () => void;
+
+  /**
+   * Event kinds the host should delegate to this part. When set, the host
+   * attaches one listener per kind on the part's root element and forwards
+   * matching events to `onEvent`.
+   *
+   * Has no effect unless `onEvent` is also provided — the host does not
+   * install listeners it has nowhere to route.
+   */
+  readonly events?: ReadonlyArray<PartEventKind>;
+
+  /**
+   * Worker-safe event sink. Called by the host for every DOM event of a
+   * kind listed in `events`. The payload is a plain JSON object; plugins
+   * MUST NOT hold a reference past the call (the host is free to reuse
+   * the allocation).
+   *
+   * Exceptions thrown from `onEvent` are caught, logged via the host
+   * logger, and swallowed — a buggy plugin never blocks sibling parts.
+   */
+  onEvent?: (event: DelegatedPartEvent) => void;
 }
 
 /**

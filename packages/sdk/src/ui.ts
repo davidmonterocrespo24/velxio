@@ -11,6 +11,7 @@
  */
 
 import type { Disposable } from './components';
+import type { SvgNode } from './svg';
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -100,15 +101,77 @@ export interface EditorActionRegistry {
 
 // ── Canvas overlays ───────────────────────────────────────────────────────
 
+/**
+ * A canvas overlay can ship as one of two shapes:
+ *
+ *   1. **Main-thread `mount`** — the historical form. The host hands the
+ *      plugin a live `SVGGElement` and the plugin renders into it with
+ *      arbitrary DOM APIs. This only works for plugins that run in the
+ *      main-thread dev loader; worker-sandboxed plugins have no DOM
+ *      access and a `mount` function cannot cross `postMessage`.
+ *
+ *   2. **Declarative `svg`** — a pure-data tree of `SvgNode`s. The host
+ *      validates the tree, walks it, and builds the real SVG via
+ *      `createElementNS`. Safe for worker plugins and trivially
+ *      serialisable. Static for now (re-renders on next registration).
+ *
+ * Authors pick one. If both are supplied the host prefers `svg` and
+ * ignores `mount` (with a logger warning) so the safer path wins.
+ *
+ * User interaction with a declarative overlay is intentionally not
+ * wired yet — canvas overlays are typically passive annotations. The
+ * companion interactive path is `PartSimulation.events` / `onEvent`
+ * in `./simulation`.
+ */
 export interface CanvasOverlayDefinition {
   readonly id: string;
-  /** Mount receives an SVG element that shares the canvas's coordinate space. */
-  readonly mount: (svg: SVGGElement) => () => void;
+  /**
+   * Imperative mount. Runs on the main thread; receives a live SVG
+   * element sharing the canvas coordinate space. Prefer `svg` for
+   * worker-safe plugins.
+   */
+  readonly mount?: (svg: SVGGElement) => () => void;
+  /**
+   * Declarative, worker-safe alternative to `mount`. The host validates
+   * the tree (`validateSvgNode`) at register time and renders it on the
+   * main thread via `document.createElementNS`. No scripts, no event
+   * attributes, no foreignObject — see `./svg` for the schema.
+   */
+  readonly svg?: SvgNode;
   readonly zIndex?: number;
 }
 
 export interface CanvasOverlayRegistry {
   register(overlay: CanvasOverlayDefinition): Disposable;
+}
+
+/**
+ * Identity helper for worker-safe canvas overlays. Carries no runtime
+ * behaviour — exists so plugin authors can drop `mount` entirely and
+ * still satisfy the `CanvasOverlayDefinition` contract with full type
+ * inference.
+ *
+ * ```ts
+ * import { defineSvgOverlay } from '@velxio/sdk';
+ *
+ * export const gridOverlay = defineSvgOverlay({
+ *   id: 'grid',
+ *   zIndex: 10,
+ *   svg: {
+ *     tag: 'g',
+ *     attrs: { stroke: '#88888844' },
+ *     children: [
+ *       { tag: 'line', attrs: { x1: 0, y1: 0, x2: 1000, y2: 0 } },
+ *       { tag: 'line', attrs: { x1: 0, y1: 0, x2: 0, y2: 1000 } },
+ *     ],
+ *   },
+ * });
+ * ```
+ */
+export function defineSvgOverlay<
+  T extends Omit<CanvasOverlayDefinition, 'mount'> & { readonly svg: SvgNode },
+>(definition: T): T {
+  return definition;
 }
 
 // ── Context menu ──────────────────────────────────────────────────────────
