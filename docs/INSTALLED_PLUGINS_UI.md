@@ -141,7 +141,10 @@ refresh timer**. Remaining deferrals:
 - **Latest-version backend.** `<PluginUpdateBadge />` is wired but the
   `LatestVersionResolver` is currently a no-op factory. PRO-003 ships
   the marketplace catalog endpoint that exposes per-plugin "latest
-  available" versions — at that point we wire a real resolver.
+  available" versions — at that point we wire a real resolver. SDK-008d
+  extended the resolver interface with an optional `getLatestManifest`
+  so the loader can pre-classify a permission diff; until PRO-003
+  ships, that method stays absent and the auto-update tick is a no-op.
 
 ## CORE-008b additions
 
@@ -215,12 +218,122 @@ so the badge stays hidden. PRO-003 wires the production catalog.
 
 ### 24h denylist refresh
 
-The modal mounts a `setInterval` that calls
-`useInstalledPluginsStore.refreshDenylist()` every 24 hours. The
-underlying call delegates to `useMarketplaceStore.refresh()` and
-**swallows network errors silently** — the timer fires unattended, so a
-flaky network must not surface as a banner. The next `toggleEnabled`
-reload-on-enable will pick up the freshened denylist.
+The modal mounts a single `setInterval` that drives **both**
+`useInstalledPluginsStore.refreshDenylist()` and
+`useInstalledPluginsStore.checkForUpdates()` every 24 hours (and once
+on mount). The underlying calls delegate to
+`useMarketplaceStore.refresh()` and `PluginLoader.checkForUpdates()`
+respectively, and **swallow transport errors silently** — the timer
+fires unattended, so a flaky network or a slow catalog must not surface
+as a banner. The next `toggleEnabled` reload-on-enable will pick up the
+freshened denylist; the next user-initiated install of a new version
+picks up any auto-applied updates.
+
+## SDK-008d additions
+
+### Auto-update detection (loader-driven)
+
+`useInstalledPluginsStore.checkForUpdates()` is the store-side adapter
+for `PluginLoader.checkForUpdates(installed, opts)` (see
+`docs/PLUGIN_LOADER.md` → "Update detection (SDK-008d)" for the loader
+contract). It is the single entry point any caller (24h tick, "Check
+now" button) goes through:
+
+1. fail-closed when no loader is configured, no
+   `LatestVersionResolver` is wired, or the resolver does not implement
+   the optional `getLatestManifest?(id)` extension — returns `[]`
+   silently because production today still has `getLatestManifest`
+   absent (PRO-003 wires it),
+2. builds the `InstalledPlugin[]` from `useMarketplaceStore.installs`
+   ∪ the module-local `manifestCache` (skips ids that are
+   `localUninstalled`, ids without `bundleHash` on the install record,
+   and ids with no cached manifest),
+3. forwards the `isVersionSkipped` predicate to the loader so the
+   per-version skip cursor (CORE-008b/SDK-008c) suppresses
+   already-rejected versions,
+4. wraps the loader call in `try/catch` and returns `[]` on rejection
+   — the timer fires unattended, no banner allowed.
+
+The `manifestCache: Map<id, PluginManifest>` mirror is populated on
+every `PluginManager` notify tick. The loader needs the *currently
+installed* manifest to diff against the latest, but the marketplace
+`InstalledRecord` only carries id+version+enabled+bundleHash — without
+the cache, the auto-update path would have nothing to compare.
+
+### `LatestVersionResolver.getLatestManifest`
+
+The existing `LatestVersionResolver` interface (CORE-008b) gains an
+optional second method so one resolver covers both the version-only
+badge path *and* the auto-update path:
+
+```ts
+export interface LatestVersionResolver {
+  getLatestVersion(pluginId: string): string | null;
+  getLatestManifest?(pluginId: string):
+    Promise<PluginManifest | null> | PluginManifest | null;
+}
+```
+
+Why optional: today the OSS stub returns `null` for everything; PRO-003
+will provide a catalog-backed implementation. Splitting into two
+separate resolver interfaces would force duplicate wiring at the App
+level for no benefit.
+
+### `<UpdateFeedBanner />` — in-modal toast surface
+
+`frontend/src/components/plugin-host/UpdateFeedBanner.tsx` is the
+Option A in-modal banner that surfaces the `auto-approve-with-toast`
+update feed. Pure presentational React — owns no install state.
+Subscribes to `useToastFeedStore` via Zustand `(s) => s.tick` then
+reads fresh `getRecent()` off `getState()` every render so the **TTL
+filter runs on read** (no sweeper needed).
+
+Layout: collapsed pill by default with `↑` icon + count summary
+(singular/plural via i18n). Expanding mounts a `<ul>` of entries with
+plugin id, new version, "+N permissions added" pill, per-entry
+Dismiss `×`, plus a global "Dismiss all" action. Renders nothing when
+the feed is empty so the modal layout is unaffected on the common
+path.
+
+Visual tone: positive update (`background: #1f3a2a`, `color: #a8e6b8`)
+— deliberately distinct from `<MarketplaceBanner>` (warning amber) and
+`<ErrorBanner>` (red). `role="status"`, `aria-expanded`,
+`aria-controls`.
+
+### `useToastFeedStore`
+
+`frontend/src/store/useToastFeedStore.ts` is the Zustand store backing
+the banner. Single source of truth for all in-flight toast entries:
+
+- `push({ pluginId, fromVersion, toVersion, added })` — appends an
+  entry, de-dupes by `(pluginId, toVersion)` so re-applying the same
+  version replaces the prior row,
+- `getRecent(now?: number)` — returns entries newer than
+  `TOAST_FEED_TTL_MS` (24h), sorted newest-first; the `now` arg lets
+  tests simulate the future without backdating pushed timestamps,
+- `dismiss(id)` / `dismissAll()`,
+- `MAX_ENTRIES = 50` cap on push (oldest evicted),
+- `sessionStorage` persistence under `velxio.pluginUpdateToasts` —
+  round-trips across reload, **silent quota failure** (a full session
+  storage shouldn't crash the modal), corrupt JSON blob → empty feed
+  on rehydrate.
+
+The toast sink is wired in `App.tsx` inside `configureInstallFlow`:
+
+```ts
+configureInstallFlow({
+  markVersionSkipped: (id, version) => {
+    useInstalledPluginsStore.getState().markVersionSkipped(id, version);
+  },
+  emitToast: (event) => {
+    useToastFeedStore.getState().push(event);
+  },
+});
+```
+
+The `emitToast` hook is invoked by `InstallFlowController.requestUpdate`
+on the `auto-approve-with-toast` decision before the silent reload
+proceeds.
 
 ## Header integration
 
@@ -230,7 +343,7 @@ nothing else in the page tree is affected.
 
 ## Tests
 
-`__tests__/installed-plugins-store.test.ts` (31 tests) covers:
+`__tests__/installed-plugins-store.test.ts` (47 tests) covers:
 
 **CORE-008 baseline (15 tests)**
 - empty / install-only / entry-only / both-overlap row cases
@@ -261,9 +374,40 @@ nothing else in the page tree is affected.
 - `license-revoked` pause derives `licenseReason: 'revoked'`
 - `manual` pause does NOT surface a license CTA
 
+**SDK-008c skipped-versions (8 tests)**
+- `markVersionSkipped` round-trips through the controller sink
+- skipped cursor persists in localStorage under `velxio.skippedVersions`
+- corrupt blob in storage → empty Map fallback (no throw)
+- per-version cursor: a strictly newer release replaces and re-prompts
+- `getRows()` suppresses `latestVersion` badge when `latest === skipped`
+- (and 3 more controller-sink integration cases)
+
+**SDK-008d (8 tests)**
+- `checkForUpdates()` returns `[]` with no loader configured
+- `checkForUpdates()` returns `[]` with no resolver configured
+- `checkForUpdates()` returns `[]` when resolver lacks `getLatestManifest`
+- builds correct `InstalledPlugin[]` from cached manifests +
+  marketplace installs, forwards `isVersionSkipped` predicate
+- skips ids without `bundleHash` on the install record
+- skips ids with no cached manifest in `manifestCache`
+- skips ids in the `localUninstalled` set
+- swallows loader rejection silently (returns `[]`)
+
 Pause-on-expiry timer behaviour is covered separately in
 `__tests__/plugin-loader-pause-on-expiry.test.ts` (12 tests, real
 Ed25519 sign/verify with fake timers).
+
+`__tests__/plugin-loader-update-detection.test.ts` (10 tests) covers
+the loader contract: the 6 classification paths (no-drift / no-manifest
+/ skipped / auto-approve / auto-approve-with-toast / requires-consent),
+the 4 failure paths (busy controller, resolver throws, Promise.allSettled
+fan-out, headless-mode default).
+
+`__tests__/toast-feed-store.test.ts` (9 tests) covers the
+`useToastFeedStore` contract: push/getRecent (append, sorted
+newest-first, de-dupe by `(pluginId, toVersion)`), dismiss /
+dismissAll, TTL filter on read (no mutation), MAX_ENTRIES cap,
+sessionStorage round-trip, corrupt blob → empty feed.
 
 The modal itself is intentionally not unit-tested at the DOM level —
 this repo does not pull in `@testing-library/react`. The store covers

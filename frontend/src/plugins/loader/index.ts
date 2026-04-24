@@ -14,11 +14,14 @@
 export {
   PluginLoader,
   recomputeAndVerify,
+  type CheckForUpdatesOptions,
   type InstalledPlugin,
   type LoadLicenseReason,
   type LoadOutcome,
   type LoadOutcomeStatus,
   type PluginLoaderOptions,
+  type UpdateCheckDecision,
+  type UpdateCheckOutcome,
 } from './PluginLoader';
 export {
   defaultLicenseResolver,

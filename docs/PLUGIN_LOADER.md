@@ -256,6 +256,61 @@ A **hard** pause (RPC freeze, drop pending callbacks, gate `pin:change`
 forwarding) is deferred to **CORE-006b** because it requires a
 `pause`/`resume` round-trip the worker runtime does not yet implement.
 
+## Update detection (SDK-008d)
+
+`PluginLoader.checkForUpdates(installed, opts)` is the autonomous
+drift detector. The Installed Plugins modal calls it on mount and
+on the same 24h cadence as the denylist refresh — we share the
+cadence because no realistic release schedule moves faster.
+
+The loader runs a `Promise.allSettled` fan-out over `installed`. Per
+plugin (`checkOne`):
+
+1. `await opts.getLatestManifest(id)` → `null` ends with
+   `decision: 'no-manifest'` (silent skip — without permissions we
+   cannot classify a diff). Throw ends with `decision: 'error'`.
+2. `latest.version === installed.version` → `'no-drift'`.
+3. `opts.isVersionSkipped(id, latest.version)` → `'skipped'`. The
+   user already declined this exact version; a strictly newer
+   release will re-evaluate.
+4. **Pre-classify locally** with
+   `classifyUpdateDiff(diffPermissions(old, new))` from
+   `@velxio/sdk/permissions-catalog`. If the result is
+   `'requires-consent'`, return immediately. **The loader never
+   mounts the consent dialog from a background tick** — that would
+   queue dialogs for ten plugins and steal focus. The badge UI in
+   the Installed Plugins panel handles the user-triggered click.
+5. Auto-approve paths (`'auto-approve'` and
+   `'auto-approve-with-toast'`): hand off to
+   `installFlowController.requestUpdate()` so the toast sink fires
+   uniformly, then `manager.unload(id)` + `loadOne(next)` to swap
+   the worker. `InstallFlowBusyError` maps to `decision: 'busy'`
+   (try again next tick); other throws map to `'error'`.
+
+`UpdateCheckOutcome` carries the typed `decision`, `installedVersion`,
+optional `latestVersion`, optional `reload: LoadOutcome` (only when
+the loader actually reloaded), and an optional `error: { name, message }`
+for `'error'` paths.
+
+Headless / test setups can omit the controller — the loader proceeds
+with `{ kind: 'updated' }` so the auto-reload path still runs without
+emitting toasts.
+
+```ts
+const outcomes = await loader.checkForUpdates(installed, {
+  getLatestManifest: (id) => fetchCatalogManifest(id),  // PRO-003
+  isVersionSkipped: (id, v) => store.isVersionSkipped(id, v),
+});
+```
+
+The store-side adapter is `useInstalledPluginsStore.checkForUpdates()`
+— it builds the `InstalledPlugin[]` from
+`useMarketplaceStore.installs` + the per-id manifest cache populated
+by the manager subscription, then forwards to the loader. It returns
+`[]` (silent no-op) when no loader, no resolver, or no
+`getLatestManifest` is wired — production today has the latter
+absent, pending PRO-003.
+
 ## Wiring at editor startup
 
 ```ts

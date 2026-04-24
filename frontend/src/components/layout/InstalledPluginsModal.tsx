@@ -27,6 +27,7 @@ import { usePluginHostStats } from '../../plugins/runtime/useHostStats';
 import type { PluginFetchStats, PluginHostStats } from '../../plugins/runtime/PluginHost';
 import type { RpcStats } from '../../plugins/runtime/rpc';
 import { SettingsForm } from '../plugin-host/SettingsForm';
+import { UpdateFeedBanner } from '../plugin-host/UpdateFeedBanner';
 import { getSettingsRegistry } from '../../plugin-host/SettingsRegistry';
 import { useLocale, useTranslate } from '../../i18n/useLocale';
 import { setEditorLocale, supportedLocales } from '../../i18n/LocaleProvider';
@@ -64,13 +65,24 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
     void useMarketplaceStore.getState().initialize();
   }, []);
 
-  // Slow timer that pulls the denylist again every 24h. Cleared on
-  // unmount so a closed-and-reopened modal does not stack timers.
+  // Slow timer that pulls the denylist again every 24h *and* asks the
+  // loader to detect plugin updates (SDK-008d). Both share the same
+  // cadence — anything else is wasteful for the kind of drift we expect
+  // (releases ship in days, not seconds). Cleared on unmount so a
+  // closed-and-reopened modal does not stack timers.
+  //
+  // The first tick fires immediately on mount so a user opening the
+  // modal sees the freshest state without waiting 24h. `checkForUpdates`
+  // is a Promise.allSettled internally and never throws — fire-and-forget
+  // is safe.
   useEffect(() => {
-    const refreshDenylist = useInstalledPluginsStore.getState().refreshDenylist;
-    const handle = window.setInterval(() => {
+    const { refreshDenylist, checkForUpdates } = useInstalledPluginsStore.getState();
+    const tick = (): void => {
       void refreshDenylist();
-    }, DENYLIST_REFRESH_INTERVAL_MS);
+      void checkForUpdates();
+    };
+    tick();
+    const handle = window.setInterval(tick, DENYLIST_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(handle);
   }, []);
 
@@ -107,6 +119,8 @@ export const InstalledPluginsModal: React.FC<InstalledPluginsModalProps> = ({ on
             </button>
           </div>
         </header>
+
+        <UpdateFeedBanner />
 
         <MarketplaceBanner status={marketplaceStatus} authRequired={authRequired} />
 

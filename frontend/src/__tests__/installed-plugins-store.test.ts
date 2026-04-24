@@ -589,3 +589,173 @@ describe('useInstalledPluginsStore — SDK-008c skipped versions', () => {
     expect(localStorage.getItem('velxio.skippedVersions')).toBeNull();
   });
 });
+
+// ── SDK-008d: checkForUpdates orchestration ────────────────────────────
+
+import type {
+  CheckForUpdatesOptions,
+  UpdateCheckOutcome,
+} from '../plugins/loader';
+import type { PluginManifest } from '@velxio/sdk';
+
+interface CheckForUpdatesCall {
+  readonly installed: ReadonlyArray<InstalledPlugin>;
+  readonly opts: CheckForUpdatesOptions;
+}
+
+class FakeLoaderWithUpdates extends FakeLoader {
+  public updateCalls: CheckForUpdatesCall[] = [];
+  public updateOutcomes: UpdateCheckOutcome[] = [];
+
+  checkForUpdates(
+    installed: ReadonlyArray<InstalledPlugin>,
+    opts: CheckForUpdatesOptions,
+  ): Promise<UpdateCheckOutcome[]> {
+    this.updateCalls.push({ installed, opts });
+    return Promise.resolve(this.updateOutcomes.slice());
+  }
+}
+
+describe('useInstalledPluginsStore — SDK-008d checkForUpdates', () => {
+  it('returns [] when no loader is configured', async () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+    ]);
+    const out = await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(out).toEqual([]);
+  });
+
+  it('returns [] when no resolver is configured', async () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+    ]);
+    const loader = new FakeLoaderWithUpdates();
+    configureInstalledPlugins({ loader: asLoader(loader) });
+    const out = await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(out).toEqual([]);
+    expect(loader.updateCalls).toEqual([]);
+  });
+
+  it('returns [] when resolver does not implement getLatestManifest', async () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+    ]);
+    const loader = new FakeLoaderWithUpdates();
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => '1.1.0',
+      // intentionally no getLatestManifest
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+    const out = await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(out).toEqual([]);
+    expect(loader.updateCalls).toEqual([]);
+  });
+
+  it('builds InstalledPlugin[] from marketplace + manifestCache and forwards skip predicate', async () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'hh' },
+    ]);
+    injectManagerEntry(fakeEntry('p'));
+    useInstalledPluginsStore.getState().markVersionSkipped('p', '2.0.0');
+
+    const loader = new FakeLoaderWithUpdates();
+    const fetchedManifests: string[] = [];
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => '1.1.0',
+      getLatestManifest: (id) => {
+        fetchedManifests.push(id);
+        return { id, name: id, version: '1.1.0' } as PluginManifest;
+      },
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+
+    await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(loader.updateCalls).toHaveLength(1);
+    const call = loader.updateCalls[0]!;
+    expect(call.installed).toHaveLength(1);
+    expect(call.installed[0]?.manifest.id).toBe('p');
+    expect(call.installed[0]?.bundleHash).toBe('hh');
+    expect(call.installed[0]?.enabled).toBe(true);
+
+    // Forwarded callbacks: getLatestManifest invoked, isVersionSkipped honored.
+    const manifest = await call.opts.getLatestManifest('p');
+    expect(manifest?.version).toBe('1.1.0');
+    expect(fetchedManifests).toContain('p');
+    expect(call.opts.isVersionSkipped?.('p', '2.0.0')).toBe(true);
+    expect(call.opts.isVersionSkipped?.('p', '1.9.0')).toBe(false);
+  });
+
+  it('skips installs without a bundleHash (cannot be reloaded)', async () => {
+    seedMarketplace([
+      { id: 'a', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'hh' },
+      { id: 'b', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z' },
+    ]);
+    injectManagerEntry(fakeEntry('a'));
+    injectManagerEntry(fakeEntry('b'));
+    const loader = new FakeLoaderWithUpdates();
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => null,
+      getLatestManifest: () => null,
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+
+    await useInstalledPluginsStore.getState().checkForUpdates();
+    const call = loader.updateCalls[0]!;
+    expect(call.installed.map((p) => p.manifest.id)).toEqual(['a']);
+  });
+
+  it('skips installs with no cached manifest (manager has not seen them yet)', async () => {
+    seedMarketplace([
+      { id: 'unseen', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'hh' },
+    ]);
+    // No injectManagerEntry — manifestCache stays empty for `unseen`.
+    const loader = new FakeLoaderWithUpdates();
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => '1.1.0',
+      getLatestManifest: () => null,
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+
+    const out = await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(out).toEqual([]);
+    expect(loader.updateCalls).toEqual([]);
+  });
+
+  it('skips ids the user has uninstalled this session', async () => {
+    seedMarketplace([
+      { id: 'a', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+      { id: 'b', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+    ]);
+    injectManagerEntry(fakeEntry('a'));
+    injectManagerEntry(fakeEntry('b'));
+    await useInstalledPluginsStore.getState().uninstall('a');
+
+    const loader = new FakeLoaderWithUpdates();
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => null,
+      getLatestManifest: () => null,
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+
+    await useInstalledPluginsStore.getState().checkForUpdates();
+    const call = loader.updateCalls[0]!;
+    expect(call.installed.map((p) => p.manifest.id)).toEqual(['b']);
+  });
+
+  it('swallows loader errors and returns []', async () => {
+    seedMarketplace([
+      { id: 'p', version: '1.0.0', enabled: true, installedAt: '2026-01-01T00:00:00Z', bundleHash: 'h' },
+    ]);
+    injectManagerEntry(fakeEntry('p'));
+    const loader = new FakeLoaderWithUpdates();
+    loader.checkForUpdates = () => Promise.reject(new Error('catalog 500'));
+    const resolver: LatestVersionResolver = {
+      getLatestVersion: () => null,
+      getLatestManifest: () => null,
+    };
+    configureInstalledPlugins({ loader: asLoader(loader), latestVersionResolver: resolver });
+
+    const out = await useInstalledPluginsStore.getState().checkForUpdates();
+    expect(out).toEqual([]);
+  });
+});

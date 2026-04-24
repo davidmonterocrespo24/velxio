@@ -40,6 +40,7 @@ import type {
   LoadLicenseReason,
   LoadOutcome,
   PluginLoader,
+  UpdateCheckOutcome,
 } from '../plugins/loader';
 import type { InstalledRecord, LicenseRecord } from '../marketplace/types';
 import type { PluginManifest } from '@velxio/sdk';
@@ -96,9 +97,18 @@ export interface PluginPanelRow {
  * Adapter the store uses to ask "is there a newer version of <id>?".
  * Production wires this against `useMarketplaceStore.getCatalog()` once
  * the catalog endpoint lands (PRO-003); dev/tests can pass a fixed map.
+ *
+ * The optional `getLatestManifest()` is the auto-update entry point — the
+ * loader needs the *full* manifest (with permissions) to classify the
+ * diff. Until PRO-003 wires the catalog endpoint, returning `null` is the
+ * silent no-op path: the badge still works on user click via the
+ * synthesized manifest, but the auto-reload tick stays inert.
  */
 export interface LatestVersionResolver {
   getLatestVersion(pluginId: string): string | null;
+  getLatestManifest?(
+    pluginId: string,
+  ): Promise<PluginManifest | null> | PluginManifest | null;
 }
 
 export interface InstalledPluginsConfig {
@@ -166,6 +176,18 @@ export interface InstalledPluginsStoreState {
    * long-running session.
    */
   refreshDenylist(): Promise<void>;
+
+  /**
+   * Walk every installed plugin and ask the loader to detect drift +
+   * auto-apply the auto-approve paths (SDK-008d). Returns one outcome
+   * per plugin even on failure (`decision: 'error' | 'busy' | 'no-manifest'`).
+   *
+   * Resolves to an empty array when there is no loader, no resolver, or
+   * the resolver does not support `getLatestManifest()`. Never throws —
+   * the modal calls it on a slow timer that should not surface
+   * transport errors as banners.
+   */
+  checkForUpdates(): Promise<readonly UpdateCheckOutcome[]>;
 
   /** Test-only. Clears local state + marketplace test seam. */
   __resetForTests(): void;
@@ -560,6 +582,57 @@ export const useInstalledPluginsStore = create<InstalledPluginsStoreState>((set,
         // Network failure here is silent — we keep the previous denylist
         // and the user will see no behavior change. Surfacing the error
         // would be noisy because the timer fires on its own schedule.
+      }
+    },
+
+    async checkForUpdates() {
+      ensureSub();
+      // No loader, no resolver, or no manifest fetcher → silent no-op.
+      // The badge still works on user click via the modal's existing
+      // synthesizeLatestManifest() placeholder; auto-update only kicks
+      // in once PRO-003 wires the catalog endpoint.
+      const loader = runtimeLoader;
+      const resolver = latestVersionResolver;
+      if (loader === null || resolver === null) return [];
+      const fetchManifest = resolver.getLatestManifest;
+      if (fetchManifest === undefined) return [];
+
+      // Build the InstalledPlugin shape the loader needs. Only marketplace
+      // installs with a known manifest *and* a bundleHash can be reloaded —
+      // the loader requires the hash for the integrity check.
+      const installs = readMarketplaceInstalls();
+      const isSkipped = (id: string, version: string): boolean =>
+        get().skippedVersions.get(id) === version;
+      const installed: InstalledPlugin[] = [];
+      for (const inst of installs) {
+        if (get().localUninstalled.has(inst.id)) continue;
+        if (inst.bundleHash === undefined) continue;
+        const manifest = manifestCache.get(inst.id);
+        if (manifest === undefined) continue;
+        installed.push({
+          manifest,
+          bundleHash: inst.bundleHash,
+          enabled: true,
+        });
+      }
+      if (installed.length === 0) return [];
+
+      try {
+        const outcomes = await loader.checkForUpdates(installed, {
+          getLatestManifest: (id) => fetchManifest.call(resolver, id),
+          isVersionSkipped: isSkipped,
+        });
+        // Bump tick so any reload-induced manager mutation drives a
+        // re-render (manager.subscribe already bumps on its own, but a
+        // run that returns only `no-drift`/`skipped` results without
+        // touching the manager would otherwise be invisible).
+        set({ tick: get().tick + 1 });
+        return outcomes;
+      } catch {
+        // checkForUpdates is `Promise.allSettled` internally so it should
+        // not throw; defense-in-depth in case a future refactor lets one
+        // through. Caller must not see the modal break.
+        return [];
       }
     },
 

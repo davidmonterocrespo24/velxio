@@ -28,6 +28,7 @@ import { IndexedDBSettingsBackend } from './plugin-host/IndexedDBSettingsBackend
 import { bootEditorLocale } from './i18n/LocaleProvider';
 import { configureInstallFlow } from './plugin-host/InstallFlowController';
 import { useInstalledPluginsStore } from './store/useInstalledPluginsStore';
+import { useToastFeedStore } from './store/useToastFeedStore';
 import { InstallFlowOverlay } from './components/plugin-host/InstallFlowOverlay';
 import './App.css';
 
@@ -54,9 +55,9 @@ configureInstallFlow({
   markVersionSkipped: (id, version) => {
     useInstalledPluginsStore.getState().markVersionSkipped(id, version);
   },
-  // The toast surface lands with the marketplace UI in PRO-005; until
-  // then the auto-approve-with-toast events are dropped silently — the
-  // install still proceeds, the user just doesn't see a notification.
+  emitToast: (event) => {
+    useToastFeedStore.getState().push(event);
+  },
 });
 
 function App() {

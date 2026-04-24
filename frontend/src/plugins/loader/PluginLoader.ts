@@ -35,7 +35,11 @@
  * `loadInstalled()` retries.
  */
 
-import type { PluginManifest } from '@velxio/sdk';
+import {
+  classifyUpdateDiff,
+  diffPermissions,
+  type PluginManifest,
+} from '@velxio/sdk';
 
 import {
   fetchBundle,
@@ -56,6 +60,11 @@ import {
   type PluginManager,
 } from '../runtime/PluginManager';
 import { verifyLicense, type LicenseVerifyReason } from '../license';
+import {
+  InstallFlowBusyError,
+  type InstallFlowController,
+  type UpdateDecision,
+} from '../../plugin-host/InstallFlowController';
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -134,9 +143,87 @@ export interface PluginLoaderOptions {
    */
   readonly licenseResolver?: LicenseResolver;
   /**
+   * Optional `InstallFlowController` used by `checkForUpdates()` to
+   * surface the toast event for `auto-approve-with-toast` paths. When
+   * absent, the loader still performs auto-approve reloads but the toast
+   * sink is not invoked.
+   */
+  readonly installFlowController?: InstallFlowController;
+  /**
    * Inject a clock for deterministic license expiry tests.
    */
   readonly now?: () => number;
+}
+
+// ── Update detection types ───────────────────────────────────────────────
+
+/**
+ * Outcome of a single drift check inside `checkForUpdates()`. The
+ * discriminator is `decision`. Only `'auto-approve' | 'auto-approve-with-toast'`
+ * carry a `reload` field — those are the paths where the loader actually
+ * tries to swap the worker.
+ *
+ * `'requires-consent'` deliberately does not auto-reload: the user must
+ * see the diff. The badge UI in the Installed Plugins panel already
+ * handles the click → `controller.requestUpdate()` flow.
+ */
+export type UpdateCheckDecision =
+  /** No drift — installed version matches latest. */
+  | 'no-drift'
+  /** Latest is the version the user previously skipped — honored. */
+  | 'skipped'
+  /** Resolver could not produce a manifest for this id (no fetch wired). */
+  | 'no-manifest'
+  /** Permissions did not change — silent reload. */
+  | 'auto-approve'
+  /** Only Low-risk permissions added — toast emitted, then reload. */
+  | 'auto-approve-with-toast'
+  /** Medium/High permissions added — wait for user click on the badge. */
+  | 'requires-consent'
+  /** Another consent/update flow is already open; try again next tick. */
+  | 'busy'
+  /** Free plugin, skipped — no license check; no path here. */
+  | 'error';
+
+export interface UpdateCheckOutcome {
+  readonly id: string;
+  readonly installedVersion: string;
+  /** Latest version the resolver reported. Absent when `decision='no-manifest'`. */
+  readonly latestVersion?: string;
+  readonly decision: UpdateCheckDecision;
+  /**
+   * Present when the loader actually attempted a reload (auto-approve
+   * paths only). Mirrors the shape of `loadOne()`'s outcome.
+   */
+  readonly reload?: LoadOutcome;
+  readonly error?: { name: string; message: string };
+}
+
+/**
+ * Per-call options for `checkForUpdates()`. The two callbacks live here
+ * (not in `PluginLoaderOptions`) so the loader stays decoupled from
+ * Zustand stores — the editor wires these against
+ * `useInstalledPluginsStore` at call time.
+ */
+export interface CheckForUpdatesOptions {
+  /**
+   * Fetch the *real* latest manifest (with its permissions) for `id`.
+   * Returning `null` skips this id silently — the loader cannot
+   * classify a diff without the new permission set.
+   *
+   * Production wires this against the marketplace catalog endpoint
+   * (PRO-003). Until then a placeholder may return `null` for everything
+   * — the auto-update path is a no-op and only the badge surfaces drift.
+   */
+  readonly getLatestManifest: (
+    pluginId: string,
+  ) => Promise<PluginManifest | null> | PluginManifest | null;
+  /**
+   * Whether the user has previously declined exactly this `(id, version)`
+   * pair. Optional — when absent, no skips are honored. Wired against
+   * `useInstalledPluginsStore.isVersionSkipped` in production.
+   */
+  readonly isVersionSkipped?: (pluginId: string, version: string) => boolean;
 }
 
 // ── Loader ───────────────────────────────────────────────────────────────
@@ -155,6 +242,7 @@ export class PluginLoader {
   private readonly fetchOptions: BundleFetchOptions;
   private readonly manager: PluginManager;
   private readonly licenseResolver: LicenseResolver | null;
+  private readonly installFlowController: InstallFlowController | null;
   private readonly now: () => number;
   /**
    * Per-plugin pause-on-expiry timer handles. `setTimeout` returns
@@ -171,6 +259,7 @@ export class PluginLoader {
     this.fetchOptions = opts.fetchOptions ?? {};
     this.manager = opts.manager ?? getPluginManager();
     this.licenseResolver = opts.licenseResolver ?? null;
+    this.installFlowController = opts.installFlowController ?? null;
     this.now = opts.now ?? (() => Date.now());
   }
 
@@ -387,6 +476,167 @@ export class PluginLoader {
       // resolved synchronously inside `new Worker(blobUrl)`.
       try { URL.revokeObjectURL(blobUrl); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Detect drift between each `installed` entry and the catalog's latest
+   * version, then route every drift through one of four paths:
+   *
+   *   - `auto-approve`            → silent unload + reload.
+   *   - `auto-approve-with-toast` → silent unload + reload, plus emit a
+   *                                  toast through the `InstallFlowController`
+   *                                  so the user sees what changed.
+   *   - `requires-consent`        → no-op here. The Installed Plugins
+   *                                  panel surfaces a badge that, on
+   *                                  click, opens the consent dialog.
+   *                                  Auto-mounting that dialog from a
+   *                                  background tick would steal focus
+   *                                  and queue dialogs for every plugin
+   *                                  with a permission-changing update —
+   *                                  user-visible spam.
+   *   - `skipped`                 → no-op when `latest === isVersionSkipped(id)`.
+   *
+   * Concurrent — siblings run via `Promise.allSettled`. A failure on one
+   * plugin (`getLatestManifest` throws, classifier diverges, manager
+   * load rejects) surfaces as `decision: 'error'` for that id without
+   * blocking the rest.
+   *
+   * Idempotent under repeated calls: if `latest === installed.version`
+   * after a successful auto-update, the next tick decides `'no-drift'`
+   * and does nothing.
+   */
+  async checkForUpdates(
+    installed: readonly InstalledPlugin[],
+    opts: CheckForUpdatesOptions,
+  ): Promise<UpdateCheckOutcome[]> {
+    const tasks = installed.map((plugin) => this.checkOne(plugin, opts));
+    const settled = await Promise.allSettled(tasks);
+    const out: UpdateCheckOutcome[] = [];
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i]!;
+      if (r.status === 'fulfilled') {
+        out.push(r.value);
+      } else {
+        const e = r.reason instanceof Error ? r.reason : new Error(String(r.reason));
+        const inst = installed[i]!;
+        out.push({
+          id: inst.manifest.id,
+          installedVersion: inst.manifest.version,
+          decision: 'error',
+          error: { name: e.name, message: e.message },
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Resolve the decision for one installed plugin. Pulled out of
+   * `checkForUpdates` to keep `Promise.allSettled` simple and to make the
+   * 4-way branch trivially testable.
+   */
+  private async checkOne(
+    plugin: InstalledPlugin,
+    opts: CheckForUpdatesOptions,
+  ): Promise<UpdateCheckOutcome> {
+    const installedManifest = plugin.manifest;
+    const id = installedManifest.id;
+    const installedVersion = installedManifest.version;
+    let latestManifest: PluginManifest | null;
+    try {
+      latestManifest = await opts.getLatestManifest(id);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      return {
+        id,
+        installedVersion,
+        decision: 'error',
+        error: { name: e.name, message: e.message },
+      };
+    }
+    if (latestManifest === null) {
+      return { id, installedVersion, decision: 'no-manifest' };
+    }
+    const latestVersion = latestManifest.version;
+    if (latestVersion === installedVersion) {
+      return { id, installedVersion, latestVersion, decision: 'no-drift' };
+    }
+    if (opts.isVersionSkipped?.(id, latestVersion) === true) {
+      return { id, installedVersion, latestVersion, decision: 'skipped' };
+    }
+
+    // Pre-classify locally so we can avoid mounting the consent dialog
+    // for `requires-consent` paths from a background tick.
+    const oldPerms = installedManifest.permissions ?? [];
+    const newPerms = latestManifest.permissions ?? [];
+    const decision = classifyUpdateDiff(diffPermissions(oldPerms, newPerms));
+
+    if (decision.kind === 'requires-consent') {
+      return { id, installedVersion, latestVersion, decision: 'requires-consent' };
+    }
+
+    // Auto-approve paths. Hand off to the controller so the toast sink is
+    // invoked uniformly (the controller owns `emitToast` wiring).
+    let userDecision: UpdateDecision;
+    if (this.installFlowController !== null) {
+      try {
+        userDecision = await this.installFlowController.requestUpdate(
+          { manifest: installedManifest },
+          { manifest: latestManifest },
+        );
+      } catch (err) {
+        if (err instanceof InstallFlowBusyError) {
+          return { id, installedVersion, latestVersion, decision: 'busy' };
+        }
+        const e = err instanceof Error ? err : new Error(String(err));
+        return {
+          id,
+          installedVersion,
+          latestVersion,
+          decision: 'error',
+          error: { name: e.name, message: e.message },
+        };
+      }
+    } else {
+      // No controller wired — proceed without surfacing a toast. Used by
+      // headless dev/test setups that just want the auto-reload behavior.
+      userDecision = { kind: 'updated' };
+    }
+
+    if (userDecision.kind !== 'updated') {
+      // Should not happen for auto-approve paths, but guard defensively.
+      return { id, installedVersion, latestVersion, decision: 'error',
+        error: { name: 'UnexpectedUpdateDecision', message: userDecision.kind } };
+    }
+
+    // Reload. Tear the worker down first so the new bundleHash takes effect.
+    this.manager.unload(id);
+    const next: InstalledPlugin = {
+      manifest: latestManifest,
+      bundleHash: plugin.bundleHash,
+      ...(plugin.bundleUrl !== undefined ? { bundleUrl: plugin.bundleUrl } : {}),
+      enabled: true,
+    };
+    let reload: LoadOutcome;
+    try {
+      reload = await this.loadOne(next);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      return {
+        id,
+        installedVersion,
+        latestVersion,
+        decision: 'error',
+        error: { name: e.name, message: e.message },
+      };
+    }
+    return {
+      id,
+      installedVersion,
+      latestVersion,
+      decision: decision.kind,
+      reload,
+    };
   }
 
   /** Expose the cache for diagnostics / UI. */

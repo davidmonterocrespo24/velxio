@@ -45,6 +45,16 @@ export const es: Partial<Record<ShellTranslationKey, string>> = {
   'plugins.settings.title': '{name} — Ajustes',
   'plugins.settings.empty': 'Este plugin todavía no ha declarado ajustes. Cuando llame a',
   'plugins.settings.metadata': 'Metadatos del plugin',
+  'plugins.toast.title': 'Actualizaciones recientes',
+  'plugins.toast.summary': '{count} plugin actualizado',
+  'plugins.toast.summary.plural': '{count} plugins actualizados',
+  'plugins.toast.entry': '{name} actualizado a {version}',
+  'plugins.toast.entry.permissions': '+ {count} permiso nuevo',
+  'plugins.toast.entry.permissions.plural': '+ {count} permisos nuevos',
+  'plugins.toast.dismiss': 'Descartar',
+  'plugins.toast.dismissAll': 'Descartar todo',
+  'plugins.toast.expand': 'Ver detalles',
+  'plugins.toast.collapse': 'Ocultar detalles',
 
   // File explorer (left sidebar)
   'fileExplorer.workspace': 'ESPACIO DE TRABAJO',

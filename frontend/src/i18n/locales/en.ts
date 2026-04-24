@@ -49,6 +49,16 @@ export const en = {
   'plugins.settings.title': '{name} — Settings',
   'plugins.settings.empty': "This plugin hasn't declared any settings yet. Once it calls",
   'plugins.settings.metadata': 'Plugin metadata',
+  'plugins.toast.title': 'Recent plugin updates',
+  'plugins.toast.summary': '{count} plugin updated',
+  'plugins.toast.summary.plural': '{count} plugins updated',
+  'plugins.toast.entry': '{name} updated to {version}',
+  'plugins.toast.entry.permissions': '+ {count} new permission',
+  'plugins.toast.entry.permissions.plural': '+ {count} new permissions',
+  'plugins.toast.dismiss': 'Dismiss',
+  'plugins.toast.dismissAll': 'Dismiss all',
+  'plugins.toast.expand': 'Show details',
+  'plugins.toast.collapse': 'Hide details',
 
   // File explorer (left sidebar)
   'fileExplorer.workspace': 'WORKSPACE',
