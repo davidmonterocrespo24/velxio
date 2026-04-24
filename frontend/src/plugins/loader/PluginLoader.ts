@@ -41,6 +41,7 @@ import {
   type PluginManifest,
 } from '@velxio/sdk';
 
+import { getEventBus, type HostEventBus } from '../../simulation/EventBus';
 import {
   fetchBundle,
   type BundleFetchOptions,
@@ -153,6 +154,12 @@ export interface PluginLoaderOptions {
    * Inject a clock for deterministic license expiry tests.
    */
   readonly now?: () => number;
+  /**
+   * Override the EventBus used for `'plugin:update:applied'` emits. When
+   * absent, the loader uses `getEventBus()` (the production singleton).
+   * Tests inject a fresh `HostEventBus` to isolate listeners.
+   */
+  readonly eventBus?: HostEventBus;
 }
 
 // ── Update detection types ───────────────────────────────────────────────
@@ -243,6 +250,7 @@ export class PluginLoader {
   private readonly manager: PluginManager;
   private readonly licenseResolver: LicenseResolver | null;
   private readonly installFlowController: InstallFlowController | null;
+  private readonly eventBus: HostEventBus;
   private readonly now: () => number;
   /**
    * Per-plugin pause-on-expiry timer handles. `setTimeout` returns
@@ -260,6 +268,7 @@ export class PluginLoader {
     this.manager = opts.manager ?? getPluginManager();
     this.licenseResolver = opts.licenseResolver ?? null;
     this.installFlowController = opts.installFlowController ?? null;
+    this.eventBus = opts.eventBus ?? getEventBus();
     this.now = opts.now ?? (() => Date.now());
   }
 
@@ -569,7 +578,8 @@ export class PluginLoader {
     // for `requires-consent` paths from a background tick.
     const oldPerms = installedManifest.permissions ?? [];
     const newPerms = latestManifest.permissions ?? [];
-    const decision = classifyUpdateDiff(diffPermissions(oldPerms, newPerms));
+    const permDiff = diffPermissions(oldPerms, newPerms);
+    const decision = classifyUpdateDiff(permDiff);
 
     if (decision.kind === 'requires-consent') {
       return { id, installedVersion, latestVersion, decision: 'requires-consent' };
@@ -629,6 +639,23 @@ export class PluginLoader {
         decision: 'error',
         error: { name: e.name, message: e.message },
       };
+    }
+    // SDK-008f: emit `'plugin:update:applied'` only when the swap actually
+    // produced a live worker. A failed reload (license-failed, integrity
+    // mismatch, offline) is reported back via `reload.status` and does NOT
+    // count as an applied update — telemetry plugins would surface a
+    // false positive otherwise. Hot-path-guarded per PERF-001.
+    if (
+      reload.status === 'active' &&
+      this.eventBus.hasListeners('plugin:update:applied')
+    ) {
+      this.eventBus.emit('plugin:update:applied', {
+        pluginId: id,
+        fromVersion: installedVersion,
+        toVersion: latestVersion,
+        decision: decision.kind,
+        addedPermissions: permDiff.added,
+      });
     }
     return {
       id,

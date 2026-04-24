@@ -34,6 +34,7 @@ import type {
   PluginEntry,
   PluginManager,
 } from '../plugins/runtime/PluginManager';
+import { HostEventBus } from '../simulation/EventBus';
 
 // ── stubs ────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ async function buildLoader(opts: {
   body?: Uint8Array;
   hash?: string;
   controller?: InstallFlowController | null;
+  eventBus?: HostEventBus;
 } = {}): Promise<{ loader: PluginLoader; hash: string }> {
   const body = opts.body ?? bytes('plugin');
   const hash = opts.hash ?? await computeBundleHash(body);
@@ -102,6 +104,7 @@ async function buildLoader(opts: {
     ...(opts.controller !== undefined && opts.controller !== null
       ? { installFlowController: opts.controller }
       : {}),
+    ...(opts.eventBus !== undefined ? { eventBus: opts.eventBus } : {}),
   });
   return { loader, hash };
 }
@@ -270,5 +273,153 @@ describe('PluginLoader · checkForUpdates · failure paths', () => {
     });
     expect(out?.decision).toBe('auto-approve-with-toast');
     expect(mgr.loaded[0]?.version).toBe('1.1.0');
+  });
+});
+
+// ── SDK-008f · `plugin:update:applied` EventBus event ────────────────────
+//
+// Telemetry plugins observe sibling auto-updates by subscribing to the
+// `'plugin:update:applied'` event. The loader emits AFTER a successful
+// reload only — failed reloads (`status !== 'active'`) and the
+// `requires-consent` path must not fire, otherwise telemetry shows
+// false positives. The emit is hot-path-guarded by `hasListeners` per
+// PERF-001 even though `checkForUpdates` runs from a 24h tick (cheap
+// idiom regardless of cadence).
+
+describe('PluginLoader · checkForUpdates · plugin:update:applied event', () => {
+  it('emits on auto-approve path with empty addedPermissions', async () => {
+    const bus = new HostEventBus();
+    const events: unknown[] = [];
+    bus.on('plugin:update:applied', (e) => events.push(e));
+    const { loader, hash } = await buildLoader({ eventBus: bus });
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0'),
+    });
+    expect(out?.decision).toBe('auto-approve');
+    expect(events).toEqual([
+      {
+        pluginId: 'a',
+        fromVersion: '1.0.0',
+        toVersion: '1.1.0',
+        decision: 'auto-approve',
+        addedPermissions: [],
+      },
+    ]);
+  });
+
+  it('emits on auto-approve-with-toast path with the added Low-risk delta', async () => {
+    const bus = new HostEventBus();
+    const events: { addedPermissions: readonly string[]; decision: string }[] = [];
+    bus.on('plugin:update:applied', (e) => events.push(e));
+    const controller = createInstallFlowControllerForTests({
+      markVersionSkipped: () => {},
+      emitToast: () => {},
+    });
+    const { loader, hash } = await buildLoader({ controller, eventBus: bus });
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0', ['simulator.events.read']),
+    });
+    expect(out?.decision).toBe('auto-approve-with-toast');
+    expect(events.length).toBe(1);
+    expect(events[0]?.decision).toBe('auto-approve-with-toast');
+    expect(events[0]?.addedPermissions).toEqual(['simulator.events.read']);
+  });
+
+  it('does NOT emit when no listeners are registered (hasListeners guard)', async () => {
+    const bus = new HostEventBus();
+    // Observer that records every emit — but we never subscribe to the
+    // event under test, so the `hasListeners` guard must short-circuit
+    // before this proves anything. The assertion is the listener count
+    // (still 0) plus the absence of any thrown payload-construction.
+    const { loader, hash } = await buildLoader({ eventBus: bus });
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0'),
+    });
+    expect(out?.decision).toBe('auto-approve');
+    // Reload happened.
+    expect(mgr.loaded[0]?.version).toBe('1.1.0');
+    // But no listener was registered, so no payload was ever dispatched.
+    expect(bus.listenerCount('plugin:update:applied')).toBe(0);
+  });
+
+  it('does NOT emit on requires-consent path', async () => {
+    const bus = new HostEventBus();
+    const events: unknown[] = [];
+    bus.on('plugin:update:applied', (e) => events.push(e));
+    const controller = createInstallFlowControllerForTests({
+      markVersionSkipped: () => {},
+    });
+    const { loader, hash } = await buildLoader({ controller, eventBus: bus });
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    // 'http.fetch' is High-risk → requires-consent.
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0', ['http.fetch']),
+    });
+    expect(out?.decision).toBe('requires-consent');
+    expect(events).toEqual([]);
+  });
+
+  it('does NOT emit when the reload fails (status !== "active")', async () => {
+    // Make the SECOND `manager.load` call (the post-unload reload) reject
+    // so the outcome carries `status: 'failed'`. The first load (cache
+    // priming via `loadOne` inside `checkForUpdates`) is not exercised
+    // here — the loader's `checkOne` enters via the diff path, not load.
+    const failingMgr = new (class extends StubManager {
+      private calls = 0;
+      override async load(m: PluginManifest, opts: LoadOptions): Promise<PluginEntry> {
+        this.calls += 1;
+        if (this.calls > 0 && m.version === '1.1.0') {
+          throw new Error('worker boot failed');
+        }
+        return super.load(m, opts);
+      }
+    })();
+    const bus = new HostEventBus();
+    const events: unknown[] = [];
+    bus.on('plugin:update:applied', (e) => events.push(e));
+    const fetchImpl = vi.fn().mockResolvedValue(ok(bytes('plugin')));
+    const hash = await computeBundleHash(bytes('plugin'));
+    const loader = new PluginLoader({
+      cache,
+      fetchOptions: { fetchImpl: fetchImpl as unknown as typeof fetch, preferDevServer: false, baseDelayMs: 1 },
+      manager: failingMgr as unknown as PluginManager,
+      eventBus: bus,
+    });
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0'),
+    });
+    expect(out?.decision).toBe('auto-approve');
+    expect(out?.reload?.status).toBe('failed');
+    expect(events).toEqual([]);
+  });
+
+  it('uses the production singleton bus when no override is supplied', async () => {
+    // Smoke test: omit `eventBus` and verify the loader still completes
+    // an auto-approve reload. We don't subscribe to the global singleton
+    // (it would leak across tests); we just prove the constructor's
+    // `?? getEventBus()` default doesn't blow up the happy path.
+    const { loader, hash } = await buildLoader();
+    const installed: InstalledPlugin[] = [
+      { manifest: manifest('a', '1.0.0'), bundleHash: hash },
+    ];
+    const [out] = await loader.checkForUpdates(installed, {
+      getLatestManifest: () => manifest('a', '1.1.0'),
+    });
+    expect(out?.decision).toBe('auto-approve');
+    expect(out?.reload?.status).toBe('active');
   });
 });

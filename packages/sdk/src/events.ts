@@ -91,6 +91,26 @@ export interface SimulatorEvents {
     readonly bytes?: number;
     readonly message?: string;
   };
+  /**
+   * A plugin update was applied automatically by the loader (no consent
+   * dialog was shown). Emitted from `PluginLoader.checkForUpdates()`
+   * after `manager.unload(id)` + `manager.load(latestManifest, ...)`
+   * resolves with status `active`. NOT emitted on the `requires-consent`
+   * path — those still need a user click via the badge UI.
+   *
+   * `addedPermissions` is the delta computed from the prior manifest
+   * (post-hoc, after the user implicitly accepted via
+   * `auto-approve-with-toast`). Cross-plugin observation requires
+   * `simulator.events.read` (Low-risk) — same gate as the rest of the
+   * EventBus.
+   */
+  'plugin:update:applied': {
+    readonly pluginId: string;
+    readonly fromVersion: string;
+    readonly toVersion: string;
+    readonly decision: 'auto-approve' | 'auto-approve-with-toast';
+    readonly addedPermissions: readonly string[];
+  };
 }
 
 export type SimulatorEventName = keyof SimulatorEvents;

@@ -51,6 +51,7 @@ See `packages/sdk/src/events.ts` for authoritative types. High-level map:
 | `board:change` | Reserved | — | Planned for MCU selector |
 | `compile:start` | `compileCode()` entry | per-request | — |
 | `compile:done` | `compileCode()` exit (both paths) | per-request | Carries `ok`, `durationMs`, `bytes?`, `message?` |
+| `plugin:update:applied` | `PluginLoader.checkForUpdates()` after a successful auto-reload | once per applied auto-update | Guarded; emitted only on `auto-approve` / `auto-approve-with-toast` paths and only when `reload.status === 'active'`. NOT emitted on `requires-consent`. Carries `pluginId`, `fromVersion`, `toVersion`, `decision`, `addedPermissions: readonly string[]`. |
 
 ## Performance contract
 
@@ -171,6 +172,52 @@ unchanged because nobody re-assigns `completeTransmit`.
 - Plugin SPI buses (future) should pick a stable identifier; plugin
   decoders that observe via `events.on('spi:transfer', ...)` use the
   `cs` field to filter.
+
+## Plugin update telemetry — `plugin:update:applied` (SDK-008f)
+
+Telemetry plugins observe sibling auto-updates by subscribing to
+`'plugin:update:applied'`. Emitted by `PluginLoader.checkForUpdates()`
+in `frontend/src/plugins/loader/PluginLoader.ts` immediately after
+`manager.unload(id)` + `manager.load(latestManifest, ...)` resolves
+with `status: 'active'`. The emit is hot-path-guarded by
+`bus.hasListeners('plugin:update:applied')` even though the loader's
+24h tick is cold — the guard is the canonical idiom.
+
+**When the event fires:**
+
+| Loader decision | `reload.status` | Emit? |
+|---|---|---|
+| `auto-approve` | `'active'` | ✅ |
+| `auto-approve-with-toast` | `'active'` | ✅ |
+| `auto-approve` | `'failed'` / `'offline'` / `'license-failed'` | ❌ |
+| `requires-consent` | (no reload yet) | ❌ |
+| `no-drift` / `no-manifest` / `skipped` / `busy` / `error` | (no reload) | ❌ |
+
+`requires-consent` deliberately does **not** emit: those updates are
+still pending a user click via the badge UI in the Installed Plugins
+modal. A separate `'plugin:update:available'` event for that path was
+explicitly out of scope for SDK-008f — it would expose pending
+permission asks cross-plugin (privacy-questionable).
+
+**Payload:**
+
+```ts
+{
+  pluginId: string;
+  fromVersion: string;
+  toVersion: string;
+  decision: 'auto-approve' | 'auto-approve-with-toast';
+  addedPermissions: readonly string[];  // delta vs. prior manifest
+}
+```
+
+`addedPermissions` is the post-hoc delta computed from the prior
+manifest (the user implicitly accepted via `auto-approve-with-toast`),
+so this is not a new privacy surface beyond what the user already
+saw in the toast.
+
+**Permission gate:** subscribing requires `simulator.events.read`
+(Low-risk, existing) — same gate as the rest of the EventBus.
 
 ## Adding a new event
 
