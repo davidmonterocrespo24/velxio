@@ -177,7 +177,10 @@ describe('PartSimulationRegistry — SDK contract', () => {
 
     it('subscribes via the resolved arduino pin and fires on pin changes', () => {
       const pinManager = new PinManager();
-      const observed: boolean[] = [];
+      // SDK contract: the callback receives `PinState` (`0 | 1 | 'z' | 'x'`),
+      // not a raw PinManager boolean. The host adapter coerces at the
+      // boundary so plugins author against the public type.
+      const observed: import('@velxio/sdk').PinState[] = [];
       let capturedHandle: SimulatorHandle | undefined;
 
       PartSimulationRegistry.registerSdkPart('pin-sub', {
@@ -199,7 +202,7 @@ describe('PartSimulationRegistry — SDK contract', () => {
       expect(capturedHandle).toBeDefined();
       pinManager.triggerPinChange(5, true);
       pinManager.triggerPinChange(5, false);
-      expect(observed).toEqual([true, false]);
+      expect(observed).toEqual([1, 0]);
     });
 
     it('returns a Disposable whose dispose() removes the subscription', () => {
@@ -307,8 +310,10 @@ describe('PartSimulationRegistry — SDK contract', () => {
       );
 
       pinManager.triggerPinChange(11, true);
-      // Plugin callback receives ONLY the boolean state — not (pin, state)
-      expect(cb).toHaveBeenCalledWith(true);
+      // Plugin callback receives ONLY the coerced `PinState` — not (pin, state).
+      // PinManager fires `boolean`; the adapter maps `true → 1` / `false → 0`
+      // so plugins see the SDK's public `PinState` union (`0 | 1 | 'z' | 'x'`).
+      expect(cb).toHaveBeenCalledWith(1);
       expect(cb.mock.calls[0]).toHaveLength(1);
     });
 

@@ -34,12 +34,20 @@ import type {
   EditorActionDefinition,
   EditorActionRegistry,
   EventBusReader,
+  HighLevelPartSimulation,
+  I2CTransferEvent,
   LibraryDefinition,
   LibraryRegistry as SdkLibraryRegistry,
   PanelDefinition,
   PanelRegistry,
+  PartI2CAPI,
+  PartPinAPI,
+  PartPinLevel,
+  PartSerialAPI,
   PartSimulation,
+  PartSimulationAPI,
   PartSimulationRegistry as SdkPartSimulationRegistry,
+  PinState,
   PluginContext,
   PluginManifest,
   PluginStorage,
@@ -327,6 +335,60 @@ export function createPluginContext(
       subscriptions.add(handle);
       return handle;
     },
+    registerHighLevel: (componentId: string, definition: HighLevelPartSimulation) => {
+      // Same register-time gate as `register()` — the author needs
+      // `simulator.pins.read` to subscribe to any pin at all. `pin().set()`
+      // is additionally gated at call time on `simulator.pins.write`.
+      requirePermission(manifest, 'simulator.pins.read');
+      // Build a low-level `PartSimulation` whose `attachEvents(element, handle)`
+      // constructs a `PartSimulationAPI` from:
+      //   - `handle.onPinChange` + `handle.setPinState` → `pin()`
+      //   - `services.events.on('serial:tx', …)`        → `serial.onRead`
+      //   - `services.events.on('i2c:transfer', …)`     → `i2c.onTransfer`
+      // Everything the author subscribes via `api.*` is tracked in a local
+      // disposable array so the composed teardown kills every piece — even
+      // if the author's own teardown throws.
+      const declaredPins = new Set(definition.pins);
+      const sim: PartSimulation = {
+        attachEvents: (element: HTMLElement, handle: SimulatorHandle) => {
+          const api = buildPartSimulationAPI({
+            manifest,
+            handle,
+            events: services.events,
+            declaredPins,
+            logger,
+          });
+          let authorTeardown: () => void = () => {};
+          try {
+            authorTeardown = definition.attach(element, api.api);
+          } catch (err) {
+            logger.error(
+              `high-level attach threw for component "${componentId}":`,
+              err,
+            );
+          }
+          return () => {
+            // Author teardown first so they get to release any external
+            // handles before the pin/serial/i2c subscriptions go away.
+            try {
+              authorTeardown();
+            } catch (err) {
+              logger.error(
+                `high-level teardown threw for component "${componentId}":`,
+                err,
+              );
+            }
+            api.dispose();
+          };
+        },
+      };
+      // Route through the existing low-level path so the fault-isolation
+      // wrapper we just set up for `register()` doesn't have to be
+      // duplicated here. Re-use the same register() path (with its
+      // `simulator.pins.read` gate — which we've already passed above,
+      // and `requirePermission` is idempotent / cheap).
+      return partSimulations.register(componentId, sim);
+    },
     get: (componentId) => hostPartRegistry.get(componentId) as PartSimulation | undefined,
   };
 
@@ -550,6 +612,207 @@ export function createPluginContext(
         logger.error('slot bridge dispose threw:', err);
       }
       subscriptions.dispose();
+    },
+  };
+}
+
+/**
+ * Translate a raw bus-level `PinState` (`0` / `1` / `'z'` / `'x'`) into
+ * the high-level three-valued `PartPinLevel` that plugins see. Both
+ * high-Z (`'z'`) and unknown (`'x'`) collapse to `'floating'` — plugins
+ * that care about the distinction can subscribe to `pin:change` directly.
+ */
+function pinStateToLevel(state: PinState): PartPinLevel {
+  if (state === 1) return 'high';
+  if (state === 0) return 'low';
+  return 'floating';
+}
+
+/**
+ * Build the live `PartSimulationAPI` for one `attachEvents` call.
+ *
+ * Factored out so:
+ *   1. The wiring logic (state tracking, event subscriptions, permission
+ *      gating on `set()`) is unit-testable independent of
+ *      `createPluginContext()`.
+ *   2. `registerHighLevel()` above stays readable as the thin wrapper
+ *      it's meant to be.
+ *
+ * Returns `{ api, dispose }`: the `api` object is what the plugin's
+ * `attach(element, api)` receives; `dispose` releases every subscription
+ * opened on behalf of the API (pin trackers, serial listeners, i2c
+ * listeners). `dispose` is called by the `attachEvents` teardown
+ * synthesized in `registerHighLevel` AFTER the author's own teardown so
+ * authors can't observe a half-released API.
+ */
+function buildPartSimulationAPI(params: {
+  manifest: PluginManifest;
+  handle: SimulatorHandle;
+  events: EventBusReader;
+  declaredPins: ReadonlySet<string>;
+  logger: ReturnType<typeof createPluginLogger>;
+}): { api: PartSimulationAPI; dispose: () => void } {
+  const { manifest, handle, events, declaredPins, logger } = params;
+
+  // Per-pin tracked level + listener set. We initialize to 'floating' and
+  // let the `onPinChange` subscription bring the value up to date on the
+  // first transition. Reading current level from `PinManager.getPinState`
+  // would remove the transition-delay but it's intentionally kept off the
+  // SDK's `SimulatorHandle` contract to keep it minimal — revisit when we
+  // have a concrete plugin that demands synchronous initial reads.
+  interface PinTracker {
+    level: PartPinLevel;
+    listeners: Set<(level: PartPinLevel) => void>;
+    subscription: Disposable;
+  }
+  const trackers = new Map<string, PinTracker>();
+  const disposables: Disposable[] = [];
+
+  // Pre-wire trackers for every declared pin so state is observed from the
+  // moment `attach(...)` starts — even if the author never subscribes via
+  // `onChange`, `pin(name).state` reflects the latest level.
+  for (const pinName of declaredPins) {
+    const tracker: PinTracker = {
+      level: 'floating',
+      listeners: new Set(),
+      // Placeholder until we wire the real subscription below — TS can't
+      // see the assignment happens immediately.
+      subscription: { dispose: () => {} },
+    };
+    const subscription = handle.onPinChange(pinName, (state) => {
+      const nextLevel = pinStateToLevel(state);
+      if (nextLevel === tracker.level) return;
+      tracker.level = nextLevel;
+      // Snapshot listeners so a listener unsubscribing itself doesn't
+      // skip its siblings in this dispatch. Matches the EventBus contract.
+      const snapshot = [...tracker.listeners];
+      for (const fn of snapshot) {
+        try {
+          fn(nextLevel);
+        } catch (err) {
+          logger.error(
+            `pin("${pinName}").onChange listener threw:`,
+            err,
+          );
+        }
+      }
+    });
+    tracker.subscription = subscription;
+    disposables.push(subscription);
+    trackers.set(pinName, tracker);
+  }
+
+  // `api.pin(name)` builds a fresh `PartPinAPI` view each call. The view
+  // closes over the same `tracker` so repeated calls observe the same
+  // state and share the listener set — this mirrors the ticket spec
+  // (`readonly state`) while keeping the view allocation cheap.
+  const pin = (name: string): PartPinAPI => {
+    const tracker = trackers.get(name);
+    if (tracker === undefined) {
+      throw new Error(
+        `Plugin "${manifest.id}" accessed pin "${name}" which wasn't declared in HighLevelPartSimulation.pins. Declare every pin you intend to touch.`,
+      );
+    }
+    return {
+      get state() {
+        return tracker.level;
+      },
+      onChange: (fn) => {
+        tracker.listeners.add(fn);
+        let disposed = false;
+        return {
+          dispose: () => {
+            if (disposed) return;
+            disposed = true;
+            tracker.listeners.delete(fn);
+          },
+        };
+      },
+      set: (state: 'low' | 'high') => {
+        // Per-call gate: registering a high-level part only needs
+        // `simulator.pins.read`; mutating MCU-side state needs the
+        // stricter `simulator.pins.write`.
+        requirePermission(manifest, 'simulator.pins.write');
+        const arduinoPin = handle.getArduinoPin(name);
+        if (arduinoPin === null) {
+          // No wire — silently no-op. The part will re-evaluate on the
+          // first `onChange` after the user wires it up.
+          return;
+        }
+        handle.setPinState(arduinoPin, state === 'high');
+      },
+    };
+  };
+
+  // Serial: observe MCU TX (UART0). Write-side (injecting into MCU RX)
+  // is left for a future ticket — intentionally NOT advertised on the
+  // interface surface until the host plumbing exists.
+  const serial: PartSerialAPI = {
+    onRead: (fn) => {
+      const unsubscribe = events.on('serial:tx', (payload) => {
+        try {
+          fn(payload.data);
+        } catch (err) {
+          logger.error('serial.onRead listener threw:', err);
+        }
+      });
+      let disposed = false;
+      const d: Disposable = {
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          unsubscribe();
+        },
+      };
+      disposables.push(d);
+      return d;
+    },
+  };
+
+  // I2C: observe every transaction on the bus. The listener is
+  // responsible for filtering by `event.addr` if the plugin cares about
+  // a specific slave address.
+  const i2c: PartI2CAPI = {
+    onTransfer: (fn) => {
+      const unsubscribe = events.on('i2c:transfer', (payload: I2CTransferEvent) => {
+        try {
+          fn(payload);
+        } catch (err) {
+          logger.error('i2c.onTransfer listener threw:', err);
+        }
+      });
+      let disposed = false;
+      const d: Disposable = {
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          unsubscribe();
+        },
+      };
+      disposables.push(d);
+      return d;
+    },
+  };
+
+  const api: PartSimulationAPI = { pin, serial, i2c };
+
+  return {
+    api,
+    dispose: () => {
+      // LIFO unwind so pin trackers go last (they were pushed first).
+      for (let i = disposables.length - 1; i >= 0; i--) {
+        try {
+          disposables[i].dispose();
+        } catch (err) {
+          logger.error('high-level API disposable threw:', err);
+        }
+      }
+      // Drop listener references eagerly so any leaked `api.pin(n)` views
+      // in the author's closure become noticeable no-ops rather than
+      // silent memory retainers.
+      for (const tracker of trackers.values()) {
+        tracker.listeners.clear();
+      }
     },
   };
 }

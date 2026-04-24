@@ -384,6 +384,105 @@ when:
 Otherwise — for self-contained components — `defineCompoundComponent` cuts the
 boilerplate by ~3× and keeps the entire definition in one reviewable literal.
 
+## High-level part authoring — `defineHighLevelPart` + `registerHighLevel`
+
+`ctx.partSimulations.register()` hands the plugin a bare `SimulatorHandle` with
+`onPinChange` / `setPinState` / `getArduinoPin`. That contract is complete and
+stable, but it leaves every author re-implementing the same three pieces
+whenever they build an interactive component:
+
+1. tracking current pin state for a UI render (by subscribing to `onPinChange`
+   and stashing the last value),
+2. converting boolean level to a human-readable `'low'`/`'high'`/`'floating'`,
+3. observing serial / I²C traffic across the bus.
+
+`ctx.partSimulations.registerHighLevel(id, def)` packages those three pieces
+behind a richer `PartSimulationAPI`:
+
+```ts
+import { defineHighLevelPart } from '@velxio/sdk';
+
+const button = defineHighLevelPart({
+  pins: ['SIG'],                      // pins you intend to touch
+  attach(element, api) {
+    const onDown = () => api.pin('SIG').set('low');
+    const onUp   = () => api.pin('SIG').set('high');
+    element?.addEventListener('mousedown', onDown);
+    element?.addEventListener('mouseup',   onUp);
+
+    const unsub = api.pin('SIG').onChange((level) => {
+      console.log('[button] SIG is now', level);   // 'low' | 'high' | 'floating'
+    });
+
+    return () => {
+      element?.removeEventListener('mousedown', onDown);
+      element?.removeEventListener('mouseup',   onUp);
+      unsub.dispose();
+    };
+  },
+});
+
+// In activate(ctx):
+const handle = ctx.partSimulations.registerHighLevel('demo.button', button);
+ctx.subscriptions.add(handle);
+```
+
+### `PartSimulationAPI` — what the author gets
+
+| Surface                | Purpose                                                              | Notes                                                                                                          |
+|------------------------|----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `pin(name).state`      | Last level observed on the pin (`'low'` / `'high'` / `'floating'`).  | `'floating'` until the first transition is seen. Throws for pin names not declared in `def.pins`.              |
+| `pin(name).onChange`   | Fire-on-transition subscription.                                      | Returns `Disposable`; idempotent `dispose()`.                                                                  |
+| `pin(name).set(level)` | Force-set the MCU-side pin from the component side.                   | Gated at call time on `simulator.pins.write`. Silent no-op when the pin is not wired.                          |
+| `serial.onRead(fn)`    | Observe every byte the MCU transmits on UART0.                        | Backed by the `serial:tx` event. Returns `Disposable`.                                                         |
+| `i2c.onTransfer(fn)`   | Observe every transaction on the I²C bus.                             | Backed by the `i2c:transfer` event; listener is responsible for filtering by `event.addr`. Returns `Disposable`. |
+
+### Permission requirements
+
+| Entry point                                 | Permission(s) required        |
+|---------------------------------------------|--------------------------------|
+| `registerHighLevel(id, def)` (register time)| `simulator.pins.read`         |
+| `api.pin(n).set(…)` (call time)             | `simulator.pins.write`        |
+| `api.serial.onRead(fn)`                     | — (subscribes to read-only events) |
+| `api.i2c.onTransfer(fn)`                    | — (subscribes to read-only events) |
+
+The register-time gate matches `partSimulations.register()`. `set()` gates at
+call time instead of register time so a part can freely observe pins without
+the `pins.write` permission and still be written if its other pins need to
+drive the MCU.
+
+### State tracking contract
+
+- `pin(name).state` is initialized to `'floating'` at `attach(...)` time and
+  updates on every observed transition. It does **not** do a synchronous initial
+  read of the PinManager — `'floating'` is the intentionally conservative
+  default for the first frame. If the first transition hasn't happened yet,
+  the value stays `'floating'`.
+- Declaring `pins` is load-bearing: `api.pin(name)` throws for any name not
+  in `def.pins`. Declare every pin you intend to touch — missing declarations
+  surface at `attach(...)` time rather than at a random later frame.
+
+### Teardown
+
+`attach(element, api)` returns a teardown function. The host calls it when the
+simulator stops or when the plugin is unloaded, and **always** releases every
+internal subscription afterwards — even if your teardown throws. Subscriptions
+you create via `api.pin(n).onChange` / `api.serial.onRead` / `api.i2c.onTransfer`
+are also auto-disposed as part of the host's cleanup, so you only need to tear
+down what `attach` itself allocates (DOM listeners, intervals, external
+handles).
+
+### When to prefer the low-level `register()` flow
+
+- You need to interact with the `SimulatorHandle` directly (e.g. for
+  `handle.componentId` or `handle.isRunning()`).
+- Your part doesn't care about pin-state tracking (e.g. it only drives the
+  element in response to MCU state changes via `onPinStateChange`).
+- You need synchronous initial-state reads today.
+
+In those cases stay on `ctx.partSimulations.register(...)` — the low-level
+contract is fully supported and `defineHighLevelPart` is purely additive.
+
 ## Disposal & teardown — `ctx.subscriptions`
 
 Every `register()` returns a `Disposable` (`{ dispose(): void }`). The host's

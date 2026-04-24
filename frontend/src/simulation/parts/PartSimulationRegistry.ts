@@ -135,7 +135,11 @@ class PartRegistry {
             }
             const unsubscribe = simulator.pinManager.onPinChange(
               arduinoPin,
-              (_pin, state) => callback(state),
+              // PinManager fires `(pin, boolean)`, but the SDK contract types
+              // the callback as `(state: PinState)` where `PinState = 0 | 1 |
+              // 'z' | 'x'`. Coerce at the boundary so plugins author against
+              // the public type.
+              (_pin, state) => callback(state ? 1 : 0),
             );
             return { dispose: unsubscribe };
           },

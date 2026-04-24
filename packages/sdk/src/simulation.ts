@@ -84,7 +84,159 @@ export interface PartSimulationRegistry {
   register(componentId: string, simulation: PartSimulation): {
     dispose(): void;
   };
+  /**
+   * Compact high-level authoring shape: the plugin declares the set of pins
+   * the component cares about, and an `attach(element, api)` that receives
+   * a richer `PartSimulationAPI` instead of the raw `SimulatorHandle`.
+   *
+   * The host builds the `PartSimulationAPI` by composing `SimulatorHandle`
+   * with the plugin's event subscriptions (`serial:tx` / `i2c:transfer`),
+   * registers the result as an ordinary `PartSimulation` under the hood,
+   * and returns a `Disposable` that tears the whole thing down.
+   *
+   * Permission requirements:
+   *   - always: `simulator.pins.read` (same as `register()`)
+   *   - `api.pin(n).set(...)` call-time: `simulator.pins.write`
+   *
+   * See `defineHighLevelPart` for the authoring helper.
+   */
+  registerHighLevel(
+    componentId: string,
+    definition: HighLevelPartSimulation,
+  ): import('./components').Disposable;
   get(componentId: string): PartSimulation | undefined;
+}
+
+/**
+ * Three-valued pin level as seen by a high-level part. `'floating'` is the
+ * initial value before the first transition is observed, and also covers
+ * high-Z (`'z'`) and unknown (`'x'`) raw `PinState`s when translated.
+ */
+export type PartPinLevel = 'low' | 'high' | 'floating';
+
+/**
+ * I2C transaction observed on the bus, delivered to a high-level part's
+ * `api.i2c.onTransfer` listener. Payload shape mirrors the `i2c:transfer`
+ * event from the bus catalog — re-exported here for discoverability from
+ * authoring code that only imports `@velxio/sdk`.
+ */
+export interface I2CTransferEvent {
+  readonly addr: number;
+  readonly direction: 'read' | 'write';
+  readonly data: Uint8Array;
+  readonly stop: boolean;
+}
+
+/**
+ * Per-pin view given to high-level parts. `state` is the last level the
+ * host observed (initialized to `'floating'`); `onChange` fires on every
+ * transition with the new level. `set(...)` forces the pin from the part's
+ * side — e.g. a pushbutton releasing the pin to HIGH — and is gated on
+ * `simulator.pins.write` at call time (throws `PermissionDeniedError`).
+ *
+ * `onChange` returns a `Disposable`; keep the handle and call `dispose()`
+ * in the attach teardown. The host also auto-disposes every subscription
+ * when the part is torn down.
+ */
+export interface PartPinAPI {
+  readonly state: PartPinLevel;
+  onChange(fn: (state: PartPinLevel) => void): import('./components').Disposable;
+  set(state: 'low' | 'high'): void;
+}
+
+/**
+ * Serial helper surface. Today the host only exposes the observe side
+ * (`onRead` receives every byte the MCU transmits on UART0/TX). The write
+ * side (`api.serial.write(data)`) that would inject bytes into the MCU's
+ * RX pipe is reserved for a future ticket — this interface matches the
+ * planned shape so plugins authored against today's surface keep working.
+ *
+ * `onRead` returns a `Disposable` — same teardown contract as `PartPinAPI.onChange`.
+ */
+export interface PartSerialAPI {
+  onRead(fn: (data: Uint8Array) => void): import('./components').Disposable;
+}
+
+/**
+ * I2C helper surface. `onTransfer` fires for every transaction the host
+ * observes on the bus; the part is responsible for filtering by address
+ * if it only cares about its own. Like `serial`, the write side is
+ * reserved for a future ticket.
+ */
+export interface PartI2CAPI {
+  onTransfer(fn: (event: I2CTransferEvent) => void): import('./components').Disposable;
+}
+
+/**
+ * High-level API handed to a `HighLevelPartSimulation.attach(element, api)`
+ * callback. Strictly richer than `SimulatorHandle` but built on top of it
+ * — the host constructs this per-attachment, closing over the handle, the
+ * event bus, and a small bit of tracked state (current pin levels).
+ *
+ * Callers MUST NOT stash `api` past the return of `attach(...)` — the
+ * closures it carries reference simulator state that is torn down between
+ * runs. Every ephemeral subscription (`onChange`, `onRead`, `onTransfer`)
+ * returns a `Disposable` whose `dispose()` the plugin is expected to call
+ * in the teardown function that `attach` returns.
+ */
+export interface PartSimulationAPI {
+  /**
+   * Look up the high-level surface for one of the pins declared in
+   * `HighLevelPartSimulation.pins`. Calling `pin(name)` with a name that
+   * wasn't declared throws — declare every pin you intend to touch.
+   */
+  pin(name: string): PartPinAPI;
+  readonly serial?: PartSerialAPI;
+  readonly i2c?: PartI2CAPI;
+}
+
+/**
+ * High-level authoring shape for a part simulation. Declare the pins you
+ * care about so the host can pre-wire state tracking + permission gating,
+ * and implement a single `attach(element, api)` that returns a teardown
+ * function. `attach` is called once per simulation start.
+ *
+ * ```ts
+ * import { defineHighLevelPart } from '@velxio/sdk';
+ * export const button = defineHighLevelPart({
+ *   pins: ['SIG', 'GND'],
+ *   attach(element, api) {
+ *     const onDown = () => api.pin('SIG').set('low');
+ *     const onUp = () => api.pin('SIG').set('high');
+ *     element?.addEventListener('mousedown', onDown);
+ *     element?.addEventListener('mouseup', onUp);
+ *     return () => {
+ *       element?.removeEventListener('mousedown', onDown);
+ *       element?.removeEventListener('mouseup', onUp);
+ *     };
+ *   },
+ * });
+ * ```
+ *
+ * Register via `ctx.partSimulations.registerHighLevel(id, def)`.
+ */
+export interface HighLevelPartSimulation {
+  /**
+   * The component-side pin names this part cares about. Every entry gets
+   * its current state tracked and exposed via `api.pin(name).state`.
+   * Pin names that aren't listed here throw at `api.pin(name)` call time —
+   * authors should declare everything they intend to touch.
+   */
+  readonly pins: ReadonlyArray<string>;
+  /**
+   * Attach DOM listeners / start per-part work. Return a teardown function;
+   * the host calls it on simulator stop and on plugin unload. `element`
+   * may be `null` during tests or when the component hasn't mounted yet.
+   */
+  attach(element: HTMLElement | null, api: PartSimulationAPI): () => void;
+}
+
+/**
+ * Identity helper for `HighLevelPartSimulation` records with full type
+ * inference and no runtime wrapper. Mirrors `definePartSimulation`.
+ */
+export function defineHighLevelPart<T extends HighLevelPartSimulation>(part: T): T {
+  return part;
 }
 
 /**

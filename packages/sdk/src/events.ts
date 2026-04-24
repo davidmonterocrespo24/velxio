@@ -51,6 +51,33 @@ export interface SimulatorEvents {
   };
   'serial:tx': { readonly port: number; readonly data: Uint8Array };
   'serial:rx': { readonly port: number; readonly data: Uint8Array };
+  /**
+   * An I2C transaction observed on the bus. Emitted either by the MCU
+   * driver or by a part that acts as a bus monitor. `direction` is from
+   * the master's perspective: `'write'` = master → slave, `'read'` =
+   * master ← slave. `stop` is `true` when the transaction was terminated
+   * by a STOP condition (as opposed to a repeated START).
+   *
+   * Parts subscribe via the high-level `api.i2c?.onTransfer(…)` helper.
+   */
+  'i2c:transfer': {
+    readonly addr: number;
+    readonly direction: 'read' | 'write';
+    readonly data: Uint8Array;
+    readonly stop: boolean;
+  };
+  /**
+   * An SPI frame observed on the bus. `mosi` is the master-out / slave-in
+   * byte stream, `miso` is the slave response. `cs` is the chip-select
+   * line identifier the master asserted (useful when many slaves share
+   * a bus). Either `mosi` or `miso` may be zero-length — the receiving
+   * side only populates what it actually saw.
+   */
+  'spi:transfer': {
+    readonly cs: string;
+    readonly mosi: Uint8Array;
+    readonly miso: Uint8Array;
+  };
   /** Throttled: at most 5 Hz. `nodes` contains voltages at named SPICE nodes. */
   'spice:step': {
     readonly time: number;
