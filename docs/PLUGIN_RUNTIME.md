@@ -237,25 +237,90 @@ Two suites exercise the runtime end-to-end without spawning a real Worker:
   `PluginHost` with `buildContextStub()` over a `MessageChannel` to
   exercise commands, permissions, storage, settings, events, and
   termination from end to end.
+- `frontend/src/__tests__/plugin-runtime-pentest.test.ts` —
+  surface-contract pentest (CORE-006b step 1, see next section).
 
 The pattern (`endpointFor(port)` + `port.start()` + a `WorkerLike` shim)
 is what production tests against new SDK methods should follow.
 
 ---
 
+## Pentest suite (CORE-006b step 1)
+
+`frontend/src/__tests__/plugin-runtime-pentest.test.ts` is the security
+gate that new SDK methods must not break. It verifies the
+`PluginContext` surface contract — the only handle `activate(ctx)`
+receives — against eight vectors:
+
+| # | What the plugin tries | How the runtime refuses |
+|---|---|---|
+| 1 | Reach `document`/`window`/`parent`/`top`/`frames` via `ctx` | Keys are `undefined`; UI registry handles return `{ dispose }` only, never a DOM node |
+| 2 | Reach `localStorage`/`sessionStorage`/`indexedDB` via `ctx` | Keys are `undefined`; `userStorage.get/set` reject with `PermissionDeniedError` without `storage.user.read`/`write` |
+| 3 | Read cookies or set `credentials: 'include'` | No `cookie`/`headers`/`credentials` on `ctx`; `ScopedFetch` always overrides with `credentials: 'omit'` |
+| 4 | Reach `eval`/`Function`/`require`/`process` | Keys are `undefined` |
+| 5 | Exfiltrate via `fetch('https://malo.com', …)` | `HttpAllowlistDeniedError`; plain `http://` is rejected even if allowlisted; **allowlist is closure-frozen at activation** (mutating `manifest.http` later does not widen) |
+| 6 | Call a gated entry point without the permission | `PermissionDeniedError` (for sync gates); for RPC-dispatched registrations (`settings.declare`, `commands.register`, …) the host registry never receives the entry |
+| 7 | Register a handler that throws on every invocation | Registration still succeeds; the throw is caught on execute and the host stays operational |
+| 8 | Dispose/terminate from plugin A to mess with plugin B | Per-plugin UI registries are independent `Map`-backed instances; A's dispose and A's `terminate()` do not touch B |
+
+### Why surface-contract and not worker-globalThis
+
+The original CORE-006b §4 spec read `globalThis.document` inside a
+worker and asserted `ReferenceError`. In jsdom unit tests the "worker"
+is a `MessagePort` in the same realm as the test file, so
+`globalThis.document` IS present — asserting otherwise would mean
+maintaining a synthetic environment that no longer reflects the
+production Worker. The guarantee that matters is **what a plugin can
+reach through the SDK it was handed**, which is what this suite
+covers. The orthogonal browser-enforced guarantee (Worker globalThis
+shape + `connect-src` blocking egress at the network layer) is
+validated by the strict CSP rollout in **CORE-006b step 2**.
+
+### Why `settings.declare` denial is tested host-side
+
+`ContextStub.settings.declare` wraps the RPC call in `wrapDisposable`,
+which returns a `Disposable` synchronously and `.catch`es the
+promise — the plugin never sees the rejection. This is intentional:
+plugin authors don't `await` every `register*` call. To test
+fail-closed, the pentest calls, flushes microtasks, and asserts
+`getSettingsRegistry().get(pluginId) === undefined`. That is the
+correct shape for any future pentest against an RPC-dispatched
+registration (`commands.register`, `components.register`, …).
+
+### Adding a new vector
+
+When a new SDK method lands that could leak a capability, add a
+`describe('pentest · vector N: …')` block that:
+
+1. `spawn({ perms, allowlist, fetchImpl })` a fixture with the
+   minimum permissions needed to exercise the method.
+2. Invoke the method with a hostile argument (monkey-patched manifest,
+   leaked key, etc.).
+3. Assert the denial shape: either a typed error on the plugin side,
+   or an absence on the host side.
+
+Fail-closed is the rule: if the test accidentally passes because the
+method returned a resolved Promise with an undefined body, that is a
+false negative — inspect what actually got registered on the host.
+
+---
+
 ## Deferred work
 
-Tracked in `task_plan/Backlog/CORE-006b-runtime-deferred.md`:
+Tracked in `task_plan/Backlog/CORE-006b-runtime-deferred.md`. Sub-step
+status:
 
-1. DOM-bound API design (`render.kind: 'svg'` declarative schema; opt-in
-   Web Component registration for panels and overlays).
-2. Production CSP rollout (`worker-src 'self' blob:`, `script-src 'self'
-   'wasm-unsafe-eval'`, etc.) in `frontend/index.html`.
-3. **BENCH-AVR-04 with N=3 plugins** — hard regression gate (< 1 % vs
-   no-plugin baseline).
-4. Penetration test suite covering the 5 escape vectors (DOM access,
+1. ~~Penetration test suite covering the 5 escape vectors (DOM access,
    `localStorage` reach, cookie exfiltration, main-thread eval,
-   `connect-src` exfiltration).
-5. *Installed Plugins* UI surface for `PluginHostStats` (queue depth,
-   drops, missed pings) — feeds CORE-008.
-6. Per-plugin egress accounting and rate-limit policy for `fetch`.
+   `connect-src` exfiltration).~~ — ✅ Done 2026-04-24 as
+   **CORE-006b-step1** (extended to 8 vectors, surface-contract
+   reframing; see above).
+2. Production CSP rollout (`worker-src 'self' blob:`, `script-src 'self'
+   'wasm-unsafe-eval'`, etc.) in `frontend/index.html`. → step 2
+3. **BENCH-AVR-04 with N=3 plugins** — hard regression gate (< 1 % vs
+   no-plugin baseline). → step 3
+4. *Installed Plugins* UI surface for `PluginHostStats` (queue depth,
+   drops, missed pings) — feeds CORE-008. → step 4
+5. DOM-bound API design (`render.kind: 'svg'` declarative schema; opt-in
+   Web Component registration for panels and overlays). → step 5
+6. Per-plugin egress accounting and rate-limit policy for `fetch`. → step 6
