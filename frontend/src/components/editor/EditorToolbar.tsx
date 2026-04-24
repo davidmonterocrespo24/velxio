@@ -19,6 +19,7 @@ import {
   trackResetSimulation,
   trackOpenLibraryManager,
 } from '../../utils/analytics';
+import { useTranslate } from '../../i18n/useLocale';
 import './EditorToolbar.css';
 
 interface EditorToolbarProps {
@@ -56,6 +57,7 @@ export const EditorToolbar = ({
   compileLogs: _compileLogs,
   setCompileLogs,
 }: EditorToolbarProps) => {
+  const t = useTranslate();
   const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
   const {
     boards,
@@ -128,9 +130,9 @@ export const EditorToolbar = ({
       addLog({
         timestamp: new Date(),
         type: 'info',
-        message: 'Raspberry Pi 3B: no compilation needed — run Python scripts directly.',
+        message: t('editorToolbar.log.piNoCompile'),
       });
-      setMessage({ type: 'success', text: 'Ready (no compilation needed)' });
+      setMessage({ type: 'success', text: t('editorToolbar.message.ready') });
       setCompiling(false);
       return;
     }
@@ -140,7 +142,7 @@ export const EditorToolbar = ({
       addLog({
         timestamp: new Date(),
         type: 'info',
-        message: 'MicroPython: loading firmware and user files...',
+        message: t('editorToolbar.log.microPythonLoading'),
       });
       try {
         const groupFiles = useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId);
@@ -149,11 +151,11 @@ export const EditorToolbar = ({
         addLog({
           timestamp: new Date(),
           type: 'success',
-          message: 'MicroPython firmware loaded successfully',
+          message: t('editorToolbar.log.microPythonLoaded'),
         });
-        setMessage({ type: 'success', text: 'MicroPython ready' });
+        setMessage({ type: 'success', text: t('editorToolbar.message.microPythonReady') });
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+        const errMsg = err instanceof Error ? err.message : t('editorToolbar.message.failedMicroPython');
         addLog({ timestamp: new Date(), type: 'error', message: errMsg });
         setMessage({ type: 'error', text: errMsg });
       } finally {
@@ -166,8 +168,12 @@ export const EditorToolbar = ({
     const boardLabel = kind ? BOARD_KIND_LABELS[kind] : 'Unknown';
 
     if (!fqbn) {
-      addLog({ timestamp: new Date(), type: 'error', message: `No FQBN for board kind: ${kind}` });
-      setMessage({ type: 'error', text: 'Unknown board' });
+      addLog({
+        timestamp: new Date(),
+        type: 'error',
+        message: t('editorToolbar.log.noFqbn', { kind: String(kind) }),
+      });
+      setMessage({ type: 'error', text: t('editorToolbar.message.unknownBoard') });
       setCompiling(false);
       return;
     }
@@ -175,7 +181,7 @@ export const EditorToolbar = ({
     addLog({
       timestamp: new Date(),
       type: 'info',
-      message: `Starting compilation for ${boardLabel} (${fqbn})...`,
+      message: t('editorToolbar.log.startCompile', { board: boardLabel, fqbn }),
     });
 
     try {
@@ -199,11 +205,11 @@ export const EditorToolbar = ({
             updateBoard(activeBoardId, { hasWifi: result.has_wifi });
           }
         }
-        setMessage({ type: 'success', text: 'Compiled successfully' });
+        setMessage({ type: 'success', text: t('editorToolbar.message.compiled') });
         markCompiled();
         setMissingLibHint(false);
       } else {
-        const errText = result.error || result.stderr || 'Compile failed';
+        const errText = result.error || result.stderr || t('editorToolbar.message.compileFailed');
         setMessage({ type: 'error', text: errText });
         // Detect missing library errors — common patterns:
         // "No such file or directory" for #include, "fatal error: XXX.h"
@@ -212,7 +218,7 @@ export const EditorToolbar = ({
         setMissingLibHint(looksLikeMissingLib);
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : 'Compile failed';
+      const errMsg = err instanceof Error ? err.message : t('editorToolbar.message.compileFailed');
       addLog({ timestamp: new Date(), type: 'error', message: errMsg });
       setMessage({ type: 'error', text: errMsg });
     } finally {
@@ -245,7 +251,7 @@ export const EditorToolbar = ({
         addLog({
           timestamp: new Date(),
           type: 'info',
-          message: 'MicroPython: loading firmware and user files...',
+          message: t('editorToolbar.log.microPythonLoading'),
         });
         try {
           const groupFiles = useEditorStore.getState().getGroupFiles(board.activeFileGroupId);
@@ -254,10 +260,10 @@ export const EditorToolbar = ({
           addLog({
             timestamp: new Date(),
             type: 'success',
-            message: 'MicroPython firmware loaded',
+            message: t('editorToolbar.log.microPythonLoadedShort'),
           });
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : 'Failed to load MicroPython';
+          const errMsg = err instanceof Error ? err.message : t('editorToolbar.message.failedMicroPython');
           addLog({ timestamp: new Date(), type: 'error', message: errMsg });
           setMessage({ type: 'error', text: errMsg });
           setCompiling(false);
@@ -443,7 +449,7 @@ export const EditorToolbar = ({
         files.find((f) => f.name.endsWith('.ino'))?.name.replace('.ino', '') || 'velxio-project';
       await exportToWokwiZip(files, components, wires, legacyBoardType, projectName, boardPosition);
     } catch (err) {
-      setMessage({ type: 'error', text: 'Export failed.' });
+      setMessage({ type: 'error', text: t('editorToolbar.message.exportFailed') });
     }
   };
 
@@ -453,12 +459,16 @@ export const EditorToolbar = ({
     if (!file) return;
 
     setConsoleOpen(true);
-    addLog({ timestamp: new Date(), type: 'info', message: `Loading firmware: ${file.name}...` });
+    addLog({
+      timestamp: new Date(),
+      type: 'info',
+      message: t('editorToolbar.log.loadingFirmware', { name: file.name }),
+    });
 
     try {
       const boardKind = activeBoard?.boardKind;
       if (!boardKind) {
-        setMessage({ type: 'error', text: 'No board selected' });
+        setMessage({ type: 'error', text: t('editorToolbar.message.noBoard') });
         return;
       }
 
@@ -471,7 +481,7 @@ export const EditorToolbar = ({
         addLog({
           timestamp: new Date(),
           type: 'info',
-          message: `Note: Detected ${detected} architecture, but current board is ${current}. Loading anyway.`,
+          message: t('editorToolbar.log.archMismatch', { detected, current }),
         });
       }
 
@@ -479,10 +489,10 @@ export const EditorToolbar = ({
         compileBoardProgram(activeBoardId, result.program);
         markCompiled();
         addLog({ timestamp: new Date(), type: 'info', message: result.message });
-        setMessage({ type: 'success', text: `Firmware loaded: ${file.name}` });
+        setMessage({ type: 'success', text: t('editorToolbar.message.firmwareLoaded', { name: file.name }) });
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : 'Failed to load firmware';
+      const errMsg = err instanceof Error ? err.message : t('editorToolbar.message.failedFirmware');
       addLog({ timestamp: new Date(), type: 'error', message: errMsg });
       setMessage({ type: 'error', text: errMsg });
     }
@@ -504,13 +514,13 @@ export const EditorToolbar = ({
       setComponents(result.components);
       setWires(result.wires);
       if (result.files.length > 0) loadFiles(result.files);
-      setMessage({ type: 'success', text: `Imported ${file.name}` });
+      setMessage({ type: 'success', text: t('editorToolbar.message.imported', { name: file.name }) });
       if (result.libraries.length > 0) {
         setPendingLibraries(result.libraries);
         setInstallModalOpen(true);
       }
     } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Import failed.' });
+      setMessage({ type: 'error', text: err?.message || t('editorToolbar.message.importFailed') });
     }
   };
 
@@ -536,13 +546,15 @@ export const EditorToolbar = ({
                   borderColor: BOARD_PILL_COLOR[activeBoard.boardKind],
                   color: BOARD_PILL_COLOR[activeBoard.boardKind],
                 }}
-                title={`Editing: ${BOARD_KIND_LABELS[activeBoard.boardKind]}`}
+                title={t('editorToolbar.board.editing', { board: BOARD_KIND_LABELS[activeBoard.boardKind] })}
               >
                 <span className="tb-board-pill-icon">{BOARD_PILL_ICON[activeBoard.boardKind]}</span>
                 <span className="tb-board-pill-label">
                   {BOARD_KIND_LABELS[activeBoard.boardKind]}
                 </span>
-                {activeBoard.running && <span className="tb-board-pill-running" title="Running" />}
+                {activeBoard.running && (
+                  <span className="tb-board-pill-running" title={t('editorToolbar.board.running')} />
+                )}
               </div>
               {BOARD_SUPPORTS_MICROPYTHON.has(activeBoard.boardKind) && (
                 <select
@@ -552,7 +564,7 @@ export const EditorToolbar = ({
                     if (activeBoardId)
                       setBoardLanguageMode(activeBoardId, e.target.value as LanguageMode);
                   }}
-                  title="Language mode"
+                  title={t('editorToolbar.board.languageMode')}
                   style={{
                     background: '#2d2d2d',
                     color: '#ccc',
@@ -579,12 +591,12 @@ export const EditorToolbar = ({
               className="tb-btn tb-btn-compile"
               title={
                 !activeBoard
-                  ? 'Add a board to compile'
+                  ? t('editorToolbar.compile.addBoard')
                   : compiling
-                    ? 'Loading…'
+                    ? t('editorToolbar.compile.loading')
                     : activeBoard?.languageMode === 'micropython'
-                      ? 'Load MicroPython'
-                      : 'Compile (Ctrl+B)'
+                      ? t('editorToolbar.compile.loadMicroPython')
+                      : t('editorToolbar.compile.title')
               }
             >
               {compiling ? (
@@ -626,10 +638,10 @@ export const EditorToolbar = ({
               className="tb-btn tb-btn-run"
               title={
                 !activeBoard
-                  ? 'Add a board to run'
+                  ? t('editorToolbar.run.addBoard')
                   : activeBoard?.languageMode === 'micropython'
-                    ? 'Run MicroPython'
-                    : 'Run (auto-compiles if needed)'
+                    ? t('editorToolbar.run.runMicroPython')
+                    : t('editorToolbar.run.title')
               }
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
@@ -642,7 +654,7 @@ export const EditorToolbar = ({
               onClick={handleStop}
               disabled={!running}
               className="tb-btn tb-btn-stop"
-              title="Stop"
+              title={t('editorToolbar.stop.title')}
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -654,7 +666,7 @@ export const EditorToolbar = ({
               onClick={handleReset}
               disabled={!compiledHex && !activeBoard?.compiledProgram}
               className="tb-btn tb-btn-reset"
-              title="Reset"
+              title={t('editorToolbar.reset.title')}
             >
               <svg
                 width="22"
@@ -680,7 +692,7 @@ export const EditorToolbar = ({
                   onClick={handleCompileAll}
                   disabled={compileAllRunning}
                   className="tb-btn tb-btn-compile-all"
-                  title="Compile all boards"
+                  title={t('editorToolbar.compileAll.title')}
                 >
                   <svg
                     width="22"
@@ -702,7 +714,7 @@ export const EditorToolbar = ({
                   onClick={handleRunAll}
                   disabled={running}
                   className="tb-btn tb-btn-run-all"
-                  title="Run all boards"
+                  title={t('editorToolbar.runAll.title')}
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                     <polygon points="3,3 11,12 3,21" />
@@ -738,7 +750,7 @@ export const EditorToolbar = ({
                 setLibManagerOpen(true);
               }}
               className="tb-btn-libraries"
-              title="Search and install Arduino libraries"
+              title={t('editorToolbar.libraries.title')}
             >
               <svg
                 width="18"
@@ -754,7 +766,7 @@ export const EditorToolbar = ({
                 <path d="m3.3 7 8.7 5 8.7-5" />
                 <path d="M12 22V12" />
               </svg>
-              <span className="tb-libraries-label">Libraries</span>
+              <span className="tb-libraries-label">{t('editorToolbar.libraries.label')}</span>
             </button>
 
             {/* Import / Export — overflow menu */}
@@ -762,7 +774,7 @@ export const EditorToolbar = ({
               <button
                 onClick={() => setOverflowOpen((v) => !v)}
                 className={`tb-btn tb-btn-overflow${overflowOpen ? ' tb-btn-overflow-active' : ''}`}
-                title="Import / Export"
+                title={t('editorToolbar.overflow.title')}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                   <circle cx="5" cy="12" r="2" />
@@ -794,7 +806,7 @@ export const EditorToolbar = ({
                       <polyline points="7 10 12 15 17 10" />
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    Import zip
+                    {t('editorToolbar.overflow.import')}
                   </button>
                   <button
                     className="tb-overflow-item"
@@ -817,7 +829,7 @@ export const EditorToolbar = ({
                       <polyline points="17 8 12 3 7 8" />
                       <line x1="12" y1="3" x2="12" y2="15" />
                     </svg>
-                    Export zip
+                    {t('editorToolbar.overflow.export')}
                   </button>
                   <div style={{ borderTop: '1px solid #3c3c3c', margin: '4px 0' }} />
                   <button
@@ -841,7 +853,7 @@ export const EditorToolbar = ({
                       <line x1="12" y1="15" x2="12" y2="22" />
                       <polyline points="8 18 12 22 16 18" />
                     </svg>
-                    Upload firmware (.hex, .bin, .elf)
+                    {t('editorToolbar.overflow.uploadFirmware')}
                   </button>
                 </div>
               )}
@@ -853,7 +865,7 @@ export const EditorToolbar = ({
             <button
               onClick={() => setConsoleOpen((v) => !v)}
               className={`tb-btn tb-btn-output${consoleOpen ? ' tb-btn-output-active' : ''}`}
-              title="Toggle Output Console"
+              title={t('editorToolbar.console.title')}
             >
               <svg
                 width="22"
@@ -895,7 +907,7 @@ export const EditorToolbar = ({
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
-          <span>Missing library? Install it from the</span>
+          <span>{t('editorToolbar.libHint.text')}</span>
           <button
             className="tb-lib-hint-btn"
             onClick={() => {
@@ -904,12 +916,12 @@ export const EditorToolbar = ({
               setMissingLibHint(false);
             }}
           >
-            Library Manager
+            {t('editorToolbar.libHint.button')}
           </button>
           <button
             className="tb-lib-hint-close"
             onClick={() => setMissingLibHint(false)}
-            title="Dismiss"
+            title={t('editorToolbar.libHint.dismiss')}
           >
             &times;
           </button>
