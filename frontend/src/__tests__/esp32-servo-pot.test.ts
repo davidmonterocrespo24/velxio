@@ -93,8 +93,8 @@ vi.stubGlobal('sessionStorage', {
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
-import '../simulation/parts/ComplexParts';
+// Barrel import seeds built-in parts via `registerCoreParts()` (CORE-002c-step2).
+import { PartSimulationRegistry } from '../simulation/parts';
 import { PinManager } from '../simulation/PinManager';
 import { RP2040Simulator } from '../simulation/RP2040Simulator';
 import { setAdcVoltage } from '../simulation/parts/partUtils';

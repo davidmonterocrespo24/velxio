@@ -18,7 +18,7 @@
  *   libraries (e.g. IRremote) need the exact cycle counts not available here.
  */
 
-import { PartSimulationRegistry } from './PartSimulationRegistry';
+import type { PartRegistry } from './PartSimulationRegistry';
 import { VirtualDS1307, VirtualBMP280, VirtualDS3231, VirtualPCF8574 } from '../I2CBusManager';
 import type { I2CDevice } from '../I2CBusManager';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
@@ -34,6 +34,17 @@ function removeI2CDevice(simulator: any, address: number): void {
   simulator.removeI2CDevice?.(address, 0);
   simulator.removeI2CDevice?.(address, 1);
 }
+
+/**
+ * Register every ProtocolParts entry on the given registry. Called once at
+ * boot by `src/builtin/registerCoreParts.ts`. Stays on the legacy host shape
+ * — every protocol in here reaches into host-only surfaces (`i2cBus`,
+ * `spi.onTransmit`, `onPinChangeWithTime`, `schedulePinChange`, raw `cpu`)
+ * that aren't part of the narrow SDK `SimulatorHandle`. Extending the SDK
+ * handle to cover I2C/SPI/scheduled pin changes is tracked as
+ * CORE-002c-step3 / step4.
+ */
+export function registerProtocolParts(registry: PartRegistry): void {
 
 // ─── SSD1306 OLED ────────────────────────────────────────────────────────────
 
@@ -309,7 +320,7 @@ function attachSSD1306SPI(
   };
 }
 
-PartSimulationRegistry.register('ssd1306', {
+registry.register('ssd1306', {
   attachEvents: (element, simulator, getPin, componentId) => {
     // Read the protocol property from the component in the store
     const { components } = useSimulatorStore.getState();
@@ -354,7 +365,7 @@ PartSimulationRegistry.register('ssd1306', {
  * DS1307 Real-Time Clock — uses the pre-built VirtualDS1307 from I2CBusManager.
  * Returns the browser's current system time in BCD format for registers 0–6.
  */
-PartSimulationRegistry.register('ds1307', {
+registry.register('ds1307', {
   attachEvents: (_element, simulator, _getPin) => {
     const sim = simulator as any;
 
@@ -442,7 +453,7 @@ class VirtualMPU6050 implements I2CDevice {
   }
 }
 
-PartSimulationRegistry.register('mpu6050', {
+registry.register('mpu6050', {
   attachEvents: (element, simulator, _getPin, componentId) => {
     const sim = simulator as any;
     const el = element as any;
@@ -601,7 +612,7 @@ function scheduleDHT22Response(simulator: any, pin: number, element: HTMLElement
   simulator.schedulePinChange(pin, true, t);
 }
 
-PartSimulationRegistry.register('dht22', {
+registry.register('dht22', {
   attachEvents: (element, simulator, getPin, componentId) => {
     // wokwi-dht22 element uses 'SDA' as the data pin name (not 'DATA')
     const pin = getPin('SDA') ?? getPin('DATA');
@@ -711,7 +722,7 @@ PartSimulationRegistry.register('dht22', {
  * zero offset. This simulation always returns weight × 1000 as the raw value;
  * after taring with 0 g the sketch will correctly read any non-zero value.
  */
-PartSimulationRegistry.register('hx711', {
+registry.register('hx711', {
   attachEvents: (element, simulator, getPin) => {
     const pinSCK = getPin('SCK');
     const pinDOUT = getPin('DOUT');
@@ -833,7 +844,7 @@ function driveNECSequence(simulator: any, pin: number, address: number, command:
   next();
 }
 
-PartSimulationRegistry.register('ir-receiver', {
+registry.register('ir-receiver', {
   attachEvents: (element, simulator, getPin) => {
     const pin = getPin('OUT') ?? getPin('DATA');
     if (pin === null) return () => {};
@@ -895,7 +906,7 @@ const IR_REMOTE_COMMANDS: Record<string, number> = {
   right: 0x43,
 };
 
-PartSimulationRegistry.register('ir-remote', {
+registry.register('ir-remote', {
   attachEvents: (element, simulator, getPin) => {
     const pin = getPin('IR') ?? getPin('OUT');
 
@@ -962,7 +973,7 @@ PartSimulationRegistry.register('ir-remote', {
  * NOTE: This hooks into AVR SPI only (simulator.spi). RP2040 SPI integration
  * follows the same pattern but uses simulator.rp2040.spi[0].onTransmit.
  */
-PartSimulationRegistry.register('microsd-card', {
+registry.register('microsd-card', {
   attachEvents: (_element, simulator, _getPin) => {
     const spi = (simulator as any).spi;
     if (!spi) return () => {};
@@ -1065,7 +1076,7 @@ PartSimulationRegistry.register('microsd-card', {
  * sketches using Adafruit_BMP280 or Bosch's reference driver receive correct
  * compensated readings.
  */
-PartSimulationRegistry.register('bmp280', {
+registry.register('bmp280', {
   attachEvents: (element, simulator, _getPin, componentId) => {
     const sim = simulator as any;
     const el = element as any;
@@ -1128,7 +1139,7 @@ PartSimulationRegistry.register('bmp280', {
  *
  * Ambient temperature defaults to 25°C; override via `element.temperature`.
  */
-PartSimulationRegistry.register('ds3231', {
+registry.register('ds3231', {
   attachEvents: (element, simulator, _getPin, componentId) => {
     const sim = simulator as any;
     const el = element as any;
@@ -1171,7 +1182,7 @@ PartSimulationRegistry.register('ds3231', {
  * Writes from the Arduino update `dev.outputLatch` and fire `dev.onWrite`
  * which sets `element.value` so wokwi-LCD-I2C or similar elements can render.
  */
-PartSimulationRegistry.register('pcf8574', {
+registry.register('pcf8574', {
   attachEvents: (element, simulator, _getPin) => {
     const sim = simulator as any;
     const el = element as any;
@@ -1215,3 +1226,4 @@ PartSimulationRegistry.register('pcf8574', {
     return () => {};
   },
 });
+}

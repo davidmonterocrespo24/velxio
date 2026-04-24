@@ -11,9 +11,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
-
-import '../simulation/parts/LogicGateParts';
+// Barrel import seeds built-in parts into PartSimulationRegistry via
+// `registerCoreParts()` (see CORE-002c-step2). Direct imports from
+// `./PartSimulationRegistry` would see an empty registry.
+import { PartSimulationRegistry } from '../simulation/parts';
 
 beforeEach(() => {
   let raf = 0;

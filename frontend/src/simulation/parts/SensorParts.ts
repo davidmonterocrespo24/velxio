@@ -16,9 +16,18 @@
  *  - hc-sr04
  */
 
-import { PartSimulationRegistry } from './PartSimulationRegistry';
+import type { PartRegistry } from './PartSimulationRegistry';
 import { setAdcVoltage, emitPropertyChange } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
+
+/**
+ * Register every SensorParts entry on the given registry. Called once at
+ * boot by `src/builtin/registerCoreParts.ts`. Stays on the legacy host
+ * shape — several parts here reach into `simulator.schedulePinChange`,
+ * raw `cpu`, and `getCurrentCycles` / `getClockHz`, which aren't on the
+ * narrow SDK `SimulatorHandle` (tracked as CORE-002c-step3 / step4).
+ */
+export function registerSensorParts(registry: PartRegistry): void {
 
 // ─── Tilt Switch ─────────────────────────────────────────────────────────────
 
@@ -26,7 +35,7 @@ import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateReg
  * Tilt switch — click the element to toggle between tilted (OUT HIGH) and
  * upright (OUT LOW). Also controllable via SensorControlPanel "Toggle tilt" button.
  */
-PartSimulationRegistry.register('tilt-switch', {
+registry.register('tilt-switch', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pin = getArduinoPinHelper('OUT');
     if (pin === null) return () => {};
@@ -64,7 +73,7 @@ PartSimulationRegistry.register('tilt-switch', {
  * Linear approximation: volts = clamp(2.5 - (temp - 25) * 0.02, 0, 5)
  * (25°C = 2.5V; lower temp = higher voltage, higher temp = lower voltage)
  */
-PartSimulationRegistry.register('ntc-temperature-sensor', {
+registry.register('ntc-temperature-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pin = getArduinoPinHelper('OUT');
 
@@ -106,7 +115,7 @@ PartSimulationRegistry.register('ntc-temperature-sensor', {
  * Default 1.5V (clean air / low gas). SensorControlPanel slider adjusts level (0–1023).
  * Higher value → higher voltage (more gas detected).
  */
-PartSimulationRegistry.register('gas-sensor', {
+registry.register('gas-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pinAOUT = getArduinoPinHelper('AOUT');
     const pinDOUT = getArduinoPinHelper('DOUT');
@@ -161,7 +170,7 @@ PartSimulationRegistry.register('gas-sensor', {
  * Default 4.5V (no flame). SensorControlPanel slider: 0 = no flame (high V),
  * 1023 = intense flame (low V).
  */
-PartSimulationRegistry.register('flame-sensor', {
+registry.register('flame-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pinAOUT = getArduinoPinHelper('AOUT');
     const pinDOUT = getArduinoPinHelper('DOUT');
@@ -214,7 +223,7 @@ PartSimulationRegistry.register('flame-sensor', {
  * Heart beat sensor — simulates a 60 BPM signal on OUT pin.
  * Every 1000ms: briefly pulls OUT HIGH for 100ms, then LOW again.
  */
-PartSimulationRegistry.register('heart-beat-sensor', {
+registry.register('heart-beat-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pin = getArduinoPinHelper('OUT');
     if (pin === null) return () => {};
@@ -236,7 +245,7 @@ PartSimulationRegistry.register('heart-beat-sensor', {
  * Big sound sensor (FC-04) — injects mid-range analog on AOUT.
  * SensorControlPanel slider adjusts sound level (0–1023).
  */
-PartSimulationRegistry.register('big-sound-sensor', {
+registry.register('big-sound-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pinAOUT = getArduinoPinHelper('AOUT');
     const pinDOUT = getArduinoPinHelper('DOUT');
@@ -287,7 +296,7 @@ PartSimulationRegistry.register('big-sound-sensor', {
  * Small sound sensor (KY-038) — injects mid-range analog on AOUT.
  * SensorControlPanel slider adjusts sound level (0–1023).
  */
-PartSimulationRegistry.register('small-sound-sensor', {
+registry.register('small-sound-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pinAOUT = getArduinoPinHelper('AOUT');
     const pinDOUT = getArduinoPinHelper('DOUT');
@@ -339,7 +348,7 @@ PartSimulationRegistry.register('small-sound-sensor', {
  * Uses a full-step lookup table to detect direction of rotation and
  * accumulates the shaft angle (1.8° per step = 200 steps per revolution).
  */
-PartSimulationRegistry.register('stepper-motor', {
+registry.register('stepper-motor', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -507,7 +516,7 @@ function createNeopixelDecoder(
 
 // ─── LED Ring (WS2812B NeoPixel ring) ────────────────────────────────────────
 
-PartSimulationRegistry.register('led-ring', {
+registry.register('led-ring', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinDIN = getArduinoPinHelper('DIN');
     if (pinDIN === null) return () => {};
@@ -528,7 +537,7 @@ PartSimulationRegistry.register('led-ring', {
 
 // ─── NeoPixel Matrix (WS2812B matrix grid) ────────────────────────────────────
 
-PartSimulationRegistry.register('neopixel-matrix', {
+registry.register('neopixel-matrix', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinDIN = getArduinoPinHelper('DIN');
     if (pinDIN === null) return () => {};
@@ -555,7 +564,7 @@ PartSimulationRegistry.register('neopixel-matrix', {
 /**
  * Single addressable RGB LED — decodes the WS2812B data stream on DIN.
  */
-PartSimulationRegistry.register('neopixel', {
+registry.register('neopixel', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinDIN = getArduinoPinHelper('DIN');
     if (pinDIN === null) return () => {};
@@ -578,7 +587,7 @@ PartSimulationRegistry.register('neopixel', {
  * PIR motion sensor — click the element OR press "Simulate motion" in the
  * SensorControlPanel to trigger a 3-second HIGH pulse on OUT.
  */
-PartSimulationRegistry.register('pir-motion-sensor', {
+registry.register('pir-motion-sensor', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pin = getArduinoPinHelper('OUT');
     if (pin === null) return () => {};
@@ -617,7 +626,7 @@ PartSimulationRegistry.register('pir-motion-sensor', {
 /**
  * Dual-coil relay — listens for COIL1/COIL2 pin state changes.
  */
-PartSimulationRegistry.register('ks2e-m-dc5', {
+registry.register('ks2e-m-dc5', {
   onPinStateChange: (pinName, state, _element) => {
     if (pinName === 'COIL1' || pinName === 'COIL2') {
       console.log(`[Relay KS2E] ${pinName} → ${state ? 'ACTIVATED' : 'RELEASED'}`);
@@ -635,7 +644,7 @@ PartSimulationRegistry.register('ks2e-m-dc5', {
  * Echo timing: echoMs = distanceCm / 17.15
  * (speed of sound ~343 m/s; round-trip halves: 17150 cm/s)
  */
-PartSimulationRegistry.register('hc-sr04', {
+registry.register('hc-sr04', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const trigPin = getArduinoPinHelper('TRIG');
     const echoPin = getArduinoPinHelper('ECHO');
@@ -716,3 +725,4 @@ PartSimulationRegistry.register('hc-sr04', {
     };
   },
 });
+}

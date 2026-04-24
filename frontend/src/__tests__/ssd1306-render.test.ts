@@ -11,8 +11,8 @@
  */
 
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
-import '../simulation/parts/ProtocolParts';
+// Barrel import seeds built-in parts via `registerCoreParts()` (CORE-002c-step2).
+import { PartSimulationRegistry } from '../simulation/parts';
 
 // ─── Polyfill ImageData for Node/Vitest (no browser) ─────────────────────────
 

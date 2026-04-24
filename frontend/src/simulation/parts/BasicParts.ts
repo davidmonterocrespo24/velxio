@@ -1,11 +1,18 @@
-import { PartSimulationRegistry } from './PartSimulationRegistry';
+import type { PartRegistry } from './PartSimulationRegistry';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { emitPropertyChange } from './partUtils';
 
 /**
+ * Register every BasicParts entry on the given registry. Called once at
+ * boot by `src/builtin/registerCoreParts.ts`; order of registration is
+ * the same as before centralization (pushbutton → rotary-dialer). Do not
+ * import this file for its side effects — it has none.
+ */
+export function registerBasicParts(registry: PartRegistry): void {
+/**
  * Basic Pushbutton implementation (full-size)
  */
-PartSimulationRegistry.register('pushbutton', {
+registry.register('pushbutton', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const arduinoPin =
       getArduinoPinHelper('1.l') ??
@@ -36,7 +43,7 @@ PartSimulationRegistry.register('pushbutton', {
 /**
  * 6mm Pushbutton — same behaviour as the full-size pushbutton
  */
-PartSimulationRegistry.register('pushbutton-6mm', {
+registry.register('pushbutton-6mm', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const arduinoPin =
       getArduinoPinHelper('1.l') ??
@@ -67,7 +74,7 @@ PartSimulationRegistry.register('pushbutton-6mm', {
 /**
  * Slide Switch — toggles between HIGH and LOW on each click
  */
-PartSimulationRegistry.register('slide-switch', {
+registry.register('slide-switch', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     // Slide switch has pins: 1, 2, 3 — middle pin (2) is the common output
     const arduinoPin = getArduinoPinHelper('2') ?? getArduinoPinHelper('1');
@@ -99,7 +106,7 @@ PartSimulationRegistry.register('slide-switch', {
  * DIP Switch 8 — 8 independent toggle switches
  * Pin layout: 1A-8A on one side, 1B-8B on the other
  */
-PartSimulationRegistry.register('dip-switch-8', {
+registry.register('dip-switch-8', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
     // Each switch i has pins (i+1)A and (i+1)B; we use the A side as output
     const pins: (number | null)[] = [];
@@ -139,7 +146,7 @@ PartSimulationRegistry.register('dip-switch-8', {
  * connected to GND (or a LOW GPIO).  If the cathode is not wired at all the
  * LED stays off regardless of the anode state.
  */
-PartSimulationRegistry.register('led', {
+registry.register('led', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -254,7 +261,7 @@ PartSimulationRegistry.register('led', {
  * LED Bar Graph — 10 LEDs, each driven by one pin
  * Wokwi pin names: A1-A10
  */
-PartSimulationRegistry.register('led-bar-graph', {
+registry.register('led-bar-graph', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
     const pinManager = (avrSimulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -299,7 +306,7 @@ PartSimulationRegistry.register('led-bar-graph', {
  *
  * The SW pin is active LOW (HIGH when not pressed).
  */
-PartSimulationRegistry.register('ky-040', {
+registry.register('ky-040', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinCLK = getArduinoPinHelper('CLK');
     const pinDT = getArduinoPinHelper('DT');
@@ -361,7 +368,7 @@ PartSimulationRegistry.register('ky-040', {
  * Full-step decode: each motor uses the same 4-step lookup table as
  * the single stepper-motor. 1.8° per step.
  */
-PartSimulationRegistry.register('biaxial-stepper', {
+registry.register('biaxial-stepper', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -479,7 +486,7 @@ PartSimulationRegistry.register('biaxial-stepper', {
  * When the Arduino drives a ROW pin LOW and a key in that row is pressed,
  * the corresponding COL pin is pulled LOW (shorted through the membrane).
  */
-PartSimulationRegistry.register('membrane-keypad', {
+registry.register('membrane-keypad', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const rowPins: (number | null)[] = [
       getArduinoPinHelper('R1'),
@@ -549,7 +556,7 @@ PartSimulationRegistry.register('membrane-keypad', {
  *   DIAL goes LOW while the dial is rotating and HIGH when done.
  *   PULSE fires n pulses (digit 0 → 10 pulses) at ~100 ms intervals.
  */
-PartSimulationRegistry.register('rotary-dialer', {
+registry.register('rotary-dialer', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const dialPin = getArduinoPinHelper('DIAL');
     const pulsePin = getArduinoPinHelper('PULSE');
@@ -591,3 +598,4 @@ PartSimulationRegistry.register('rotary-dialer', {
     };
   },
 });
+}

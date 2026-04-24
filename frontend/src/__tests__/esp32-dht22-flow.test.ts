@@ -117,8 +117,8 @@ vi.stubGlobal('sessionStorage', {
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
-import '../simulation/parts/ProtocolParts';
+// Barrel import seeds built-in parts via `registerCoreParts()` (CORE-002c-step2).
+import { PartSimulationRegistry } from '../simulation/parts';
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 

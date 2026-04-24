@@ -15,9 +15,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
+// Barrel import seeds built-in parts via `registerCoreParts()` (CORE-002c-step2).
+import { PartSimulationRegistry } from '../simulation/parts';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
-import '../simulation/parts/ProtocolParts';
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 

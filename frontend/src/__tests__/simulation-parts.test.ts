@@ -16,13 +16,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
-
-// Side-effect imports — register all parts
-import '../simulation/parts/BasicParts';
-import '../simulation/parts/ComplexParts';
-import '../simulation/parts/ChipParts';
-import '../simulation/parts/SensorParts';
+// Barrel import seeds built-in parts via `registerCoreParts()` (CORE-002c-step2).
+import { PartSimulationRegistry } from '../simulation/parts';
 
 // ─── RAF depth-limited mock ───────────────────────────────────────────────────
 // Calls the callback once synchronously but prevents re-entrancy so that

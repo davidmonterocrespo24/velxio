@@ -1,106 +1,75 @@
 /**
  * LogicGateParts.ts — Simulation logic for logic gate components.
  *
- * All gates listen to their input pins via pinManager.onPinChange,
- * compute the boolean output, and drive the Y pin accordingly.
+ * All gates listen to their input pins via `handle.onPinChange`, compute the
+ * boolean output, and drive the Y pin accordingly.
  *
  * 2-input gates: A, B → Y
  * NOT gate:      A    → Y
+ *
+ * This file is the **SDK-eligible reference migration** for CORE-002c — every
+ * gate is authored against the narrow `@velxio/sdk` `SimulatorHandle` via
+ * `definePartSimulation` and registered through `PartRegistry.registerSdkPart`.
+ * It proves the SDK surface covers a non-trivial, fan-out-heavy part catalog.
  */
 
-import { PartSimulationRegistry } from './PartSimulationRegistry';
-import type { PartSimulationLogic } from './PartSimulationRegistry';
+import type { PartSimulation, PinState } from '@velxio/sdk';
+import { definePartSimulation } from '@velxio/sdk';
+import type { PartRegistry } from './PartSimulationRegistry';
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+// PinState is `0 | 1 | 'z' | 'x'`. The host wraps PinManager's boolean into
+// `0 | 1` for SDK subscribers, so only `1` signals HIGH at runtime; `'z'` and
+// `'x'` are treated as LOW (same behaviour as the pre-migration direct
+// boolean subscription).
+const isHigh = (state: PinState): boolean => state === 1;
 
-function twoInputGate(compute: (a: boolean, b: boolean) => boolean): PartSimulationLogic {
-  return {
-    attachEvents: (element, simulator, getPin) => {
-      const pinA = getPin('A');
-      const pinB = getPin('B');
-      const pinY = getPin('Y');
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-      if (pinA === null || pinB === null || pinY === null) return () => {};
+function twoInputGate(compute: (a: boolean, b: boolean) => boolean): PartSimulation {
+  return definePartSimulation({
+    attachEvents: (_element, handle) => {
+      const pinY = handle.getArduinoPin('Y');
+      if (pinY === null) return () => {};
 
       let stateA = false;
       let stateB = false;
 
-      const update = () => simulator.setPinState(pinY, compute(stateA, stateB));
+      const update = () => handle.setPinState(pinY, compute(stateA, stateB));
 
-      const unsubA = simulator.pinManager.onPinChange(pinA, (_: number, s: boolean) => {
-        stateA = s;
+      const subA = handle.onPinChange('A', (s) => {
+        stateA = isHigh(s);
         update();
       });
-      const unsubB = simulator.pinManager.onPinChange(pinB, (_: number, s: boolean) => {
-        stateB = s;
+      const subB = handle.onPinChange('B', (s) => {
+        stateB = isHigh(s);
         update();
       });
 
       update(); // Drive Y immediately with initial LOW state
 
       return () => {
-        unsubA();
-        unsubB();
+        subA.dispose();
+        subB.dispose();
       };
     },
-  };
+  });
 }
 
-// ─── AND ──────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-and',
-  twoInputGate((a, b) => a && b),
-);
-
-// ─── NAND ─────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-nand',
-  twoInputGate((a, b) => !(a && b)),
-);
-
-// ─── OR ───────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-or',
-  twoInputGate((a, b) => a || b),
-);
-
-// ─── NOR ──────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-nor',
-  twoInputGate((a, b) => !(a || b)),
-);
-
-// ─── XOR ──────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-xor',
-  twoInputGate((a, b) => a !== b),
-);
-
-// ─── XNOR ─────────────────────────────────────────────────────────────────────
-PartSimulationRegistry.register(
-  'logic-gate-xnor',
-  twoInputGate((a, b) => a === b),
-);
-
-// ─── Multi-input gates (3 / 4 inputs) ─────────────────────────────────────────
-
 function nInputGate(
-  inputNames: string[],
+  inputNames: ReadonlyArray<string>,
   compute: (inputs: boolean[]) => boolean,
-): PartSimulationLogic {
-  return {
-    attachEvents: (element, simulator, getPin) => {
-      const inputPins = inputNames.map((n) => getPin(n));
-      const pinY = getPin('Y');
-
-      if (inputPins.some((p) => p === null) || pinY === null) return () => {};
+): PartSimulation {
+  return definePartSimulation({
+    attachEvents: (_element, handle) => {
+      const pinY = handle.getArduinoPin('Y');
+      if (pinY === null) return () => {};
 
       const states = inputNames.map(() => false);
-      const update = () => simulator.setPinState(pinY, compute(states));
+      const update = () => handle.setPinState(pinY, compute(states));
 
-      const unsubs = inputPins.map((p, i) =>
-        simulator.pinManager.onPinChange(p!, (_: number, s: boolean) => {
-          states[i] = s;
+      const subs = inputNames.map((name, i) =>
+        handle.onPinChange(name, (s) => {
+          states[i] = isHigh(s);
           update();
         }),
       );
@@ -108,10 +77,10 @@ function nInputGate(
       update();
 
       return () => {
-        unsubs.forEach((u) => u());
+        subs.forEach((sub) => sub.dispose());
       };
     },
-  };
+  });
 }
 
 const allTrue = (xs: boolean[]) => xs.every(Boolean);
@@ -127,104 +96,121 @@ const notAny = (xs: boolean[]) => !anyTrue(xs);
 // driven synchronously.
 
 function edgeTriggeredFF(
-  dataPins: string[],
+  dataPins: ReadonlyArray<string>,
   initial: boolean,
   sample: (state: boolean, inputs: boolean[]) => boolean,
-): PartSimulationLogic {
-  return {
-    attachEvents: (element, simulator, getPin) => {
-      const clkPin = getPin('CLK');
-      const qPin = getPin('Q');
-      const qbarPin = getPin('Qbar');
-      const dataPinIds = dataPins.map((n) => getPin(n));
-
-      if (clkPin === null || qPin === null || qbarPin === null) return () => {};
-      if (dataPinIds.some((p) => p === null)) return () => {};
+): PartSimulation {
+  return definePartSimulation({
+    attachEvents: (_element, handle) => {
+      const qPin = handle.getArduinoPin('Q');
+      const qbarPin = handle.getArduinoPin('Qbar');
+      if (qPin === null || qbarPin === null) return () => {};
 
       let prevClk = false;
       let q = initial;
       const dataStates = dataPins.map(() => false);
 
       const emit = () => {
-        simulator.setPinState(qPin, q);
-        simulator.setPinState(qbarPin, !q);
+        handle.setPinState(qPin, q);
+        handle.setPinState(qbarPin, !q);
       };
 
-      const unsubClk = simulator.pinManager.onPinChange(clkPin, (_: number, s: boolean) => {
-        if (!prevClk && s) {
-          // Rising edge
+      const subClk = handle.onPinChange('CLK', (s) => {
+        const high = isHigh(s);
+        if (!prevClk && high) {
+          // Rising edge — latch
           q = sample(q, dataStates);
           emit();
         }
-        prevClk = s;
+        prevClk = high;
       });
 
-      const unsubData = dataPinIds.map((p, i) =>
-        simulator.pinManager.onPinChange(p!, (_: number, s: boolean) => {
-          dataStates[i] = s;
+      const subsData = dataPins.map((name, i) =>
+        handle.onPinChange(name, (s) => {
+          dataStates[i] = isHigh(s);
         }),
       );
 
       emit(); // Drive initial Q / Qbar
 
       return () => {
-        unsubClk();
-        unsubData.forEach((u) => u());
+        subClk.dispose();
+        subsData.forEach((sub) => sub.dispose());
       };
     },
-  };
+  });
 }
 
+// ─── Exported part records (reused by tests + plugin-style registration) ─────
+
+export const logicGateAnd = twoInputGate((a, b) => a && b);
+export const logicGateNand = twoInputGate((a, b) => !(a && b));
+export const logicGateOr = twoInputGate((a, b) => a || b);
+export const logicGateNor = twoInputGate((a, b) => !(a || b));
+export const logicGateXor = twoInputGate((a, b) => a !== b);
+export const logicGateXnor = twoInputGate((a, b) => a === b);
+
+export const logicGateAnd3 = nInputGate(['A', 'B', 'C'], allTrue);
+export const logicGateOr3 = nInputGate(['A', 'B', 'C'], anyTrue);
+export const logicGateNand3 = nInputGate(['A', 'B', 'C'], notAll);
+export const logicGateNor3 = nInputGate(['A', 'B', 'C'], notAny);
+export const logicGateAnd4 = nInputGate(['A', 'B', 'C', 'D'], allTrue);
+export const logicGateOr4 = nInputGate(['A', 'B', 'C', 'D'], anyTrue);
+export const logicGateNand4 = nInputGate(['A', 'B', 'C', 'D'], notAll);
+export const logicGateNor4 = nInputGate(['A', 'B', 'C', 'D'], notAny);
+
 // D flip-flop: Q ← D on rising CLK
-PartSimulationRegistry.register(
-  'flip-flop-d',
-  edgeTriggeredFF(['D'], false, (_q, [d]) => d),
-);
-
+export const flipFlopD = edgeTriggeredFF(['D'], false, (_q, [d]) => d);
 // T flip-flop: Q ← Q ⊕ T on rising CLK (toggle when T=1)
-PartSimulationRegistry.register(
-  'flip-flop-t',
-  edgeTriggeredFF(['T'], false, (q, [t]) => (t ? !q : q)),
-);
+export const flipFlopT = edgeTriggeredFF(['T'], false, (q, [t]) => (t ? !q : q));
+// JK flip-flop: 00=hold, 10=set, 01=reset, 11=toggle
+export const flipFlopJk = edgeTriggeredFF(['J', 'K'], false, (q, [j, k]) => {
+  if (j && k) return !q;
+  if (j) return true;
+  if (k) return false;
+  return q;
+});
 
-// JK flip-flop:
-//   J=0, K=0 → hold
-//   J=1, K=0 → set (Q=1)
-//   J=0, K=1 → reset (Q=0)
-//   J=1, K=1 → toggle
-PartSimulationRegistry.register(
-  'flip-flop-jk',
-  edgeTriggeredFF(['J', 'K'], false, (q, [j, k]) => {
-    if (j && k) return !q;
-    if (j) return true;
-    if (k) return false;
-    return q;
-  }),
-);
+export const logicGateNot: PartSimulation = definePartSimulation({
+  attachEvents: (_element, handle) => {
+    const pinY = handle.getArduinoPin('Y');
+    if (pinY === null) return () => {};
 
-PartSimulationRegistry.register('logic-gate-and-3', nInputGate(['A', 'B', 'C'], allTrue));
-PartSimulationRegistry.register('logic-gate-or-3', nInputGate(['A', 'B', 'C'], anyTrue));
-PartSimulationRegistry.register('logic-gate-nand-3', nInputGate(['A', 'B', 'C'], notAll));
-PartSimulationRegistry.register('logic-gate-nor-3', nInputGate(['A', 'B', 'C'], notAny));
-PartSimulationRegistry.register('logic-gate-and-4', nInputGate(['A', 'B', 'C', 'D'], allTrue));
-PartSimulationRegistry.register('logic-gate-or-4', nInputGate(['A', 'B', 'C', 'D'], anyTrue));
-PartSimulationRegistry.register('logic-gate-nand-4', nInputGate(['A', 'B', 'C', 'D'], notAll));
-PartSimulationRegistry.register('logic-gate-nor-4', nInputGate(['A', 'B', 'C', 'D'], notAny));
-
-// ─── NOT (inverter) ───────────────────────────────────────────────────────────
-PartSimulationRegistry.register('logic-gate-not', {
-  attachEvents: (element, simulator, getPin) => {
-    const pinA = getPin('A');
-    const pinY = getPin('Y');
-
-    if (pinA === null || pinY === null) return () => {};
-
-    const unsub = simulator.pinManager.onPinChange(pinA, (_: number, s: boolean) => {
-      simulator.setPinState(pinY, !s);
+    const sub = handle.onPinChange('A', (s) => {
+      handle.setPinState(pinY, !isHigh(s));
     });
 
-    simulator.setPinState(pinY, true); // NOT LOW = HIGH (initial LOW input → HIGH output)
+    handle.setPinState(pinY, true); // NOT LOW = HIGH (initial LOW input → HIGH output)
 
-    return unsub;
+    return () => sub.dispose();
   },
 });
+
+/**
+ * Register every LogicGateParts entry on the given registry via the SDK
+ * `registerSdkPart` path — this file is the reference migration for
+ * CORE-002c. Called once at boot by `src/builtin/registerCoreParts.ts`.
+ */
+export function registerLogicGateParts(registry: PartRegistry): void {
+  registry.registerSdkPart('logic-gate-and', logicGateAnd);
+  registry.registerSdkPart('logic-gate-nand', logicGateNand);
+  registry.registerSdkPart('logic-gate-or', logicGateOr);
+  registry.registerSdkPart('logic-gate-nor', logicGateNor);
+  registry.registerSdkPart('logic-gate-xor', logicGateXor);
+  registry.registerSdkPart('logic-gate-xnor', logicGateXnor);
+
+  registry.registerSdkPart('logic-gate-and-3', logicGateAnd3);
+  registry.registerSdkPart('logic-gate-or-3', logicGateOr3);
+  registry.registerSdkPart('logic-gate-nand-3', logicGateNand3);
+  registry.registerSdkPart('logic-gate-nor-3', logicGateNor3);
+  registry.registerSdkPart('logic-gate-and-4', logicGateAnd4);
+  registry.registerSdkPart('logic-gate-or-4', logicGateOr4);
+  registry.registerSdkPart('logic-gate-nand-4', logicGateNand4);
+  registry.registerSdkPart('logic-gate-nor-4', logicGateNor4);
+
+  registry.registerSdkPart('flip-flop-d', flipFlopD);
+  registry.registerSdkPart('flip-flop-t', flipFlopT);
+  registry.registerSdkPart('flip-flop-jk', flipFlopJk);
+
+  registry.registerSdkPart('logic-gate-not', logicGateNot);
+}

@@ -1,8 +1,18 @@
-import { PartSimulationRegistry } from './PartSimulationRegistry';
-import type { AnySimulator } from './PartSimulationRegistry';
+import type { PartRegistry, AnySimulator } from './PartSimulationRegistry';
 import { RP2040Simulator } from '../RP2040Simulator';
 import { getADC, setAdcVoltage, emitPropertyChange } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
+
+/**
+ * Register every ComplexParts entry on the given registry. Called once at
+ * boot by `src/builtin/registerCoreParts.ts`. Order preserved from the
+ * pre-centralization layout. This file stays on the legacy host shape
+ * (not the SDK `PartSimulation`) because several parts reach into
+ * `pinManager.onPwmChange`, `onPinChangeWithTime`, and other host-only
+ * surfaces that the narrow SDK `SimulatorHandle` deliberately omits —
+ * extending the handle is tracked as CORE-002c-step3 / step4.
+ */
+export function registerComplexParts(registry: PartRegistry): void {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -12,7 +22,7 @@ import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateReg
  * RGB LED implementation — supports both digital and PWM (analogWrite) output.
  * Falls back to digital mode if no PWM is detected.
  */
-PartSimulationRegistry.register('rgb-led', {
+registry.register('rgb-led', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
     const pinManager = (avrSimulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -69,7 +79,7 @@ PartSimulationRegistry.register('rgb-led', {
 
 // ─── Potentiometer (rotary) ──────────────────────────────────────────────────
 
-PartSimulationRegistry.register('potentiometer', {
+registry.register('potentiometer', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const pin = getArduinoPinHelper('SIG');
 
@@ -99,7 +109,7 @@ PartSimulationRegistry.register('potentiometer', {
 
 // ─── Slide Potentiometer ─────────────────────────────────────────────────────
 
-PartSimulationRegistry.register('slide-potentiometer', {
+registry.register('slide-potentiometer', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const arduinoPin = getArduinoPinHelper('SIG') ?? getArduinoPinHelper('OUT');
 
@@ -138,7 +148,7 @@ PartSimulationRegistry.register('slide-potentiometer', {
  * We inject a static mid-range voltage on the AO pin so analogRead()
  * returns a valid value. Users can modify the element's `value` attribute.
  */
-PartSimulationRegistry.register('photoresistor-sensor', {
+registry.register('photoresistor-sensor', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const pinAO = getArduinoPinHelper('AO') ?? getArduinoPinHelper('A0');
     const pinDO = getArduinoPinHelper('DO') ?? getArduinoPinHelper('D0');
@@ -199,7 +209,7 @@ PartSimulationRegistry.register('photoresistor-sensor', {
  * Analog Joystick — two axes (xValue/yValue 0-1023) + button press
  * Wokwi pins: VRX (X axis), VRY (Y axis), SW (button)
  */
-PartSimulationRegistry.register('analog-joystick', {
+registry.register('analog-joystick', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     // wokwi-analog-joystick uses VERT/HORZ/SEL pin names
     const pinX =
@@ -283,7 +293,7 @@ PartSimulationRegistry.register('analog-joystick', {
  * Fallback: if no wire is connected (pinSIG === null), poll OCR1A/ICR1 registers
  * via requestAnimationFrame (less accurate but still functional).
  */
-PartSimulationRegistry.register('servo', {
+registry.register('servo', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
     const pinSIG =
       getArduinoPinHelper('PWM') ?? getArduinoPinHelper('SIG') ?? getArduinoPinHelper('1');
@@ -481,7 +491,7 @@ PartSimulationRegistry.register('servo', {
  * Prescaler detected from TCCR2B[2:0] bits.
  * Activates when duty cycle > 0 (pin is driven HIGH).
  */
-PartSimulationRegistry.register('buzzer', {
+registry.register('buzzer', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
     const pinSIG =
       getArduinoPinHelper('1') ?? getArduinoPinHelper('+') ?? getArduinoPinHelper('POS');
@@ -774,9 +784,9 @@ function createLcdSimulation(cols: number, rows: number) {
   };
 }
 
-PartSimulationRegistry.register('lcd1602', createLcdSimulation(16, 2));
-PartSimulationRegistry.register('lcd2004', createLcdSimulation(20, 4));
-PartSimulationRegistry.register('lcd2002', createLcdSimulation(20, 2));
+registry.register('lcd1602', createLcdSimulation(16, 2));
+registry.register('lcd2004', createLcdSimulation(20, 4));
+registry.register('lcd2002', createLcdSimulation(20, 2));
 
 // ─── ILI9341 TFT Display (SPI) ───────────────────────────────────────────────
 
@@ -972,6 +982,8 @@ const ili9341Simulation = {
   },
 };
 
-PartSimulationRegistry.register('ili9341', ili9341Simulation);
+registry.register('ili9341', ili9341Simulation);
 // board-ili9341-cap-touch (Wokwi type) maps to 'ili9341-cap-touch' metadataId — same SPI simulation
-PartSimulationRegistry.register('ili9341-cap-touch', ili9341Simulation);
+registry.register('ili9341-cap-touch', ili9341Simulation);
+}
+

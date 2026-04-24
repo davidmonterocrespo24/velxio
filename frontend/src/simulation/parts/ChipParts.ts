@@ -6,7 +6,7 @@
  *  - wokwi-7segment display (driven by 74HC595 outputs)
  */
 
-import { PartSimulationRegistry } from './PartSimulationRegistry';
+import type { PartRegistry } from './PartSimulationRegistry';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -66,9 +66,17 @@ function set7SegPin(element: HTMLElement, pinName: string, state: boolean) {
   el.values = current;
 }
 
+/**
+ * Register every ChipParts entry on the given registry. Called once at boot
+ * by `src/builtin/registerCoreParts.ts`. Stays on the legacy host shape —
+ * `pinManager.triggerPinChange` isn't exposed through the narrow SDK
+ * `SimulatorHandle` (tracked as CORE-002c-step3 / step4).
+ */
+export function registerChipParts(registry: PartRegistry): void {
+
 // ─── 74HC595 simulation ───────────────────────────────────────────────────────
 
-PartSimulationRegistry.register('74hc595', {
+registry.register('74hc595', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -204,7 +212,7 @@ PartSimulationRegistry.register('74hc595', {
 
 // ─── 7-segment display (direct-drive, when connected directly to Arduino) ────
 
-PartSimulationRegistry.register('7segment', {
+registry.register('7segment', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
@@ -232,3 +240,4 @@ PartSimulationRegistry.register('7segment', {
     set7SegPin(element, pinName, state);
   },
 });
+}
