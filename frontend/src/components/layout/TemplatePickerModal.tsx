@@ -24,6 +24,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { getTemplateRegistry } from '../../plugin-host/TemplateRegistry';
 import { calculatePinPosition } from '../../utils/pinPositionCalculator';
+import { useTranslate, type Translator } from '../../i18n/useLocale';
 import type { Wire } from '../../types/wire';
 
 interface TemplatePickerModalProps {
@@ -31,6 +32,7 @@ interface TemplatePickerModalProps {
 }
 
 export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClose }) => {
+  const t = useTranslate();
   const templates = useTemplates();
   const [selectedId, setSelectedId] = useState<string | null>(
     templates.length > 0 ? templates[0].definition.id : null,
@@ -39,7 +41,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClos
   const [error, setError] = useState<string | null>(null);
 
   const grouped = useMemo(() => groupByCategory(templates), [templates]);
-  const selected = templates.find((t) => t.definition.id === selectedId);
+  const selected = templates.find((tpl) => tpl.definition.id === selectedId);
 
   const handleInstantiate = async (template: RegisteredTemplate) => {
     setError(null);
@@ -59,11 +61,11 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClos
         style={styles.modal}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="New from template"
+        aria-label={t('templates.title')}
       >
         <header style={styles.header}>
-          <h2 style={styles.title}>New from template</h2>
-          <button onClick={onClose} style={styles.closeBtn} aria-label="Close">
+          <h2 style={styles.title}>{t('templates.title')}</h2>
+          <button onClick={onClose} style={styles.closeBtn} aria-label={t('templates.close')}>
             ×
           </button>
         </header>
@@ -75,7 +77,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClos
             <aside style={styles.list} data-testid="template-list">
               {grouped.map(([category, items]) => (
                 <section key={category} style={styles.categorySection}>
-                  <h3 style={styles.categoryHeader}>{categoryLabel(category)}</h3>
+                  <h3 style={styles.categoryHeader}>{categoryLabel(category, t)}</h3>
                   <ul style={styles.categoryList}>
                     {items.map((template) => (
                       <li key={template.definition.id}>
@@ -93,8 +95,8 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClos
                           <span style={styles.listItemName}>{template.definition.name}</span>
                           <span style={styles.listItemPlugin}>
                             {template.pluginId === '<host>'
-                              ? 'built-in'
-                              : `via ${template.pluginId}`}
+                              ? t('templates.builtIn')
+                              : t('templates.viaPlugin', { id: template.pluginId })}
                           </span>
                         </button>
                       </li>
@@ -112,7 +114,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({ onClos
                   onInstantiate={() => void handleInstantiate(selected)}
                 />
               ) : (
-                <p style={styles.previewMuted}>Select a template to preview.</p>
+                <p style={styles.previewMuted}>{t('templates.selectPrompt')}</p>
               )}
             </section>
           </div>
@@ -137,6 +139,7 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({
   error,
   onInstantiate,
 }) => {
+  const t = useTranslate();
   const def = template.definition;
   return (
     <div style={styles.previewBody} data-testid={`template-preview-${def.id}`}>
@@ -168,7 +171,7 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({
       )}
       {def.readme !== undefined && def.readme.length > 0 && (
         <details style={styles.readme}>
-          <summary style={styles.readmeSummary}>Readme</summary>
+          <summary style={styles.readmeSummary}>{t('templates.readme')}</summary>
           <pre style={styles.readmeBody}>{def.readme}</pre>
         </details>
       )}
@@ -188,44 +191,51 @@ const TemplatePreview: React.FC<TemplatePreviewProps> = ({
           }}
           data-testid="template-instantiate-btn"
         >
-          {busy ? 'Loading…' : 'Use this template'}
+          {busy ? t('common.loading') : t('templates.instantiate')}
         </button>
-        <span style={styles.warning}>This replaces the current sketch and canvas.</span>
+        <span style={styles.warning}>{t('templates.replaceWarning')}</span>
       </div>
     </div>
   );
 };
 
-const DifficultyDots: React.FC<{ difficulty: number }> = ({ difficulty }) => (
-  <span style={styles.difficulty} aria-label={`Difficulty ${difficulty} of 5`}>
-    {[1, 2, 3, 4, 5].map((n) => (
-      <span
-        key={n}
-        style={{
-          ...styles.difficultyDot,
-          background: n <= difficulty ? '#0e639c' : '#3c3c3c',
-        }}
-      />
-    ))}
-  </span>
-);
-
-const EmptyState: React.FC = () => (
-  <div style={styles.empty} data-testid="template-empty-state">
-    <p style={styles.emptyTitle}>No templates installed yet</p>
-    <p style={styles.emptyBody}>
-      Install a plugin from the marketplace to add starter projects to this list.
-    </p>
-    <a
-      href="https://velxio.dev/marketplace"
-      target="_blank"
-      rel="noopener noreferrer"
-      style={styles.marketplaceLink}
+const DifficultyDots: React.FC<{ difficulty: number }> = ({ difficulty }) => {
+  const t = useTranslate();
+  return (
+    <span
+      style={styles.difficulty}
+      aria-label={t('templates.difficultyLabel', { level: String(difficulty) })}
     >
-      Browse marketplace →
-    </a>
-  </div>
-);
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          style={{
+            ...styles.difficultyDot,
+            background: n <= difficulty ? '#0e639c' : '#3c3c3c',
+          }}
+        />
+      ))}
+    </span>
+  );
+};
+
+const EmptyState: React.FC = () => {
+  const t = useTranslate();
+  return (
+    <div style={styles.empty} data-testid="template-empty-state">
+      <p style={styles.emptyTitle}>{t('templates.empty.title')}</p>
+      <p style={styles.emptyBody}>{t('templates.empty.body')}</p>
+      <a
+        href="https://velxio.dev/marketplace"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.marketplaceLink}
+      >
+        {t('templates.empty.browse')}
+      </a>
+    </div>
+  );
+};
 
 // ── Wiring ────────────────────────────────────────────────────────────────
 
@@ -255,16 +265,16 @@ function groupByCategory(
   return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-function categoryLabel(category: string): string {
+function categoryLabel(category: string, t: Translator): string {
   switch (category) {
     case 'beginner':
-      return 'Beginner';
+      return t('templates.category.beginner');
     case 'intermediate':
-      return 'Intermediate';
+      return t('templates.category.intermediate');
     case 'advanced':
-      return 'Advanced';
+      return t('templates.category.advanced');
     case 'showcase':
-      return 'Showcase';
+      return t('templates.category.showcase');
     default:
       return category;
   }

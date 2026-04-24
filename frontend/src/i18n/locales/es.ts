@@ -94,6 +94,21 @@ export const es: Partial<Record<ShellTranslationKey, string>> = {
   'templates.instantiate': 'Usar esta plantilla',
   'templates.cancel': 'Cancelar',
   'templates.preview': 'Vista previa',
+  'templates.close': 'Cerrar',
+  'templates.builtIn': 'integrado',
+  'templates.viaPlugin': 'vía {id}',
+  'templates.selectPrompt': 'Selecciona una plantilla para previsualizarla.',
+  'templates.readme': 'Léeme',
+  'templates.replaceWarning': 'Esto reemplaza el sketch y el canvas actuales.',
+  'templates.difficultyLabel': 'Dificultad {level} de 5',
+  'templates.empty.title': 'Aún no hay plantillas instaladas',
+  'templates.empty.body':
+    'Instala un plugin desde el marketplace para añadir proyectos iniciales a esta lista.',
+  'templates.empty.browse': 'Explorar marketplace →',
+  'templates.category.beginner': 'Principiante',
+  'templates.category.intermediate': 'Intermedio',
+  'templates.category.advanced': 'Avanzado',
+  'templates.category.showcase': 'Destacados',
 
   // Common
   'common.cancel': 'Cancelar',

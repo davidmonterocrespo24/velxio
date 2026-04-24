@@ -22,6 +22,7 @@ import {
   getTemplateRegistry,
   resetTemplateRegistryForTests,
 } from '../plugin-host/TemplateRegistry';
+import { setEditorLocale } from '../i18n/LocaleProvider';
 import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 
@@ -31,6 +32,9 @@ let closed: boolean;
 
 beforeEach(() => {
   resetTemplateRegistryForTests();
+  // Pin locale to `en` so category-label assertions are deterministic even
+  // if a sibling test mutated the singleton LocaleStore.
+  setEditorLocale('en');
   // Reset relevant store slices so each test starts with a clean canvas.
   useSimulatorStore.setState({ components: [], wires: [] });
   closed = false;

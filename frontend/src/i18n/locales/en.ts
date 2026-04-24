@@ -98,6 +98,21 @@ export const en = {
   'templates.instantiate': 'Use this template',
   'templates.cancel': 'Cancel',
   'templates.preview': 'Preview',
+  'templates.close': 'Close',
+  'templates.builtIn': 'built-in',
+  'templates.viaPlugin': 'via {id}',
+  'templates.selectPrompt': 'Select a template to preview.',
+  'templates.readme': 'Readme',
+  'templates.replaceWarning': 'This replaces the current sketch and canvas.',
+  'templates.difficultyLabel': 'Difficulty {level} of 5',
+  'templates.empty.title': 'No templates installed yet',
+  'templates.empty.body':
+    'Install a plugin from the marketplace to add starter projects to this list.',
+  'templates.empty.browse': 'Browse marketplace →',
+  'templates.category.beginner': 'Beginner',
+  'templates.category.intermediate': 'Intermediate',
+  'templates.category.advanced': 'Advanced',
+  'templates.category.showcase': 'Showcase',
 
   // Common
   'common.cancel': 'Cancel',
