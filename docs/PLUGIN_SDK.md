@@ -1172,17 +1172,48 @@ which (a) persists to localStorage and (b) calls
 `setActiveLocale(code)` on the host store — the same dispatch that
 fires every plugin's `onLocaleChange` listener.
 
-**Shell components currently translated**:
+**Shell components currently translated** (7/7 — SDK-005c part D
+closed 2026-04-24):
 
 - `<AppHeader />` — every nav link, button label, button title, dropdown
   entry.
 - `<InstalledPluginsModal />` — modal title/refresh/marketplace/close,
   EmptyState, UninstallConfirm dialog, PluginSettingsDialog.
+- `<LoginPromptModal />` — title, body, sign-in/create-account/cancel
+  buttons.
+- `<SaveProjectModal />` — create/update titles, name + description
+  fields, public/private visibility radio (with descriptions), save
+  button states (idle/saving/update), error banner with the
+  interpolated `{status}` from a failed HTTP call.
+- `<FileExplorer />` — workspace header, save tooltip, board pill
+  tooltip (interpolated `{board}`), running/compiled/idle status text,
+  collapse/expand, new-file placeholder, unsaved suffix, delete
+  confirm prompt, empty state, rename/delete context-menu items.
+- `<TemplatePickerModal />` — title + close, built-in/`via {id}`
+  provenance line, select prompt, readme disclosure, replace-warning,
+  difficulty aria-label (interpolated `{level}`), empty state +
+  marketplace link, the four category labels (beginner/intermediate/
+  advanced/showcase). `DifficultyDots`, `EmptyState`, `TemplatePreview`
+  each call `useTranslate()` internally — matches the AppHeader
+  pattern.
+- `<EditorToolbar />` — board pill (editing/running tooltips, language
+  mode select), every toolbar button title (compile in 4 states, run
+  in 3 states, stop, reset, compile-all, run-all, libraries label +
+  tooltip, overflow menu items, output-console toggle), library hint
+  banner (text + jump-to-manager button + dismiss), every status
+  banner message (ready, micropython ready, compiled, compile-failed,
+  export-failed, no-board, firmware-loaded, imported, etc.), and the
+  output-console log lines (start-compile, no-fqbn, arch-mismatch,
+  loading-firmware — all with interpolated vars). Backend-supplied
+  error text from `result.error || result.stderr` stays verbatim —
+  those strings are server-side and outside the shell scope.
 
-`<FileExplorer />`, `<SaveProjectModal />`, `<LoginPromptModal />`,
-`<EditorToolbar />` and `<TemplatePickerModal />` still ship English-only
-strings. The i18n module is mounted; adding `t()` is mechanical and
-deferred to **SDK-005c** to keep diffs reviewable.
+**Translator shadowing rule**: never let `t` get shadowed by a
+callback parameter. The TemplatePickerModal migration renamed
+`templates.find((t) => …)` → `templates.find((tpl) => …)` for exactly
+this reason — the shadow silently swaps a string for a TemplateRecord
+and the failure mode is "category labels render as `[object Object]`",
+caught only by visual inspection.
 
 **Tests** (24 total):
 
