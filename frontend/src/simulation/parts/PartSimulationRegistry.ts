@@ -140,7 +140,7 @@ export class PartRegistry {
             // the subscription is a no-op — plugins that need late-arriving
             // wires should re-subscribe on `events.on('wire:connect', …)`.
             const arduinoPin = getArduinoPin(pinName);
-            if (arduinoPin === null) {
+            if (arduinoPin === null || !simulator.pinManager) {
               return { dispose: () => {} };
             }
             const unsubscribe = simulator.pinManager.onPinChange(
@@ -157,7 +157,7 @@ export class PartRegistry {
             // Same late-arriving-wire rule as `onPinChange`: resolve once,
             // no-op Disposable when the wire isn't present.
             const arduinoPin = getArduinoPin(pinName);
-            if (arduinoPin === null) {
+            if (arduinoPin === null || !simulator.pinManager) {
               return { dispose: () => {} };
             }
             const unsubscribe = simulator.pinManager.onPwmChange(
