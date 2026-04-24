@@ -56,6 +56,7 @@ import type {
   SimulatorEventName,
   Unsubscribe,
 } from '@velxio/sdk';
+import { RateLimitExceededError } from '@velxio/sdk';
 
 import { createPluginContext, type PluginHostServices, type PluginUIRegistries } from '../../plugin-host/createPluginContext';
 import { HandleTable, isCallbackHandle, rehydrate, stripFunctions } from './proxy';
@@ -81,6 +82,28 @@ export interface PluginHostInit {
   readonly pingIntervalMs?: number;
   /** If a ping doesn't get a pong within this many ms, terminate. Default 5_000. */
   readonly pingTimeoutMs?: number;
+  /**
+   * Per-plugin fetch rate limit. Default `{ maxRequests: 60, windowMs: 60_000 }`.
+   * The host enforces the cap; manifests can NOT widen it (a plugin
+   * cannot self-grant a higher limit). Set `maxRequests` to `Infinity`
+   * to disable the limiter entirely (mostly for tests).
+   */
+  readonly fetchRateLimit?: {
+    readonly maxRequests: number;
+    readonly windowMs: number;
+  };
+}
+
+/** Per-plugin fetch egress counters. Surfaced in `PluginHostStats.fetch`. */
+export interface PluginFetchStats {
+  /** Number of `ctx.fetch` calls that passed the rate-limit gate (success + failure). */
+  readonly requests: number;
+  /** Approximate request body bytes sent (sum over all calls). Headers excluded. */
+  readonly bytesOut: number;
+  /** Response body bytes received (sum over all calls — only counts completed responses). */
+  readonly bytesIn: number;
+  /** Number of `ctx.fetch` calls that were rejected by the rate limiter. */
+  readonly rateLimitHits: number;
 }
 
 export interface PluginHostStats {
@@ -88,6 +111,75 @@ export interface PluginHostStats {
   readonly disposablesHeld: number;
   readonly subscribedEvents: readonly SimulatorEventName[];
   readonly missedPings: number;
+  readonly fetch: PluginFetchStats;
+}
+
+/** Default per-plugin fetch budget: 60 requests per rolling 60-second window. */
+export const DEFAULT_FETCH_RATE_LIMIT = { maxRequests: 60, windowMs: 60_000 } as const;
+
+/**
+ * Sliding-window rate limiter. `consume(now)` records a request at
+ * `now` and returns `null` if accepted, or `{retryAfterMs}` if the
+ * call would push the window over the cap. Only stamps the timestamp
+ * on accept — refused requests don't pollute the window.
+ */
+class FetchRateLimiter {
+  private readonly stamps: number[] = [];
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  consume(now: number): { retryAfterMs: number } | null {
+    if (!Number.isFinite(this.maxRequests)) return null;
+    const cutoff = now - this.windowMs;
+    // Drop expired stamps from the head.
+    while (this.stamps.length > 0 && this.stamps[0] <= cutoff) {
+      this.stamps.shift();
+    }
+    if (this.stamps.length >= this.maxRequests) {
+      // Earliest moment a new request can succeed: when the oldest
+      // stamp ages out of the window.
+      const oldest = this.stamps[0];
+      const retryAfterMs = Math.max(1, oldest + this.windowMs - now);
+      return { retryAfterMs };
+    }
+    this.stamps.push(now);
+    return null;
+  }
+}
+
+/**
+ * Best-effort byte counter for a `RequestInit.body`. Counts what we can
+ * cheaply measure and returns 0 for shapes we can't introspect without
+ * consuming the body (FormData, streams). Headers are NOT counted —
+ * tracking them would require materialising every header pair on every
+ * call and the practical signal is body size.
+ *
+ * Exported for unit testing only — the end-to-end fixture test exercises
+ * the string path (the only one that survives jsdom's `MessagePort`
+ * polyfill). Real Web Workers preserve `Uint8Array`/`ArrayBuffer`/`Blob`
+ * via structured clone and this function handles them correctly.
+ */
+export function approximateBodyBytes(body: BodyInit | null | undefined): number {
+  if (body == null) return 0;
+  if (typeof body === 'string') {
+    // A character is at least 1 byte UTF-8. For ASCII this is exact;
+    // for multi-byte chars it underestimates. Plugins should not be
+    // sending opera librettos over fetch — the underestimate is fine
+    // for a per-window budget signal.
+    return body.length;
+  }
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (ArrayBuffer.isView(body)) return body.byteLength;
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return body.size;
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+    return body.toString().length;
+  }
+  // FormData / ReadableStream / unknown — skip.
+  return 0;
 }
 
 // ── PluginHost ───────────────────────────────────────────────────────────
@@ -106,10 +198,22 @@ export class PluginHost {
   private missedPings = 0;
   private terminated = false;
 
+  private readonly rateLimiter: FetchRateLimiter;
+  private readonly rateLimitMaxRequests: number;
+  private readonly rateLimitWindowMs: number;
+  private fetchRequests = 0;
+  private fetchBytesIn = 0;
+  private fetchBytesOut = 0;
+  private fetchRateLimitHits = 0;
+
   constructor(init: PluginHostInit) {
     this.manifest = init.manifest;
     this.worker = init.worker;
     this.inProcess = createPluginContext(init.manifest, init.services);
+    const rl = init.fetchRateLimit ?? DEFAULT_FETCH_RATE_LIMIT;
+    this.rateLimitMaxRequests = rl.maxRequests;
+    this.rateLimitWindowMs = rl.windowMs;
+    this.rateLimiter = new FetchRateLimiter(rl.maxRequests, rl.windowMs);
     this.rpc = new RpcChannel(this.worker, {
       onError: (err) => this.inProcess.context.logger.error('[plugin runtime] RPC error:', err),
     });
@@ -151,6 +255,12 @@ export class PluginHost {
       disposablesHeld: this.disposalTable.size,
       subscribedEvents: Array.from(this.eventSubs.keys()),
       missedPings: this.missedPings,
+      fetch: {
+        requests: this.fetchRequests,
+        bytesIn: this.fetchBytesIn,
+        bytesOut: this.fetchBytesOut,
+        rateLimitHits: this.fetchRateLimitHits,
+      },
     };
   }
 
@@ -381,13 +491,36 @@ export class PluginHost {
    * Run a fetch call through the in-process scoped fetch and convert
    * the Response into a structured-clone-friendly `FetchShim`.
    *
+   * Order of checks (fail-closed for cheapest-first cost):
+   *   1. Rate limit — pure arithmetic, no I/O. If the budget is
+   *      exhausted, throw `RateLimitExceededError` and increment
+   *      `rateLimitHits`. The rejected request does NOT count towards
+   *      `requests`/`bytesOut` (we never tried to send it).
+   *   2. Approximate body byte count → `bytesOut`.
+   *   3. Delegate to `ctx.fetch` (which runs the permission gate +
+   *      allowlist + Content-Length cap inside `ScopedFetch`).
+   *   4. On success, count response bytes → `bytesIn`.
+   *
    * The shim transfers the response body as a Uint8Array (cloned, not
    * transferred — most plugins won't need zero-copy and a transfer
    * confiscates the host-side buffer).
    */
   private async handleFetch(ctx: PluginContext, url: string, init: RequestInit | undefined): Promise<unknown> {
+    const verdict = this.rateLimiter.consume(Date.now());
+    if (verdict !== null) {
+      this.fetchRateLimitHits++;
+      throw new RateLimitExceededError(
+        this.manifest.id,
+        this.rateLimitMaxRequests,
+        this.rateLimitWindowMs,
+        verdict.retryAfterMs,
+      );
+    }
+    this.fetchRequests++;
+    this.fetchBytesOut += approximateBodyBytes(init?.body ?? null);
     const response = await ctx.fetch(url, init);
     const buffer = await response.arrayBuffer();
+    this.fetchBytesIn += buffer.byteLength;
     const headers: Record<string, string> = {};
     response.headers.forEach((v, k) => { headers[k] = v; });
     return {
@@ -399,6 +532,7 @@ export class PluginHost {
       url: response.url,
     };
   }
+
 
   private handleLog(level: 'debug' | 'info' | 'warn' | 'error', args: readonly unknown[]): void {
     const logger = this.inProcess.context.logger;

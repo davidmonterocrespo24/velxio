@@ -73,6 +73,14 @@ export interface SerializedError {
   readonly name: string;
   readonly message: string;
   readonly stack?: string;
+  /**
+   * Own enumerable properties of typed Error subclasses
+   * (`pluginId`, `retryAfterMs`, `allowlist`, ...). Optional —
+   * absent on plain `Error` instances. The receiver re-applies these
+   * onto the rehydrated Error so plugin-side assertions like
+   * `.toMatchObject({ pluginId: '...' })` work over the RPC boundary.
+   */
+  data?: Record<string, unknown>;
 }
 
 export type RpcMessage =
@@ -517,6 +525,20 @@ export class RpcDisposedError extends Error {
 
 // ── Error serialization ──────────────────────────────────────────────────
 
+/**
+ * Native `structuredClone` of an `Error` only preserves
+ * `name`/`message`/`stack`/`cause` — custom fields added by SDK error
+ * subclasses (`pluginId`, `retryAfterMs`, `allowlist`, ...) are lost.
+ * `serializeError` walks own enumerable properties and re-applies them
+ * on the receiving side so plugin authors keep the typed surface they
+ * see in unit tests of `@velxio/sdk`.
+ *
+ * Excluded keys (`name`/`message`/`stack`/`cause`) are handled by the
+ * dedicated SerializedError shape — preserving them in `data` would
+ * double-encode them.
+ */
+const ERROR_RESERVED_KEYS = new Set(['name', 'message', 'stack', 'cause']);
+
 export function serializeError(err: unknown): SerializedError {
   if (err instanceof Error) {
     const out: SerializedError = {
@@ -524,6 +546,8 @@ export function serializeError(err: unknown): SerializedError {
       message: err.message,
       ...(err.stack !== undefined ? { stack: err.stack } : {}),
     };
+    const data = collectOwnEnumerable(err);
+    if (data !== null) out.data = data;
     return out;
   }
   if (typeof err === 'string') {
@@ -540,5 +564,44 @@ export function deserializeError(s: SerializedError): Error {
   const err = new Error(s.message);
   err.name = s.name;
   if (s.stack !== undefined) err.stack = s.stack;
+  if (s.data !== undefined) {
+    for (const [k, v] of Object.entries(s.data)) {
+      if (ERROR_RESERVED_KEYS.has(k)) continue;
+      try {
+        (err as unknown as Record<string, unknown>)[k] = v;
+      } catch { /* assigning to a non-writable own slot — skip */ }
+    }
+  }
   return err;
+}
+
+function collectOwnEnumerable(err: Error): Record<string, unknown> | null {
+  let out: Record<string, unknown> | null = null;
+  for (const key of Object.keys(err)) {
+    if (ERROR_RESERVED_KEYS.has(key)) continue;
+    const value = (err as unknown as Record<string, unknown>)[key];
+    // Only keep structured-cloneable values. A function or a class
+    // instance with circular refs would crash the postMessage call
+    // and lose the whole error.
+    if (!isStructuredCloneable(value)) continue;
+    if (out === null) out = {};
+    out[key] = value;
+  }
+  return out;
+}
+
+function isStructuredCloneable(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  const t = typeof v;
+  if (t === 'string' || t === 'number' || t === 'boolean' || t === 'bigint') return true;
+  if (t === 'function' || t === 'symbol') return false;
+  // For objects / arrays we lean on the runtime: structuredClone
+  // throws DataCloneError if the value can't be cloned. Probe lazily
+  // because most error fields are primitives or plain arrays.
+  try {
+    structuredClone(v);
+    return true;
+  } catch {
+    return false;
+  }
 }

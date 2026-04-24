@@ -111,6 +111,31 @@ export class HttpResponseTooLargeError extends Error {
   }
 }
 
+/**
+ * Thrown by `ctx.fetch` when the plugin has exhausted its per-window
+ * request budget. The host enforces this at the runtime layer (not in
+ * the manifest) so a plugin cannot self-grant a higher cap.
+ *
+ * `retryAfterMs` is the time until the *oldest* request in the current
+ * sliding window ages out — i.e. the earliest moment a follow-up fetch
+ * could succeed. A plugin author can use it to schedule a single retry
+ * instead of busy-looping.
+ */
+export class RateLimitExceededError extends Error {
+  public override readonly name = 'RateLimitExceededError';
+  constructor(
+    public readonly pluginId: string,
+    public readonly maxRequests: number,
+    public readonly windowMs: number,
+    public readonly retryAfterMs: number,
+  ) {
+    super(
+      `Plugin "${pluginId}" exceeded fetch rate limit (${maxRequests} requests per ${windowMs} ms). ` +
+      `Retry in ${retryAfterMs} ms.`,
+    );
+  }
+}
+
 /** Host-provided logger — routes to the devtools console with plugin-id prefix. */
 export interface PluginLogger {
   debug(message: string, ...args: unknown[]): void;

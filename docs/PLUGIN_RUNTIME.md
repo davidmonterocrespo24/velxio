@@ -305,6 +305,121 @@ false negative — inspect what actually got registered on the host.
 
 ---
 
+## Fetch egress + rate-limit (CORE-006b step 6)
+
+`PluginHost` accounts every `ctx.fetch` call and caps per-plugin
+throughput. Stats feed the Installed Plugins UI and the rate-limit
+throws a typed SDK error plugin authors can catch.
+
+### Counters
+
+`host.getStats().fetch: PluginFetchStats`:
+
+```ts
+interface PluginFetchStats {
+  readonly requests: number;       // accepted calls (may have succeeded or thrown later)
+  readonly bytesOut: number;       // sum of approximateBodyBytes(init.body) over requests
+  readonly bytesIn: number;        // sum of response.byteLength over successful responses
+  readonly rateLimitHits: number;  // calls refused by the sliding-window limiter
+}
+```
+
+Semantics chosen so the counters are unambiguous:
+
+- A call accepted by the limiter increments `requests` + `bytesOut`.
+  Allowlist denial, permission denial, 5xx, network error — all still
+  count as `requests` (the host committed real work).
+- Only completed responses contribute to `bytesIn`.
+- A call **refused** by the limiter increments `rateLimitHits` **only**.
+  It does NOT count towards `requests` (we never tried to send it) —
+  so `requests` maps to "plugin-observable workload the host did on
+  its behalf."
+
+### Default budget
+
+```ts
+export const DEFAULT_FETCH_RATE_LIMIT = { maxRequests: 60, windowMs: 60_000 };
+```
+
+60 requests per rolling minute per plugin. Override via
+`new PluginHost({ manifest, worker, services, fetchRateLimit: {...} })`
+— the host enforces the cap, **manifests can NOT widen it**. Set
+`maxRequests: Infinity` to disable (test paths only).
+
+### RateLimitExceededError
+
+Thrown by `ctx.fetch` on refusal. Fields:
+
+```ts
+{
+  name: 'RateLimitExceededError',
+  pluginId: string,
+  maxRequests: number,
+  windowMs: number,
+  retryAfterMs: number,  // oldest stamp + windowMs - now (1ms floor)
+}
+```
+
+`retryAfterMs` is the exact moment the oldest in-window call ages out —
+a plugin author can schedule a single retry timer instead of
+busy-looping.
+
+### Sliding window vs token bucket
+
+`FetchRateLimiter` keeps a deque of request timestamps. `consume(now)`
+evicts everything older than `now - windowMs` from the head, refuses
+if `length >= maxRequests`, otherwise stamps. Deque beats token bucket
+here because `retryAfterMs` is precisely calculable — no guesswork
+for the plugin author.
+
+### Body byte estimation
+
+`approximateBodyBytes(body)` (exported for direct unit testing):
+
+- `string` → `.length` (ASCII-exact, UTF-8 underestimate — accepted)
+- `ArrayBuffer` → `.byteLength`
+- typed-array view (Uint8Array, etc.) → `.byteLength`
+- `Blob` → `.size`
+- `URLSearchParams` → `.toString().length`
+- `FormData`, `ReadableStream`, unknown → `0` (no cheap introspection)
+- Headers are **not** counted — the signal we care about is body size
+  for exfiltration-scale egress.
+
+Under jsdom's `MessagePort` polyfill, `Uint8Array` does not survive
+`postMessage` (arrives as a plain `Object` with integer keys — a
+known jsdom limitation). The integration test exercises only the
+string path; `approximateBodyBytes` is exported so every shape gets a
+direct unit test without the MessagePort round-trip.
+
+### Typed error fields survive RPC
+
+The rate-limit error (and every other typed SDK error) now preserves
+its custom fields across the RPC boundary. `SerializedError` carries
+an optional `data?: Record<string, unknown>` populated from
+`Object.keys(err)` (skipping `name`/`message`/`stack`/`cause`), and
+`deserializeError` re-applies them on the remote side. This means
+tests can assert
+
+```ts
+await expect(ctx.fetch(...)).rejects.toMatchObject({
+  name: 'RateLimitExceededError',
+  pluginId: 'my.plugin',
+  maxRequests: 3,
+  retryAfterMs: 3000,
+});
+```
+
+which is the natural shape. Before this extension, only `.name` and
+`.message` survived — subclass fields were silently lost by
+`structuredClone`.
+
+**Rule** (unchanged from CORE-006b step 1): always match typed errors
+by `.name`, never by `instanceof` — SDK class identity does not
+survive `structuredClone` even with this extension. The data fields
+are rehydrated onto a plain `Error`, not onto the original subclass.
+
+---
+
 ## Deferred work
 
 Tracked in `task_plan/Backlog/CORE-006b-runtime-deferred.md`. Sub-step
@@ -323,4 +438,6 @@ status:
    drops, missed pings) — feeds CORE-008. → step 4
 5. DOM-bound API design (`render.kind: 'svg'` declarative schema; opt-in
    Web Component registration for panels and overlays). → step 5
-6. Per-plugin egress accounting and rate-limit policy for `fetch`. → step 6
+6. ~~Per-plugin egress accounting and rate-limit policy for `fetch`.~~ —
+   ✅ Done 2026-04-24 as **CORE-006b-step6** (see "Fetch egress +
+   rate-limit" section above).

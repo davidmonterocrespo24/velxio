@@ -19,7 +19,9 @@ export {
   PluginHost,
   type PluginHostInit,
   type PluginHostStats,
+  type PluginFetchStats,
   type WorkerLike,
+  DEFAULT_FETCH_RATE_LIMIT,
 } from './PluginHost';
 export { RpcChannel, RpcTimeoutError, RpcDisposedError, type RpcEndpoint, type RpcStats, type RpcOptions } from './rpc';
 export { buildContextStub, type ContextStubInit } from './ContextStub';
