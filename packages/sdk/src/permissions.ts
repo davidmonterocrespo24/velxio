@@ -19,8 +19,11 @@ export const PLUGIN_PERMISSIONS = [
   'simulator.pins.write',
   'simulator.pwm.read',
   'simulator.spi.read',
+  'simulator.spi.write',
   'simulator.i2c.read',
   'simulator.i2c.write',
+  'simulator.analog.write',
+  'simulator.sensors.read',
   'simulator.spice.read',
   // Compile
   'compile.transform.client',

@@ -82,6 +82,14 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionCatalogEntry> = [
       'Transmitting SPI bytes as a master, modifying in-flight bytes, observing SPI on another plugin\'s parts in isolation — every subscriber sees the same bus stream.',
   },
   {
+    permission: 'simulator.spi.write',
+    risk: 'high',
+    allows:
+      'Registering as a virtual SPI slave via handle.registerSpiSlave(handler). The slave responds with bytes on MISO, which the sketch interprets as real device data (TFT readback, flash memory, microSD).',
+    denies:
+      'Acting as an SPI master, listening on buses your plugin is not actively slaved to, displacing another plugin\'s slave silently (last-writer-wins logs a warn and stops the previous handler).',
+  },
+  {
     permission: 'simulator.i2c.read',
     risk: 'low',
     allows:
@@ -96,6 +104,22 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionCatalogEntry> = [
       'Registering as a virtual I²C slave at a 7-bit address via handle.registerI2cSlave(addr, handler). The slave participates in the bus protocol and drives MCU-visible state.',
     denies:
       'Registering on the host\'s reserved ranges, displacing another plugin\'s slave without disposing first (last-writer-wins, but the dispose handle is yours to manage), acting as master.',
+  },
+  {
+    permission: 'simulator.analog.write',
+    risk: 'high',
+    allows:
+      'Injecting an analog voltage on the ADC channel backing a component pin via handle.setAnalogValue(pinName, volts). The host converts to the right board-specific raw sample (10/12-bit).',
+    denies:
+      'Driving pins your plugin did not register, reading the resulting ADC sample back, modifying the ADC reference voltage or resolution, injecting values on analog pins of components you do not own.',
+  },
+  {
+    permission: 'simulator.sensors.read',
+    risk: 'low',
+    allows:
+      'Subscribing to values from the user-facing SensorControlPanel via handle.onSensorControlUpdate(values => …). Read-only observation of user input sliders/toggles for your component instance.',
+    denies:
+      'Reading sensor values of components your plugin did not register, driving MCU state directly (setAnalogValue / setPinState require their own gates), modifying the control panel itself.',
   },
   {
     permission: 'simulator.spice.read',

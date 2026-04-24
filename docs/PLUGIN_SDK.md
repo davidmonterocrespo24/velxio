@@ -134,6 +134,7 @@ The `sim` argument is a `SimulatorHandle`:
 ```ts
 interface SimulatorHandle {
   readonly componentId: string;
+  readonly boardPlatform: 'avr' | 'rp2040' | 'esp32' | 'unknown';            // no permission
   isRunning(): boolean;
   setPinState(pin: number, state: boolean): void;                            // needs simulator.pins.write
   getArduinoPin(componentPinName: string): number | null;
@@ -142,6 +143,9 @@ interface SimulatorHandle {
   onSpiTransmit(cb: (byte: number) => void): Disposable;                     // needs simulator.spi.read
   schedulePinChange(pinName: string, state: boolean, cyclesFromNow: number): void; // needs simulator.pins.write
   registerI2cSlave(addr: number, handler: I2cSlaveHandler): Disposable;      // needs simulator.i2c.write
+  registerSpiSlave(handler: SpiSlaveHandler): Disposable;                    // needs simulator.spi.write
+  setAnalogValue(pinName: string, volts: number): void;                      // needs simulator.analog.write
+  onSensorControlUpdate(cb: (values: Record<string, number | boolean>) => void): Disposable; // needs simulator.sensors.read
   cyclesNow(): number;
   clockHz(): number;
 }
@@ -315,6 +319,121 @@ Both have conservative fallbacks: `cyclesNow()` returns `0` if the
 host can't provide a counter; `clockHz()` returns `16_000_000`.
 Neither requires a permission — they expose no new capability beyond
 what the handle already gives plugins.
+
+#### Injecting ADC voltages — `setAnalogValue`
+
+Potentiometers, photoresistors, joysticks, and most analog sensors
+need to push a voltage into the MCU's ADC. `setAnalogValue(pinName,
+volts)` takes **volts** and the host converts to the right raw sample
+for the running board (10-bit AVR at 5 V reference, 12-bit RP2040 at
+3.3 V reference, 12-bit ESP32 at 3.3 V reference). Plugins stay
+board-agnostic.
+
+```ts
+// Potentiometer: <input type="range"> in the panel drives the ADC reading
+ctx.partSimulations.register('demo.potentiometer', definePartSimulation({
+  attachEvents(element, sim) {
+    const slider = element.querySelector('input')!;
+    const onInput = () => {
+      const ratio = Number(slider.value) / 100;   // 0..1
+      sim.setAnalogValue('SIG', ratio * 5.0);     // 0..5 V (AVR reference)
+    };
+    slider.addEventListener('input', onInput);
+    return () => slider.removeEventListener('input', onInput);
+  },
+}));
+```
+
+Requires `simulator.analog.write` (**High** — plugins can drive any
+ADC reading the sketch takes, same severity class as
+`simulator.pins.write`). Silent no-op when the resolved pin isn't
+analog-capable (AVR pins outside 14–19, RP2040 pins outside 26–29)
+or the board has no ADC surface.
+
+#### Reacting to sensor control panel — `onSensorControlUpdate`
+
+The simulator ships a `SensorControlPanel` UI that gives users sliders,
+toggles and joysticks for every sensor component. Plugins subscribe
+to it via `onSensorControlUpdate(handler)` — the host routes panel
+values to the right component instance automatically (keyed by
+`componentId`).
+
+```ts
+// Tilt-switch with a Boolean toggle in the panel
+ctx.partSimulations.register('demo.tilt-switch', definePartSimulation({
+  attachEvents(element, sim) {
+    const sub = sim.onSensorControlUpdate((values) => {
+      if (typeof values.toggle === 'boolean') {
+        sim.setPinState(sim.getArduinoPin('SIG')!, values.toggle);
+      }
+    });
+    return () => sub.dispose();
+  },
+}));
+```
+
+The `values` record is a `Record<string, number | boolean>` whose keys
+are whatever the component declares. The panel filters to only
+changed keys, so a slider move for `temperature` won't redundantly
+ship `humidity`. One listener per `componentId` — a second
+`onSensorControlUpdate` replaces the first.
+
+Requires `simulator.sensors.read` (**Low** — read-only observation of
+user input; no MCU side-effects without a separate `setAnalogValue`
+or `setPinState` call).
+
+#### Acting as an SPI slave — `registerSpiSlave`
+
+`onSpiTransmit` (observer) sees bytes but can't **reply** on MISO.
+SPI displays with readback (ILI9341 RAMRD), microSD cards, and flash
+chips must respond to the master byte-by-byte. `registerSpiSlave`
+takes a handler whose `onByte(master)` return value becomes the byte
+shifted back to the master on the same transfer.
+
+```ts
+ctx.partSimulations.register('demo.ili9341', definePartSimulation({
+  attachEvents(element, sim) {
+    let dcCommand = false;
+    const dc = sim.onPinChange('DC', (state) => { dcCommand = !state; });
+    const slave = sim.registerSpiSlave({
+      onByte(master) {
+        if (dcCommand) processCommand(master);
+        else           processData(master);
+        return 0xff;                             // most writes return open-drain
+      },
+      stop() { /* CS went HIGH or a new slave displaced us */ },
+    });
+    return () => { dc.dispose(); slave.dispose(); };
+  },
+}));
+```
+
+Not stackable: a single SPI bus has one active slave. Calling
+`registerSpiSlave` again displaces the first — the displaced handler's
+optional `stop()` fires so it can release CS-driven state. The return
+value is clamped to `Uint8` and defaults to `0xff` if the plugin's
+`onByte` throws (fault isolation — a crashing slave doesn't break
+the SPI stream).
+
+Requires `simulator.spi.write` (**High** — the slave drives bytes the
+sketch interprets as real device data). Silent no-op when the board
+has no SPI peripheral.
+
+#### Board platform hints — `boardPlatform`
+
+`sim.boardPlatform` is a read-only string: `'avr'`, `'rp2040'`,
+`'esp32'`, or `'unknown'`. Use it sparingly — prefer feature-probing
+via the handle's methods (no-op Disposables on unsupported surfaces).
+It's there for the rare cases where behavior genuinely differs by
+board (servo PWM frequency interpretation, ADC reference voltage).
+
+```ts
+const vRef = sim.boardPlatform === 'avr' ? 5.0 : 3.3;
+sim.setAnalogValue('SIG', value * vRef);
+```
+
+No permission required — passive identifier, no observation
+capability.
 
 #### Fault isolation
 

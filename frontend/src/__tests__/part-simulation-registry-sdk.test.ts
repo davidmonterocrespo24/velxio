@@ -907,4 +907,468 @@ describe('PartSimulationRegistry — SDK contract', () => {
       expect(observed).toBe(16_000_000);
     });
   });
+
+  // ── CORE-002c-step4a surfaces ─────────────────────────────────────────────
+
+  /**
+   * Helper — builds a fake simulator that optionally carries an ESP32-style
+   * `setAdcVoltage` shim, an SPI slave slot (`onByte` + `completeTransfer`),
+   * and the other step3 overrides. Keeps the step4a tests tight.
+   */
+  function buildStep4aFakeSim(overrides: {
+    pinManager: PinManager;
+    setAdcVoltage?: (pin: number, volts: number) => boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    spi?: any;
+  }) {
+    return {
+      setPinState: (pin: number, state: boolean) =>
+        overrides.pinManager.setPinState(pin, state),
+      isRunning: () => true,
+      pinManager: overrides.pinManager,
+      setAdcVoltage: overrides.setAdcVoltage,
+      spi: overrides.spi,
+    } as never;
+  }
+
+  describe('SimulatorHandle.setAnalogValue', () => {
+    it('delegates to the host setAdcVoltage helper with the resolved arduino pin', () => {
+      const pinManager = new PinManager();
+      const shim = vi.fn(() => true);
+
+      PartSimulationRegistry.registerSdkPart('analog-esp32', {
+        attachEvents: (_el, handle) => {
+          handle.setAnalogValue('SIG', 2.5);
+          handle.setAnalogValue('SIG', 1.25);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('analog-esp32')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, setAdcVoltage: shim }),
+        (name) => (name === 'SIG' ? 34 : null),
+        'comp-1',
+      );
+
+      expect(shim).toHaveBeenCalledTimes(2);
+      expect(shim).toHaveBeenNthCalledWith(1, 34, 2.5);
+      expect(shim).toHaveBeenNthCalledWith(2, 34, 1.25);
+    });
+
+    it('is a no-op when the component pin is unwired', () => {
+      const pinManager = new PinManager();
+      const shim = vi.fn(() => true);
+
+      PartSimulationRegistry.registerSdkPart('analog-unwired', {
+        attachEvents: (_el, handle) => {
+          handle.setAnalogValue('SIG', 1.0);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('analog-unwired')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, setAdcVoltage: shim }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(shim).not.toHaveBeenCalled();
+    });
+
+    it('swallows errors from the host ADC helper (fault isolation)', () => {
+      const pinManager = new PinManager();
+      const shim = vi.fn(() => {
+        throw new Error('boom');
+      });
+
+      PartSimulationRegistry.registerSdkPart('analog-throw', {
+        attachEvents: (_el, handle) => {
+          handle.setAnalogValue('SIG', 0.1);
+          return () => {};
+        },
+      });
+
+      expect(() =>
+        PartSimulationRegistry.get('analog-throw')!.attachEvents!(
+          document.createElement('div'),
+          buildStep4aFakeSim({ pinManager, setAdcVoltage: shim }),
+          () => 34,
+          'comp-1',
+        ),
+      ).not.toThrow();
+      expect(shim).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op when the running board has no ADC surface (AVR pin out of range, no shim)', () => {
+      const pinManager = new PinManager();
+
+      PartSimulationRegistry.registerSdkPart('analog-no-adc', {
+        attachEvents: (_el, handle) => {
+          // Pin 3 is a PWM pin on AVR, not analog — setAdcVoltage returns
+          // false and we no-op. Critically, this must NOT throw.
+          handle.setAnalogValue('SIG', 5.0);
+          return () => {};
+        },
+      });
+
+      expect(() =>
+        PartSimulationRegistry.get('analog-no-adc')!.attachEvents!(
+          document.createElement('div'),
+          buildStep4aFakeSim({ pinManager }),
+          () => 3,
+          'comp-1',
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  describe('SimulatorHandle.onSensorControlUpdate', () => {
+    it('registers a listener keyed by componentId and receives dispatched values', async () => {
+      const { dispatchSensorUpdate } = await import(
+        '../simulation/SensorUpdateRegistry'
+      );
+      const pinManager = new PinManager();
+      const observed: Record<string, number | boolean>[] = [];
+
+      PartSimulationRegistry.registerSdkPart('sensor-basic', {
+        attachEvents: (_el, handle) => {
+          handle.onSensorControlUpdate((values) => observed.push(values));
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('sensor-basic')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'sensor-1',
+      );
+
+      dispatchSensorUpdate('sensor-1', { temperature: 25, humidity: 50 });
+      dispatchSensorUpdate('sensor-1', { temperature: 28, humidity: 45 });
+
+      expect(observed).toEqual([
+        { temperature: 25, humidity: 50 },
+        { temperature: 28, humidity: 45 },
+      ]);
+    });
+
+    it('dispose() unregisters the listener', async () => {
+      const { dispatchSensorUpdate } = await import(
+        '../simulation/SensorUpdateRegistry'
+      );
+      const pinManager = new PinManager();
+      const cb = vi.fn();
+      let disposable: { dispose: () => void } | undefined;
+
+      PartSimulationRegistry.registerSdkPart('sensor-dispose', {
+        attachEvents: (_el, handle) => {
+          disposable = handle.onSensorControlUpdate(cb);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('sensor-dispose')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'sensor-2',
+      );
+
+      dispatchSensorUpdate('sensor-2', { tilt: true });
+      expect(cb).toHaveBeenCalledTimes(1);
+
+      disposable!.dispose();
+      dispatchSensorUpdate('sensor-2', { tilt: false });
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it('fault-isolates a throwing listener — the panel dispatch loop keeps going', async () => {
+      const { dispatchSensorUpdate } = await import(
+        '../simulation/SensorUpdateRegistry'
+      );
+      const pinManager = new PinManager();
+
+      PartSimulationRegistry.registerSdkPart('sensor-throw', {
+        attachEvents: (_el, handle) => {
+          handle.onSensorControlUpdate(() => {
+            throw new Error('plugin is buggy');
+          });
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('sensor-throw')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'sensor-3',
+      );
+
+      expect(() =>
+        dispatchSensorUpdate('sensor-3', { value: 1 }),
+      ).not.toThrow();
+    });
+
+    it('routes values only to the registered componentId (isolation across components)', async () => {
+      const { dispatchSensorUpdate } = await import(
+        '../simulation/SensorUpdateRegistry'
+      );
+      const pinManager = new PinManager();
+      const cbA = vi.fn();
+      const cbB = vi.fn();
+
+      PartSimulationRegistry.registerSdkPart('sensor-iso-a', {
+        attachEvents: (_el, handle) => {
+          handle.onSensorControlUpdate(cbA);
+          return () => {};
+        },
+      });
+      PartSimulationRegistry.registerSdkPart('sensor-iso-b', {
+        attachEvents: (_el, handle) => {
+          handle.onSensorControlUpdate(cbB);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('sensor-iso-a')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'sensor-A',
+      );
+      PartSimulationRegistry.get('sensor-iso-b')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'sensor-B',
+      );
+
+      dispatchSensorUpdate('sensor-A', { v: 1 });
+      dispatchSensorUpdate('sensor-B', { v: 2 });
+
+      expect(cbA).toHaveBeenCalledWith({ v: 1 });
+      expect(cbB).toHaveBeenCalledWith({ v: 2 });
+      expect(cbA).toHaveBeenCalledTimes(1);
+      expect(cbB).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('SimulatorHandle.registerSpiSlave', () => {
+    function makeFakeSpi() {
+      return {
+        onByte: null as ((v: number) => void) | null,
+        completeTransfer: vi.fn(),
+      };
+    }
+
+    it('wraps spi.onByte and feeds handler.onByte return values back via completeTransfer', () => {
+      const pinManager = new PinManager();
+      const spi = makeFakeSpi();
+      const received: number[] = [];
+      const handler = {
+        onByte: vi.fn((master: number) => {
+          received.push(master);
+          return 0xaa;
+        }),
+      };
+
+      PartSimulationRegistry.registerSdkPart('spi-slave-basic', {
+        attachEvents: (_el, handle) => {
+          handle.registerSpiSlave(handler);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('spi-slave-basic')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, spi }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(typeof spi.onByte).toBe('function');
+      spi.onByte!(0x11);
+      spi.onByte!(0x22);
+
+      expect(received).toEqual([0x11, 0x22]);
+      expect(spi.completeTransfer).toHaveBeenNthCalledWith(1, 0xaa);
+      expect(spi.completeTransfer).toHaveBeenNthCalledWith(2, 0xaa);
+    });
+
+    it('defaults to 0xff open-drain when the plugin onByte throws', () => {
+      const pinManager = new PinManager();
+      const spi = makeFakeSpi();
+      const handler = {
+        onByte: () => {
+          throw new Error('plugin crashed');
+        },
+      };
+
+      PartSimulationRegistry.registerSdkPart('spi-slave-throw', {
+        attachEvents: (_el, handle) => {
+          handle.registerSpiSlave(handler);
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('spi-slave-throw')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, spi }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(() => spi.onByte!(0x55)).not.toThrow();
+      expect(spi.completeTransfer).toHaveBeenCalledWith(0xff);
+    });
+
+    it('dispose() restores the previous onByte slot and calls stop()', () => {
+      const pinManager = new PinManager();
+      const prevHandler = vi.fn();
+      const spi: ReturnType<typeof makeFakeSpi> & {
+        onByte: ((v: number) => void) | null;
+      } = makeFakeSpi();
+      spi.onByte = prevHandler as (v: number) => void;
+
+      let disposable: { dispose: () => void } | undefined;
+      const stop = vi.fn();
+
+      PartSimulationRegistry.registerSdkPart('spi-slave-dispose', {
+        attachEvents: (_el, handle) => {
+          disposable = handle.registerSpiSlave({
+            onByte: () => 0x00,
+            stop,
+          });
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('spi-slave-dispose')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, spi }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(spi.onByte).not.toBe(prevHandler);
+      disposable!.dispose();
+      expect(spi.onByte).toBe(prevHandler);
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('displacement: a second registerSpiSlave replaces the first and the first sees nothing further', () => {
+      const pinManager = new PinManager();
+      const spi = makeFakeSpi();
+      const firstBytes: number[] = [];
+      const secondBytes: number[] = [];
+      const firstStop = vi.fn();
+
+      PartSimulationRegistry.registerSdkPart('spi-slave-replace', {
+        attachEvents: (_el, handle) => {
+          handle.registerSpiSlave({
+            onByte: (b) => {
+              firstBytes.push(b);
+              return 0x11;
+            },
+            stop: firstStop,
+          });
+          handle.registerSpiSlave({
+            onByte: (b) => {
+              secondBytes.push(b);
+              return 0x22;
+            },
+          });
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('spi-slave-replace')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager, spi }),
+        () => null,
+        'comp-1',
+      );
+
+      spi.onByte!(0xab);
+      expect(firstBytes).toEqual([]);
+      expect(secondBytes).toEqual([0xab]);
+      expect(spi.completeTransfer).toHaveBeenLastCalledWith(0x22);
+      // Displacement invoked the first slave's stop() so the displaced
+      // plugin can release CS-driven state (spec: step4a).
+      expect(firstStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op Disposable when the host has no spi peripheral', () => {
+      const pinManager = new PinManager();
+      let disposable: { dispose: () => void } | undefined;
+
+      PartSimulationRegistry.registerSdkPart('spi-slave-none', {
+        attachEvents: (_el, handle) => {
+          disposable = handle.registerSpiSlave({
+            onByte: () => 0,
+          });
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('spi-slave-none')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(() => disposable!.dispose()).not.toThrow();
+    });
+  });
+
+  describe('SimulatorHandle.boardPlatform', () => {
+    it('reports esp32 when the host exposes a setAdcVoltage shim (bridge path)', () => {
+      const pinManager = new PinManager();
+      let observed: SimulatorHandle['boardPlatform'] | undefined;
+
+      PartSimulationRegistry.registerSdkPart('board-esp32', {
+        attachEvents: (_el, handle) => {
+          observed = handle.boardPlatform;
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('board-esp32')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({
+          pinManager,
+          setAdcVoltage: () => true,
+        }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(observed).toBe('esp32');
+    });
+
+    it('reports unknown for a plain fake simulator with no board-specific markers', () => {
+      const pinManager = new PinManager();
+      let observed: SimulatorHandle['boardPlatform'] | undefined;
+
+      PartSimulationRegistry.registerSdkPart('board-unknown', {
+        attachEvents: (_el, handle) => {
+          observed = handle.boardPlatform;
+          return () => {};
+        },
+      });
+
+      PartSimulationRegistry.get('board-unknown')!.attachEvents!(
+        document.createElement('div'),
+        buildStep4aFakeSim({ pinManager }),
+        () => null,
+        'comp-1',
+      );
+
+      expect(observed).toBe('unknown');
+    });
+  });
 });

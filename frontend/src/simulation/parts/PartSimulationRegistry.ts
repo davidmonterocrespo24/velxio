@@ -2,9 +2,15 @@ import type {
   I2cSlaveHandler,
   PartSimulation as SdkPartSimulation,
   SimulatorHandle,
+  SpiSlaveHandler,
 } from '@velxio/sdk';
 import { AVRSimulator } from '../AVRSimulator';
 import { RP2040Simulator } from '../RP2040Simulator';
+import { setAdcVoltage } from './partUtils';
+import {
+  registerSensorUpdate,
+  unregisterSensorUpdate,
+} from '../SensorUpdateRegistry';
 
 /** Any simulator that components can interact with (AVR, RP2040, or ESP32 bridge shim). */
 export type AnySimulator =
@@ -244,6 +250,124 @@ export class PartRegistry {
             typeof simulator.getClockHz === 'function'
               ? (simulator.getClockHz() as number)
               : 16_000_000,
+          setAnalogValue: (pinName, volts) => {
+            // Resolve once. `setAdcVoltage` already knows the per-board
+            // dispatch (AVR via ADC channelValues, RP2040 via setADCValue,
+            // ESP32 via the shim's setAdcVoltage). Unwired or non-analog
+            // pins return false and we no-op.
+            const arduinoPin = getArduinoPin(pinName);
+            if (arduinoPin === null) return;
+            try {
+              setAdcVoltage(simulator, arduinoPin, volts);
+            } catch {
+              // Swallow board-specific errors so a plugin's setAnalogValue
+              // call cannot crash the simulator loop. Plugins author
+              // against the contract, not a specific board's quirks.
+            }
+          },
+          onSensorControlUpdate: (handler) => {
+            // One listener per componentId (the SensorControlPanel keys by
+            // componentId). Wrap the plugin callback in try/catch so a
+            // throwing listener doesn't tear down the panel's dispatch
+            // loop or leak into the UI.
+            const guarded = (values: Record<string, number | boolean>) => {
+              try {
+                handler(values);
+              } catch {
+                // Isolate: panel keeps dispatching for other components.
+              }
+            };
+            registerSensorUpdate(componentId, guarded);
+            return {
+              dispose: () => unregisterSensorUpdate(componentId),
+            };
+          },
+          registerSpiSlave: (handler: SpiSlaveHandler) => {
+            // The AVR `AVRSPI` peripheral exposes `onByte` (single slot,
+            // not a subscriber list) + `completeTransfer(responseByte)`.
+            // A slave differs from `onSpiTransmit` (observer) because it
+            // MUST drive MISO back to the master — the sketch reads the
+            // response as real device data.
+            //
+            // Not stackable: one active slave per bus (no per-CS routing
+            // today). A second `registerSpiSlave` call displaces the
+            // first — the old handler's `stop()` is invoked (if defined)
+            // on install, so the displaced plugin's dispose later becomes
+            // an idempotent no-op.
+            type OnByte = (value: number) => void;
+            type SlaveMarker = OnByte & { __velxioSpiSlaveStop?: () => void };
+            const spi = simulator.spi as
+              | {
+                  onByte?: SlaveMarker | null;
+                  completeTransfer?: (response: number) => void;
+                }
+              | null
+              | undefined;
+            if (!spi || typeof spi.completeTransfer !== 'function') {
+              return { dispose: () => {} };
+            }
+            const previousOnByte = spi.onByte ?? null;
+            let active = true;
+            const stopOnce = () => {
+              if (!active) return;
+              active = false;
+              try {
+                handler.stop?.();
+              } catch {
+                // Isolate teardown: a throwing stop() must not affect
+                // restore of the previous handler.
+              }
+            };
+            const ourOnByte: SlaveMarker = (master: number) => {
+              if (!active) {
+                // We were displaced but the host still has a stale
+                // binding — defensive no-op with default 0xff response.
+                spi.completeTransfer!(0xff);
+                return;
+              }
+              let response = 0xff;
+              try {
+                const ret = handler.onByte(master);
+                if (Number.isFinite(ret)) response = (ret | 0) & 0xff;
+              } catch {
+                // Plugin threw — send open-drain default, keep the bus
+                // alive. Silence beats bringing down the SPI stream.
+              }
+              spi.completeTransfer!(response);
+            };
+            ourOnByte.__velxioSpiSlaveStop = stopOnce;
+            // Signal displacement to a previously-registered plugin slave
+            // so its owning handler can release CS-driven state. Legacy
+            // (non-plugin) AVR slave code has no marker and is preserved
+            // untouched — its dispose flow runs through the
+            // `previousOnByte` restore below, unchanged.
+            if (previousOnByte && previousOnByte.__velxioSpiSlaveStop) {
+              try {
+                previousOnByte.__velxioSpiSlaveStop();
+              } catch {
+                // Isolate — install proceeds regardless.
+              }
+            }
+            spi.onByte = ourOnByte;
+            return {
+              dispose: () => {
+                // Idempotent: displacement already called stopOnce if it
+                // fired; self-dispose runs it exactly once the first time.
+                stopOnce();
+                if (spi.onByte === ourOnByte) {
+                  spi.onByte = previousOnByte;
+                }
+              },
+            };
+          },
+          boardPlatform: (simulator instanceof RP2040Simulator
+            ? 'rp2040'
+            : simulator instanceof AVRSimulator
+              ? 'avr'
+              : typeof (simulator as { setAdcVoltage?: unknown }).setAdcVoltage ===
+                  'function'
+                ? 'esp32'
+                : 'unknown') as SimulatorHandle['boardPlatform'],
         };
         return sdkAttach(element, handle);
       };

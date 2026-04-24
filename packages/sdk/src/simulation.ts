@@ -165,6 +165,92 @@ export interface SimulatorHandle {
    * O(1), no permission required.
    */
   clockHz(): number;
+
+  /**
+   * Inject an analog voltage on the ADC channel backing a component pin.
+   * The value is in **volts** — the host converts to the right raw ADC
+   * sample depending on the board (10-bit AVR, 12-bit RP2040, 12-bit ESP32
+   * at 3.3 V reference). Plugins stay board-agnostic.
+   *
+   * Permission: `simulator.analog.write` (High risk — the plugin can drive
+   * any ADC reading the sketch makes, same class of capability as
+   * `simulator.pins.write`).
+   *
+   * No-op when the pin isn't wired to an analog-capable pin or the running
+   * board lacks an ADC surface. Values outside the board's Vref range are
+   * clamped by the host adapter; plugins do not need to clamp themselves.
+   *
+   * Example (potentiometer at 2.5 V on A0):
+   * ```ts
+   * handle.setAnalogValue('SIG', 2.5);
+   * ```
+   */
+  setAnalogValue(pinName: string, volts: number): void;
+
+  /**
+   * Subscribe to value updates from the `SensorControlPanel` (the user-facing
+   * debug panel where sliders, toggles and joysticks feed values into
+   * simulated sensors). The callback receives a `Record<string, number |
+   * boolean>` whose keys are whatever the component declares — e.g. DHT22
+   * uses `{ temperature, humidity }`, tilt-switch `{ toggle }`, MPU6050
+   * `{ accelX, accelY, accelZ, gyroX, gyroY, gyroZ }`.
+   *
+   * Permission: `simulator.sensors.read` (Low risk — read-only observation
+   * of user input; no MCU-side effect without a separate `setAnalogValue`
+   * or `setPinState` call).
+   *
+   * Returns a `Disposable` that unregisters the listener from the panel.
+   * Exactly one listener per component instance — a later `onSensorControl-
+   * Update` call replaces the previous. The control panel itself is opt-in
+   * UI; until the user opens it, the callback is never invoked.
+   */
+  onSensorControlUpdate(
+    handler: (values: Record<string, number | boolean>) => void,
+  ): Disposable;
+
+  /**
+   * Register this component as a virtual SPI slave on the MCU's hardware SPI
+   * bus. Unlike `onSpiTransmit` (observer only), a slave **responds** with
+   * the next byte to be shifted back to the master — required for chips
+   * that drive MISO (ILI9341 TFT readback, microSD card, flash memory).
+   *
+   * Permission: `simulator.spi.write` (High risk — the slave feeds bytes
+   * back to the master, which the sketch interprets as real device data).
+   *
+   * Not stackable: a single SPI bus has exactly one active slave (selected
+   * via CS lines that the host doesn't yet model per-slave). A second
+   * `registerSpiSlave` call displaces the previous slave — the previous
+   * handler receives a `stop()` call (if defined) before the replacement
+   * takes over, and a warning is logged.
+   *
+   * No-op when the running board has no SPI peripheral (ESP32 software
+   * SPI, simulation not yet started).
+   *
+   * Example (ILI9341 shim):
+   * ```ts
+   * handle.registerSpiSlave({
+   *   onByte(master) {
+   *     cmdBuffer.push(master);
+   *     return statusByte; // shifted back to MOSI on the next transfer
+   *   },
+   *   stop() { resetChipSelect(); },
+   * });
+   * ```
+   */
+  registerSpiSlave(handler: SpiSlaveHandler): Disposable;
+
+  /**
+   * Identifies the board family the current simulator belongs to. Useful
+   * for parts that need board-specific calibration (e.g. servo PWM decode
+   * on AVR vs RP2040 vs ESP32 bridge). Read-only, no permission required
+   * — this is a passive identifier, not an observation capability.
+   *
+   * Plugins SHOULD prefer feature-probing via the handle's typed methods
+   * (no-op Disposables on unsupported surfaces) over branching on
+   * `boardPlatform`. Use this only when the behavior genuinely differs
+   * by board (PWM frequency interpretation, ADC reference voltage).
+   */
+  readonly boardPlatform: 'avr' | 'rp2040' | 'esp32' | 'unknown';
 }
 
 /**
@@ -187,6 +273,29 @@ export interface I2cSlaveHandler {
    */
   readByte(): number;
   /** Optional: called on a bus STOP condition so the slave can reset per-transaction state (register pointer, etc.). */
+  stop?(): void;
+}
+
+/**
+ * Handler for a virtual SPI slave registered via
+ * `SimulatorHandle.registerSpiSlave`. The host invokes `onByte` from
+ * within the MCU's SPI transfer state machine, synchronously — the
+ * return value is shifted back to the master on the same transfer.
+ */
+export interface SpiSlaveHandler {
+  /**
+   * Called for every byte the MCU shifts out on MOSI. `master` is the
+   * outgoing byte. The return value is the byte the host presents on
+   * MISO for the same transfer — return `0xff` (the open-drain default)
+   * if the slave has nothing to send.
+   */
+  onByte(master: number): number;
+  /**
+   * Optional: called when a burst terminates (today: when a subsequent
+   * `registerSpiSlave` displaces this one, so the outgoing slave can
+   * reset CS-driven state). Future hardware CS modelling will invoke
+   * this on the CS-HIGH transition.
+   */
   stop?(): void;
 }
 
