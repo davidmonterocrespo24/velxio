@@ -46,6 +46,24 @@ export const es: Partial<Record<ShellTranslationKey, string>> = {
   'plugins.settings.empty': 'Este plugin todavía no ha declarado ajustes. Cuando llame a',
   'plugins.settings.metadata': 'Metadatos del plugin',
 
+  // File explorer (left sidebar)
+  'fileExplorer.workspace': 'ESPACIO DE TRABAJO',
+  'fileExplorer.saveProject.title': 'Guardar proyecto (Ctrl+S)',
+  'fileExplorer.boardHeader.title': '{board} — haz clic para editar',
+  'fileExplorer.collapse': 'Contraer',
+  'fileExplorer.expand': 'Expandir',
+  'fileExplorer.status.running': 'Ejecutando',
+  'fileExplorer.status.compiled': 'Compilado',
+  'fileExplorer.status.idle': 'Inactivo',
+  'fileExplorer.newFile.title': 'Nuevo archivo en esta placa',
+  'fileExplorer.newFile.placeholder': 'nombre.ino',
+  'fileExplorer.unsaved.suffix': ' (sin guardar)',
+  'fileExplorer.unsaved.title': 'Cambios sin guardar',
+  'fileExplorer.delete.confirm': '¿Eliminar este archivo?',
+  'fileExplorer.empty': 'Añade una placa al canvas para empezar a editar código.',
+  'fileExplorer.contextMenu.rename': 'Renombrar',
+  'fileExplorer.contextMenu.delete': 'Eliminar',
+
   // Save project modal
   'saveProject.title.create': 'Guardar proyecto',
   'saveProject.title.update': 'Actualizar proyecto',

@@ -50,6 +50,24 @@ export const en = {
   'plugins.settings.empty': "This plugin hasn't declared any settings yet. Once it calls",
   'plugins.settings.metadata': 'Plugin metadata',
 
+  // File explorer (left sidebar)
+  'fileExplorer.workspace': 'WORKSPACE',
+  'fileExplorer.saveProject.title': 'Save project (Ctrl+S)',
+  'fileExplorer.boardHeader.title': '{board} — click to edit',
+  'fileExplorer.collapse': 'Collapse',
+  'fileExplorer.expand': 'Expand',
+  'fileExplorer.status.running': 'Running',
+  'fileExplorer.status.compiled': 'Compiled',
+  'fileExplorer.status.idle': 'Idle',
+  'fileExplorer.newFile.title': 'New file in this board',
+  'fileExplorer.newFile.placeholder': 'filename.ino',
+  'fileExplorer.unsaved.suffix': ' (unsaved)',
+  'fileExplorer.unsaved.title': 'Unsaved changes',
+  'fileExplorer.delete.confirm': 'Delete this file?',
+  'fileExplorer.empty': 'Add a board to the canvas to start editing code.',
+  'fileExplorer.contextMenu.rename': 'Rename',
+  'fileExplorer.contextMenu.delete': 'Delete',
+
   // Save project modal
   'saveProject.title.create': 'Save project',
   'saveProject.title.update': 'Update project',
