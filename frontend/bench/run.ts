@@ -27,6 +27,7 @@ import { Bench } from 'tinybench';
 import { registerAvrBenches, AVR_BENCH_METADATA } from './avr.bench';
 import { registerSpiceBenches } from './spice.bench';
 import { registerEventBusBenches } from './eventbus.bench';
+import { registerPartsBenches, PART_BENCH_METADATA } from './parts.bench';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -79,6 +80,7 @@ function makeBench(): Bench {
   registerAvrBenches(b);
   registerSpiceBenches(b);
   registerEventBusBenches(b);
+  registerPartsBenches(b);
   return b;
 }
 
@@ -136,6 +138,9 @@ async function main(): Promise<void> {
     const derived: Record<string, number> = {};
     if (name.startsWith('BENCH-AVR')) {
       derived.equivalentMhz = AVR_BENCH_METADATA.hzToMhz(s.hz);
+    }
+    if (name.startsWith('BENCH-PART')) {
+      derived.dispatchesMhz = PART_BENCH_METADATA.hzToDispatchesMhz(s.hz);
     }
     results.push({
       name,

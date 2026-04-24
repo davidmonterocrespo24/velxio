@@ -48,6 +48,13 @@ const TOLERANCES = [
   { prefix: 'BENCH-SPICE', tolerance: 0.05 },
   { prefix: 'BENCH-EVENT', tolerance: 0.02 },
   { prefix: 'BENCH-PIN', tolerance: 0.02 },
+  // BENCH-PART measures the SDK adapter closure overhead on top of the
+  // PinManager dispatch. Host-side PinManager lives in the same jitter
+  // band as the EventBus micro-benches — 2% matches the existing AVR
+  // gate and, more importantly, is tight enough to catch a regression
+  // that would invalidate CORE-002c-step4's "adapter overhead is noise"
+  // claim.
+  { prefix: 'BENCH-PART', tolerance: 0.02 },
 ];
 const DEFAULT_TOLERANCE = 0.05;
 

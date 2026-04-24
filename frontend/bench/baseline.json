@@ -1,115 +1,137 @@
 {
   "schema": 1,
-  "startedAt": "2026-04-22T05:03:49.974Z",
-  "durationMs": 78407,
+  "startedAt": "2026-04-24T04:49:28.870Z",
+  "durationMs": 211177,
   "node": "v22.14.0",
   "platform": "win32",
   "arch": "x64",
   "cpus": 16,
-  "rounds": 1,
+  "rounds": 3,
   "results": [
     {
       "name": "BENCH-AVR-01 blink loop, no port listeners",
-      "hz": 291.15226585112487,
-      "meanMs": 3.672058165137574,
-      "rmeStddevPct": 2.3128491828094444,
-      "samples": 545,
-      "rounds": 1,
+      "hz": 250.89677415798175,
+      "meanMs": 4.004883199999947,
+      "rmeStddevPct": 0.6339784180534768,
+      "samples": 500,
+      "rounds": 3,
       "derived": {
-        "equivalentMhz": 29.115226585112485
+        "equivalentMhz": 25.089677415798175
       }
     },
     {
       "name": "BENCH-AVR-02 toggle PORTB, no listeners",
-      "hz": 308.31408323080984,
-      "meanMs": 3.4607586505190095,
-      "rmeStddevPct": 2.370611661851158,
-      "samples": 578,
-      "rounds": 1,
+      "hz": 251.38806604679183,
+      "meanMs": 3.998264670658627,
+      "rmeStddevPct": 0.6596883178740977,
+      "samples": 501,
+      "rounds": 3,
       "derived": {
-        "equivalentMhz": 30.831408323080982
+        "equivalentMhz": 25.138806604679182
       }
     },
     {
       "name": "BENCH-AVR-03 NOP loop, dispatch baseline",
-      "hz": 277.6536463856598,
-      "meanMs": 3.800004554079688,
-      "rmeStddevPct": 1.9459580409200927,
-      "samples": 527,
-      "rounds": 1,
+      "hz": 268.2382584572633,
+      "meanMs": 3.741981308411167,
+      "rmeStddevPct": 0.5666175526060635,
+      "samples": 535,
+      "rounds": 3,
       "derived": {
-        "equivalentMhz": 27.76536463856598
+        "equivalentMhz": 26.823825845726333
       }
     },
     {
       "name": "BENCH-AVR-04 toggle PORTB with 1 listener",
-      "hz": 209.6396749095598,
-      "meanMs": 4.926317487684716,
-      "rmeStddevPct": 1.6555026754598718,
-      "samples": 406,
-      "rounds": 1,
+      "hz": 232.63323344883307,
+      "meanMs": 4.323463066954572,
+      "rmeStddevPct": 0.7516089932054604,
+      "samples": 463,
+      "rounds": 3,
       "derived": {
-        "equivalentMhz": 20.96396749095598
+        "equivalentMhz": 23.263323344883307
       }
     },
     {
       "name": "BENCH-AVR-05 toggle PORTB with all 3 ports + listeners",
-      "hz": 212.21252881882072,
-      "meanMs": 4.892684107579398,
-      "rmeStddevPct": 1.7869947102774706,
-      "samples": 409,
-      "rounds": 1,
+      "hz": 235.6181467436755,
+      "meanMs": 4.262215957446879,
+      "rmeStddevPct": 0.6190514484531499,
+      "samples": 470,
+      "rounds": 3,
       "derived": {
-        "equivalentMhz": 21.221252881882073
+        "equivalentMhz": 23.56181467436755
       }
     },
     {
       "name": "BENCH-SPICE-01 NetlistBuilder voltage divider (2 R)",
-      "hz": 144917.51474694413,
-      "meanMs": 0.00811789422413566,
-      "rmeStddevPct": 0.5135620813371832,
-      "samples": 246370,
-      "rounds": 1
+      "hz": 135901.10641860843,
+      "meanMs": 0.00815187349955017,
+      "rmeStddevPct": 0.5712782586576273,
+      "samples": 245343,
+      "rounds": 3
     },
     {
       "name": "BENCH-SPICE-02 NetlistBuilder 30-resistor mesh",
-      "hz": 16130.410222731942,
-      "meanMs": 0.06873102168458436,
-      "rmeStddevPct": 0.5231852619586551,
-      "samples": 29099,
-      "rounds": 1
+      "hz": 14735.032072851305,
+      "meanMs": 0.07225116321074396,
+      "rmeStddevPct": 0.8652592366808277,
+      "samples": 27682,
+      "rounds": 3
     },
     {
       "name": "BENCH-SPICE-03 ngspice .op voltage divider",
-      "hz": 1317.900709638668,
-      "meanMs": 0.907992646391276,
-      "rmeStddevPct": 3.182200230954104,
-      "samples": 2203,
-      "rounds": 1
+      "hz": 1386.452185575421,
+      "meanMs": 0.7825167840375008,
+      "rmeStddevPct": 1.6058225024524673,
+      "samples": 2556,
+      "rounds": 3
     },
     {
       "name": "BENCH-EVENT-01 — emit with 0 listeners",
-      "hz": 12780276.43811002,
-      "meanMs": 0.000060274968378316004,
-      "rmeStddevPct": 0.25126970748824434,
-      "samples": 33181270,
-      "rounds": 1
+      "hz": 11676021.383683411,
+      "meanMs": 0.00006861326962717501,
+      "rmeStddevPct": 0.44903399342025896,
+      "samples": 29148882,
+      "rounds": 3
     },
     {
       "name": "BENCH-EVENT-02 — emit with 100 listeners (noop)",
-      "hz": 3248305.8178354856,
-      "meanMs": 0.0003768630788791005,
-      "rmeStddevPct": 2.227847102778812,
-      "samples": 5306968,
-      "rounds": 1
+      "hz": 3097419.0504304,
+      "meanMs": 0.0003579074369052244,
+      "rmeStddevPct": 1.7963098811611493,
+      "samples": 5588037,
+      "rounds": 3
     },
     {
       "name": "BENCH-PIN-01 — guarded emit with 0 listeners",
-      "hz": 13167670.654976385,
-      "meanMs": 0.000058572172103640164,
-      "rmeStddevPct": 0.825602948502074,
-      "samples": 34145908,
-      "rounds": 1
+      "hz": 11575253.5540981,
+      "meanMs": 0.0000692991904545281,
+      "rmeStddevPct": 0.4237617147447675,
+      "samples": 28860366,
+      "rounds": 3
+    },
+    {
+      "name": "BENCH-PART-01 legacy pinManager.onPinChange dispatch",
+      "hz": 28521.509157838205,
+      "meanMs": 0.04227118611829632,
+      "rmeStddevPct": 4.240086015236043,
+      "samples": 47314,
+      "rounds": 3,
+      "derived": {
+        "dispatchesMhz": 28.521509157838207
+      }
+    },
+    {
+      "name": "BENCH-PART-02 SDK adapter handle.onPinChange dispatch",
+      "hz": 28096.458877126635,
+      "meanMs": 0.04148607936277103,
+      "rmeStddevPct": 1.4048052594550566,
+      "samples": 48209,
+      "rounds": 3,
+      "derived": {
+        "dispatchesMhz": 28.096458877126633
+      }
     }
   ]
 }
