@@ -26,3 +26,8 @@ export {
 export { RpcChannel, RpcTimeoutError, RpcDisposedError, type RpcEndpoint, type RpcStats, type RpcOptions } from './rpc';
 export { buildContextStub, type ContextStubInit } from './ContextStub';
 export { bootWorker, type InitMessage } from './pluginWorker';
+export {
+  usePluginHostStats,
+  getPluginHostStats,
+  HOST_STATS_POLL_INTERVAL_MS,
+} from './useHostStats';

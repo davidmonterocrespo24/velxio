@@ -434,8 +434,12 @@ status:
    'wasm-unsafe-eval'`, etc.) in `frontend/index.html`. → step 2
 3. **BENCH-AVR-04 with N=3 plugins** — hard regression gate (< 1 % vs
    no-plugin baseline). → step 3
-4. *Installed Plugins* UI surface for `PluginHostStats` (queue depth,
-   drops, missed pings) — feeds CORE-008. → step 4
+4. ~~*Installed Plugins* UI surface for `PluginHostStats` (queue depth,
+   drops, missed pings).~~ — ✅ Done 2026-04-24 as **CORE-006b-step4**.
+   `<PluginStatsPanel />` mounts on every active/paused row and
+   subscribes to a shared 1 Hz tick source (`useHostStats.ts`) that
+   arms lazily on first subscriber and clears on last unsubscribe. See
+   [INSTALLED_PLUGINS_UI.md → Live stats panel](./INSTALLED_PLUGINS_UI.md#live-stats-panel-core-006b-step-4).
 5. DOM-bound API design (`render.kind: 'svg'` declarative schema; opt-in
    Web Component registration for panels and overlays). → step 5
 6. ~~Per-plugin egress accounting and rate-limit policy for `fetch`.~~ —

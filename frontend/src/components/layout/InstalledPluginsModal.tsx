@@ -23,6 +23,9 @@ import {
   type PluginPanelRow,
 } from '../../store/useInstalledPluginsStore';
 import type { LoadLicenseReason } from '../../plugins/loader';
+import { usePluginHostStats } from '../../plugins/runtime/useHostStats';
+import type { PluginFetchStats, PluginHostStats } from '../../plugins/runtime/PluginHost';
+import type { RpcStats } from '../../plugins/runtime/rpc';
 import { SettingsForm } from '../plugin-host/SettingsForm';
 import { getSettingsRegistry } from '../../plugin-host/SettingsRegistry';
 import { useLocale, useTranslate } from '../../i18n/useLocale';
@@ -265,10 +268,211 @@ const PluginRow: React.FC<PluginRowProps> = ({ row, onUninstallClick, onSettings
         {row.licenseReason !== undefined && (
           <LicenseStatus reason={row.licenseReason} row={row} />
         )}
+        {(status === 'active' || status === 'paused') && (
+          <PluginStatsPanel pluginId={row.id} />
+        )}
       </div>
     </div>
   );
 };
+
+// ── PluginStatsPanel ─────────────────────────────────────────────────────
+
+/**
+ * Live runtime stats for a running plugin (CORE-006b step 4).
+ *
+ * Subscribes to the 1 Hz tick source in `useHostStats` and re-renders
+ * once per second with fresh counters from the plugin's `PluginHost`.
+ * Returns `null` when the host has no stats (not-loaded / terminated) —
+ * the parent row only mounts this for statuses where stats make sense
+ * (`active` / `paused`) but we defend anyway in case the plugin was
+ * unloaded between the parent render and our own lookup.
+ *
+ * Counters surface the three subsystems most useful for "is my plugin
+ * misbehaving?":
+ *   - RPC:    queue pressure (pending), back-pressure (drops/coalesced)
+ *   - Events: how many SimulatorEvents the plugin listens to
+ *   - Fetch:  egress volume + rate-limit rejections (from step 6)
+ *
+ * Drops and missed-pings turn red because they are the two early-warning
+ * signs of a plugin the runtime is about to tear down; everything else
+ * is informational.
+ */
+const PluginStatsPanel: React.FC<{ pluginId: string }> = ({ pluginId }) => {
+  const stats = usePluginHostStats(pluginId);
+  if (stats === null) return null;
+  return (
+    <details style={styles.statsContainer} data-testid={`plugin-stats-${pluginId}`}>
+      <summary style={styles.statsSummary}>
+        <StatsSummaryLine stats={stats} />
+      </summary>
+      <div style={styles.statsGrid}>
+        <StatsRpcSection rpc={stats.rpc} missedPings={stats.missedPings} />
+        <StatsEventsSection events={stats.subscribedEvents} disposables={stats.disposablesHeld} />
+        <StatsFetchSection fetchStats={stats.fetch} />
+      </div>
+    </details>
+  );
+};
+
+/**
+ * One-line summary that shows while `<details>` is collapsed. Chooses the
+ * signals the user wants at a glance: pending RPC + red-on-stress fields.
+ */
+const StatsSummaryLine: React.FC<{ stats: PluginHostStats }> = ({ stats }) => {
+  const dangerous =
+    stats.rpc.dropped > 0 || stats.missedPings >= 1 || stats.fetch.rateLimitHits > 0;
+  return (
+    <span style={styles.statsSummaryLine}>
+      <span style={styles.statsSummaryLabel}>Runtime</span>
+      <StatsChip label="pending" value={stats.rpc.pendingRequests} />
+      <StatsChip
+        label="missed pings"
+        value={stats.missedPings}
+        tone={stats.missedPings >= 1 ? 'danger' : 'muted'}
+      />
+      <StatsChip
+        label="drops"
+        value={stats.rpc.dropped}
+        tone={stats.rpc.dropped > 0 ? 'danger' : 'muted'}
+      />
+      <StatsChip label="events" value={stats.subscribedEvents.length} />
+      <StatsChip label="fetches" value={stats.fetch.requests} />
+      <StatsChip
+        label="rate-limit hits"
+        value={stats.fetch.rateLimitHits}
+        tone={stats.fetch.rateLimitHits > 0 ? 'danger' : 'muted'}
+      />
+      {dangerous && (
+        <span style={styles.statsAlertDot} aria-label="runtime pressure detected" />
+      )}
+    </span>
+  );
+};
+
+const StatsRpcSection: React.FC<{ rpc: RpcStats; missedPings: number }> = ({
+  rpc,
+  missedPings,
+}) => (
+  <dl style={styles.statsSection} data-testid="stats-section-rpc">
+    <dt style={styles.statsSectionTitle}>RPC</dt>
+    <StatsField label="Pending requests" value={rpc.pendingRequests} />
+    <StatsField
+      label="Drops"
+      value={rpc.dropped}
+      tone={rpc.dropped > 0 ? 'danger' : undefined}
+      hint="Oldest queued message was evicted because the outbound queue is full."
+    />
+    <StatsField
+      label="Coalesced"
+      value={rpc.coalesced}
+      tone="muted"
+      hint="Duplicate pin-change messages folded into the latest value before send."
+    />
+    <StatsField
+      label="Missed pings"
+      value={missedPings}
+      tone={missedPings >= 1 ? 'danger' : undefined}
+      hint="Worker did not answer a liveness ping. Two missed pings in a row terminate it."
+    />
+  </dl>
+);
+
+const StatsEventsSection: React.FC<{
+  events: PluginHostStats['subscribedEvents'];
+  disposables: number;
+}> = ({ events, disposables }) => (
+  <dl style={styles.statsSection} data-testid="stats-section-events">
+    <dt style={styles.statsSectionTitle}>Events</dt>
+    <StatsField label="Disposables held" value={disposables} />
+    <div style={styles.statsEventsRow}>
+      <span style={styles.statsFieldLabel}>Subscriptions</span>
+      <div style={styles.statsEventBadges}>
+        {events.length === 0 ? (
+          <span style={styles.statsFieldMuted}>none</span>
+        ) : (
+          events.map((ev) => (
+            <span key={ev} style={styles.statsEventBadge}>
+              {ev}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  </dl>
+);
+
+const StatsFetchSection: React.FC<{ fetchStats: PluginFetchStats }> = ({ fetchStats }) => (
+  <dl style={styles.statsSection} data-testid="stats-section-fetch">
+    <dt style={styles.statsSectionTitle}>Fetch egress</dt>
+    <StatsField label="Requests" value={fetchStats.requests} />
+    <StatsField label="Bytes out" value={formatBytes(fetchStats.bytesOut)} />
+    <StatsField label="Bytes in" value={formatBytes(fetchStats.bytesIn)} />
+    <StatsField
+      label="Rate-limit hits"
+      value={fetchStats.rateLimitHits}
+      tone={fetchStats.rateLimitHits > 0 ? 'danger' : undefined}
+      hint="Calls rejected by the per-plugin sliding-window fetch budget."
+    />
+  </dl>
+);
+
+const StatsField: React.FC<{
+  label: string;
+  value: number | string;
+  tone?: 'danger' | 'muted';
+  hint?: string;
+}> = ({ label, value, tone, hint }) => {
+  const valueStyle =
+    tone === 'danger'
+      ? { ...styles.statsFieldValue, color: '#ff9595' }
+      : tone === 'muted'
+        ? { ...styles.statsFieldValue, color: '#888' }
+        : styles.statsFieldValue;
+  return (
+    <div style={styles.statsField} title={hint}>
+      <span style={styles.statsFieldLabel}>{label}</span>
+      <span style={valueStyle}>{value}</span>
+    </div>
+  );
+};
+
+const StatsChip: React.FC<{
+  label: string;
+  value: number;
+  tone?: 'danger' | 'muted';
+}> = ({ label, value, tone }) => {
+  const chipStyle =
+    tone === 'danger'
+      ? { ...styles.statsChip, background: '#3a1414', color: '#ff9595', borderColor: '#5a1a1a' }
+      : tone === 'muted'
+        ? { ...styles.statsChip, color: '#888' }
+        : styles.statsChip;
+  return (
+    <span style={chipStyle}>
+      {label}: <strong style={styles.statsChipValue}>{value}</strong>
+    </span>
+  );
+};
+
+/**
+ * Format a byte count for the operator-facing stats panel. Keeps it
+ * short (≤7 chars) so chips do not wrap on narrow modal widths.
+ *   0 → "0 B"          512 → "512 B"
+ *   2048 → "2.0 KB"    1572864 → "1.5 MB"   5368709120 → "5.0 GB"
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = units[0];
+  for (let i = 1; i < units.length && value >= 1024; i++) {
+    value = value / 1024;
+    unit = units[i];
+  }
+  return `${value.toFixed(1)} ${unit}`;
+}
 
 // ── LicenseStatus ────────────────────────────────────────────────────────
 
@@ -952,5 +1156,97 @@ const styles = {
     marginTop: 6,
     maxHeight: 220,
     overflow: 'auto' as const,
+  } as React.CSSProperties,
+  statsContainer: {
+    background: '#1f1f20',
+    border: '1px solid #2f2f30',
+    borderRadius: 4,
+    padding: '6px 8px',
+    marginTop: 2,
+  } as React.CSSProperties,
+  statsSummary: {
+    color: '#a0a0a0',
+    fontSize: 12,
+    cursor: 'pointer',
+    userSelect: 'none' as const,
+  } as React.CSSProperties,
+  statsSummaryLine: {
+    display: 'inline-flex',
+    flexWrap: 'wrap' as const,
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 4,
+  } as React.CSSProperties,
+  statsSummaryLabel: {
+    color: '#ccc',
+    fontWeight: 600,
+    fontSize: 11,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+  } as React.CSSProperties,
+  statsChip: {
+    background: '#2a2a2b',
+    color: '#b8c4d8',
+    border: '1px solid #3c3c3c',
+    borderRadius: 10,
+    padding: '1px 8px',
+    fontSize: 11,
+    lineHeight: '16px',
+  } as React.CSSProperties,
+  statsChipValue: { color: '#e4e4e4', fontWeight: 600 },
+  statsAlertDot: {
+    display: 'inline-block',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: '#ff9595',
+    marginLeft: 2,
+  } as React.CSSProperties,
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: 12,
+    marginTop: 8,
+  } as React.CSSProperties,
+  statsSection: {
+    margin: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 4,
+  } as React.CSSProperties,
+  statsSectionTitle: {
+    color: '#ccc',
+    fontSize: 11,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
+    margin: 0,
+    marginBottom: 2,
+  } as React.CSSProperties,
+  statsField: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    fontSize: 12,
+  } as React.CSSProperties,
+  statsFieldLabel: { color: '#888' },
+  statsFieldValue: { color: '#d4d4d4', fontVariantNumeric: 'tabular-nums' as const },
+  statsFieldMuted: { color: '#666', fontStyle: 'italic' as const },
+  statsEventsRow: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+  } as React.CSSProperties,
+  statsEventBadges: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: 4,
+  } as React.CSSProperties,
+  statsEventBadge: {
+    background: '#283958',
+    color: '#9ec3ff',
+    fontSize: 10,
+    padding: '1px 6px',
+    borderRadius: 6,
+    fontFamily: 'monospace',
   } as React.CSSProperties,
 };

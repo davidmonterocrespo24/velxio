@@ -269,6 +269,81 @@ The modal itself is intentionally not unit-tested at the DOM level —
 this repo does not pull in `@testing-library/react`. The store covers
 the entire data flow; the modal is a thin render.
 
+## Live stats panel (CORE-006b step 4)
+
+Every row whose `status` is `active` or `paused` mounts a
+`<PluginStatsPanel pluginId={row.id} />`. The panel is a collapsible
+`<details>` block that surfaces the counters `PluginHost.getStats()`
+publishes: the RPC subsystem (pending requests, drops, coalesced,
+missed pings), subscribed simulator events + disposables held, and
+fetch egress (requests, bytes in / out, rate-limit hits).
+
+Polling is driven by a module-local `setInterval(1000)` in
+`frontend/src/plugins/runtime/useHostStats.ts` that publishes a
+monotonic tick counter through `useSyncExternalStore`. The timer is
+**armed lazily on first subscriber and cleared on last unsubscribe**
+— closing the modal stops the wakeup cycle (no background drain).
+The hook returns `null` when the plugin has no active host; rows
+that are not yet loaded or have been terminated silently skip the
+panel.
+
+```
+                 ┌─────────────────────────────┐
+                 │  <PluginStatsPanel />       │
+                 │  usePluginHostStats(id)     │
+                 └────────────┬────────────────┘
+                              │ subscribe(onChange)
+                              ▼
+      ┌────────────────────────────────────────────────┐
+      │ useHostStats.ts                                │
+      │  ├─ 1 Hz setInterval (lazy: ≥1 subscriber)     │
+      │  ├─ tick++ on fire                             │
+      │  ├─ dispatch all subscribers, fault-isolated   │
+      │  └─ getSnapshot() → stable primitive tick      │
+      └────────────────────────┬───────────────────────┘
+                               │ getPluginManager().get(id)?.stats
+                               ▼
+                 ┌─────────────────────────────┐
+                 │  PluginHost.getStats()      │
+                 │   — fresh object per call   │
+                 └─────────────────────────────┘
+```
+
+Because `PluginHost.getStats()` synthesises a new object on every
+call, the hook does **not** try to make the snapshot comparable by
+reference: it uses the primitive tick as the React-facing snapshot
+(stable within a tick, comparable by value across ticks) and
+re-reads fresh stats after each tick. This is the standard
+"`useSyncExternalStore` as a re-render trigger" idiom and avoids
+the "result of getSnapshot should be cached" warning.
+
+**Why not fold stats into `useInstalledPluginsStore`?** The store is
+a join layer — it never owns plugin state itself (see the module
+docstring). Stats are transient per-frame data sourced from the
+manager; keeping them in a standalone hook preserves the invariant
+and scopes polling lifetime to modal open/close without the store
+needing a new "is the modal open?" subscriber count.
+
+The summary row (visible when `<details>` is collapsed) highlights
+the signals the user wants at a glance: pending requests, drops,
+subscribed events count, fetch requests, and rate-limit hits. Drops
+and rate-limit hits switch to a danger tone (red) when ≥1 — those
+are the two early-warning signs of a plugin the runtime is about
+to throttle or tear down. A red alert dot appears when any of the
+stress signals (drops, missed pings, rate-limit hits) is non-zero.
+
+`formatBytes` keeps labels ≤7 characters (`2.0 KB`, `1.5 MB`) so
+chips do not wrap on the typical modal width. Invalid inputs
+(negative, NaN, Infinity) render as `—`.
+
+Tests: `__tests__/PluginStatsPanel.test.tsx` (13 tests) — covers
+timer arm/disarm lifecycle, error isolation across subscribers,
+hook re-render on tick with fresh stats, `null` return for
+missing entries, and `formatBytes` edge cases. The runtime
+counter sources themselves are covered by
+`plugin-runtime-rpc.test.ts` (RPC stats) and
+`plugin-runtime-fetch-egress.test.ts` (fetch stats).
+
 ## What this layer does NOT do
 
 - Talk to the Pro backend directly. Marketplace IO is handled by
