@@ -5,6 +5,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { createProject, updateProject } from '../../services/projectService';
 import { trackCreateProject, trackSaveProject } from '../../utils/analytics';
+import { useTranslate } from '../../i18n/useLocale';
 
 interface SaveProjectModalProps {
   onClose: () => void;
@@ -12,6 +13,7 @@ interface SaveProjectModalProps {
 
 export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) => {
   const navigate = useNavigate();
+  const t = useTranslate();
   const { boards, activeBoardId, components, wires } = useSimulatorStore();
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? boards[0];
   // Use the active board's file group; fall back to legacy global files
@@ -46,7 +48,7 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Project name is required.');
+      setError(t('saveProject.error.nameRequired'));
       return;
     }
     setSaving(true);
@@ -86,11 +88,14 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
       onClose();
     } catch (err: any) {
       if (!err?.response) {
-        setError('Server unreachable. Check your connection and try again.');
+        setError(t('saveProject.error.unreachable'));
       } else if (err.response.status === 401) {
-        setError('Not authenticated. Please log in and try again.');
+        setError(t('saveProject.error.notAuthenticated'));
       } else {
-        setError(err.response?.data?.detail || `Save failed (${err.response.status}).`);
+        setError(
+          err.response?.data?.detail ||
+            t('saveProject.error.saveFailed', { status: String(err.response.status) }),
+        );
       }
     } finally {
       setSaving(false);
@@ -100,12 +105,14 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <h2 style={styles.title}>{isUpdate ? 'Update project' : 'Save project'}</h2>
+        <h2 style={styles.title}>
+          {isUpdate ? t('saveProject.title.update') : t('saveProject.title.create')}
+        </h2>
 
         {error && <div style={styles.error}>{error}</div>}
 
         <form onSubmit={handleSave} style={styles.form}>
-          <label style={styles.label}>Project name *</label>
+          <label style={styles.label}>{t('saveProject.label.name')}</label>
           <input
             type="text"
             value={name}
@@ -113,16 +120,16 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
             required
             style={styles.input}
             autoFocus
-            placeholder="My awesome project"
+            placeholder={t('saveProject.placeholder.name')}
           />
 
-          <label style={styles.label}>Description</label>
+          <label style={styles.label}>{t('saveProject.label.description')}</label>
           <input
             type="text"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             style={styles.input}
-            placeholder="Optional"
+            placeholder={t('saveProject.placeholder.description')}
           />
 
           <div
@@ -166,10 +173,14 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
                 <div
                   style={{ color: isPublic ? '#4ade80' : '#f59e0b', fontSize: 13, fontWeight: 600 }}
                 >
-                  {isPublic ? 'Public' : 'Private'}
+                  {isPublic
+                    ? t('saveProject.visibility.public')
+                    : t('saveProject.visibility.private')}
                 </div>
                 <div style={{ color: '#888', fontSize: 11 }}>
-                  {isPublic ? 'Anyone with the link can view' : 'Only you can see this'}
+                  {isPublic
+                    ? t('saveProject.visibility.publicDescription')
+                    : t('saveProject.visibility.privateDescription')}
                 </div>
               </div>
             </div>
@@ -177,10 +188,14 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
 
           <div style={styles.actions}>
             <button type="submit" disabled={saving} style={styles.saveBtn}>
-              {saving ? 'Saving…' : isUpdate ? 'Update' : 'Save'}
+              {saving
+                ? t('saveProject.button.saving')
+                : isUpdate
+                  ? t('saveProject.button.update')
+                  : t('saveProject.button.save')}
             </button>
             <button type="button" onClick={onClose} style={styles.cancelBtn}>
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </form>

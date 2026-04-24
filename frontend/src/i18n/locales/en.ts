@@ -50,6 +50,30 @@ export const en = {
   'plugins.settings.empty': "This plugin hasn't declared any settings yet. Once it calls",
   'plugins.settings.metadata': 'Plugin metadata',
 
+  // Save project modal
+  'saveProject.title.create': 'Save project',
+  'saveProject.title.update': 'Update project',
+  'saveProject.label.name': 'Project name *',
+  'saveProject.label.description': 'Description',
+  'saveProject.placeholder.name': 'My awesome project',
+  'saveProject.placeholder.description': 'Optional',
+  'saveProject.visibility.public': 'Public',
+  'saveProject.visibility.private': 'Private',
+  'saveProject.visibility.publicDescription': 'Anyone with the link can view',
+  'saveProject.visibility.privateDescription': 'Only you can see this',
+  'saveProject.button.save': 'Save',
+  'saveProject.button.update': 'Update',
+  'saveProject.button.saving': 'Saving…',
+  'saveProject.error.nameRequired': 'Project name is required.',
+  'saveProject.error.unreachable': 'Server unreachable. Check your connection and try again.',
+  'saveProject.error.notAuthenticated': 'Not authenticated. Please log in and try again.',
+  'saveProject.error.saveFailed': 'Save failed ({status}).',
+
+  // Login prompt modal (prompts anon users when they try to save)
+  'loginPrompt.title': 'Sign in to save your project',
+  'loginPrompt.body': 'Create a free account to save and share your projects.',
+  'loginPrompt.createAccount': 'Create account',
+
   // Template picker
   'templates.title': 'New from template',
   'templates.empty': 'No templates installed yet — browse the marketplace to add one.',

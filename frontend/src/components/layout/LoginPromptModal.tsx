@@ -1,28 +1,32 @@
 import { Link } from 'react-router-dom';
+import { useTranslate } from '../../i18n/useLocale';
 
 interface LoginPromptModalProps {
   onClose: () => void;
 }
 
-export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({ onClose }) => (
-  <div style={styles.overlay} onClick={onClose}>
-    <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-      <h2 style={styles.title}>Sign in to save your project</h2>
-      <p style={styles.body}>Create a free account to save and share your projects.</p>
-      <div style={styles.actions}>
-        <Link to="/login" style={styles.primaryBtn}>
-          Sign in
-        </Link>
-        <Link to="/register" style={styles.secondaryBtn}>
-          Create account
-        </Link>
-        <button onClick={onClose} style={styles.cancelBtn}>
-          Cancel
-        </button>
+export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({ onClose }) => {
+  const t = useTranslate();
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <h2 style={styles.title}>{t('loginPrompt.title')}</h2>
+        <p style={styles.body}>{t('loginPrompt.body')}</p>
+        <div style={styles.actions}>
+          <Link to="/login" style={styles.primaryBtn}>
+            {t('header.signIn')}
+          </Link>
+          <Link to="/register" style={styles.secondaryBtn}>
+            {t('loginPrompt.createAccount')}
+          </Link>
+          <button onClick={onClose} style={styles.cancelBtn}>
+            {t('common.cancel')}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: {

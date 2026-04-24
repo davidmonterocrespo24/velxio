@@ -46,6 +46,30 @@ export const es: Partial<Record<ShellTranslationKey, string>> = {
   'plugins.settings.empty': 'Este plugin todavía no ha declarado ajustes. Cuando llame a',
   'plugins.settings.metadata': 'Metadatos del plugin',
 
+  // Save project modal
+  'saveProject.title.create': 'Guardar proyecto',
+  'saveProject.title.update': 'Actualizar proyecto',
+  'saveProject.label.name': 'Nombre del proyecto *',
+  'saveProject.label.description': 'Descripción',
+  'saveProject.placeholder.name': 'Mi proyecto increíble',
+  'saveProject.placeholder.description': 'Opcional',
+  'saveProject.visibility.public': 'Público',
+  'saveProject.visibility.private': 'Privado',
+  'saveProject.visibility.publicDescription': 'Cualquiera con el enlace puede ver',
+  'saveProject.visibility.privateDescription': 'Solo tú puedes verlo',
+  'saveProject.button.save': 'Guardar',
+  'saveProject.button.update': 'Actualizar',
+  'saveProject.button.saving': 'Guardando…',
+  'saveProject.error.nameRequired': 'El nombre del proyecto es obligatorio.',
+  'saveProject.error.unreachable': 'Servidor inaccesible. Comprueba tu conexión e inténtalo de nuevo.',
+  'saveProject.error.notAuthenticated': 'Sin autenticar. Inicia sesión e inténtalo de nuevo.',
+  'saveProject.error.saveFailed': 'Error al guardar ({status}).',
+
+  // Login prompt modal (prompts anon users when they try to save)
+  'loginPrompt.title': 'Inicia sesión para guardar tu proyecto',
+  'loginPrompt.body': 'Crea una cuenta gratuita para guardar y compartir tus proyectos.',
+  'loginPrompt.createAccount': 'Crear cuenta',
+
   // Template picker
   'templates.title': 'Nuevo desde plantilla',
   'templates.empty': 'Aún no hay plantillas instaladas — explora el marketplace para añadir una.',
