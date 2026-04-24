@@ -31,13 +31,111 @@ import {
 import { PinManager } from './PinManager';
 import { hexToUint8Array } from '../utils/hexParser';
 import { I2CBusManager } from './I2CBusManager';
-import type { I2CDevice } from './I2CBusManager';
+import type { I2CDevice, I2CTransferObservation } from './I2CBusManager';
 import {
   getEventBus,
   shouldEmitThrottled,
   TICK_INTERVAL_MS,
+  type HostEventBus,
   type ThrottleState,
 } from './EventBus';
+
+/**
+ * Install `spi:transfer` event emission on top of an `AVRSPI` peripheral.
+ *
+ * Two hooks:
+ *   1. Wrap `cpu.writeHooks[SPDR]` to snapshot the MOSI byte on every sketch
+ *      write to SPDR. This survives `registerSpiSlave()` calls (which replace
+ *      `spi.onByte`) because the CPU-level writeHook is a separate slot.
+ *   2. Wrap `spi.completeTransfer` to emit after the MISO byte lands. Every
+ *      SPI byte — whether echoed by the default loopback, answered by a
+ *      plugin slave, or by a legacy native slave — funnels through
+ *      `completeTransfer`, so the event fires exactly once per byte pair.
+ *
+ * Both wrappers are installed once at construction and live for the CPU's
+ * lifetime. The emit is guarded by `bus.hasListeners('spi:transfer')` so
+ * the zero-subscriber case costs only a Map lookup (see PERF-001 §0).
+ */
+function installSpiTransferObserver(
+  spi: AVRSPI,
+  spiCfg: typeof spiConfig,
+  cpu: CPU,
+  bus: HostEventBus,
+): void {
+  let lastMosi = 0;
+
+  const originalSpdrHook = cpu.writeHooks[spiCfg.SPDR];
+  if (originalSpdrHook) {
+    cpu.writeHooks[spiCfg.SPDR] = (value, oldValue, addr, mask) => {
+      lastMosi = value & 0xff;
+      return originalSpdrHook(value, oldValue, addr, mask);
+    };
+  }
+
+  const originalCompleteTransfer = spi.completeTransfer.bind(spi);
+  spi.completeTransfer = (miso: number) => {
+    originalCompleteTransfer(miso);
+    if (bus.hasListeners('spi:transfer')) {
+      bus.emit('spi:transfer', {
+        cs: 'default',
+        mosi: new Uint8Array([lastMosi & 0xff]),
+        miso: new Uint8Array([miso & 0xff]),
+      });
+    }
+  };
+}
+
+/**
+ * Build the `onTransfer` callback threaded into `I2CBusManager` that forwards
+ * every observed sub-transaction to the EventBus as an `i2c:transfer` event.
+ * Guarded by `hasListeners` so zero subscribers costs only a Map lookup.
+ */
+function buildI2cTransferEmitter(
+  bus: HostEventBus,
+): (event: I2CTransferObservation) => void {
+  return (event) => {
+    if (!bus.hasListeners('i2c:transfer')) return;
+    bus.emit('i2c:transfer', {
+      addr: event.addr,
+      direction: event.direction,
+      data: event.data,
+      stop: event.stop,
+    });
+  };
+}
+
+/**
+ * Test-only export of the SPI observer wrapper. Re-exported with a flexible
+ * signature so the unit test can drive it with a fake CPU/AVRSPI shape
+ * without booting avr8js. The shape it expects is the same one used at the
+ * production call site (`installSpiTransferObserver(this.spi, spiCfg, this.cpu, this.bus)`).
+ */
+export function installSpiTransferObserverForTests(
+  spi: { onByte: ((value: number) => void) | null; completeTransfer: (response: number) => void },
+  spdrAddr: number,
+  cpu: { writeHooks: Record<number, (v: number, o: number, a: number, m: number) => void> },
+  bus: HostEventBus,
+): void {
+  let lastMosi = 0;
+  const originalSpdrHook = cpu.writeHooks[spdrAddr];
+  if (originalSpdrHook) {
+    cpu.writeHooks[spdrAddr] = (value, oldValue, addr, mask) => {
+      lastMosi = value & 0xff;
+      return originalSpdrHook(value, oldValue, addr, mask);
+    };
+  }
+  const originalCompleteTransfer = spi.completeTransfer.bind(spi);
+  spi.completeTransfer = (miso: number) => {
+    originalCompleteTransfer(miso);
+    if (bus.hasListeners('spi:transfer')) {
+      bus.emit('spi:transfer', {
+        cs: 'default',
+        mosi: new Uint8Array([lastMosi & 0xff]),
+        miso: new Uint8Array([miso & 0xff]),
+      });
+    }
+  };
+}
 
 /**
  * AVRSimulator - Emulates Arduino Uno (ATmega328p) using avr8js
@@ -300,6 +398,7 @@ export class AVRSimulator {
       this.spi.onByte = (value) => {
         this.spi!.completeTransfer(value);
       };
+      installSpiTransferObserver(this.spi, activeSpiConfig, this.cpu, this.bus);
 
       this.usart = new AVRUSART(this.cpu, activeUsart0Config, 16000000);
       this.usart.onByteTransmit = (value: number) => {
@@ -313,7 +412,7 @@ export class AVRSimulator {
       };
 
       this.twi = new AVRTWI(this.cpu, activeTwiConfig, 16000000);
-      this.i2cBus = new I2CBusManager(this.twi);
+      this.i2cBus = new I2CBusManager(this.twi, buildI2cTransferEmitter(this.bus));
 
       this.peripherals = [
         new AVRTimer(this.cpu, activeTimer0Config),
@@ -649,6 +748,7 @@ export class AVRSimulator {
         this.spi.onByte = (value) => {
           this.spi!.completeTransfer(value);
         };
+        installSpiTransferObserver(this.spi, spiConfig, this.cpu, this.bus);
 
         this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
         this.usart.onByteTransmit = (value: number) => {
@@ -662,7 +762,7 @@ export class AVRSimulator {
         };
 
         this.twi = new AVRTWI(this.cpu, twiConfig, 16000000);
-        this.i2cBus = new I2CBusManager(this.twi);
+        this.i2cBus = new I2CBusManager(this.twi, buildI2cTransferEmitter(this.bus));
 
         this.peripherals = [
           new AVRTimer(this.cpu, timer0Config),

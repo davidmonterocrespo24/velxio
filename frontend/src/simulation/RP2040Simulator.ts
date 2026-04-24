@@ -3,6 +3,7 @@ import type { RPI2C } from 'rp2040js';
 import { PinManager } from './PinManager';
 import { bootromB1 } from './rp2040-bootrom';
 import { loadUF2, loadUserFiles, getFirmware } from './MicroPythonLoader';
+import { getEventBus, type HostEventBus } from './EventBus';
 
 /**
  * RP2040Simulator — Emulates Raspberry Pi Pico (RP2040) using rp2040js
@@ -72,6 +73,18 @@ export class RP2040Simulator {
     new Map(),
   ];
   private activeI2CDevice: [RP2040I2CDevice | null, RP2040I2CDevice | null] = [null, null];
+
+  /** Per-bus in-flight I2C transaction state for `i2c:transfer` event emission. */
+  private i2cTxActive: [boolean, boolean] = [false, false];
+  private i2cTxAddr: [number, number] = [0, 0];
+  private i2cTxDirection: ['read' | 'write', 'read' | 'write'] = ['write', 'write'];
+  private i2cTxBuffer: [number[], number[]] = [[], []];
+
+  /** Per-bus last-MOSI byte for `spi:transfer` event emission. */
+  private spiLastMosi: [number, number] = [0, 0];
+
+  /** Shared EventBus singleton — guarded with `hasListeners()` on every emit (PERF-001 §0). */
+  private readonly bus: HostEventBus = getEventBus();
 
   constructor(pinManager: PinManager) {
     this.pinManager = pinManager;
@@ -163,6 +176,8 @@ export class RP2040Simulator {
     this.rp2040.spi[1].onTransmit = (v: number) => {
       this.rp2040!.spi[1].completeTransmit(v);
     };
+    this.wireSpiObserver(0);
+    this.wireSpiObserver(1);
     this.rp2040.adc.channelValues[0] = 2048;
     this.rp2040.adc.channelValues[1] = 2048;
     this.rp2040.adc.channelValues[2] = 2048;
@@ -251,6 +266,8 @@ export class RP2040Simulator {
     this.rp2040.spi[1].onTransmit = (value: number) => {
       this.rp2040!.spi[1].completeTransmit(value); // loopback
     };
+    this.wireSpiObserver(0);
+    this.wireSpiObserver(1);
 
     // ── Set default ADC values ───────────────────────────────────────
     // Channel 0-3: GPIO26-29, channel 4: internal temp sensor
@@ -293,7 +310,15 @@ export class RP2040Simulator {
     };
 
     i2c.onConnect = (address: number) => {
+      // Repeated START — flush any prior sub-transaction with stop:false.
+      if (this.i2cTxActive[bus]) this.flushI2cTransfer(bus, false);
       const device = devices.get(address);
+      this.i2cTxActive[bus] = true;
+      this.i2cTxAddr[bus] = address;
+      // Direction defaults to 'write' until the first onReadByte/onWriteByte
+      // arrives. A NACK'd connect followed by STOP emits with empty data.
+      this.i2cTxDirection[bus] = 'write';
+      this.i2cTxBuffer[bus] = [];
       if (device) {
         this.activeI2CDevice[bus] = device;
         i2c.completeConnect(true); // ACK
@@ -304,6 +329,8 @@ export class RP2040Simulator {
     };
 
     i2c.onWriteByte = (value: number) => {
+      this.i2cTxDirection[bus] = 'write';
+      this.i2cTxBuffer[bus].push(value & 0xff);
       const dev = this.activeI2CDevice[bus];
       if (dev) {
         const ack = dev.writeByte(value);
@@ -314,19 +341,69 @@ export class RP2040Simulator {
     };
 
     i2c.onReadByte = () => {
+      this.i2cTxDirection[bus] = 'read';
       const dev = this.activeI2CDevice[bus];
-      if (dev) {
-        i2c.completeRead(dev.readByte());
-      } else {
-        i2c.completeRead(0xff);
-      }
+      const value = dev ? dev.readByte() : 0xff;
+      this.i2cTxBuffer[bus].push(value & 0xff);
+      i2c.completeRead(value);
     };
 
     i2c.onStop = () => {
       const dev = this.activeI2CDevice[bus];
       if (dev?.stop) dev.stop();
       this.activeI2CDevice[bus] = null;
+      this.flushI2cTransfer(bus, true);
       i2c.completeStop();
+    };
+  }
+
+  /**
+   * Flush the buffered I2C sub-transaction for `bus` as an `i2c:transfer`
+   * event. Guarded by `hasListeners` so zero subscribers cost only a Map
+   * lookup. Always clears state — even when no one is listening — so the
+   * next sub-transaction starts clean.
+   */
+  private flushI2cTransfer(bus: 0 | 1, stop: boolean): void {
+    if (!this.i2cTxActive[bus]) return;
+    const addr = this.i2cTxAddr[bus];
+    const direction = this.i2cTxDirection[bus];
+    const data = new Uint8Array(this.i2cTxBuffer[bus]);
+    this.i2cTxActive[bus] = false;
+    this.i2cTxBuffer[bus] = [];
+    if (this.bus.hasListeners('i2c:transfer')) {
+      this.bus.emit('i2c:transfer', { addr, direction, data, stop });
+    }
+  }
+
+  /**
+   * Layer `spi:transfer` event observation on top of an already-wired
+   * SPI peripheral. Wraps `onTransmit` (to snapshot MOSI) and
+   * `completeTransmit` (to emit after MISO lands). Call AFTER assigning
+   * the base loopback / slave handler.
+   *
+   * Channel id is `'spi0'` / `'spi1'` (RP2040 has two hardware SPI blocks).
+   */
+  private wireSpiObserver(idx: 0 | 1): void {
+    if (!this.rp2040) return;
+    const spi = this.rp2040.spi[idx];
+    const cs = idx === 0 ? 'spi0' : 'spi1';
+
+    const baseOnTransmit = spi.onTransmit;
+    spi.onTransmit = (value: number) => {
+      this.spiLastMosi[idx] = value & 0xff;
+      baseOnTransmit(value);
+    };
+
+    const baseCompleteTransmit = spi.completeTransmit.bind(spi);
+    spi.completeTransmit = (miso: number) => {
+      baseCompleteTransmit(miso);
+      if (this.bus.hasListeners('spi:transfer')) {
+        this.bus.emit('spi:transfer', {
+          cs,
+          mosi: new Uint8Array([this.spiLastMosi[idx] & 0xff]),
+          miso: new Uint8Array([miso & 0xff]),
+        });
+      }
     };
   }
 
@@ -485,6 +562,8 @@ export class RP2040Simulator {
         this.rp2040.spi[1].onTransmit = (v: number) => {
           this.rp2040!.spi[1].completeTransmit(v);
         };
+        this.wireSpiObserver(0);
+        this.wireSpiObserver(1);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const pio of (this.rp2040 as any).pio) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -640,11 +719,17 @@ export class RP2040Simulator {
   /**
    * Set SPI onTransmit handler for a bus (0 or 1).
    * callback receives TX byte and must call completeTransmit on the SPI instance.
+   *
+   * MOSI capture for `spi:transfer` is preserved here: wireSpiObserver()
+   * already wrapped `completeTransmit` at init time, but its `onTransmit`
+   * wrap is overwritten by this assignment — so we re-snapshot the MOSI
+   * byte inline before delegating to the user handler.
    */
   setSPIHandler(bus: 0 | 1, handler: (value: number) => number): void {
     if (!this.rp2040) return;
     const spi = this.rp2040.spi[bus];
     spi.onTransmit = (value: number) => {
+      this.spiLastMosi[bus] = value & 0xff;
       const response = handler(value);
       spi.completeTransmit(response);
     };

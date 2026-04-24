@@ -21,6 +21,18 @@ export interface I2CDevice {
   stop?(): void;
 }
 
+/**
+ * Transfer event fired after a sub-transaction terminates (STOP condition
+ * or repeated START). Shape mirrors the SDK's `i2c:transfer` event so
+ * `AVRSimulator` can forward directly without translation.
+ */
+export interface I2CTransferObservation {
+  readonly addr: number;
+  readonly direction: 'read' | 'write';
+  readonly data: Uint8Array;
+  readonly stop: boolean;
+}
+
 // ── I2C Bus Manager (TWIEventHandler for avr8js) ───────────────────────────
 
 export class I2CBusManager implements TWIEventHandler {
@@ -28,8 +40,18 @@ export class I2CBusManager implements TWIEventHandler {
   private activeDevice: I2CDevice | null = null;
   private writeMode = true;
 
-  constructor(private twi: AVRTWI) {
+  // Observation state — a sub-transaction lives between a connectToSlave()
+  // and the next stop() (or repeated START, i.e., another connectToSlave).
+  private txActive = false;
+  private txAddr = 0;
+  private txDirection: 'read' | 'write' = 'write';
+  private txBuffer: number[] = [];
+
+  private readonly onTransfer: ((event: I2CTransferObservation) => void) | null;
+
+  constructor(private twi: AVRTWI, onTransfer?: (event: I2CTransferObservation) => void) {
     twi.eventHandler = this;
+    this.onTransfer = onTransfer ?? null;
   }
 
   /** Register a virtual I2C device on the bus */
@@ -51,10 +73,17 @@ export class I2CBusManager implements TWIEventHandler {
   stop(): void {
     if (this.activeDevice?.stop) this.activeDevice.stop();
     this.activeDevice = null;
+    this.flushTransfer(true);
     this.twi.completeStop();
   }
 
   connectToSlave(addr: number, write: boolean): void {
+    // A fresh connectToSlave while a previous sub-transaction is active
+    // means a repeated START — close the previous with stop=false so
+    // observers see both halves of the round-trip. No-op on the first
+    // connect of a transaction.
+    if (this.txActive) this.flushTransfer(false);
+
     const device = this.devices.get(addr);
     if (device) {
       this.activeDevice = device;
@@ -64,6 +93,14 @@ export class I2CBusManager implements TWIEventHandler {
       this.activeDevice = null;
       this.twi.completeConnect(false); // NACK — no such address
     }
+
+    // Open a new sub-transaction regardless of ACK/NACK; a failed connect
+    // is still an observable bus event. The sub-transaction will close
+    // with zero bytes of data on the next stop() if the master aborts.
+    this.txActive = true;
+    this.txAddr = addr;
+    this.txDirection = write ? 'write' : 'read';
+    this.txBuffer = [];
   }
 
   writeByte(value: number): void {
@@ -73,14 +110,41 @@ export class I2CBusManager implements TWIEventHandler {
     } else {
       this.twi.completeWrite(false);
     }
+    // Track every byte the master puts on the wire, even to non-existent
+    // slaves — the event is a bus observation, not a slave-delivery log.
+    if (this.txActive && this.txDirection === 'write') {
+      this.txBuffer.push(value & 0xff);
+    }
   }
 
   readByte(_ack: boolean): void {
+    let value: number;
     if (this.activeDevice) {
-      const value = this.activeDevice.readByte();
+      value = this.activeDevice.readByte();
       this.twi.completeRead(value);
     } else {
-      this.twi.completeRead(0xff);
+      value = 0xff;
+      this.twi.completeRead(value);
+    }
+    if (this.txActive && this.txDirection === 'read') {
+      this.txBuffer.push(value & 0xff);
+    }
+  }
+
+  private flushTransfer(stop: boolean): void {
+    if (!this.txActive) return;
+    const cb = this.onTransfer;
+    const addr = this.txAddr;
+    const direction = this.txDirection;
+    const data = new Uint8Array(this.txBuffer);
+    this.txActive = false;
+    this.txBuffer = [];
+    if (cb) {
+      try {
+        cb({ addr, direction, data, stop });
+      } catch {
+        // Observer threw — isolate; I2C state machine must keep flowing.
+      }
     }
   }
 }

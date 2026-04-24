@@ -45,6 +45,8 @@ See `packages/sdk/src/events.ts` for authoritative types. High-level map:
 | `pin:change` | Port listeners in `AVRSimulator.firePinChangeWithTime` | per-transition | Guarded with `hasListeners` |
 | `serial:tx` | `AVRUSART.onByteTransmit` | per-byte | Guarded |
 | `serial:rx` | Reserved for future inbound Serial | — | Not yet emitted |
+| `i2c:transfer` | `I2CBusManager.flushTransfer` (AVR) + `RP2040Simulator.flushI2cTransfer` | per sub-transaction (between START and STOP/repeated-START) | Guarded; includes `addr`, `direction`, `data: Uint8Array`, `stop` |
+| `spi:transfer` | `installSpiTransferObserver` wrap on `AVRSPI.completeTransfer` + `wireSpiObserver` on `RPSPI.completeTransmit` | per byte | Guarded; `cs: 'default' \| 'spi0' \| 'spi1'`, `mosi`/`miso: Uint8Array(1)` |
 | `spice:step` | `CircuitScheduler` post-solve | **throttled 5 Hz** | Guarded; includes `nodes` snapshot |
 | `board:change` | Reserved | — | Planned for MCU selector |
 | `compile:start` | `compileCode()` entry | per-request | — |
@@ -116,6 +118,59 @@ throttling semantics, singleton lifecycle, and a perf smoke test.
 When writing integration tests that involve the bus, call
 `__resetEventBusForTests()` in a `beforeEach` to avoid stale listeners
 from prior tests affecting the emit count.
+
+## I2C/SPI transfer observation (CORE-003b)
+
+`i2c:transfer` and `spi:transfer` are **bus observation** events — every
+sub-transaction the master drives is reported, regardless of whether a
+slave was actually present or whether it ACKed. A NACK'd I2C connect
+followed by STOP still emits a transfer with `data.length === 0` so a
+plugin protocol-decoder can render the failed connect on its bus trace.
+
+### I2C — sub-transaction boundaries
+
+A sub-transaction lives between `connectToSlave()` and the next `stop()`
+**or** the next `connectToSlave()` (which is a *repeated START*). The
+emitter flushes with:
+
+- `stop: true`  on a real STOP — the bus is released.
+- `stop: false` on a repeated START — the master is keeping ownership of
+  the bus and re-addressing.
+
+Direction (`'read'` vs `'write'`) is inferred from whether
+`writeByte`/`readByte` arrives first inside the sub-transaction. A
+sub-transaction with no byte transfers (NACK'd connect → STOP) defaults
+to `'write'` since the address byte's R/W bit was zero.
+
+### SPI — per-byte observation
+
+`AVRSPI` and `RPSPI` are byte-oriented peripherals: every SPDR write
+(AVR) / `onTransmit` (RP2040) generates one MOSI byte; the slave (or
+loopback) responds with one MISO byte via `completeTransfer` /
+`completeTransmit`. The observer wraps the **completion** hook so the
+event fires exactly once per byte pair, after both MOSI and MISO are known.
+
+#### MOSI capture survives plugin slave installation
+
+On AVR, `registerSpiSlave` (the plugin-facing API) replaces
+`spi.onByte` with the slave's handler. To survive that, the observer
+wraps `cpu.writeHooks[SPDR]` instead — a separate slot the slave
+installation does not touch. Every SPDR write goes through this hook
+before `spi.onByte()` fires, so MOSI is captured even when a plugin
+slave returns the MISO byte.
+
+On RP2040, `setSPIHandler` replaces `spi.onTransmit` directly — so the
+implementation re-snapshots MOSI inline inside the user-handler wrapper.
+The completion-side observer (set by `wireSpiObserver` at init) survives
+unchanged because nobody re-assigns `completeTransmit`.
+
+#### Channel id
+
+- AVR: always `'default'` (single SPI bus).
+- RP2040: `'spi0'` or `'spi1'` (two hardware SPI blocks).
+- Plugin SPI buses (future) should pick a stable identifier; plugin
+  decoders that observe via `events.on('spi:transfer', ...)` use the
+  `cs` field to filter.
 
 ## Adding a new event
 

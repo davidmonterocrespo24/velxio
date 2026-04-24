@@ -584,3 +584,181 @@ describe('RP2040Simulator — getMCU()', () => {
     expect(mcu!.adc).toBeDefined();
   });
 });
+
+// ─── i2c:transfer + spi:transfer event emission (CORE-003b) ──────────────────
+
+import { getEventBus } from '../simulation/EventBus';
+import type { SimulatorEvents } from '@velxio/sdk/events';
+
+describe('RP2040Simulator — i2c:transfer event', () => {
+  let pm: PinManager;
+  let sim: RP2040Simulator;
+
+  beforeEach(() => {
+    getEventBus().clear();
+    pm = new PinManager();
+    sim = new RP2040Simulator(pm);
+    sim.loadBinary(minimalBinary());
+  });
+  afterEach(() => {
+    sim.stop();
+    getEventBus().clear();
+  });
+
+  it('emits i2c:transfer with addr / direction / data / stop on a write transaction (bus 0)', () => {
+    const events: SimulatorEvents['i2c:transfer'][] = [];
+    const off = getEventBus().on('i2c:transfer', (e) => events.push(e));
+
+    const dev: RP2040I2CDevice = {
+      address: 0x42,
+      writeByte: () => true,
+      readByte: () => 0,
+    };
+    sim.addI2CDevice(dev, 0);
+
+    const i2c = sim.getMCU()!.i2c[0];
+    i2c.onConnect!(0x42);
+    i2c.onWriteByte!(0xde);
+    i2c.onWriteByte!(0xad);
+    i2c.onStop!();
+    off();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].addr).toBe(0x42);
+    expect(events[0].direction).toBe('write');
+    expect(Array.from(events[0].data)).toEqual([0xde, 0xad]);
+    expect(events[0].stop).toBe(true);
+  });
+
+  it('emits two transfers on repeated START — first stop=false (bus 1)', () => {
+    const events: SimulatorEvents['i2c:transfer'][] = [];
+    const off = getEventBus().on('i2c:transfer', (e) => events.push(e));
+
+    const dev: RP2040I2CDevice = {
+      address: 0x68,
+      writeByte: () => true,
+      readByte: () => 0xa5,
+    };
+    sim.addI2CDevice(dev, 1);
+
+    const i2c = sim.getMCU()!.i2c[1];
+    i2c.onConnect!(0x68);
+    i2c.onWriteByte!(0x00);
+    // Repeated START: master switches to read without STOP.
+    i2c.onConnect!(0x68);
+    i2c.onReadByte!();
+    i2c.onReadByte!();
+    i2c.onStop!();
+    off();
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ addr: 0x68, direction: 'write', stop: false });
+    expect(Array.from(events[0].data)).toEqual([0x00]);
+    expect(events[1]).toMatchObject({ addr: 0x68, direction: 'read', stop: true });
+    expect(Array.from(events[1].data)).toEqual([0xa5, 0xa5]);
+  });
+
+  it('emits i2c:transfer with empty data when no slave answers', () => {
+    const events: SimulatorEvents['i2c:transfer'][] = [];
+    const off = getEventBus().on('i2c:transfer', (e) => events.push(e));
+
+    const i2c = sim.getMCU()!.i2c[0];
+    i2c.onConnect!(0x77); // no device registered
+    i2c.onStop!();
+    off();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].addr).toBe(0x77);
+    expect(events[0].data.length).toBe(0);
+    expect(events[0].stop).toBe(true);
+  });
+
+  it('zero subscribers: emit() is not called', () => {
+    const emitSpy = vi.spyOn(getEventBus(), 'emit');
+    const dev: RP2040I2CDevice = { address: 0x10, writeByte: () => true, readByte: () => 0 };
+    sim.addI2CDevice(dev, 0);
+
+    const i2c = sim.getMCU()!.i2c[0];
+    i2c.onConnect!(0x10);
+    i2c.onWriteByte!(0x42);
+    i2c.onStop!();
+
+    // Allow other unrelated events (none in this path) but assert no
+    // i2c:transfer ever crosses the wire.
+    const i2cEmits = emitSpy.mock.calls.filter(([name]) => name === 'i2c:transfer');
+    expect(i2cEmits).toHaveLength(0);
+    emitSpy.mockRestore();
+  });
+});
+
+describe('RP2040Simulator — spi:transfer event', () => {
+  let pm: PinManager;
+  let sim: RP2040Simulator;
+
+  beforeEach(() => {
+    getEventBus().clear();
+    pm = new PinManager();
+    sim = new RP2040Simulator(pm);
+    sim.loadBinary(minimalBinary());
+  });
+  afterEach(() => {
+    sim.stop();
+    getEventBus().clear();
+  });
+
+  it('emits cs:spi0 with mosi/miso on the default loopback path', () => {
+    const events: SimulatorEvents['spi:transfer'][] = [];
+    const off = getEventBus().on('spi:transfer', (e) => events.push(e));
+
+    const spi = sim.getMCU()!.spi[0];
+    spi.onTransmit(0xa5);
+    spi.onTransmit(0x5a);
+    off();
+
+    expect(events).toHaveLength(2);
+    expect(events[0].cs).toBe('spi0');
+    expect(Array.from(events[0].mosi)).toEqual([0xa5]);
+    expect(Array.from(events[0].miso)).toEqual([0xa5]); // loopback
+    expect(events[1].cs).toBe('spi0');
+    expect(Array.from(events[1].mosi)).toEqual([0x5a]);
+    expect(Array.from(events[1].miso)).toEqual([0x5a]);
+  });
+
+  it('emits cs:spi1 — second SPI block has its own channel id', () => {
+    const events: SimulatorEvents['spi:transfer'][] = [];
+    const off = getEventBus().on('spi:transfer', (e) => events.push(e));
+
+    sim.getMCU()!.spi[1].onTransmit(0x11);
+    off();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].cs).toBe('spi1');
+    expect(Array.from(events[0].mosi)).toEqual([0x11]);
+  });
+
+  it('keeps MOSI capture intact after setSPIHandler() replaces onTransmit', () => {
+    // The user-supplied handler returns 0xDE as MISO regardless of MOSI.
+    sim.setSPIHandler(0, () => 0xde);
+
+    const events: SimulatorEvents['spi:transfer'][] = [];
+    const off = getEventBus().on('spi:transfer', (e) => events.push(e));
+
+    sim.getMCU()!.spi[0].onTransmit(0xbe);
+    off();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].cs).toBe('spi0');
+    expect(Array.from(events[0].mosi)).toEqual([0xbe]);
+    expect(Array.from(events[0].miso)).toEqual([0xde]);
+  });
+
+  it('zero subscribers: spi:transfer never fires through emit()', () => {
+    const emitSpy = vi.spyOn(getEventBus(), 'emit');
+
+    sim.getMCU()!.spi[0].onTransmit(0x42);
+
+    const spiEmits = emitSpy.mock.calls.filter(([name]) => name === 'spi:transfer');
+    expect(spiEmits).toHaveLength(0);
+    emitSpy.mockRestore();
+  });
+});
