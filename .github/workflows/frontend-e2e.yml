@@ -1,0 +1,123 @@
+name: Frontend E2E (Playwright)
+
+# Mirrors frontend-tests.yml's wokwi-libs bootstrap, then layers in
+# Playwright browser install + a vite dev-server-driven test pass
+# (Playwright's webServer config boots `npm run dev` itself).
+#
+# Triggered on PRs that touch frontend/ OR the e2e workflow itself
+# OR i18n source files (Spanish/English keys are the smoke-test
+# surface today). Keeping the trigger narrow avoids paying the
+# ~3-min browser-install tax on PRs that can't break e2e.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'frontend/**'
+      - 'packages/sdk/**'
+      - 'wokwi-libs/**'
+      - '.github/workflows/frontend-e2e.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'frontend/**'
+      - 'packages/sdk/**'
+      - 'wokwi-libs/**'
+      - '.github/workflows/frontend-e2e.yml'
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Clone wokwi-libs fresh (stale submodule pointers can't be used)
+      - name: Clone wokwi-libs
+        run: |
+          git clone --depth=1 https://github.com/wokwi/avr8js.git wokwi-libs/avr8js
+          git clone --depth=1 https://github.com/wokwi/rp2040js.git wokwi-libs/rp2040js
+          git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-libs/wokwi-elements
+
+      - name: Cache wokwi-libs node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            wokwi-libs/avr8js/node_modules
+            wokwi-libs/rp2040js/node_modules
+            wokwi-libs/wokwi-elements/node_modules
+          key: wokwi-libs-${{ hashFiles('wokwi-libs/avr8js/package-lock.json', 'wokwi-libs/rp2040js/package-lock.json', 'wokwi-libs/wokwi-elements/package-lock.json') }}
+
+      - name: Cache frontend node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: frontend-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Build avr8js
+        run: cd wokwi-libs/avr8js && npm install && npm run build
+
+      - name: Build rp2040js
+        run: cd wokwi-libs/rp2040js && npm install && npm run build
+
+      - name: Build wokwi-elements
+        run: cd wokwi-libs/wokwi-elements && npm install && npm run build
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Install root dev dependencies
+        run: npm ci
+
+      - name: Regenerate component metadata
+        run: cd frontend && npm run generate:metadata
+
+      # Cache Playwright browsers between runs — installation is the most
+      # expensive step in this job (~150 MB download). The cache key is
+      # tied to the @playwright/test version pinned in package-lock so a
+      # version bump invalidates correctly.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install Playwright browsers (chromium)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd frontend && npx playwright install --with-deps chromium
+
+      # Even on a cache hit we still need the system deps (libnss, libatk,
+      # etc.) which live outside ~/.cache/ms-playwright. Cheap no-op when
+      # already installed.
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: cd frontend && npx playwright install-deps chromium
+
+      - name: Run Playwright e2e
+        run: cd frontend && npm run test:e2e
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright HTML report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: frontend/playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-${{ github.sha }}
+          path: frontend/test-results/
+          retention-days: 14

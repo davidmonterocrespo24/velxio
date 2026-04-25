@@ -23,6 +23,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install --with-deps chromium",
     "bench": "vite-node bench/run.ts",
     "bench:save": "node bench/save-baseline.mjs",
     "bench:check": "npm run bench && node bench/compare.mjs"
@@ -48,6 +51,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.59.1",
     "@types/jszip": "^3.4.0",
     "@types/node": "^24.11.0",
     "@types/react": "^19.2.7",

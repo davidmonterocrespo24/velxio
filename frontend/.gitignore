@@ -26,3 +26,9 @@ data/*
 
 # Bench results (per-run); baseline.json IS committed.
 bench/results/
+
+# Playwright (SDK-005c part B)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
