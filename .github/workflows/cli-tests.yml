@@ -1,0 +1,68 @@
+name: CLI Package Tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'packages/cli/**'
+      - 'packages/sdk/**'
+      - '.github/workflows/cli-tests.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'packages/cli/**'
+      - 'packages/sdk/**'
+      - '.github/workflows/cli-tests.yml'
+
+# The CLI depends on @velxio/sdk via the npm workspaces symlink — there is
+# no per-package lockfile because the SDK is not yet published to npm. We
+# install through the root workspace with --workspace=@velxio/cli so the
+# job stays small (only the CLI's transitive deps + the local SDK link).
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install CLI workspace deps
+        run: npm ci --workspace=@velxio/cli --include-workspace-root --no-audit --no-fund
+
+      - name: Lint CLI
+        working-directory: packages/cli
+        run: npm run lint
+
+      - name: Type-check CLI
+        working-directory: packages/cli
+        run: npm run typecheck
+
+      - name: Run CLI tests
+        working-directory: packages/cli
+        run: npm test
+
+      # Build the bin + lib so consumers see the produced cli.cjs (with
+      # shebang) and dual ESM/CJS lib + d.ts files. Catches tsup config
+      # regressions that the unit suite cannot.
+      - name: Build CLI package
+        working-directory: packages/cli
+        run: npm run build
+
+      # End-to-end smoke: scaffold a project, then validate it. If the
+      # init template drifts from the manifest schema this fails loudly
+      # before consumers see a broken `velxio-plugin init`.
+      - name: Smoke test (init + validate roundtrip)
+        run: |
+          set -euo pipefail
+          TMPDIR=$(mktemp -d)
+          cd "$TMPDIR"
+          node $GITHUB_WORKSPACE/packages/cli/dist/cli.cjs init smoke-plugin --template component
+          cd smoke-plugin
+          node $GITHUB_WORKSPACE/packages/cli/dist/cli.cjs validate
