@@ -71,9 +71,16 @@ function makePinSim() {
 }
 
 function makeSPISim() {
+  // AVR8js's AVRSPI peripheral exposes `onByte` (single-slot slave callback)
+  // and `completeTransfer(response)` — the slave returns its MISO byte by
+  // calling `completeTransfer`. The previous mock used `onTransmit` /
+  // `completeTransmit`, which match the names microsd-card was hooking
+  // before its CORE-002c-step4-followup-microsd migration; both names are
+  // unrelated to the real AVR8js surface, so the part was never actually
+  // driven by the master.
   const spi = {
-    onTransmit: null as ((b: number) => void) | null,
-    completeTransmit: vi.fn(),
+    onByte: null as ((b: number) => void) | null,
+    completeTransfer: vi.fn(),
   };
   return {
     spi,
@@ -560,11 +567,11 @@ describe('ir-remote — button dispatch', () => {
 // ─── microsd-card ─────────────────────────────────────────────────────────────
 
 describe('microsd-card — SPI init handshake', () => {
-  it('hooks into simulator.spi.onTransmit', () => {
+  it('hooks into simulator.spi.onByte (real AVR8js surface)', () => {
     const sim = makeSPISim();
     const logic = PartSimulationRegistry.get('microsd-card')!;
     logic.attachEvents!(makeElement(), sim as any, noPins);
-    expect(sim.spi.onTransmit).toBeTypeOf('function');
+    expect(sim.spi.onByte).toBeTypeOf('function');
   });
 
   it('CMD0 (0x40 + 4 zeroes + CRC) returns R1=0x01 (idle)', () => {
@@ -572,12 +579,12 @@ describe('microsd-card — SPI init handshake', () => {
     const logic = PartSimulationRegistry.get('microsd-card')!;
     logic.attachEvents!(makeElement(), sim as any, noPins);
 
-    const tx = sim.spi.onTransmit as (b: number) => void;
+    const tx = sim.spi.onByte as (b: number) => void;
     // Send CMD0: [0x40, 0x00, 0x00, 0x00, 0x00, 0x95]
     [0x40, 0x00, 0x00, 0x00, 0x00, 0x95].forEach((b) => tx(b));
     // Poll with 0xFF to receive response
     tx(0xff);
-    const replies = (sim.spi.completeTransmit as ReturnType<typeof vi.fn>).mock.calls.map(
+    const replies = (sim.spi.completeTransfer as ReturnType<typeof vi.fn>).mock.calls.map(
       ([v]) => v,
     );
     expect(replies).toContain(0x01);
@@ -588,12 +595,12 @@ describe('microsd-card — SPI init handshake', () => {
     const logic = PartSimulationRegistry.get('microsd-card')!;
     logic.attachEvents!(makeElement(), sim as any, noPins);
 
-    const tx = sim.spi.onTransmit as (b: number) => void;
+    const tx = sim.spi.onByte as (b: number) => void;
     // CMD8: [0x48, 0x00, 0x00, 0x01, 0xAA, 0x87]
     [0x48, 0x00, 0x00, 0x01, 0xaa, 0x87].forEach((b) => tx(b));
     // Read 5 bytes of R7 response
     for (let i = 0; i < 5; i++) tx(0xff);
-    const replies = (sim.spi.completeTransmit as ReturnType<typeof vi.fn>).mock.calls.map(
+    const replies = (sim.spi.completeTransfer as ReturnType<typeof vi.fn>).mock.calls.map(
       ([v]) => v,
     );
     // R7 = 0x01, 0x00, 0x00, 0x01, 0xAA
@@ -606,13 +613,13 @@ describe('microsd-card — SPI init handshake', () => {
     const logic = PartSimulationRegistry.get('microsd-card')!;
     logic.attachEvents!(makeElement(), sim as any, noPins);
 
-    const tx = sim.spi.onTransmit as (b: number) => void;
+    const tx = sim.spi.onByte as (b: number) => void;
     [0x77, 0x00, 0x00, 0x00, 0x00, 0x65].forEach((b) => tx(b)); // CMD55
     tx(0xff); // poll
-    sim.spi.completeTransmit.mockClear();
+    sim.spi.completeTransfer.mockClear();
     [0x69, 0x40, 0x00, 0x00, 0x00, 0x77].forEach((b) => tx(b)); // ACMD41
     tx(0xff);
-    const replies = (sim.spi.completeTransmit as ReturnType<typeof vi.fn>).mock.calls.map(
+    const replies = (sim.spi.completeTransfer as ReturnType<typeof vi.fn>).mock.calls.map(
       ([v]) => v,
     );
     expect(replies).toContain(0x00);
@@ -623,17 +630,62 @@ describe('microsd-card — SPI init handshake', () => {
     const logic = PartSimulationRegistry.get('microsd-card')!;
     logic.attachEvents!(makeElement(), sim as any, noPins);
 
-    const tx = sim.spi.onTransmit as (b: number) => void;
+    const tx = sim.spi.onByte as (b: number) => void;
     tx(0xff);
-    expect(sim.spi.completeTransmit).toHaveBeenLastCalledWith(0xff);
+    expect(sim.spi.completeTransfer).toHaveBeenLastCalledWith(0xff);
   });
 
-  it('cleanup restores previous onTransmit and is callable without SPI', () => {
+  it('CMD17 read-block emits R1=0x00 + 0xFE token + exactly 512 data bytes + 2 CRC bytes', () => {
+    // Focused regression test for CORE-002c-step4-followup-microsd: asserts
+    // the part actually returns SD-card bytes in response to a real read.
+    // The previous (broken) implementation hooked `spi.onTransmit`, which is
+    // not the AVR8js surface, so the queue was never primed by master traffic
+    // and this assertion would have failed at the very first byte.
+    const sim = makeSPISim();
+    const logic = PartSimulationRegistry.get('microsd-card')!;
+    logic.attachEvents!(makeElement(), sim as any, noPins);
+
+    const tx = sim.spi.onByte as (b: number) => void;
+    const completeTransfer = sim.spi.completeTransfer as ReturnType<typeof vi.fn>;
+
+    // CMD17 read sector 0: [0x51, 0x00, 0x00, 0x00, 0x00, 0xFF]. The 6th
+    // byte's response is the first byte of the R1+token+payload sequence
+    // because processCmd runs *before* the queue shift inside `onByte`.
+    [0x51, 0x00, 0x00, 0x00, 0x00, 0xff].forEach((b) => tx(b));
+
+    // Drain enough polls to cover R1 (1) + token (1) + payload (512) + CRC (2).
+    // The R1 was already returned as the response to byte 6, so we only need
+    // 515 more shifts. Add a small slack for safety — the test asserts the
+    // exact window, so trailing garbage doesn't affect correctness.
+    const drainCount = 1 + 512 + 2 + 4;
+    for (let i = 0; i < drainCount; i++) tx(0xff);
+
+    // 6 command-byte responses + drainCount poll responses.
+    const replies = completeTransfer.mock.calls.map(([v]) => v as number);
+
+    // First five command bytes get 0xFF (queue empty during command framing).
+    expect(replies.slice(0, 5)).toEqual([0xff, 0xff, 0xff, 0xff, 0xff]);
+
+    // 6th command-byte response = R1 = 0x00 (read-block accepted).
+    expect(replies[5]).toBe(0x00);
+
+    // Next response = data token 0xFE.
+    expect(replies[6]).toBe(0xfe);
+
+    // Followed by exactly 512 payload bytes + 2 CRC bytes — all 0xFF here
+    // since this stub doesn't carry a real backing image.
+    const payloadWindow = replies.slice(7, 7 + 514);
+    expect(payloadWindow).toHaveLength(514);
+    expect(payloadWindow.every((b) => b === 0xff)).toBe(true);
+  });
+
+  it('cleanup releases the SPI slave and restores spi.onByte to null', () => {
     const sim = makeSPISim();
     const logic = PartSimulationRegistry.get('microsd-card')!;
     const cleanup = logic.attachEvents!(makeElement(), sim as any, noPins);
+    expect(sim.spi.onByte).toBeTypeOf('function');
     expect(() => cleanup()).not.toThrow();
-    expect(sim.spi.onTransmit).toBeNull();
+    expect(sim.spi.onByte).toBeNull();
   });
 
   it('no-op when simulator has no spi', () => {

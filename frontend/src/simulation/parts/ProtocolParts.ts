@@ -11,7 +11,19 @@
  *   ir-remote    — button-press → NEC pulse + `ir-signal` CustomEvent
  *                  relay; same shape as ir-receiver.
  *
- * Eight parts stay on the legacy 3-arg `attachEvents` shape inside
+ * Migrated since (CORE-002c-step4-followup-microsd, 2026-04-25):
+ *
+ *   microsd-card — moved from the legacy shape to `handle.registerSpiSlave`.
+ *                  The previous implementation hooked `spi.onTransmit` and
+ *                  called `spi.completeTransmit(reply)` — neither name
+ *                  exists on AVR8js's `AVRSPI` peripheral (the real surface
+ *                  is `onByte`/`completeTransfer`), so the part was a dead
+ *                  hook in production: `spi.onByte` was never assigned and
+ *                  no master byte ever reached the SD state machine. The
+ *                  SDK migration both fixes the latent bug and aligns the
+ *                  part with the rest of step4.
+ *
+ * Seven parts stay on the legacy 3-arg `attachEvents` shape inside
  * `registerLegacyProtocolParts(registry)`:
  *
  *   ssd1306, ds1307, mpu6050, bmp280, ds3231, pcf8574
@@ -27,14 +39,6 @@
  *                  the ESP32 branch routes the whole protocol to the
  *                  backend QEMU DHT22 emulator — same ESP32 blocker
  *                  as the I²C peripherals above.
- *
- *   microsd-card — SPI slave state machine that hooks the non-standard
- *                  `spi.onTransmit` / `spi.completeTransmit` surface
- *                  (a pre-existing latent mis-naming — AVR8js exposes
- *                  `onByte`/`completeTransfer`, not these names).
- *                  Migrating to `handle.registerSpiSlave` would change
- *                  behavior (fix the latent bug), which is out of scope
- *                  for a pure refactor. Tracked under step4 follow-ups.
  */
 
 import type { PartSimulation, PinState } from '@velxio/sdk';
@@ -282,17 +286,120 @@ const irRemotePart = definePartSimulation({
   },
 });
 
-// ─── Legacy protocol parts (I²C + DHT22 + microSD) ───────────────────────────
+// ─── microsd-card (SDK-migrated) ─────────────────────────────────────────────
+
+/**
+ * MicroSD card — minimal SPI-mode initialization handshake.
+ *
+ * Implements just enough of the SD physical layer command set for an Arduino
+ * SD library to transition from "card unknown" into "ready" and accept a
+ * `readBlock(0)` / `writeBlock(0)` round-trip:
+ *
+ *   CMD0  → R1 = 0x01  (idle)
+ *   CMD8  → R7 = 0x01, 0x00, 0x00, 0x01, 0xAA  (echo-back voltage check)
+ *   CMD55 → R1 = 0x01  (next command is application-specific)
+ *   ACMD41 → R1 = 0x00 (initialization complete)
+ *   CMD58 → R7 = 0x00, 0x40, 0x00, 0x00, 0x00  (OCR with CCS=1, SDHC)
+ *   CMD17 → R1 = 0x00 then 0xFE token + 512 dummy bytes + 2 CRC bytes
+ *   CMD24 → R1 = 0x00 then 0x05 (data accepted)
+ *   any other → R1 = 0x00 (silently accepted)
+ *
+ * The previous host-side implementation hooked `spi.onTransmit` and called
+ * `spi.completeTransmit(reply)`; both names are non-existent on AVR8js's
+ * `AVRSPI` peripheral (real surface: `onByte` + `completeTransfer`). The
+ * SDK adapter (`handle.registerSpiSlave`) fans out to the correct names,
+ * so the part is now actually wired up to the master.
+ */
+const microsdCardPart = definePartSimulation({
+  attachEvents: (_element, handle) => {
+    const respQueue: number[] = [];
+    let cmdBuf: number[] = [];
+    let expectingAcmd = false;
+
+    const enqueueR1 = (r1: number) => respQueue.push(r1);
+    const enqueueR7 = (r1: number, v32: number) =>
+      respQueue.push(
+        r1,
+        (v32 >>> 24) & 0xff,
+        (v32 >>> 16) & 0xff,
+        (v32 >>> 8) & 0xff,
+        v32 & 0xff,
+      );
+
+    const processCmd = (raw: number[]): void => {
+      if (raw.length < 6) return;
+      const cmdIndex = raw[0] & 0x3f;
+      const isAcmd = expectingAcmd;
+      expectingAcmd = false;
+
+      if (isAcmd && cmdIndex === 41) {
+        enqueueR1(0x00);
+        return;
+      }
+
+      switch (cmdIndex) {
+        case 0:
+          enqueueR1(0x01);
+          break;
+        case 8:
+          enqueueR7(0x01, 0x000001aa);
+          break;
+        case 55:
+          enqueueR1(0x01);
+          expectingAcmd = true;
+          break;
+        case 58:
+          enqueueR7(0x00, 0x40000000);
+          break;
+        case 17:
+          respQueue.push(0x00, 0xfe);
+          for (let i = 0; i < 512; i++) respQueue.push(0xff);
+          respQueue.push(0xff, 0xff);
+          break;
+        case 24:
+          respQueue.push(0x00, 0x05);
+          break;
+        default:
+          enqueueR1(0x00);
+      }
+    };
+
+    const slave = handle.registerSpiSlave({
+      onByte(byte) {
+        // SD command framing: START token has bit 7 = 0 AND bit 6 = 1
+        // (0b01xxxxxx, range 0x40–0x7F). The previous `byte & 0x40` check
+        // also matched 0xFF — the master's polling byte — re-interpreting
+        // each poll as a new command and stalling the response queue. The
+        // tighter mask is the only correct framing under the SD spec.
+        if ((byte & 0xc0) === 0x40 && cmdBuf.length === 0) {
+          cmdBuf = [byte];
+        } else if (cmdBuf.length > 0 && cmdBuf.length < 6) {
+          cmdBuf.push(byte);
+          if (cmdBuf.length === 6) {
+            processCmd(cmdBuf);
+            cmdBuf = [];
+          }
+        }
+        return respQueue.length > 0 ? respQueue.shift()! : 0xff;
+      },
+    });
+
+    return () => {
+      slave.dispose();
+      respQueue.length = 0;
+      cmdBuf = [];
+    };
+  },
+});
+
+// ─── Legacy protocol parts (I²C + DHT22) ─────────────────────────────────────
 
 /**
  * The parts below reach into host surfaces that aren't (yet) part of the
- * board-agnostic SDK:
- *   - ESP32 QEMU delegation via `sim.registerSensor(…)` + `sim.addI2CTransactionListener(…)`
- *   - MicroSD's `spi.onTransmit` / `spi.completeTransmit` naming (distinct
- *     from AVR8js's `onByte`/`completeTransfer`).
- *
- * They stay on the legacy 3-arg registry shape until the CORE-003c ESP32
- * bridge SDK lands (see step4a follow-ups).
+ * board-agnostic SDK: ESP32 QEMU delegation via `sim.registerSensor(…)` +
+ * `sim.addI2CTransactionListener(…)`. They stay on the legacy 3-arg
+ * registry shape until the CORE-003c ESP32 bridge SDK lands (see step4a
+ * follow-ups).
  */
 function registerLegacyProtocolParts(registry: PartRegistry): void {
   // ── SSD1306 OLED ──────────────────────────────────────────────────────────
@@ -848,95 +955,6 @@ function registerLegacyProtocolParts(registry: PartRegistry): void {
     },
   });
 
-  // ── MicroSD Card ──────────────────────────────────────────────────────────
-
-  registry.register('microsd-card', {
-    attachEvents: (_element, simulator, _getPin) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const spi = (simulator as any).spi;
-      if (!spi) return () => {};
-
-      const respQueue: number[] = [];
-      let cmdBuf: number[] = [];
-      let expectingAcmd = false;
-
-      function enqueueR1(r1: number): void {
-        respQueue.push(r1);
-      }
-      function enqueueR7(r1: number, v32: number): void {
-        respQueue.push(
-          r1,
-          (v32 >> 24) & 0xff,
-          (v32 >> 16) & 0xff,
-          (v32 >> 8) & 0xff,
-          v32 & 0xff,
-        );
-      }
-
-      function processCmd(raw: number[]): void {
-        if (raw.length < 6) return;
-        const cmdIndex = raw[0] & 0x3f;
-        const isAcmd = expectingAcmd;
-        expectingAcmd = false;
-
-        if (isAcmd && cmdIndex === 41) {
-          enqueueR1(0x00);
-          return;
-        }
-
-        switch (cmdIndex) {
-          case 0:
-            enqueueR1(0x01);
-            break;
-          case 8:
-            enqueueR7(0x01, 0x000001aa);
-            break;
-          case 55:
-            enqueueR1(0x01);
-            expectingAcmd = true;
-            break;
-          case 58:
-            enqueueR7(0x00, 0x40000000);
-            break;
-          case 17:
-            respQueue.push(0x00);
-            respQueue.push(0xfe);
-            for (let i = 0; i < 512; i++) respQueue.push(0xff);
-            respQueue.push(0xff, 0xff);
-            break;
-          case 24:
-            respQueue.push(0x00, 0x05);
-            break;
-          default:
-            enqueueR1(0x00);
-        }
-      }
-
-      const prevOnTransmit = spi.onTransmit as ((b: number) => void) | null | undefined;
-
-      spi.onTransmit = (byte: number) => {
-        if (byte & 0x40 && cmdBuf.length === 0) {
-          cmdBuf = [byte];
-        } else if (cmdBuf.length > 0 && cmdBuf.length < 6) {
-          cmdBuf.push(byte);
-          if (cmdBuf.length === 6) {
-            processCmd(cmdBuf);
-            cmdBuf = [];
-          }
-        }
-
-        const reply = respQueue.length > 0 ? respQueue.shift()! : 0xff;
-        spi.completeTransmit(reply);
-      };
-
-      return () => {
-        spi.onTransmit = prevOnTransmit ?? null;
-        respQueue.length = 0;
-        cmdBuf = [];
-      };
-    },
-  });
-
   // ── BMP280 ────────────────────────────────────────────────────────────────
 
   registry.register('bmp280', {
@@ -1074,8 +1092,9 @@ export function registerProtocolParts(registry: PartRegistry): void {
   registry.registerSdkPart('hx711', hx711Part);
   registry.registerSdkPart('ir-receiver', irReceiverPart);
   registry.registerSdkPart('ir-remote', irRemotePart);
+  registry.registerSdkPart('microsd-card', microsdCardPart);
 
-  // Legacy parts (ESP32 QEMU + microSD non-standard SPI surface).
+  // Legacy parts (ESP32 QEMU I²C/DHT22 only).
   registerLegacyProtocolParts(registry);
 }
 
