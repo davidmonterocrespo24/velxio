@@ -8,6 +8,7 @@
  * directly, so a new locale shows up without touching UI code.
  */
 
+import { de } from './de';
 import { en, type ShellTranslationKey } from './en';
 import { es } from './es';
 import { fr } from './fr';
@@ -19,6 +20,7 @@ export const SHELL_LOCALES: Readonly<Record<string, ShellTranslations>> = {
   en,
   es,
   fr,
+  de,
   pt,
 };
 
@@ -38,6 +40,7 @@ export const SUPPORTED_LOCALES: ReadonlyArray<LocaleDescriptor> = Object.freeze(
   { code: 'en', nativeName: 'English', flag: 'EN' },
   { code: 'es', nativeName: 'Español', flag: 'ES' },
   { code: 'fr', nativeName: 'Français', flag: 'FR' },
+  { code: 'de', nativeName: 'Deutsch', flag: 'DE' },
   { code: 'pt', nativeName: 'Português', flag: 'PT' },
 ]);
 

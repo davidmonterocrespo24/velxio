@@ -94,6 +94,22 @@ describe('translate', () => {
     ).toBe('Désinstaller Mon Plugin ?');
   });
 
+  it('returns the German string for an exact German locale', () => {
+    expect(translate('de', 'nav.home')).toBe('Startseite');
+    expect(translate('de', 'plugins.title')).toBe('Installierte Plugins');
+  });
+
+  it('collapses German region tags (de-AT, de-CH → de)', () => {
+    expect(translate('de-AT', 'nav.home')).toBe('Startseite');
+    expect(translate('de-CH', 'nav.home')).toBe('Startseite');
+  });
+
+  it('interpolates German placeholders', () => {
+    expect(
+      translate('de', 'plugins.uninstall.title', { name: 'Mein Plugin' }),
+    ).toBe('Mein Plugin deinstallieren?');
+  });
+
   it('handles empty locale strings without throwing', () => {
     expect(translate('', 'nav.home')).toBe('Home');
   });
