@@ -46,8 +46,9 @@ export function registerEventBusBenches(bench: Bench): void {
   // ── BENCH-EVENT-02 ────────────────────────────────────────────────────
   // Full dispatch to 100 no-op listeners. Exercises the Set → Array
   // snapshot + for-loop call cost.
+  // Silence the leak-warn — 100 listeners is the workload, not a leak.
   {
-    const bus = new HostEventBus();
+    const bus = new HostEventBus({ leakWarningThreshold: Infinity });
     for (let i = 0; i < 100; i++) {
       bus.on('pin:change', () => {
         /* noop */

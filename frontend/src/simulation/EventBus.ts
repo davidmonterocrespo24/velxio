@@ -30,6 +30,16 @@ import type {
 
 const LEAK_WARNING_THRESHOLD = 50;
 
+export interface HostEventBusOptions {
+  /**
+   * Threshold above which `on()` logs a one-time leak warning per event
+   * channel. Defaults to 50. Set to `Infinity` to silence the warning —
+   * intended for benchmarks that intentionally install many listeners
+   * to measure dispatch cost (BENCH-EVENT-02), NOT for production code.
+   */
+  leakWarningThreshold?: number;
+}
+
 /**
  * Full host-side bus. Owns `emit()` and listener storage.
  *
@@ -47,6 +57,12 @@ export class HostEventBus implements EventBusReader {
   // Track events that have already warned about leaks so we don't spam.
   private warnedEvents = new Set<SimulatorEventName>();
 
+  private readonly leakThreshold: number;
+
+  constructor(options: HostEventBusOptions = {}) {
+    this.leakThreshold = options.leakWarningThreshold ?? LEAK_WARNING_THRESHOLD;
+  }
+
   on<K extends SimulatorEventName>(
     event: K,
     listener: SimulatorEventListener<K>,
@@ -58,7 +74,7 @@ export class HostEventBus implements EventBusReader {
     }
     set.add(listener as (payload: unknown) => void);
 
-    if (set.size > LEAK_WARNING_THRESHOLD && !this.warnedEvents.has(event)) {
+    if (set.size > this.leakThreshold && !this.warnedEvents.has(event)) {
       this.warnedEvents.add(event);
       console.warn(
         `[EventBus] ${event} has ${set.size} listeners — possible leak. ` +
