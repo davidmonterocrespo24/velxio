@@ -12,6 +12,7 @@ import { de } from './de';
 import { en, type ShellTranslationKey } from './en';
 import { es } from './es';
 import { fr } from './fr';
+import { ja } from './ja';
 import { pt } from './pt';
 
 export type ShellTranslations = Partial<Record<ShellTranslationKey, string>>;
@@ -22,6 +23,7 @@ export const SHELL_LOCALES: Readonly<Record<string, ShellTranslations>> = {
   fr,
   de,
   pt,
+  ja,
 };
 
 /**
@@ -42,6 +44,7 @@ export const SUPPORTED_LOCALES: ReadonlyArray<LocaleDescriptor> = Object.freeze(
   { code: 'fr', nativeName: 'Français', flag: 'FR' },
   { code: 'de', nativeName: 'Deutsch', flag: 'DE' },
   { code: 'pt', nativeName: 'Português', flag: 'PT' },
+  { code: 'ja', nativeName: '日本語', flag: 'JA' },
 ]);
 
 export const SUPPORTED_LOCALE_CODES: ReadonlyArray<string> = Object.freeze(

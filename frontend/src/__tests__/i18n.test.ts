@@ -110,6 +110,21 @@ describe('translate', () => {
     ).toBe('Mein Plugin deinstallieren?');
   });
 
+  it('returns the Japanese string for an exact Japanese locale', () => {
+    expect(translate('ja', 'nav.home')).toBe('ホーム');
+    expect(translate('ja', 'plugins.title')).toBe('インストール済みプラグイン');
+  });
+
+  it('collapses Japanese region tags (ja-JP → ja)', () => {
+    expect(translate('ja-JP', 'nav.home')).toBe('ホーム');
+  });
+
+  it('interpolates Japanese placeholders', () => {
+    expect(
+      translate('ja', 'plugins.uninstall.title', { name: 'マイプラグイン' }),
+    ).toBe('マイプラグイン をアンインストールしますか？');
+  });
+
   it('handles empty locale strings without throwing', () => {
     expect(translate('', 'nav.home')).toBe('Home');
   });
