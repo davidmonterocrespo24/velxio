@@ -142,6 +142,29 @@ export interface SimulatorHandle {
   registerI2cSlave(addr: number, handler: I2cSlaveHandler): Disposable;
 
   /**
+   * Push bytes into the MCU's UART0 RX line as if the user had typed them
+   * in the Serial Monitor. Useful for parts that simulate a serial-attached
+   * peripheral (modem, GPS, fingerprint reader) that needs to feed data
+   * into the sketch's `Serial.read()` loop.
+   *
+   * `data` may be a `Uint8Array` (raw bytes — preferred for binary
+   * protocols) or a `string`. Strings are converted byte-by-byte via
+   * `charCodeAt` (ASCII / Latin-1), NOT UTF-8 — the UART contract is a
+   * byte stream, and silently expanding `'é'` into two bytes would surprise
+   * authors who mean to send one character. Plugins that need UTF-8 should
+   * encode explicitly (`new TextEncoder().encode(s)`).
+   *
+   * Permission: `simulator.serial.write` (High risk — drives MCU-visible
+   * state in a way the sketch cannot distinguish from a real serial peer).
+   *
+   * No-op when the running board doesn't expose a UART RX surface
+   * (simulator not yet started, board variant without UART0). Currently
+   * only UART0 is reachable; multi-port support will grow an optional
+   * `port` parameter (default 0) when added.
+   */
+  injectSerialRx(data: Uint8Array | string): void;
+
+  /**
    * Current MCU cycle count — monotonically non-decreasing throughout the
    * simulation run, reset to 0 on simulator reset. Used by timing-sensitive
    * parts (HC-SR04 distance calculation, DHT22 bit timing, IR decode) that
@@ -475,26 +498,67 @@ export interface PartPinAPI {
 }
 
 /**
- * Serial helper surface. Today the host only exposes the observe side
- * (`onRead` receives every byte the MCU transmits on UART0/TX). The write
- * side (`api.serial.write(data)`) that would inject bytes into the MCU's
- * RX pipe is reserved for a future ticket — this interface matches the
- * planned shape so plugins authored against today's surface keep working.
+ * Serial helper surface for high-level parts.
  *
- * `onRead` returns a `Disposable` — same teardown contract as `PartPinAPI.onChange`.
+ * `onRead` observes every byte the MCU transmits on UART0/TX (read side).
+ * `write` injects bytes into the MCU's UART0 RX as if the user typed them
+ * in the Serial Monitor (write side) — call-time gated on
+ * `simulator.serial.write`.
+ *
+ * `onRead` returns a `Disposable` — same teardown contract as
+ * `PartPinAPI.onChange`. `write` returns nothing; if the running board has
+ * no UART surface the call is a silent no-op (same defensive contract as
+ * `pin().set()`).
  */
 export interface PartSerialAPI {
   onRead(fn: (data: Uint8Array) => void): import('./components').Disposable;
+  /**
+   * Push bytes into the MCU's UART0 RX line. `data` may be `Uint8Array`
+   * (preferred for binary) or `string` (converted byte-by-byte via
+   * `charCodeAt` — ASCII/Latin-1, NOT UTF-8). See
+   * `SimulatorHandle.injectSerialRx` for the underlying contract.
+   *
+   * Permission (call-time): `simulator.serial.write`. A plugin without
+   * the permission gets `PermissionDeniedError` thrown synchronously;
+   * the registration itself only requires `simulator.pins.read`.
+   */
+  write(data: Uint8Array | string): void;
 }
 
 /**
- * I2C helper surface. `onTransfer` fires for every transaction the host
- * observes on the bus; the part is responsible for filtering by address
- * if it only cares about its own. Like `serial`, the write side is
- * reserved for a future ticket.
+ * I2C helper surface for high-level parts.
+ *
+ * `onTransfer` fires for every transaction the host observes on the bus;
+ * the part is responsible for filtering by `event.addr` if it only cares
+ * about its own.
+ *
+ * `registerSlave` mounts this part as a virtual I²C slave at `addr`,
+ * routing every `Wire.beginTransmission(addr)` / `Wire.requestFrom(addr, n)`
+ * to the registered handler. The returned `Disposable` is **also** tracked
+ * by the high-level API's teardown — authors who forget to call
+ * `dispose()` still see the slave released when the part shuts down.
+ *
+ * Call-time gated on `simulator.i2c.write` (same gate as the lower-level
+ * `SimulatorHandle.registerI2cSlave`).
  */
 export interface PartI2CAPI {
   onTransfer(fn: (event: I2CTransferEvent) => void): import('./components').Disposable;
+  /**
+   * Register this part as a virtual I²C slave at the 7-bit address `addr`.
+   * Returns a `Disposable` whose `dispose()` removes the slave from the
+   * bus (subsequent master transactions to `addr` NACK as if no device).
+   *
+   * Two slaves at the same address is "last writer wins" (the later
+   * registration displaces the earlier one until it disposes) — same
+   * semantics as `SimulatorHandle.registerI2cSlave`.
+   *
+   * Permission (call-time): `simulator.i2c.write`. No-op when the running
+   * board has no I²C bus.
+   */
+  registerSlave(
+    addr: number,
+    handler: I2cSlaveHandler,
+  ): import('./components').Disposable;
 }
 
 /**

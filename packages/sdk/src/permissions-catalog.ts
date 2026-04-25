@@ -106,6 +106,14 @@ export const PERMISSION_CATALOG: ReadonlyArray<PermissionCatalogEntry> = [
       'Registering on the host\'s reserved ranges, displacing another plugin\'s slave without disposing first (last-writer-wins, but the dispose handle is yours to manage), acting as master.',
   },
   {
+    permission: 'simulator.serial.write',
+    risk: 'high',
+    allows:
+      'Injecting bytes into the MCU\'s UART0 RX line via api.serial.write(data) (high-level part API), as if the user typed in the Serial Monitor. Used by virtual modems, GPS feeds, command-response peripherals.',
+    denies:
+      'Writing to UART ports other than UART0 (single-port today; multi-port via optional port parameter when supported), reading what the MCU subsequently echoes back (subscribe via simulator.events.read or api.serial.onRead), driving any other simulator state.',
+  },
+  {
     permission: 'simulator.analog.write',
     risk: 'high',
     allows:

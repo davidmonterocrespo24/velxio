@@ -242,6 +242,43 @@ export class PartRegistry {
               },
             };
           },
+          injectSerialRx: (data) => {
+            // Per-board dispatch: prefer byte-level if available (RP2040
+            // exposes `serialWriteByte(byte)`), else fall back to the
+            // string-shaped `serialWrite(text)` that AVR/ESP32/RISC-V
+            // ship. Strings are ASCII-decoded to bytes via charCodeAt
+            // (NOT UTF-8) — the SDK contract is byte-stream, not
+            // text-stream.
+            const byteFn = (simulator as { serialWriteByte?: (b: number) => void })
+              .serialWriteByte;
+            const textFn = (simulator as { serialWrite?: (s: string) => void })
+              .serialWrite;
+            if (byteFn) {
+              const bytes =
+                typeof data === 'string'
+                  ? Uint8Array.from(data, (ch) => ch.charCodeAt(0) & 0xff)
+                  : data;
+              for (let i = 0; i < bytes.length; i++) byteFn.call(simulator, bytes[i]);
+              return;
+            }
+            if (textFn) {
+              // Bytes-to-string: `TextDecoder('latin1')` is the only
+              // 1:1 mapping that preserves every input byte unchanged
+              // (UTF-8 would silently expand bytes ≥ 0x80 into multi-
+              // byte sequences). Spreading via `String.fromCharCode(...data)`
+              // would also work but trips V8's call-args limit on very
+              // large payloads (~65 K).
+              const text =
+                typeof data === 'string'
+                  ? data
+                  : new TextDecoder('latin1').decode(data);
+              textFn.call(simulator, text);
+              return;
+            }
+            // No UART surface — board not started yet, or board variant
+            // without UART0. Silent no-op matches the rest of the handle
+            // (e.g. `registerI2cSlave` on a board without an I²C bus).
+          },
           cyclesNow: () =>
             typeof simulator.getCurrentCycles === 'function'
               ? (simulator.getCurrentCycles() as number)

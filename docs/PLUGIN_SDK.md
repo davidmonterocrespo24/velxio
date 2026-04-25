@@ -692,7 +692,39 @@ ctx.subscriptions.add(handle);
 | `pin(name).onChange`   | Fire-on-transition subscription.                                      | Returns `Disposable`; idempotent `dispose()`.                                                                  |
 | `pin(name).set(level)` | Force-set the MCU-side pin from the component side.                   | Gated at call time on `simulator.pins.write`. Silent no-op when the pin is not wired.                          |
 | `serial.onRead(fn)`    | Observe every byte the MCU transmits on UART0.                        | Backed by the `serial:tx` event. Returns `Disposable`.                                                         |
+| `serial.write(data)`   | Push bytes into the MCU's UART0 RX as if typed in the Serial Monitor. | `data` is `Uint8Array \| string`; strings are decoded byte-by-byte (Latin-1, NOT UTF-8). Silent no-op on boards without UART. |
 | `i2c.onTransfer(fn)`   | Observe every transaction on the I²C bus.                             | Backed by the `i2c:transfer` event; listener is responsible for filtering by `event.addr`. Returns `Disposable`. |
+| `i2c.registerSlave(addr, h)` | Register this part as a virtual I²C slave at 7-bit `addr`.       | Returns `Disposable`. The handle is also tracked by the part's teardown — forgetting `dispose()` still releases it on stop. Last-writer-wins on collisions. |
+
+#### Injecting bytes into the MCU UART RX and acting as an I²C slave
+
+```ts
+import { defineHighLevelPart } from '@velxio/sdk';
+
+const gpsModem = defineHighLevelPart({
+  pins: [],
+  attach: (_el, api) => {
+    // Stream NMEA sentences once per second into the sketch's Serial.read().
+    const id = setInterval(() => {
+      api.serial!.write('$GPRMC,123519,A,4807.038,N,01131.000,E,...\r\n');
+    }, 1000);
+    return () => clearInterval(id);
+  },
+});
+
+const ds1307Rtc = defineHighLevelPart({
+  pins: [],
+  attach: (_el, api) => {
+    let regPointer = 0;
+    const seconds = 42;
+    const slave = api.i2c!.registerSlave(0x68, {
+      writeByte: (v) => { regPointer = v; return true; },
+      readByte: () => (regPointer === 0 ? seconds : 0),
+    });
+    return () => slave.dispose();
+  },
+});
+```
 
 ### Permission requirements
 
@@ -701,12 +733,14 @@ ctx.subscriptions.add(handle);
 | `registerHighLevel(id, def)` (register time)| `simulator.pins.read`         |
 | `api.pin(n).set(…)` (call time)             | `simulator.pins.write`        |
 | `api.serial.onRead(fn)`                     | — (subscribes to read-only events) |
+| `api.serial.write(data)` (call time)        | `simulator.serial.write`      |
 | `api.i2c.onTransfer(fn)`                    | — (subscribes to read-only events) |
+| `api.i2c.registerSlave(addr, h)` (call time)| `simulator.i2c.write`         |
 
-The register-time gate matches `partSimulations.register()`. `set()` gates at
-call time instead of register time so a part can freely observe pins without
-the `pins.write` permission and still be written if its other pins need to
-drive the MCU.
+The register-time gate matches `partSimulations.register()`. `set()`,
+`serial.write()` and `i2c.registerSlave()` gate at call time instead of
+register time so a part can freely observe pins without holding the
+write-side permissions, and only ask for what it actually exercises.
 
 ### State tracking contract
 

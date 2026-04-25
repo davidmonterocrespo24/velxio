@@ -820,9 +820,9 @@ function buildPartSimulationAPI(params: {
     };
   };
 
-  // Serial: observe MCU TX (UART0). Write-side (injecting into MCU RX)
-  // is left for a future ticket — intentionally NOT advertised on the
-  // interface surface until the host plumbing exists.
+  // Serial: observe MCU TX (UART0) + push bytes into MCU RX. Write side
+  // is gated at call time on `simulator.serial.write` (registering a
+  // high-level part itself only requires `simulator.pins.read`).
   const serial: PartSerialAPI = {
     onRead: (fn) => {
       const unsubscribe = events.on('serial:tx', (payload) => {
@@ -843,11 +843,17 @@ function buildPartSimulationAPI(params: {
       disposables.push(d);
       return d;
     },
+    write: (data) => {
+      requirePermission(manifest, 'simulator.serial.write');
+      handle.injectSerialRx(data);
+    },
   };
 
-  // I2C: observe every transaction on the bus. The listener is
-  // responsible for filtering by `event.addr` if the plugin cares about
-  // a specific slave address.
+  // I2C: observe every transaction on the bus + register as a virtual
+  // slave at a 7-bit address. `onTransfer` is read-side; `registerSlave`
+  // is write-side, gated on `simulator.i2c.write` at call time. The
+  // returned Disposable is also tracked here so a forgotten dispose()
+  // still gets cleaned up when the high-level part tears down.
   const i2c: PartI2CAPI = {
     onTransfer: (fn) => {
       const unsubscribe = events.on('i2c:transfer', (payload: I2CTransferEvent) => {
@@ -863,6 +869,27 @@ function buildPartSimulationAPI(params: {
           if (disposed) return;
           disposed = true;
           unsubscribe();
+        },
+      };
+      disposables.push(d);
+      return d;
+    },
+    registerSlave: (addr, slaveHandler) => {
+      requirePermission(manifest, 'simulator.i2c.write');
+      const slaveHandle = handle.registerI2cSlave(addr, slaveHandler);
+      let disposed = false;
+      const d: Disposable = {
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          try {
+            slaveHandle.dispose();
+          } catch (err) {
+            logger.error(
+              `i2c.registerSlave(${addr}) dispose() threw:`,
+              err,
+            );
+          }
         },
       };
       disposables.push(d);
