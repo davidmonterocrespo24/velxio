@@ -57,7 +57,10 @@ describe('translate', () => {
   });
 
   it('falls back to English for an unknown language', () => {
-    expect(translate('zh-CN', 'nav.home')).toBe('Home');
+    // Pick a language not in SUPPORTED_LOCALE_CODES. Swedish (sv) is
+    // chosen because it is not currently shipped — if a future PR adds
+    // it, swap to another unsupported code (e.g. ar, ko, hi).
+    expect(translate('sv-SE', 'nav.home')).toBe('Home');
   });
 
   it('returns the Portuguese string for an exact Portuguese locale', () => {
@@ -123,6 +126,29 @@ describe('translate', () => {
     expect(
       translate('ja', 'plugins.uninstall.title', { name: 'マイプラグイン' }),
     ).toBe('マイプラグイン をアンインストールしますか？');
+  });
+
+  it('returns the Simplified Chinese string for an exact zh locale', () => {
+    expect(translate('zh', 'nav.home')).toBe('主页');
+    expect(translate('zh', 'plugins.title')).toBe('已安装的插件');
+  });
+
+  it('collapses zh-CN and zh-Hans back to zh (Simplified ships)', () => {
+    expect(translate('zh-CN', 'nav.home')).toBe('主页');
+    expect(translate('zh-Hans', 'nav.home')).toBe('主页');
+  });
+
+  it('collapses zh-TW back to zh (Traditional not yet shipped)', () => {
+    // When zh-TW / zh-Hant ships as a separate locale file, this will
+    // resolve to that table instead — until then, Traditional users
+    // see Simplified rather than English, which is closer to native.
+    expect(translate('zh-TW', 'nav.home')).toBe('主页');
+  });
+
+  it('interpolates Chinese placeholders', () => {
+    expect(
+      translate('zh', 'plugins.uninstall.title', { name: '我的插件' }),
+    ).toBe('卸载 我的插件？');
   });
 
   it('handles empty locale strings without throwing', () => {
