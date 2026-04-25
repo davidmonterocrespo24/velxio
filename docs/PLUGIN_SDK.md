@@ -1797,6 +1797,149 @@ See also: `frontend/src/plugin-host/mountDeclarativeSvg.ts`,
 `packages/sdk/src/svg.ts`, and
 `frontend/src/__tests__/plugin-host-event-delegation.test.ts`.
 
+## Worker-safe panels — declarative `panel.layout` + delegated events (CORE-006b-step5b)
+
+`PanelDefinition.mount(container)` was the last DOM-bound surface a worker
+plugin couldn't reach. The fix mirrors the SVG path: a parallel HTML
+schema (`PanelLayout`) plus a delegated event channel.
+
+`PanelDefinition` gained an optional `layout?: PanelLayout`. Authors can
+drop `mount` entirely and use the `definePanelLayout` identity helper:
+
+```ts
+import { definePanelLayout } from '@velxio/sdk';
+
+const inspector = definePanelLayout({
+  id: 'demo.inspector',
+  title: 'Inspector',
+  dock: 'right',
+  layout: {
+    root: {
+      tag: 'section',
+      attrs: { class: 'inspector' },
+      children: [
+        { tag: 'h2', text: 'Component info' },
+        {
+          tag: 'button',
+          attrs: { type: 'button', 'data-velxio-event-target': 'refresh' },
+          text: 'Refresh',
+        },
+        {
+          tag: 'label',
+          children: [
+            { tag: 'span', text: 'Verbose logs ' },
+            {
+              tag: 'input',
+              attrs: {
+                type: 'checkbox',
+                'data-velxio-event-target': 'verbose',
+                checked: true,           // boolean → presence
+              },
+            },
+          ],
+        },
+      ],
+    },
+    events: ['click', 'change'],
+    onEvent(ev) {
+      // ev is a plain JSON object — survives structuredClone/postMessage
+      if (ev.type === 'click' && ev.targetId === 'refresh') refresh();
+      if (ev.type === 'change' && ev.targetId === 'verbose')
+        toggleVerbose(ev.checked === true);
+    },
+  },
+});
+// in activate(ctx):
+ctx.panels.register(inspector);
+```
+
+**What the schema enforces** (`packages/sdk/src/panel-layout.ts`):
+
+| Allowed tags | Excluded — and why |
+|---|---|
+| Structure: `div`, `section`, `header`, `footer`, `article`, `aside`, `nav` | `<script>`, `<style>`, `<link>`, `<meta>` (code/CSS injection) |
+| Text: `span`, `p`, `h1`–`h6`, `strong`, `em`, `code`, `pre`, `small` | `<iframe>`, `<frame>`, `<object>`, `<embed>` (frame escapes) |
+| Lists: `ul`, `ol`, `li` | `<img>`, `<picture>`, `<video>`, `<audio>` (defer to step5c — needs HTTP allowlist) |
+| Forms: `button`, `input`, `label`, `select`, `option`, `textarea`, `fieldset`, `legend` | `<a>` (defer to step5c — needs URI scheme allowlist) |
+| Tables: `table`, `thead`, `tbody`, `tr`, `th`, `td` | `<form>` (no submit semantics — emit events via delegation) |
+| Separators: `hr`, `br` | `<dialog>` (would steal modal focus from the editor) |
+
+- **Per-tag attribute allowlist** plus globals (`id`, `class`, `title`,
+  `lang`, `dir`, `tabindex`, `role`, `hidden`). `aria-*` and `data-*`
+  always allowed.
+- **`on*` event-handler attributes rejected structurally** regardless of tag.
+- **`style` attribute rejected** — inline CSS would bypass the per-attr
+  allowlist and could exfiltrate via `background-image`.
+- **`javascript:` / `data:text/html` URI schemes** rejected in every value.
+- **`<input type>`** restricted to `text`, `number`, `checkbox`, `radio`,
+  `range`, `search`, `email`, `url`, `password`. `file`, `submit`,
+  `reset`, `image`, `button` rejected.
+- **`<button type>`** restricted to `button` (no `<form>` to submit).
+- **`<ol type>`** restricted to `1`, `a`, `A`, `i`, `I`.
+- **Boolean attribute semantics**: HTML attributes in `BOOLEAN_ATTRS`
+  (`disabled`, `checked`, `readonly`, `required`, `multiple`, `selected`,
+  `hidden`, `reversed`, `autofocus`) are presence-toggles. The renderer
+  writes `setAttribute(name, '')` on `true` and **skips the call** on
+  `false` — never `setAttribute(name, 'false')` (which the browser would
+  treat as truthy).
+- **Caps**: `MAX_PANEL_NODES = 256`, `MAX_PANEL_DEPTH = 12` (slightly
+  higher than SVG to fit naturally-deeper UIs like
+  `nav > ul > li > details > div > label > input`),
+  `MAX_PANEL_ATTR_LENGTH = 1024`, `MAX_PANEL_TEXT_LENGTH = 4096`.
+
+Validation runs at the SDK boundary (inside `ctx.panels.register`) AND
+again inside `mountDeclarativePanel()` as a defence-in-depth measure.
+Failures throw `InvalidPanelLayoutError { pluginId, reason }`. A panel
+definition with neither `mount` nor `layout` is also rejected at register
+time (silent no-render is almost always a bug).
+
+### Delegated panel events
+
+`PanelLayout.events` enumerates which kinds the plugin wants delivered;
+`PanelLayout.onEvent` receives every delegated event:
+
+```ts
+export type PanelEventKind = 'click' | 'change' | 'input' | 'focus' | 'blur';
+
+export interface DelegatedPanelEvent {
+  readonly type: PanelEventKind;
+  /** Value of the closest `[data-velxio-event-target]` ancestor; `null` if none. */
+  readonly targetId: string | null;
+  readonly value?: string;     // for input/select/textarea
+  readonly checked?: boolean;  // for type=checkbox|radio
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+}
+```
+
+The host installs **one** delegated listener per kind on the panel
+container. Each listener walks `event.target.closest('[data-velxio-event-target]')`
+to compute `targetId`, reads `value` / `checked` directly off the event
+target if it's a value-bearing form element, and forwards the result as a
+flat JSON payload. `focus` / `blur` use `focusin` / `focusout` under the
+hood so they bubble — without that the delegated handler on the
+container would never see focus events from descendants.
+
+Notable omissions:
+- `submit` — no `<form>` in the allowlist.
+- `keydown` / `keyup` / `keypress` — `input` covers the value-change
+  case; keybindings remain `editorActions.register`'s responsibility.
+- `wheel` / `pointer*` / drag — out of scope for step5b; panels needing
+  those can fall back to imperative `mount`.
+
+A throwing `onEvent` is logged via `ctx.logger.error` and swallowed — a
+buggy plugin never blocks the listener; the next event still flows.
+
+If the plugin ships **both** `mount` and `layout`, the declarative path
+wins and a warning is logged through `ctx.logger`.
+
+See also: `frontend/src/plugin-host/mountDeclarativePanel.ts`,
+`packages/sdk/src/panel-layout.ts`,
+`frontend/src/__tests__/mountDeclarativePanel.test.ts`, and
+`frontend/src/__tests__/plugin-host-panel-layout.test.ts`.
+
 ## See also
 
 - [docs/EVENT_BUS.md](EVENT_BUS.md) — `ctx.events` payload catalog.

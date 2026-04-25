@@ -287,9 +287,16 @@ export function buildContextStub(init: ContextStubInit): {
   const toolbar: ToolbarRegistry = {
     register: (item: ToolbarItemDefinition) => wrapDisposable(call('toolbar.register', [item])),
   };
+  // Declarative `layout` path (`panel.layout`) is worker-safe: pure JSON
+  // survives the `postMessage` hop, and the host builds real DOM on the
+  // main thread. Only warn when the plugin uses the imperative `mount`
+  // path alone.
   const panels: PanelRegistry = {
     register: (panel: PanelDefinition) => {
-      warnDomBound('panels.register({ render })');
+      const hasDeclarativeLayout = panel.layout !== undefined;
+      if (panel.mount !== undefined && !hasDeclarativeLayout) {
+        warnDomBound('panels.register({ mount })');
+      }
       return wrapDisposable(call('panels.register', [panel]));
     },
   };

@@ -71,7 +71,8 @@ import {
 } from '@velxio/sdk';
 
 import { requirePermission } from './PermissionGate';
-import { validateSvgNode } from '@velxio/sdk';
+import { validatePanelDefinition, validatePanelLayout, validateSvgNode } from '@velxio/sdk';
+import { mountDeclarativePanel } from './mountDeclarativePanel';
 import { mountDeclarativeSvg } from './mountDeclarativeSvg';
 import { delegatePartEvents } from './delegatePartEvents';
 import {
@@ -533,7 +534,37 @@ export function createPluginContext(
   const panels: PanelRegistry = {
     register: (panel: PanelDefinition) => {
       requirePermission(manifest, 'ui.panel.register');
-      const handle = ui.panels.register(panel);
+      // A panel must declare at least one of mount / layout — both
+      // undefined would silently render nothing, which is almost always
+      // a bug. Surface it loudly at the boundary.
+      validatePanelDefinition(panel, manifest.id);
+      // Declarative `layout` path: validate at the boundary so a
+      // malformed tree throws before anything is registered. If the
+      // plugin also shipped an imperative `mount` the safer path wins —
+      // synthesize a `mount(container)` that walks the validated layout
+      // and log a one-line warning so authors know `mount` is ignored.
+      let effectivePanel: PanelDefinition = panel;
+      if (panel.layout !== undefined) {
+        validatePanelLayout(panel.layout, manifest.id);
+        if (panel.mount !== undefined) {
+          logger.warn(
+            `panels: panel "${panel.id}" ships both \`layout\` and \`mount\`; \`mount\` is ignored (declarative path wins).`,
+          );
+        }
+        const declarativeLayout = panel.layout;
+        effectivePanel = {
+          id: panel.id,
+          title: panel.title,
+          dock: panel.dock,
+          ...(panel.initialSize !== undefined ? { initialSize: panel.initialSize } : {}),
+          ...(panel.icon !== undefined ? { icon: panel.icon } : {}),
+          mount: (container: HTMLElement) => {
+            const handle = mountDeclarativePanel(container, declarativeLayout, manifest.id, logger);
+            return () => handle.dispose();
+          },
+        };
+      }
+      const handle = ui.panels.register(effectivePanel);
       subscriptions.add(handle);
       return handle;
     },

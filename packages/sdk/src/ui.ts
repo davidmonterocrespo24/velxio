@@ -12,6 +12,7 @@
 
 import type { Disposable } from './components';
 import type { SvgNode } from './svg';
+import type { PanelLayout } from './panel-layout';
 
 // ── Commands ──────────────────────────────────────────────────────────────
 
@@ -51,6 +52,26 @@ export interface ToolbarRegistry {
 
 // ── Panels ────────────────────────────────────────────────────────────────
 
+/**
+ * A side / bottom panel contributed by a plugin. Two shapes coexist:
+ *
+ *   1. **Imperative `mount`** — the historical form. The host hands the
+ *      plugin a live `HTMLElement` and the plugin renders into it with
+ *      arbitrary DOM APIs. This only works for plugins that run in the
+ *      main-thread dev loader; worker-sandboxed plugins have no DOM
+ *      access and a `mount` function cannot cross `postMessage`.
+ *
+ *   2. **Declarative `layout`** — a pure-data tree of `PanelLayoutNode`s
+ *      plus an optional event-delegation pair (`events` + `onEvent`).
+ *      The host validates the tree, walks it with `document.createElement`
+ *      on the main thread, and forwards delegated events back to the
+ *      plugin as serialisable payloads. Safe for worker plugins.
+ *
+ * Authors pick one. If both are supplied the host prefers `layout` and
+ * ignores `mount` (with a logger warning) so the safer path wins.
+ *
+ * Validation enforces that at least one is present at registration time.
+ */
 export interface PanelDefinition {
   readonly id: string;
   readonly title: string;
@@ -58,14 +79,64 @@ export interface PanelDefinition {
   readonly initialSize?: number;
   readonly icon?: string;
   /**
-   * Mount callback. The host gives you a container element; you render into
-   * it with whatever framework you want. Return a teardown fn.
+   * Imperative mount. Runs on the main thread; receives a live
+   * `HTMLElement` container the plugin can render into with any
+   * framework. Prefer `layout` for worker-safe plugins.
    */
-  readonly mount: (container: HTMLElement) => () => void;
+  readonly mount?: (container: HTMLElement) => () => void;
+  /**
+   * Declarative, worker-safe alternative to `mount`. The host validates
+   * the layout (`validatePanelLayout`) at register time and renders it on
+   * the main thread via `document.createElement`. No scripts, no event
+   * attributes, no `style`/`href`/`src` — see `./panel-layout` for the
+   * full schema.
+   */
+  readonly layout?: PanelLayout;
 }
 
 export interface PanelRegistry {
   register(panel: PanelDefinition): Disposable;
+}
+
+/**
+ * Identity helper for worker-safe panels. Carries no runtime behaviour —
+ * exists so plugin authors can drop `mount` entirely and still satisfy
+ * the `PanelDefinition` contract with full type inference.
+ *
+ * ```ts
+ * import { definePanelLayout } from '@velxio/sdk';
+ *
+ * export const inspector = definePanelLayout({
+ *   id: 'my-inspector',
+ *   title: 'Inspector',
+ *   dock: 'right',
+ *   layout: {
+ *     root: {
+ *       tag: 'div',
+ *       attrs: { class: 'inspector' },
+ *       children: [
+ *         { tag: 'h2', text: 'Component info' },
+ *         {
+ *           tag: 'button',
+ *           attrs: { type: 'button', 'data-velxio-event-target': 'refresh' },
+ *           text: 'Refresh',
+ *         },
+ *       ],
+ *     },
+ *     events: ['click'],
+ *     onEvent: (ev) => {
+ *       if (ev.type === 'click' && ev.targetId === 'refresh') {
+ *         // …
+ *       }
+ *     },
+ *   },
+ * });
+ * ```
+ */
+export function definePanelLayout<
+  T extends Omit<PanelDefinition, 'mount'> & { readonly layout: PanelLayout },
+>(definition: T): T {
+  return definition;
 }
 
 // ── Status bar ────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ export * from './simulation';
 export * from './spice';
 export * from './ui';
 export * from './svg';
+export * from './panel-layout';
 export * from './events';
 export * from './permissions';
 export * from './permissions-catalog';

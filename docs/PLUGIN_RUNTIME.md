@@ -202,21 +202,24 @@ path:
 |---|---|---|
 | `partSimulations.attachEvents(el, handle)` | `sim.events: PartEventKind[]` + `sim.onEvent(DelegatedPartEvent)` — host installs the listeners, coalesces coordinates to element-local, forwards through RPC. | ✅ CORE-006b-step5 |
 | `canvasOverlays.register({ mount })` | `canvasOverlays.register({ svg: SvgNode })` — Zod-validated, tag/attr allowlisted, depth+count capped. Host renders via `createElementNS` at mount time. | ✅ CORE-006b-step5 |
-| `panels.register({ render(domNode) })` | Pending: either a declarative component schema, a Web Component registration, or an iframe sandbox. | 🚧 CORE-006b-step5b |
+| `panels.register({ mount(container) })` | `panels.register({ layout: PanelLayout })` — declarative HTML schema (40 tags, per-tag attr allowlist, boolean-attribute presence semantics, depth+count capped). Host renders via `createElement` and installs delegated listeners (`click`/`change`/`input`/`focus`/`blur`) on the container; events surface as serialisable `DelegatedPanelEvent`. | ✅ CORE-006b-step5b |
 
 When a plugin uses the declarative path from a worker, everything works
 natively — no warning, no no-op. When a plugin still passes a function
-(legacy `attachEvents`, or `panels.render`), the ContextStub logs a
-one-time warning and returns a no-op `Disposable` so the plugin doesn't
+(legacy `attachEvents` or imperative `panels.mount`), the ContextStub logs
+a one-time warning and returns a no-op `Disposable` so the plugin doesn't
 crash. Main-thread callers (built-in seeding, dev-mode plugins loaded
 without a worker) are unaffected either way — they take the function
 path verbatim.
 
-Both shipped paths are **fault-isolated**: a throwing `onEvent` or
-`mount()` is logged via `ctx.logger.error` and swallowed — the simulator
-loop never sees a plugin exception. The declarative SVG tree is
-re-validated at mount time (defence-in-depth: worker could have crafted
-an SvgNode by bypassing the SDK helper) before any element hits the DOM.
+All three shipped paths are **fault-isolated**: a throwing `onEvent` /
+`mount()` / panel listener is logged via `ctx.logger.error` and swallowed
+— the simulator loop never sees a plugin exception. Declarative trees
+(SVG and panel HTML) are re-validated at mount time (defence-in-depth:
+the worker could have crafted a node by bypassing the SDK helper) before
+any element hits the DOM. When both `mount` and the declarative field are
+supplied on the same registration, the declarative path wins and a
+warning is emitted via the plugin logger.
 
 ---
 
