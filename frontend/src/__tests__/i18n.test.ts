@@ -79,6 +79,21 @@ describe('translate', () => {
     ).toBe('Desinstalar Meu Plugin?');
   });
 
+  it('returns the French string for an exact French locale', () => {
+    expect(translate('fr', 'nav.home')).toBe('Accueil');
+    expect(translate('fr', 'plugins.title')).toBe('Plugins installés');
+  });
+
+  it('collapses French region tags (fr-CA → fr)', () => {
+    expect(translate('fr-CA', 'nav.home')).toBe('Accueil');
+  });
+
+  it('interpolates French placeholders', () => {
+    expect(
+      translate('fr', 'plugins.uninstall.title', { name: 'Mon Plugin' }),
+    ).toBe('Désinstaller Mon Plugin ?');
+  });
+
   it('handles empty locale strings without throwing', () => {
     expect(translate('', 'nav.home')).toBe('Home');
   });
