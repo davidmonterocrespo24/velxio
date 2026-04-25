@@ -10,12 +10,14 @@
 
 import { en, type ShellTranslationKey } from './en';
 import { es } from './es';
+import { pt } from './pt';
 
 export type ShellTranslations = Partial<Record<ShellTranslationKey, string>>;
 
 export const SHELL_LOCALES: Readonly<Record<string, ShellTranslations>> = {
   en,
   es,
+  pt,
 };
 
 /**
@@ -33,6 +35,7 @@ export interface LocaleDescriptor {
 export const SUPPORTED_LOCALES: ReadonlyArray<LocaleDescriptor> = Object.freeze([
   { code: 'en', nativeName: 'English', flag: 'EN' },
   { code: 'es', nativeName: 'Español', flag: 'ES' },
+  { code: 'pt', nativeName: 'Português', flag: 'PT' },
 ]);
 
 export const SUPPORTED_LOCALE_CODES: ReadonlyArray<string> = Object.freeze(

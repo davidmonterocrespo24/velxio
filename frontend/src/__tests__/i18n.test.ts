@@ -60,6 +60,25 @@ describe('translate', () => {
     expect(translate('zh-CN', 'nav.home')).toBe('Home');
   });
 
+  it('returns the Portuguese string for an exact Portuguese locale', () => {
+    expect(translate('pt', 'nav.home')).toBe('Início');
+    expect(translate('pt', 'plugins.title')).toBe('Plugins instalados');
+  });
+
+  it('collapses Portuguese region tags (pt-BR → pt)', () => {
+    expect(translate('pt-BR', 'nav.home')).toBe('Início');
+  });
+
+  it('collapses pt-PT back to pt (Brazilian variant ships)', () => {
+    expect(translate('pt-PT', 'nav.home')).toBe('Início');
+  });
+
+  it('interpolates Portuguese placeholders', () => {
+    expect(
+      translate('pt', 'plugins.uninstall.title', { name: 'Meu Plugin' }),
+    ).toBe('Desinstalar Meu Plugin?');
+  });
+
   it('handles empty locale strings without throwing', () => {
     expect(translate('', 'nav.home')).toBe('Home');
   });
