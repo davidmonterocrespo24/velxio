@@ -11,8 +11,14 @@ function getLanguage(filename: string): string {
 }
 
 export const CodeEditor = () => {
-  const { files, activeFileId, setFileContent, theme, fontSize } = useEditorStore();
-  const activeFile = files.find((f) => f.id === activeFileId);
+  const { files, activeFileId, activeGroupId, fileGroups, setFileContent, theme, fontSize } = useEditorStore();
+
+  // Ensure we always get the file from the current file group to avoid stale content
+  const currentGroupFiles = fileGroups[activeGroupId] ?? files;
+  const activeFile = currentGroupFiles.find((f) => f.id === activeFileId) ?? files.find((f) => f.id === activeFileId);
+
+  // Debug: Log file being edited
+  console.log('[CodeEditor] Editing file:', activeFileId, 'in group:', activeGroupId, 'content length:', activeFile?.content?.length ?? 0);
 
   return (
     <div style={{ height: '100%', width: '100%' }}>

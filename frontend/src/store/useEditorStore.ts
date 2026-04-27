@@ -205,6 +205,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => {
       const groupId = s.activeGroupId;
       const mapper = (f: WorkspaceFile) => (f.id === id ? { ...f, content, modified: true } : f);
+      // Debug: Log file content update
+      console.log('[setFileContent] Updating file:', id, 'in group:', groupId, 'content length:', content.length);
       return {
         files: s.files.map(mapper),
         fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
@@ -297,7 +299,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     languageModeOrFiles?: string | { name: string; content: string }[],
   ) => {
     set((s) => {
-      if (s.fileGroups[groupId]) return s; // already exists
+      if (s.fileGroups[groupId]) {
+        console.log('[createFileGroup] Group already exists:', groupId);
+        return s; // already exists
+      }
 
       // Resolve overloaded parameter
       const initialFiles = Array.isArray(languageModeOrFiles) ? languageModeOrFiles : undefined;
@@ -337,6 +342,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
 
       const firstId = files[0]?.id ?? `${groupId}-main`;
+      console.log('[createFileGroup] Created group:', groupId, 'files:', files.map(f => ({ id: f.id, name: f.name, contentPreview: f.content.slice(0, 50) })));
       return {
         fileGroups: { ...s.fileGroups, [groupId]: files },
         activeGroupFileId: { ...s.activeGroupFileId, [groupId]: firstId },
@@ -363,6 +369,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const groupFiles = s.fileGroups[groupId] ?? [];
       const activeFileId = s.activeGroupFileId[groupId] ?? groupFiles[0]?.id ?? '';
       const openFileIds = s.openGroupFileIds[groupId] ?? (groupFiles[0] ? [groupFiles[0].id] : []);
+      // Debug: Log group switch
+      console.log('[setActiveGroup] Switching to group:', groupId, 'files:', groupFiles.map(f => ({ id: f.id, name: f.name })), 'activeFileId:', activeFileId);
       return {
         activeGroupId: groupId,
         files: groupFiles,

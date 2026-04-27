@@ -186,6 +186,11 @@ export const EditorToolbar = ({
         name: f.name,
         content: f.content,
       }));
+
+      // Debug: Log what files are being compiled
+      console.log('[Compile Debug] Active board:', activeBoard?.boardKind, 'File group:', activeBoard?.activeFileGroupId);
+      console.log('[Compile Debug] Files being compiled:', sketchFiles.map(f => ({ name: f.name, contentPreview: f.content.slice(0, 100) })));
+
       const result = await compileCode(sketchFiles, fqbn);
 
       const resultLogs = parseCompileResult(result, boardLabel);
