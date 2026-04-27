@@ -609,6 +609,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (boardKind === 'raspberry-pi-3') {
         useVfsStore.getState().initBoardVfs(id);
       }
+      // Switch to the new board (this also switches the editor to the board's file group)
+      console.log(`[addBoard] Switching to new board ${id} and its file group group-${id}`);
+      get().setActiveBoardId(id);
       return id;
     },
 
