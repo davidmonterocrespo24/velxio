@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/davidmonterocrespo24-velxio-badge.png)](https://mseep.ai/app/davidmonterocrespo24-velxio)
+
 # Velxio: Arduino & Embedded Board Emulator
 
 **Live at [velxio.dev](https://velxio.dev)**
