@@ -43,9 +43,19 @@ export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> 
   return data.libraries || [];
 }
 
-export async function installLibrary(name: string): Promise<{ success: boolean; error?: string }> {
+export async function installLibrary(name: string, version?: string): Promise<{ success: boolean; error?: string; fallback?: boolean; requested_version?: string }> {
   const res = await fetch(`${API_BASE}/install`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, version: version ?? null }),
+  });
+  const data = await res.json();
+  return data;
+}
+
+export async function uninstallLibrary(name: string): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/uninstall`, {
+    method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
@@ -61,4 +71,31 @@ export async function getInstalledLibraries(): Promise<InstalledLibrary[]> {
   }
   const data = await res.json();
   return data.libraries || [];
+}
+
+/**
+ * Resolve a library name to "Name@X.Y.Z" using arduino-cli lib search.
+ * Returns null if the library is not found in the index.
+ * Used during export to resolve versions for libraries that are not locally installed.
+ */
+export async function resolveLibraryVersion(libName: string): Promise<string | null> {
+  try {
+    const results = await searchLibraries(libName);
+    // Find best match: exact name or name without underscores/spaces
+    const normalised = libName.replace(/[\s_]+/g, '').toLowerCase();
+    const match = results.find(
+      (r) =>
+        r.name.replace(/[\s_]+/g, '').toLowerCase() === normalised ||
+        normalised.includes(r.name.replace(/[\s_]+/g, '').toLowerCase()) ||
+        r.name.replace(/[\s_]+/g, '').toLowerCase().includes(normalised),
+    );
+    if (!match) return null;
+    const latest = match.latest?.version;
+    if (latest && /^\d+\.\d+\.\d+$/.test(latest)) {
+      return `${match.name}@${latest}`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

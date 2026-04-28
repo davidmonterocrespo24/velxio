@@ -11,9 +11,31 @@ interface InstallLibrariesModalProps {
 type ItemStatus = 'pending' | 'installing' | 'done' | 'error';
 
 interface LibItem {
+  /** Full spec as read from libraries.txt — may contain "@version" suffix */
+  spec: string;
+  /** Parsed library name (without @version or @wokwi:hash) */
   name: string;
+  /** Version if present and valid semver, otherwise undefined */
+  version?: string;
   status: ItemStatus;
   error?: string;
+}
+
+/** Split "LibName@version" into { name, version }.
+ *  Returns version=undefined if no valid semver suffix.
+ *  Handles wokwi-hosted "LibName@wokwi:hash" — version stays undefined. */
+function parseLibSpec(spec: string): { name: string; version?: string } {
+  if (spec.includes('@wokwi:')) {
+    return { name: spec.split('@wokwi:')[0] };
+  }
+  const idx = spec.lastIndexOf('@');
+  if (idx > 0) {
+    const ver = spec.slice(idx + 1);
+    if (/^\d+\.\d+\.\d+$/.test(ver)) {
+      return { name: spec.slice(0, idx), version: ver };
+    }
+  }
+  return { name: spec };
 }
 
 const Spinner: React.FC<{ size?: number }> = ({ size = 16 }) => (
@@ -37,40 +59,48 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
   libraries,
 }) => {
   const [items, setItems] = useState<LibItem[]>(() =>
-    libraries.map((name) => ({ name, status: 'pending' })),
+    libraries.map((spec) => {
+      const { name, version } = parseLibSpec(spec);
+      return { spec, name, version, status: 'pending' as ItemStatus };
+    }),
   );
   const [running, setRunning] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
 
   // Sync items when the libraries prop changes (new import)
   React.useEffect(() => {
-    setItems(libraries.map((name) => ({ name, status: 'pending' })));
+    setItems(libraries.map((spec) => {
+      const { name, version } = parseLibSpec(spec);
+      return { spec, name, version, status: 'pending' as ItemStatus };
+    }));
     setDoneCount(0);
     setRunning(false);
   }, [libraries]);
 
-  const setItemStatus = useCallback((name: string, status: ItemStatus, error?: string) => {
-    setItems((prev) => prev.map((it) => (it.name === name ? { ...it, status, error } : it)));
-  }, []);
+  const setItemStatus = useCallback(
+    (spec: string, status: ItemStatus, error?: string) => {
+      setItems((prev) =>
+        prev.map((it) => (it.spec === spec ? { ...it, status, error } : it)),
+      );
+    },
+    [],
+  );
 
   const handleInstallAll = useCallback(async () => {
     setRunning(true);
     let completed = 0;
     for (const item of items) {
-      if (item.status === 'done') {
-        completed++;
-        continue;
-      }
-      setItemStatus(item.name, 'installing');
+      if (item.status === 'done') { completed++; continue; }
+      setItemStatus(item.spec, 'installing');
       try {
-        const result = await installLibrary(item.name);
+        const result = await installLibrary(item.spec);
         if (result.success) {
-          setItemStatus(item.name, 'done');
+          setItemStatus(item.spec, 'done');
         } else {
-          setItemStatus(item.name, 'error', result.error || 'Install failed');
+          setItemStatus(item.spec, 'error', result.error || 'Install failed');
         }
       } catch (e) {
-        setItemStatus(item.name, 'error', e instanceof Error ? e.message : 'Install failed');
+        setItemStatus(item.spec, 'error', e instanceof Error ? e.message : 'Install failed');
       }
       completed++;
       setDoneCount(completed);
@@ -142,15 +172,14 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
         {/* Library list */}
         <div className="ilib-list">
           {items.map((item) => {
-            // For Wokwi-hosted libraries ("LibName@wokwi:hash"), show only the LibName
-            const displayName = item.name.includes('@wokwi:')
-              ? item.name.split('@wokwi:')[0]
-              : item.name;
-            const isWokwiLib = item.name.includes('@wokwi:');
+            const isWokwiLib = item.spec.includes('@wokwi:');
             return (
-              <div key={item.name} className={`ilib-item ilib-item--${item.status}`}>
+              <div key={item.spec} className={`ilib-item ilib-item--${item.status}`}>
                 <span className="ilib-item-name">
-                  {displayName}
+                  {item.name}
+                  {item.version && (
+                    <span className="ilib-version">v{item.version}</span>
+                  )}
                   {isWokwiLib && (
                     <span className="ilib-badge ilib-badge--wokwi" title="Wokwi-hosted library">
                       wokwi

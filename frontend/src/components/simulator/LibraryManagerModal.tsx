@@ -3,6 +3,7 @@ import {
   searchLibraries,
   installLibrary,
   getInstalledLibraries,
+  uninstallLibrary,
 } from '../../services/libraryService';
 import type { ArduinoLibrary, InstalledLibrary } from '../../services/libraryService';
 import { trackInstallLibrary } from '../../utils/analytics';
@@ -23,6 +24,9 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingInstalled, setLoadingInstalled] = useState(false);
   const [installingLib, setInstallingLib] = useState<string | null>(null);
+  const [uninstallingLib, setUninstallingLib] = useState<string | null>(null);
+  /** Track user-selected version per library name */
+  const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(
     null,
   );
@@ -89,11 +93,16 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
     setInstallingLib(libName);
     setStatusMsg(null);
     try {
-      const result = await installLibrary(libName);
+      const version = selectedVersions[libName];
+      const result = await installLibrary(libName, version);
       if (result.success) {
         trackInstallLibrary(libName);
-        setStatusMsg({ type: 'success', text: `"${libName}" installed successfully!` });
-        fetchInstalled(); // Refresh installed list so search tab reflects new state
+        if (result.fallback) {
+          setStatusMsg({ type: 'success', text: `"${libName}" installed (latest — requested @${result.requested_version} was not available)` });
+        } else {
+          setStatusMsg({ type: 'success', text: `"${libName}${version ? ' @' + version : ''}" installed successfully!` });
+        }
+        fetchInstalled();
       } else {
         setStatusMsg({ type: 'error', text: result.error || `Failed to install "${libName}"` });
       }
@@ -101,6 +110,24 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
       setStatusMsg({ type: 'error', text: e instanceof Error ? e.message : 'Installation failed' });
     } finally {
       setInstallingLib(null);
+    }
+  };
+
+  const handleUninstall = async (libName: string) => {
+    setUninstallingLib(libName);
+    setStatusMsg(null);
+    try {
+      const result = await uninstallLibrary(libName);
+      if (result.success) {
+        setStatusMsg({ type: 'success', text: `"${libName}" uninstalled successfully!` });
+        fetchInstalled();
+      } else {
+        setStatusMsg({ type: 'error', text: result.error || `Failed to uninstall "${libName}"` });
+      }
+    } catch (e: unknown) {
+      setStatusMsg({ type: 'error', text: e instanceof Error ? e.message : 'Uninstall failed' });
+    } finally {
+      setUninstallingLib(null);
     }
   };
 
@@ -296,42 +323,45 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                       {getLibDesc(lib) && <p className="lib-item-desc">{getLibDesc(lib)}</p>}
                     </div>
                     <div className="lib-item-actions">
-                      {getLibVersion(lib) && (
-                        <span className="lib-item-version">{getLibVersion(lib)}</span>
-                      )}
                       {isInstalled(getLibName(lib)) ? (
-                        <span className="lib-item-version lib-installed-badge">
-                          INSTALLED
-                          <svg
-                            style={{
-                              display: 'inline',
-                              marginLeft: '4px',
-                              verticalAlign: 'middle',
-                            }}
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                        <>
+                          <span className="lib-item-version lib-installed-badge">
+                            {selectedVersions[lib.name] ?? lib.latest?.version ?? ''}
+                            <svg style={{ display: 'inline', marginLeft: '4px', verticalAlign: 'middle' }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                          </span>
+                          <button
+                            className="lib-uninstall-btn"
+                            onClick={() => handleUninstall(getLibName(lib))}
+                            disabled={uninstallingLib !== null}
                           >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </span>
+                            {uninstallingLib === getLibName(lib) ? 'Uninstalling...' : 'UNINSTALL'}
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          className="lib-install-btn"
-                          onClick={() => handleInstall(getLibName(lib))}
-                          disabled={installingLib !== null}
-                        >
-                          {installingLib === getLibName(lib) ? (
-                            <span className="lib-installing">Installing...</span>
-                          ) : (
-                            'INSTALL'
+                        <>
+                          {lib.releases && Object.keys(lib.releases).length > 1 && (
+                            <select
+                              className="lib-version-select"
+                              value={selectedVersions[lib.name] ?? lib.latest?.version ?? ''}
+                              onChange={(e) => setSelectedVersions((prev) => ({ ...prev, [lib.name]: e.target.value }))}
+                            >
+                              {Object.entries(lib.releases).map(([ver]) => (
+                                <option key={ver} value={ver}>{ver}</option>
+                              ))}
+                            </select>
                           )}
-                        </button>
+                          <button
+                            className="lib-install-btn"
+                            onClick={() => handleInstall(getLibName(lib))}
+                            disabled={installingLib !== null}
+                          >
+                            {installingLib === getLibName(lib) ? (
+                              <span className="lib-installing">Installing...</span>
+                            ) : (
+                              'INSTALL'
+                            )}
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -387,6 +417,13 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                         </svg>
                       </span>
                     )}
+                    <button
+                      className="lib-uninstall-btn"
+                      onClick={() => handleUninstall(getInstalledName(lib))}
+                      disabled={uninstallingLib !== null}
+                    >
+                      {uninstallingLib === getInstalledName(lib) ? 'Uninstalling...' : 'UNINSTALL'}
+                    </button>
                   </div>
                 </div>
               ))}
