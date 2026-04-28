@@ -132,6 +132,93 @@ export function findSegmentNearPoint(
 }
 
 /**
+ * Project a point onto an orthogonal segment, clamped to its extent.
+ * Horizontal segment → keep segment's y, clamp x to its range.
+ * Vertical segment   → keep segment's x, clamp y to its range.
+ */
+export function projectOntoSegment(
+  seg: RenderedSegment,
+  px: number,
+  py: number,
+): { x: number; y: number } {
+  if (seg.axis === 'horizontal') {
+    const minX = Math.min(seg.x1, seg.x2);
+    const maxX = Math.max(seg.x1, seg.x2);
+    return { x: Math.max(minX, Math.min(maxX, px)), y: seg.y1 };
+  }
+  const minY = Math.min(seg.y1, seg.y2);
+  const maxY = Math.max(seg.y1, seg.y2);
+  return { x: seg.x1, y: Math.max(minY, Math.min(maxY, py)) };
+}
+
+/**
+ * Insert a new waypoint into a wire at the position corresponding to a clicked
+ * segment. `storedPairIndex` identifies which stored[j] → stored[j+1] pair was
+ * hit (where stored = [start, ...waypoints, end]). The new waypoint is placed
+ * at index `storedPairIndex` in the waypoints array, projected onto the segment
+ * so it stays orthogonal.
+ */
+export function insertWaypointAtSegment(
+  waypoints: { x: number; y: number }[],
+  seg: RenderedSegment,
+  px: number,
+  py: number,
+): { x: number; y: number }[] {
+  const projected = projectOntoSegment(seg, px, py);
+  const idx = seg.storedPairIndex;
+  return [...waypoints.slice(0, idx), projected, ...waypoints.slice(idx)];
+}
+
+/**
+ * Collect every x and y coordinate that a dragged wire point should be able to
+ * snap against — the endpoints and waypoints of all *other* wires.
+ * The dragged wire is excluded so a point doesn't snap to its own neighbours,
+ * which would prevent any movement.
+ */
+export function collectAlignmentTargets(
+  wires: Wire[],
+  excludeWireId: string | null,
+): { xs: Set<number>; ys: Set<number> } {
+  const xs = new Set<number>();
+  const ys = new Set<number>();
+  for (const w of wires) {
+    if (w.id === excludeWireId) continue;
+    xs.add(w.start.x);
+    ys.add(w.start.y);
+    xs.add(w.end.x);
+    ys.add(w.end.y);
+    for (const wp of w.waypoints ?? []) {
+      xs.add(wp.x);
+      ys.add(wp.y);
+    }
+  }
+  return { xs, ys };
+}
+
+/**
+ * Find the nearest candidate from `targets` to `value` within `threshold`.
+ * Returns the snapped value and the candidate that triggered it, or null
+ * if nothing is in range.
+ */
+export function snapToNearest(
+  value: number,
+  targets: Set<number>,
+  threshold: number,
+): { snapped: number; target: number } | null {
+  let bestDist = threshold;
+  let bestTarget: number | null = null;
+  for (const t of targets) {
+    const d = Math.abs(value - t);
+    if (d <= bestDist) {
+      bestDist = d;
+      bestTarget = t;
+    }
+  }
+  if (bestTarget === null) return null;
+  return { snapped: bestTarget, target: bestTarget };
+}
+
+/**
  * Compute new waypoints array when dragging a segment.
  * Inserts a new waypoint between stored[j] and stored[j+1] at the drag position.
  */
@@ -197,30 +284,60 @@ export function moveSegment(
 }
 
 /**
+ * Simplify an orthogonal path by removing duplicate points and collapsing
+ * collinear/U-turn triples.
+ *
+ * Three consecutive points sharing the same x (or same y) make the middle
+ * one redundant — whether the path goes straight through (collinear) or
+ * doubles back over itself (U-turn). Dropping the middle point handles
+ * both, which is what eliminates the visible overlapping bumps that
+ * accumulate after segment drags.
+ */
+export function simplifyOrthogonalPath(
+  pts: { x: number; y: number }[],
+): { x: number; y: number }[] {
+  if (pts.length <= 2) return pts.map((p) => ({ ...p }));
+
+  // Drop consecutive duplicates first
+  const dedup: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    const last = dedup[dedup.length - 1];
+    if (!last || last.x !== p.x || last.y !== p.y) dedup.push({ ...p });
+  }
+
+  // Iteratively collapse three-in-a-row on the same axis until stable
+  let result = dedup;
+  let changed = true;
+  while (changed && result.length > 2) {
+    changed = false;
+    for (let i = 1; i < result.length - 1; i++) {
+      const prev = result[i - 1];
+      const curr = result[i];
+      const next = result[i + 1];
+      if ((prev.x === curr.x && curr.x === next.x) || (prev.y === curr.y && curr.y === next.y)) {
+        result = [...result.slice(0, i), ...result.slice(i + 1)];
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Convert a list of rendered (expanded) points back to wire waypoints.
  * Waypoints are the interior corner/bend points (excludes start and end).
- * Consecutive collinear points are collapsed so only actual corners remain.
+ * The path is first simplified to drop collinear runs and U-turn bumps;
+ * what remains is exactly the set of corners, so everything between the
+ * first and last point becomes a waypoint.
  */
 export function renderedToWaypoints(
   renderedPts: { x: number; y: number }[],
 ): { x: number; y: number }[] {
-  if (renderedPts.length <= 2) return [];
-
-  const waypoints: { x: number; y: number }[] = [];
-  for (let i = 1; i < renderedPts.length - 1; i++) {
-    const prev = renderedPts[i - 1];
-    const curr = renderedPts[i];
-    const next = renderedPts[i + 1];
-    const d1x = Math.sign(curr.x - prev.x);
-    const d1y = Math.sign(curr.y - prev.y);
-    const d2x = Math.sign(next.x - curr.x);
-    const d2y = Math.sign(next.y - curr.y);
-    // Keep only direction-change points (actual corners)
-    if (d1x !== d2x || d1y !== d2y) {
-      waypoints.push({ x: curr.x, y: curr.y });
-    }
-  }
-  return waypoints;
+  const simplified = simplifyOrthogonalPath(renderedPts);
+  if (simplified.length <= 2) return [];
+  return simplified.slice(1, -1).map((p) => ({ x: p.x, y: p.y }));
 }
 
 /**

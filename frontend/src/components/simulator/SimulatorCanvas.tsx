@@ -10,7 +10,7 @@ import { InstrumentComponent } from '../components-instruments/InstrumentCompone
 import { ComponentRegistry } from '../../services/ComponentRegistry';
 import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { WireLayer } from './WireLayer';
-import type { SegmentHandle } from './WireLayer';
+import type { SegmentHandle, WaypointHandle, AlignmentGuide } from './WireLayer';
 import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
 import { BoardOnCanvas } from './BoardOnCanvas';
 import { PartSimulationRegistry } from '../../simulation/parts';
@@ -21,12 +21,20 @@ import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping'
 import { autoWireColor, WIRE_KEY_COLORS } from '../../utils/wireUtils';
 import {
   findWireNearPoint,
+  findSegmentNearPoint,
   getRenderedPoints,
   getRenderedSegments,
   moveSegment,
   renderedToWaypoints,
   renderedPointsToPath,
+  simplifyOrthogonalPath,
+  insertWaypointAtSegment,
+  collectAlignmentTargets,
+  snapToNearest,
 } from '../../utils/wireHitDetection';
+
+/** World-units of tolerance for alignment snap (scales with zoom). */
+const ALIGN_SNAP_PX = 6;
 
 /** Detect touch-capable device once */
 const isTouchDevice =
@@ -185,7 +193,19 @@ export const SimulatorCanvas = () => {
     renderedPts: { x: number; y: number }[];
     isDragging: boolean;
   } | null>(null);
-  /** Set to true during mouseup if a segment drag committed, so onClick can skip selection. */
+  /** Active waypoint drag (free 2D move of a single bend point). */
+  const waypointDragRef = useRef<{
+    wireId: string;
+    waypointIndex: number;
+    originalWaypoints: { x: number; y: number }[];
+    isDragging: boolean;
+  } | null>(null);
+  const [waypointDragPreview, setWaypointDragPreview] = useState<{
+    wireId: string;
+    waypoints: { x: number; y: number }[];
+  } | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
+  /** Set to true during mouseup if a segment/waypoint drag committed, so onClick can skip selection. */
   const segmentDragJustCommittedRef = useRef(false);
   const wiresRef = useRef(wires);
   wiresRef.current = wires;
@@ -202,6 +222,18 @@ export const SimulatorCanvas = () => {
       my: (seg.y1 + seg.y2) / 2,
     }));
   }, [selectedWireId, wires]);
+
+  // Compute bend-point handles (one per waypoint) for the selected wire
+  const waypointHandles = React.useMemo<WaypointHandle[]>(() => {
+    if (!selectedWireId) return [];
+    const wire = wires.find((w) => w.id === selectedWireId);
+    if (!wire) return [];
+    // While the user is dragging a waypoint, render handles at the live preview
+    // positions so the dot tracks the cursor instead of jumping at commit.
+    const activeDrag = waypointDragPreview?.wireId === wire.id ? waypointDragPreview : null;
+    const wps = activeDrag ? activeDrag.waypoints : (wire.waypoints ?? []);
+    return wps.map((wp, i) => ({ index: i, x: wp.x, y: wp.y }));
+  }, [selectedWireId, wires, waypointDragPreview]);
 
   // Touch-specific state refs (for single-finger drag and pinch-to-zoom)
   const touchDraggedComponentIdRef = useRef<string | null>(null);
@@ -344,6 +376,14 @@ export const SimulatorCanvas = () => {
       if (target?.closest('[data-pin-overlay]')) {
         e.preventDefault();
         touchOnPinRef.current = true;
+        return;
+      }
+
+      // ── 1b. Wire segment/waypoint handle → let WireLayer's React handler claim the drag.
+      // We must skip the canvas-level pan/drag setup so the handle drag works in isolation.
+      if (target?.closest('[data-wire-handle]')) {
+        e.preventDefault();
+        touchPassthroughRef.current = true;
         return;
       }
 
@@ -637,7 +677,7 @@ export const SimulatorCanvas = () => {
         return;
       }
 
-      // ── Short tap on empty canvas: wire selection + double-tap wire deletion ──
+      // ── Short tap on empty canvas: wire selection + double-tap inserts waypoint ──
       if (isShortTap) {
         const now = Date.now();
         const world = toWorld(changed.clientX, changed.clientY);
@@ -645,10 +685,20 @@ export const SimulatorCanvas = () => {
         const threshold = baseThreshold / zoomRef.current;
         const wire = findWireNearPoint(wiresRef.current, world.x, world.y, threshold);
 
-        // Double-tap → delete wire
+        // Double-tap on a wire → insert draggable waypoint at the tap location
         const timeSinceLastTap = now - lastTapTimeRef.current;
         if (timeSinceLastTap < 350 && wire) {
-          useSimulatorStore.getState().removeWire(wire.id);
+          const seg = findSegmentNearPoint(wire, world.x, world.y, threshold);
+          if (seg) {
+            const newWaypoints = insertWaypointAtSegment(
+              wire.waypoints ?? [],
+              seg,
+              world.x,
+              world.y,
+            );
+            useSimulatorStore.getState().updateWire(wire.id, { waypoints: newWaypoints });
+            useSimulatorStore.getState().setSelectedWire(wire.id);
+          }
           lastTapTimeRef.current = 0;
           return;
         }
@@ -1011,10 +1061,71 @@ export const SimulatorCanvas = () => {
       const world = toWorld(e.clientX, e.clientY);
       const sd = segmentDragRef.current;
       sd.isDragging = true;
-      const newValue = sd.axis === 'horizontal' ? world.y : world.x;
+      const threshold = ALIGN_SNAP_PX / zoomRef.current;
+      const targets = collectAlignmentTargets(wiresRef.current, sd.wireId);
+      const guides: AlignmentGuide[] = [];
+      let newValue = sd.axis === 'horizontal' ? world.y : world.x;
+      const snap = snapToNearest(
+        newValue,
+        sd.axis === 'horizontal' ? targets.ys : targets.xs,
+        threshold,
+      );
+      if (snap) {
+        newValue = snap.snapped;
+        guides.push({ axis: sd.axis === 'horizontal' ? 'y' : 'x', value: snap.target });
+      }
+      setAlignmentGuides(guides);
       const newPts = moveSegment(sd.renderedPts, sd.segIndex, sd.axis, newValue);
-      const overridePath = renderedPointsToPath(newPts);
+      const overridePath = renderedPointsToPath(simplifyOrthogonalPath(newPts));
       setSegmentDragPreview({ wireId: sd.wireId, overridePath });
+      return;
+    }
+
+    // Handle waypoint handle dragging (free 2D move)
+    if (waypointDragRef.current) {
+      const world = toWorld(e.clientX, e.clientY);
+      const wd = waypointDragRef.current;
+      wd.isDragging = true;
+      const wire = wiresRef.current.find((w) => w.id === wd.wireId);
+      if (wire) {
+        const threshold = ALIGN_SNAP_PX / zoomRef.current;
+        const targets = collectAlignmentTargets(wiresRef.current, wd.wireId);
+        const guides: AlignmentGuide[] = [];
+        let snappedX = world.x;
+        let snappedY = world.y;
+        const snapX = snapToNearest(world.x, targets.xs, threshold);
+        if (snapX) {
+          snappedX = snapX.snapped;
+          guides.push({ axis: 'x', value: snapX.target });
+        }
+        const snapY = snapToNearest(world.y, targets.ys, threshold);
+        if (snapY) {
+          snappedY = snapY.snapped;
+          guides.push({ axis: 'y', value: snapY.target });
+        }
+        setAlignmentGuides(guides);
+        const newWaypoints = wd.originalWaypoints.map((wp, i) =>
+          i === wd.waypointIndex ? { x: snappedX, y: snappedY } : { ...wp },
+        );
+        setWaypointDragPreview({ wireId: wd.wireId, waypoints: newWaypoints });
+        // Reflect the moved bend point in the rendered path live
+        const stored = [
+          { x: wire.start.x, y: wire.start.y },
+          ...newWaypoints,
+          { x: wire.end.x, y: wire.end.y },
+        ];
+        const expanded: { x: number; y: number }[] = [stored[0]];
+        for (let i = 1; i < stored.length; i++) {
+          const prev = stored[i - 1];
+          const curr = stored[i];
+          if (prev.x !== curr.x && prev.y !== curr.y) {
+            expanded.push({ x: curr.x, y: prev.y });
+          }
+          expanded.push(curr);
+        }
+        const overridePath = renderedPointsToPath(simplifyOrthogonalPath(expanded));
+        setSegmentDragPreview({ wireId: wd.wireId, overridePath });
+      }
       return;
     }
 
@@ -1041,12 +1152,65 @@ export const SimulatorCanvas = () => {
       if (sd.isDragging) {
         segmentDragJustCommittedRef.current = true;
         const world = toWorld(e.clientX, e.clientY);
-        const newValue = sd.axis === 'horizontal' ? world.y : world.x;
+        const threshold = ALIGN_SNAP_PX / zoomRef.current;
+        const targets = collectAlignmentTargets(wiresRef.current, sd.wireId);
+        let newValue = sd.axis === 'horizontal' ? world.y : world.x;
+        const snap = snapToNearest(
+          newValue,
+          sd.axis === 'horizontal' ? targets.ys : targets.xs,
+          threshold,
+        );
+        if (snap) newValue = snap.snapped;
         const newPts = moveSegment(sd.renderedPts, sd.segIndex, sd.axis, newValue);
         updateWire(sd.wireId, { waypoints: renderedToWaypoints(newPts) });
       }
       segmentDragRef.current = null;
       setSegmentDragPreview(null);
+      setAlignmentGuides([]);
+      return;
+    }
+
+    // Commit waypoint handle drag
+    if (waypointDragRef.current) {
+      const wd = waypointDragRef.current;
+      if (wd.isDragging) {
+        segmentDragJustCommittedRef.current = true;
+        const world = toWorld(e.clientX, e.clientY);
+        const wire = wiresRef.current.find((w) => w.id === wd.wireId);
+        if (wire) {
+          const threshold = ALIGN_SNAP_PX / zoomRef.current;
+          const targets = collectAlignmentTargets(wiresRef.current, wd.wireId);
+          let snappedX = world.x;
+          let snappedY = world.y;
+          const snapX = snapToNearest(world.x, targets.xs, threshold);
+          if (snapX) snappedX = snapX.snapped;
+          const snapY = snapToNearest(world.y, targets.ys, threshold);
+          if (snapY) snappedY = snapY.snapped;
+          const newWaypoints = wd.originalWaypoints.map((wp, i) =>
+            i === wd.waypointIndex ? { x: snappedX, y: snappedY } : { ...wp },
+          );
+          // Run through expand → simplify so collinear waypoints get cleaned up
+          const stored = [
+            { x: wire.start.x, y: wire.start.y },
+            ...newWaypoints,
+            { x: wire.end.x, y: wire.end.y },
+          ];
+          const expanded: { x: number; y: number }[] = [stored[0]];
+          for (let i = 1; i < stored.length; i++) {
+            const prev = stored[i - 1];
+            const curr = stored[i];
+            if (prev.x !== curr.x && prev.y !== curr.y) {
+              expanded.push({ x: curr.x, y: prev.y });
+            }
+            expanded.push(curr);
+          }
+          updateWire(wd.wireId, { waypoints: renderedToWaypoints(expanded) });
+        }
+      }
+      waypointDragRef.current = null;
+      setWaypointDragPreview(null);
+      setSegmentDragPreview(null);
+      setAlignmentGuides([]);
       return;
     }
 
@@ -1143,6 +1307,41 @@ export const SimulatorCanvas = () => {
         segIndex,
         axis: seg.axis,
         renderedPts: expandedPts,
+        isDragging: false,
+      };
+    },
+    [selectedWireId],
+  );
+
+  // Handle mousedown on a waypoint (bend-point) handle: free 2D drag
+  const handleWaypointMouseDown = useCallback(
+    (e: React.MouseEvent, waypointIndex: number) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!selectedWireId) return;
+      const wire = wiresRef.current.find((w) => w.id === selectedWireId);
+      if (!wire) return;
+      waypointDragRef.current = {
+        wireId: wire.id,
+        waypointIndex,
+        originalWaypoints: (wire.waypoints ?? []).map((wp) => ({ ...wp })),
+        isDragging: false,
+      };
+    },
+    [selectedWireId],
+  );
+
+  // Handle touchstart on a waypoint handle (mobile)
+  const handleWaypointTouchStart = useCallback(
+    (e: React.TouchEvent, waypointIndex: number) => {
+      e.stopPropagation();
+      if (!selectedWireId) return;
+      const wire = wiresRef.current.find((w) => w.id === selectedWireId);
+      if (!wire) return;
+      waypointDragRef.current = {
+        wireId: wire.id,
+        waypointIndex,
+        originalWaypoints: (wire.waypoints ?? []).map((wp) => ({ ...wp })),
         isDragging: false,
       };
     },
@@ -1704,9 +1903,19 @@ export const SimulatorCanvas = () => {
             const world = toWorld(e.clientX, e.clientY);
             const threshold = 8 / zoomRef.current;
             const wire = findWireNearPoint(wiresRef.current, world.x, world.y, threshold);
-            if (wire) {
-              removeWire(wire.id);
-            }
+            if (!wire) return;
+            const seg = findSegmentNearPoint(wire, world.x, world.y, threshold);
+            if (!seg) return;
+            // Insert a draggable waypoint where the user double-clicked,
+            // projected onto the segment so the wire stays orthogonal.
+            const newWaypoints = insertWaypointAtSegment(
+              wire.waypoints ?? [],
+              seg,
+              world.x,
+              world.y,
+            );
+            updateWire(wire.id, { waypoints: newWaypoints });
+            setSelectedWire(wire.id);
           }}
           style={{
             cursor: isPanningRef.current
@@ -1746,8 +1955,12 @@ export const SimulatorCanvas = () => {
               hoveredWireId={hoveredWireId}
               segmentDragPreview={segmentDragPreview}
               segmentHandles={segmentHandles}
+              waypointHandles={waypointHandles}
+              alignmentGuides={alignmentGuides}
               onHandleMouseDown={handleHandleMouseDown}
               onHandleTouchStart={handleHandleTouchStart}
+              onWaypointMouseDown={handleWaypointMouseDown}
+              onWaypointTouchStart={handleWaypointTouchStart}
             />
 
             {/* All boards on canvas */}
