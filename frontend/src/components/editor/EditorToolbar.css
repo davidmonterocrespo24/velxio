@@ -1,45 +1,89 @@
-/* ── Toolbar container ──────────────────────────── */
+/* ── Toolbar container ──────────────────────────────────────────────────────
+ * Single-row layout: [left actions] [file tabs flex] [right actions]
+ * The center slot (file tabs) flex-grows and scrolls horizontally so the
+ * action icons on either side stay pinned and visible no matter how narrow
+ * the editor pane gets when the user drags the editor/canvas divider.
+ *
+ * Uses CSS container queries so the Libraries label collapses based on the
+ * toolbar's *own* width (not the viewport) — which is what changes when the
+ * user drags the editor/canvas divider.
+ */
+.editor-toolbar-wrapper {
+  container-type: inline-size;
+  container-name: editor-toolbar;
+}
 .editor-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  height: 46px;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0 6px;
+  height: 38px;
   background: #252526;
   border-bottom: 1px solid #333;
   flex-shrink: 0;
-  gap: 8px;
+  gap: 4px;
+  min-width: 0;
 }
 
 /* ── Groups ─────────────────────────────────────── */
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
+  flex-shrink: 0;
 }
 
 .toolbar-group-right {
-  margin-left: auto;
-  gap: 6px;
+  gap: 4px;
+}
+
+/* Center slot — fills the gap between left/right groups, allows file tabs
+   to scroll horizontally inside it without pushing the icons off-screen. */
+.toolbar-center-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+}
+.toolbar-center-slot > .file-tabs {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  background: transparent;
+  min-height: 0;
+  height: 100%;
+}
+.toolbar-center-slot .file-tab {
+  height: 100%;
+  padding: 0 8px;
+  min-width: 70px;
+  max-width: 160px;
+  font-size: 11.5px;
+}
+.toolbar-center-slot .file-tab-active {
+  background: #1e1e1e;
+  border-top: 2px solid #4fc3f7;
 }
 
 /* ── Divider ─────────────────────────────────────── */
 .tb-divider {
   width: 1px;
-  height: 20px;
+  height: 18px;
   background: #3a3a3a;
-  margin: 0 4px;
+  margin: 0 3px;
+  align-self: center;
 }
 
 /* ── Icon buttons ───────────────────────────────── */
 .tb-btn {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   cursor: pointer;
   background: transparent;
   color: #9d9d9d;
@@ -47,6 +91,7 @@
     background 0.12s,
     color 0.12s;
   flex-shrink: 0;
+  align-self: center;
 }
 
 .tb-btn:disabled {
@@ -94,14 +139,15 @@
 .tb-btn-libraries {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px 4px 8px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 7px;
   border: 1px solid rgba(0, 184, 212, 0.3);
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
   background: rgba(0, 184, 212, 0.08);
   color: #00e5ff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   font-family: inherit;
   white-space: nowrap;
@@ -110,6 +156,7 @@
     border-color 0.15s,
     color 0.15s;
   flex-shrink: 0;
+  align-self: center;
 }
 .tb-btn-libraries:hover {
   background: rgba(0, 184, 212, 0.18);
@@ -118,6 +165,27 @@
 }
 .tb-libraries-label {
   line-height: 1;
+}
+/* Hide the label when the toolbar is narrow — icon alone keeps the button
+   reachable without stealing horizontal space from the file tabs. The
+   container query reacts to the toolbar's own width, so it triggers when
+   the user drags the editor/canvas divider, not just on small viewports. */
+@container editor-toolbar (max-width: 600px) {
+  .tb-libraries-label {
+    display: none;
+  }
+  .tb-btn-libraries {
+    padding: 0 6px;
+  }
+}
+/* When even narrower, also collapse the board pill label. */
+@container editor-toolbar (max-width: 460px) {
+  .tb-board-pill-label {
+    display: none;
+  }
+  .tb-board-pill {
+    padding: 3px 6px;
+  }
 }
 
 /* Legacy lib icon-only button (for overflow items) */

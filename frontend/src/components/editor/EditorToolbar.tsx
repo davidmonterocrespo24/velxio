@@ -28,6 +28,13 @@ interface EditorToolbarProps {
   setConsoleOpen: (open: boolean | ((v: boolean) => boolean)) => void;
   compileLogs: CompilationLog[];
   setCompileLogs: (logs: CompilationLog[] | ((prev: CompilationLog[]) => CompilationLog[])) => void;
+  /**
+   * Optional element rendered between the left action group and the right
+   * action group. The editor passes <FileTabs /> here so the tabs share the
+   * same row as the toolbar — keeping every action icon pinned and visible
+   * regardless of how narrow the editor pane gets.
+   */
+  centerSlot?: React.ReactNode;
 }
 
 const BOARD_PILL_ICON: Record<BoardKind, string> = {
@@ -57,6 +64,7 @@ export const EditorToolbar = ({
   setConsoleOpen,
   compileLogs: _compileLogs,
   setCompileLogs,
+  centerSlot,
 }: EditorToolbarProps) => {
   const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
   const {
@@ -613,8 +621,8 @@ export const EditorToolbar = ({
             >
               {compiling ? (
                 <svg
-                  width="22"
-                  height="22"
+                  width="18"
+                  height="18"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -627,8 +635,8 @@ export const EditorToolbar = ({
                 </svg>
               ) : (
                 <svg
-                  width="22"
-                  height="22"
+                  width="18"
+                  height="18"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -656,7 +664,7 @@ export const EditorToolbar = ({
                     : 'Run (auto-compiles if needed)'
               }
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                 <polygon points="5,3 19,12 5,21" />
               </svg>
             </button>
@@ -668,7 +676,7 @@ export const EditorToolbar = ({
               className="tb-btn tb-btn-stop"
               title="Stop"
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
               </svg>
             </button>
@@ -681,8 +689,8 @@ export const EditorToolbar = ({
               title="Reset"
             >
               <svg
-                width="22"
-                height="22"
+                width="18"
+                height="18"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -707,8 +715,8 @@ export const EditorToolbar = ({
                   title="Compile all boards"
                 >
                   <svg
-                    width="22"
-                    height="22"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -728,7 +736,7 @@ export const EditorToolbar = ({
                   className="tb-btn tb-btn-run-all"
                   title="Run all boards"
                 >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                     <polygon points="3,3 11,12 3,21" />
                     <polygon points="13,3 21,12 13,21" />
                   </svg>
@@ -736,6 +744,9 @@ export const EditorToolbar = ({
               </>
             )}
           </div>
+
+          {/* Center slot — file tabs share the row so action icons stay pinned. */}
+          {centerSlot && <div className="toolbar-center-slot">{centerSlot}</div>}
 
           <div className="toolbar-group toolbar-group-right">
             {/* Hidden file input for import (always present) */}
@@ -765,8 +776,8 @@ export const EditorToolbar = ({
               title="Search and install Arduino libraries"
             >
               <svg
-                width="18"
-                height="18"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -788,7 +799,7 @@ export const EditorToolbar = ({
                 className={`tb-btn tb-btn-overflow${overflowOpen ? ' tb-btn-overflow-active' : ''}`}
                 title="Import / Export"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                   <circle cx="5" cy="12" r="2" />
                   <circle cx="12" cy="12" r="2" />
                   <circle cx="19" cy="12" r="2" />
@@ -880,8 +891,8 @@ export const EditorToolbar = ({
               title="Toggle Output Console"
             >
               <svg
-                width="22"
-                height="22"
+                width="18"
+                height="18"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

@@ -355,18 +355,18 @@ export const EditorPage: React.FC = () => {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <EditorToolbar
                   consoleOpen={consoleOpen}
                   setConsoleOpen={setConsoleOpen}
                   compileLogs={compileLogs}
                   setCompileLogs={setCompileLogs}
+                  /* File tabs share the toolbar row — keeps every action
+                     icon pinned regardless of editor-pane width. */
+                  centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
                 />
               </div>
             </div>
-
-            {/* File tabs — hidden when Pi workspace is active */}
-            {!isRaspberryPi3 && <FileTabs />}
 
             {/* Editor area: Pi workspace or Monaco editor */}
             <div className="editor-wrapper" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>

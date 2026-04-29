@@ -66,16 +66,67 @@ const COMP_DEFS: Record<string, CompDef> = {
   'wokwi-servo': { svg: 'servo.svg', w: 170, h: 120 },
 };
 
+// ── Inline ATtiny85 SVG (no wokwi-element exists for this DIP-8 chip) ───────
+// Small schematic-style DIP-8 so multi-board ATtiny85 examples render in the
+// gallery preview. Sizes match the canvas board size (160×100 — see
+// `BoardOnCanvas.tsx::BOARD_SIZE.attiny85`) so wire centres land on the chip.
+const Attiny85InlinePreview: React.FC<{ w: number; h: number }> = ({ w, h }) => (
+  <svg width={w} height={h} viewBox="0 0 160 100" xmlns="http://www.w3.org/2000/svg">
+    {/* Pin stubs (left + right, 4 each) */}
+    {[20, 40, 60, 80].map((py) => (
+      <g key={py}>
+        <line x1="30" y1={py} x2="2" y2={py} stroke="#aaa" strokeWidth="3" strokeLinecap="round" />
+        <line
+          x1="130"
+          y1={py}
+          x2="158"
+          y2={py}
+          stroke="#aaa"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+      </g>
+    ))}
+    {/* IC body */}
+    <rect x="30" y="10" width="100" height="80" rx="4" fill="#1a1a2e" stroke="#4a4a7a" strokeWidth="1.5" />
+    <path d="M73 10 A7 7 0 0 1 87 10" fill="none" stroke="#4a4a7a" strokeWidth="1.5" />
+    <text x="80" y="48" fontSize="10" fontWeight="bold" fontFamily="monospace" fill="#c8c8f0" textAnchor="middle">
+      ATtiny85
+    </text>
+    <text x="80" y="62" fontSize="8" fontFamily="monospace" fill="#7a7aaa" textAnchor="middle">
+      8-bit AVR
+    </text>
+  </svg>
+);
+
 // Board SVG definitions — used when the board is implicit (pico / esp32 pattern)
+// or when a multi-board example references the board by `boardKind`.
+//
+// IMPORTANT: every entry from `BoardKind` (frontend/src/types/board.ts) must
+// appear here, otherwise the gallery card falls back to "No components" and
+// the user sees an empty preview. New board kinds must be added in BOTH
+// places (the type union and this map).
 const BOARD_DEFS: Record<string, CompDef> = {
   'arduino-uno': { svg: 'arduino-uno.svg', w: 274, h: 202 },
   'arduino-nano': { svg: 'arduino-nano.svg', w: 170, h: 67 },
   'arduino-mega': { svg: 'arduino-mega.svg', w: 388, h: 192 },
   'raspberry-pi-pico': { svg: 'raspberry-pi-pico.svg', w: 79, h: 200 },
+  'pi-pico-w': { svg: 'raspberry-pi-pico-w.svg', w: 105, h: 264 },
   'raspberry-pi-3': { svg: 'raspberry-pi-3.svg', w: 200, h: 135 },
+  // ESP32 family — every variant currently maps to the DevKit V1 art (no
+  // dedicated SVGs are extracted for the variants yet).
   esp32: { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'esp32-devkit-c-v4': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'esp32-cam': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'wemos-lolin32-lite': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
   'esp32-s3': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'xiao-esp32-s3': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'arduino-nano-esp32': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
   'esp32-c3': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'xiao-esp32-c3': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  'aitewinrobot-esp32c3-supermini': { svg: 'esp32-devkit-v1.svg', w: 107, h: 204 },
+  // ATtiny85 — DIP-8, drawn inline (no wokwi element ships its SVG).
+  attiny85: { svg: '', inline: Attiny85InlinePreview, w: 160, h: 100 },
 };
 
 // LED color → SVG filename
@@ -123,9 +174,12 @@ function isBoardType(type: string): boolean {
     type.includes('arduino-uno') ||
     type.includes('arduino-nano') ||
     type.includes('arduino-mega') ||
-    type.includes('esp32-devkit') ||
+    type.includes('esp32') || // covers esp32, esp32-s3, esp32-c3, esp32-cam, …
     type.includes('raspberry-pi-pico') ||
-    type.includes('nano-rp2040')
+    type.includes('pi-pico-w') ||
+    type.includes('nano-rp2040') ||
+    type.includes('attiny85') ||
+    type.includes('raspberry-pi-3')
   );
 }
 
