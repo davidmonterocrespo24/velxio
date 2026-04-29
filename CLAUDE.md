@@ -307,6 +307,61 @@ declare global {
 }
 ```
 
+### 6a. Boards/components MUST be Web Components, not React SVG ⚠️
+
+The wire system reads pin coordinates via `element.pinInfo` from the rendered
+DOM node (`frontend/src/utils/pinPositionCalculator.ts:38`). This **only**
+works for real DOM custom elements (Web Components) — a plain React `<svg>`
+component has no `pinInfo`, so every wire endpoint silently falls back to
+`(0, 0)` of the board and visually attaches to the **corner** instead of the
+pin. The user has reported this exact symptom multiple times.
+
+**Rule:** any board or component that needs wire connections must be a Web
+Component (`class Foo extends HTMLElement`) with a `pinInfo` getter. The
+React `.tsx` file is a thin wrapper.
+
+Reference implementations:
+- `frontend/src/components/velxio-components/Esp32Element.ts` (board)
+- `frontend/src/components/velxio-components/PiPicoWElement.ts` (board)
+- `frontend/src/components/velxio-components/Attiny85Element.ts` (board)
+- `frontend/src/components/velxio-components/Bmp280Element.ts` (component)
+
+Required shape:
+```ts
+class FooElement extends HTMLElement {
+  constructor() { super(); this.attachShadow({ mode: 'open' }); }
+  connectedCallback() { this.render(); }
+  get pinInfo() {
+    // Pin tip coordinates in CSS pixels relative to element top-left.
+    // `name` must match what examples reference in wires.
+    return [
+      { name: 'GP0', x: 6, y: 24, description: 'UART0 TX' },
+      // …
+    ];
+  }
+  private render() { /* shadowRoot.innerHTML = ... */ }
+}
+if (!customElements.get('velxio-foo')) {
+  customElements.define('velxio-foo', FooElement);
+}
+```
+
+The `.tsx` wrapper:
+```tsx
+import './FooElement';
+declare global {
+  namespace JSX { interface IntrinsicElements { 'velxio-foo': any; } }
+}
+export const Foo = ({ id, x, y }: Props) => (
+  <velxio-foo id={id} style={{ position: 'absolute', left: x, top: y }} />
+);
+```
+
+**Verification before claiming a board/component is done:** load an example
+that wires to it, confirm wires terminate on the pin tips (not the corner),
+and add the pin coords to `BoardOnCanvas.tsx`'s `BOARD_SIZE` table if it's a
+board.
+
 ### 7. Pre-existing TypeScript Errors
 
 There are known pre-existing TS errors that do NOT block the app from running:
