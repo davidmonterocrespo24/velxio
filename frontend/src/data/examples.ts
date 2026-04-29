@@ -2852,12 +2852,12 @@ void loop() {
   },
 
   {
-    id: 'dual-pico-i2c-master-slave',
-    title: '[2× Pico W] I²C Master/Slave LED Control',
+    id: 'dual-pico-bidirectional-handshake',
+    title: '[2× Pico W] Bidirectional Digital Handshake',
     description:
-      'Pico A is the I²C master on Wire (GP4=SDA, GP5=SCL). It sends 1-byte commands (1=LED ON, 0=LED OFF) every second to Pico B at address 0x42. Pico B drives its built-in LED based on the command via Wire.onReceive.',
+      'Two Picos signal each other over independent digital lines. Pico A drives GP15 (data) and watches GP14 (ack); Pico B reads GP15 and pulses GP14 on every transition to acknowledge. Each board\'s Serial Monitor logs every event, so you can see the round-trip on both sides.',
     category: 'communication',
-    difficulty: 'intermediate',
+    difficulty: 'beginner',
     boardFilter: 'raspberry-pi-pico',
     code: '',
     boards: [
@@ -2865,47 +2865,60 @@ void loop() {
         boardKind: 'pi-pico-w',
         x: 100,
         y: 120,
-        code: `// Pico A — I²C master
-// Sends 1-byte commands to slave 0x42:
-//   0x01 → LED ON
-//   0x00 → LED OFF
+        code: `// Pico A — sender + ack listener
 //
-// Wiring (use I²C0 on the Earle Philhower core):
-//   A.GP4 (SDA) ──── B.GP4 (SDA)
-//   A.GP5 (SCL) ──── B.GP5 (SCL)
-//   A.GND        ─── B.GND
+// Wiring to Pico B:
+//   A.GP15 (DATA out) ──> B.GP15 (DATA in)
+//   A.GP14 (ACK in)   <── B.GP14 (ACK out)
+//   A.GND             ─── B.GND
 //
-// (Real hardware would also need 4.7 kΩ pull-ups on SDA and SCL — the
-//  emulator pulls them up automatically.)
+// Every second, A toggles GP15 and waits up to 200 ms for B's ack
+// pulse on GP14. Both events get logged to Serial.
 
-#include <Wire.h>
-
-const uint8_t SLAVE_ADDR = 0x42;
+const int DATA_OUT = 15;
+const int ACK_IN   = 14;
 
 void setup() {
   Serial.begin(115200);
-  Wire.setSDA(4);
-  Wire.setSCL(5);
-  Wire.begin();             // master mode
-  delay(500);
-  Serial.println("Pico A — I2C master ready.");
+  pinMode(DATA_OUT, OUTPUT);
+  pinMode(ACK_IN,   INPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+  delay(300);
+  Serial.println("Pico A — handshake ready.");
 }
 
-bool ledState = false;
+uint32_t counter   = 0;
+int      lastAck   = LOW;
+bool     dataState = false;
 
 void loop() {
-  ledState = !ledState;
-  Wire.beginTransmission(SLAVE_ADDR);
-  Wire.write(ledState ? 0x01 : 0x00);
-  uint8_t err = Wire.endTransmission();
+  // Toggle the data line every second
+  dataState = !dataState;
+  digitalWrite(DATA_OUT, dataState ? HIGH : LOW);
+  digitalWrite(LED_BUILTIN, dataState ? HIGH : LOW);
+  counter++;
+  Serial.print("[A] sent #");
+  Serial.print(counter);
+  Serial.print(" DATA=");
+  Serial.println(dataState ? "HIGH" : "LOW");
 
-  Serial.print("→ slave ");
-  Serial.print(ledState ? "ON " : "OFF");
-  Serial.print(" (err=");
-  Serial.print(err);
-  Serial.println(")");
+  // Watch for an ack pulse from B for up to 200 ms
+  uint32_t deadline = millis() + 200;
+  bool acked = false;
+  while (millis() < deadline) {
+    int v = digitalRead(ACK_IN);
+    if (v != lastAck) {
+      lastAck = v;
+      acked = true;
+      Serial.print("[A] ack edge (ACK=");
+      Serial.print(v ? "HIGH" : "LOW");
+      Serial.println(")");
+      break;
+    }
+  }
+  if (!acked) Serial.println("[A] no ack within 200 ms");
 
-  delay(1000);
+  delay(800);
 }
 `,
       },
@@ -2913,55 +2926,59 @@ void loop() {
         boardKind: 'pi-pico-w',
         x: 520,
         y: 120,
-        code: `// Pico B — I²C slave at address 0x42
-// Receives 1-byte commands from Pico A and toggles LED_BUILTIN.
+        code: `// Pico B — receiver + ack pulser
+//
+// Reads GP15 (DATA in). On every transition, toggles GP14 (ACK out)
+// to tell Pico A it saw the change. Built-in LED mirrors GP15 so
+// you can watch the data line visually.
 
-#include <Wire.h>
-
-const uint8_t MY_ADDR = 0x42;
-
-void onReceive(int howMany) {
-  while (Wire.available()) {
-    uint8_t cmd = Wire.read();
-    digitalWrite(LED_BUILTIN, cmd ? HIGH : LOW);
-    Serial.print("[B] cmd=0x");
-    Serial.print(cmd, HEX);
-    Serial.println(cmd ? "  → LED ON" : "  → LED OFF");
-  }
-}
+const int DATA_IN  = 15;
+const int ACK_OUT  = 14;
 
 void setup() {
   Serial.begin(115200);
+  pinMode(DATA_IN,  INPUT);
+  pinMode(ACK_OUT,  OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
-  Wire.setSDA(4);
-  Wire.setSCL(5);
-  Wire.begin(MY_ADDR);          // slave mode at 0x42
-  Wire.onReceive(onReceive);
-  delay(500);
-  Serial.print("Pico B — I2C slave ready at 0x");
-  Serial.println(MY_ADDR, HEX);
+  digitalWrite(ACK_OUT, LOW);
+  delay(300);
+  Serial.println("Pico B — handshake responder ready.");
 }
 
+int  lastData = -1;
+bool ack      = false;
+
 void loop() {
-  // Nothing to do — Wire.onReceive is event-driven.
+  int d = digitalRead(DATA_IN);
+  if (d != lastData) {
+    lastData = d;
+    digitalWrite(LED_BUILTIN, d);
+    Serial.print("[B] DATA=");
+    Serial.print(d ? "HIGH" : "LOW");
+    // Toggle ACK to acknowledge the edge
+    ack = !ack;
+    digitalWrite(ACK_OUT, ack ? HIGH : LOW);
+    Serial.print("  → ACK=");
+    Serial.println(ack ? "HIGH" : "LOW");
+  }
 }
 `,
       },
     ],
     components: [],
     wires: [
-      // SDA bus: A.GP4 ↔ B.GP4
+      // DATA: A.GP15 → B.GP15
       {
-        id: 'w-sda',
-        start: { componentId: 'pi-pico-w', pinName: 'GP4' },
-        end: { componentId: 'pi-pico-w-2', pinName: 'GP4' },
-        color: '#0088ff',
+        id: 'w-data',
+        start: { componentId: 'pi-pico-w', pinName: 'GP15' },
+        end: { componentId: 'pi-pico-w-2', pinName: 'GP15' },
+        color: '#22cc22',
       },
-      // SCL bus: A.GP5 ↔ B.GP5
+      // ACK: B.GP14 → A.GP14
       {
-        id: 'w-scl',
-        start: { componentId: 'pi-pico-w', pinName: 'GP5' },
-        end: { componentId: 'pi-pico-w-2', pinName: 'GP5' },
+        id: 'w-ack',
+        start: { componentId: 'pi-pico-w-2', pinName: 'GP14' },
+        end: { componentId: 'pi-pico-w', pinName: 'GP14' },
         color: '#ffaa00',
       },
       // GND
@@ -2972,7 +2989,7 @@ void loop() {
         color: '#000000',
       },
     ],
-    tags: ['rp2040', 'pico', 'multi-board', 'i2c', 'wire'],
+    tags: ['rp2040', 'pico', 'multi-board', 'gpio', 'handshake', 'bidirectional'],
   },
 
   {
