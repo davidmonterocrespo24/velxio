@@ -649,17 +649,22 @@ A small state machine (S_SAMPLE_LOW → S_SAMPLE_MID → S_SAMPLE_HIGH →
 S_DRIVE_HI → S_DRIVE_LO → S_POST) handles the 8-phase walk; reset on
 SYNC rising. Documented in `4001-rom.c`.
 
-### Deferred — still pending
-- **4002 RAM** — similar 16-pin chip. Needs SRC-instruction tracking
-  (the 4004 latches an 8-bit chip-select into the 4002 during X2/X3
-  of the SRC cycle, then subsequent WRM/RDM/WMP/RDR ops use that
-  latched address). Moderate complexity; same timing model as 4001.
-- **4004 SRC + WRM/RDM/WMP wiring** to actually exchange data with a
-  4002. The 4004 chip currently STUBS these as no-ops; needs to drive
-  the bus during X2/X3 of SRC and during M2 of the I/O group ops.
+### Phase D — 4002 also delivered (2026-04-30 → 2026-05-01)
+- **4002 RAM** (`test_buses/4002-ram.c`, ~150 LOC) — companion data/IO
+  chip. 16-pin contract, 80-nibble main + status storage, 4-pin output
+  port, SYNC-driven phase tracking + CM-strobe-gated SRC chip-select
+  latching at X2/X3. RESET clears storage and output port. 2/2 unit
+  tests pass.
+
+### Phase D — still pending
+- **4004 SRC + WRM/RDM/WMP wiring** — the 4004 chip currently stubs
+  the I/O group instructions; for the 4002 to actually receive
+  addresses and exchange data, the 4004's SRC must drive the bus
+  during X2/X3 and the I/O group ops must drive/sample during M2.
+  Full I/O-group end-to-end is a Phase D-2 follow-up.
 - **Busicom 141-PF integration test** for 4004 — requires both 4001
-  and 4002 working end-to-end, plus a baked Busicom firmware ROM
-  variant (~1 KB).
+  and 4002 working end-to-end (i.e. Phase D-2 complete) plus a baked
+  Busicom firmware ROM variant (~1 KB).
 
 ### Tests delta
 - Total test_intel: 98 → **99 passing**, 11 todo, 0 failed.
