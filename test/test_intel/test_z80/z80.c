@@ -67,6 +67,7 @@ typedef struct {
     bool halted;
     bool reset_active;
     bool nmi_pending;
+    bool int_line_low;       /* tracked from on_int watcher (INT̅ active low) */
 } cpu_t;
 
 static cpu_t G;
@@ -409,6 +410,41 @@ static void step(void) {
         return;
     }
 
+    /* Maskable interrupt: INT̅ is level-triggered (active low). Service
+       at instruction boundary if IFF1 is enabled and we're not halted
+       on a non-interruptible state. Per [U] p. 24: INTA cycle clears
+       both IFF1 and IFF2. */
+    if (G.int_line_low && G.iff1) {
+        G.iff1 = G.iff2 = false;
+        G.halted = false;
+        G.r = (G.r & 0x80) | ((G.r + 1) & 0x7F);
+        push16(G.pc);
+        switch (G.im) {
+            case 0:
+                /* IM 0 reads an instruction byte from the data bus
+                   during INTA — usually a RST. Without an interrupt
+                   controller wired, default to RST 38h. */
+                G.pc = 0x0038;
+                break;
+            case 1:
+                G.pc = 0x0038;
+                break;
+            case 2:
+                /* IM 2: vector = (I << 8) | data_byte. Without a real
+                   interrupt controller we approximate using 0x00 as
+                   the data byte; user code must pre-load the vector
+                   table at I:00. */
+                {
+                    uint16_t va = ((uint16_t)G.i << 8) | 0x00;
+                    uint8_t lo = mem_read(va);
+                    uint8_t hi = mem_read((uint16_t)(va + 1));
+                    G.pc = lo | ((uint16_t)hi << 8);
+                }
+                break;
+        }
+        return;
+    }
+
     if (G.halted) {
         /* Re-emit a no-op M1 fetch so RFSH̅ keeps cycling (matches real
            silicon, which fetches the byte at PC repeatedly while halted). */
@@ -666,9 +702,14 @@ static void on_reset(void* user_data, vx_pin pin, int value) {
 
 static void on_nmi(void* user_data, vx_pin pin, int value) {
     (void)user_data; (void)pin; (void)value;
-    /* NMI̅ falling edge — pin watch was registered for VX_EDGE_FALLING
-       so this fires only on 1→0. */
     G.nmi_pending = true;
+}
+
+static void on_int(void* user_data, vx_pin pin, int value) {
+    (void)user_data; (void)pin;
+    /* INT̅ is level-triggered, active low. Track its level and let
+       step() decide when to service it. */
+    G.int_line_low = (value == 0);
 }
 
 static void on_clock(void* user_data) {
@@ -716,8 +757,15 @@ void chip_setup(void) {
     G.gnd    = vx_pin_register("GND",    VX_INPUT);
 
     reset_state();
+    /* Power-on default: hold the chip in reset until something drives
+       RESET̅ HIGH. Real silicon is the same — RESET̅ must be held low
+       for ≥3 clocks at power-on, but in our digital model the watcher
+       only fires on edges, so we start in reset and let the rising
+       edge release us. */
+    G.reset_active = true;
     vx_pin_watch(G.reset_, VX_EDGE_BOTH,    on_reset, 0);
     vx_pin_watch(G.nmi,    VX_EDGE_FALLING, on_nmi,   0);
+    vx_pin_watch(G.intn,   VX_EDGE_BOTH,    on_int,   0);
 
     G.cycle_timer = vx_timer_create(on_clock, 0);
     vx_timer_start(G.cycle_timer, 250, true);   /* 4 MHz pseudo-clock */

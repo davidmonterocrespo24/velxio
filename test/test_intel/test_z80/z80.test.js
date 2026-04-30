@@ -60,7 +60,9 @@ async function bootZ80(program) {
   board.setNet('RESET',  false);
   board.advanceNanos(CLOCK_NS * 4);
   board.setNet('RESET',  true);
-  board.advanceNanos(CLOCK_NS * 2);
+  // Do NOT advance after RESET deassert — the caller has its own
+  // advanceNanos loop, and may want to poke RAM contents first
+  // (same lesson as bootCpu in the 8080 tests).
   return { board, ram };
 }
 
@@ -197,14 +199,120 @@ describe('Zilog Z80 chip', () => {
       board.dispose();
     });
 
-    it.todo('LDIR copies a memory block from HL to DE');
-    it.todo('LD A, (IX+d) reads via IX with signed displacement');
-    it.todo('EXX swaps the main register set with the shadow set');
+    it.skipIf(skip)('LDIR copies a memory block from HL to DE', async () => {
+      // Pre-load source: 4 bytes at 0xC000..0xC003. Then LDIR HL=0xC000,
+      // DE=0x9000, BC=4. After: 4 bytes copied to 0x9000..0x9003.
+      const program = new Uint8Array([
+        LD_HL_nn, 0x00, 0xC0,    // LD HL, 0xC000
+        LD_DE_nn, 0x00, 0x90,    // LD DE, 0x9000
+        LD_BC_nn, 0x04, 0x00,    // LD BC, 0x0004
+        LDIR, _LDIR,             // ED B0
+        HALT,
+      ]);
+      const { board, ram } = await bootZ80(program);
+      ram.poke(0xC000, 0x11);
+      ram.poke(0xC001, 0x22);
+      ram.poke(0xC002, 0x33);
+      ram.poke(0xC003, 0x44);
+      for (let i = 0; i < 500; i++) board.advanceNanos(CLOCK_NS);
+      expect(ram.peek(0x9000)).toBe(0x11);
+      expect(ram.peek(0x9001)).toBe(0x22);
+      expect(ram.peek(0x9002)).toBe(0x33);
+      expect(ram.peek(0x9003)).toBe(0x44);
+      board.dispose();
+    });
+
+    it.skipIf(skip)('LD A, (IX+d) reads via IX with signed displacement', async () => {
+      // Pre-load 0xCD at 0xA005. Set IX = 0xA000. LD A, (IX+5) → A=0xCD.
+      // Then LD (0x9000), A so we can verify.
+      const program = new Uint8Array([
+        LD_IX_nn, _IX_LD_nn, 0x00, 0xA0,   // DD 21 00 A0 — LD IX, 0xA000
+        0xDD, 0x7E, 0x05,                    // DD 7E 05 — LD A, (IX+5)
+        LD_addr_A, 0x00, 0x90,               // LD (0x9000), A
+        HALT,
+      ]);
+      const { board, ram } = await bootZ80(program);
+      ram.poke(0xA005, 0xCD);
+      for (let i = 0; i < 400; i++) board.advanceNanos(CLOCK_NS);
+      expect(ram.peek(0x9000)).toBe(0xCD);
+      board.dispose();
+    });
+
+    it.skipIf(skip)('EXX swaps the main register set with the shadow set', async () => {
+      // LD HL, 0x1111
+      // EXX             ; swap → HL = shadow (0x0000 after reset shadow init)
+      // LD HL, 0x9000   ; main HL now 0x9000 (was the shadow)
+      // EXX             ; swap back → original HL = 0x1111 in main set
+      // LD (HL), 0x77   ; writes to 0x1111... wait, main HL is 0x1111
+      //                 ; that's not in our RAM range (0x8000+).
+      // Restructure: use two HL values both in RAM range.
+      // LD HL, 0x9100 ; EXX ; LD HL, 0x9200 ; EXX ; LD (HL), 0x77 ; HALT
+      // After: write to 0x9100 (the original main HL).
+      const program = new Uint8Array([
+        LD_HL_nn, 0x00, 0x91,    // LD HL, 0x9100 (main)
+        EXX,                      // → main set goes to shadow
+        LD_HL_nn, 0x00, 0x92,    // LD HL, 0x9200 (this is now the new "main")
+        EXX,                      // → swap back; main HL = 0x9100
+        LD_aHL_n, 0x77,           // LD (HL), 0x77 → write 0x77 to 0x9100
+        HALT,
+      ]);
+      const { board, ram } = await bootZ80(program);
+      for (let i = 0; i < 300; i++) board.advanceNanos(CLOCK_NS);
+      expect(ram.peek(0x9100)).toBe(0x77);
+      // Verify the OTHER write didn't happen (shadow set's HL=0x9200
+      // was never written via LD (HL), 0x77 in the shadow context).
+      expect(ram.peek(0x9200)).toBe(0x00);
+      board.dispose();
+    });
   });
 
   describe('interrupts', () => {
-    it.todo('NMI̅ falling edge pushes PC and vectors to 0x0066');
-    it.todo('IM 1 + INT̅ vectors to 0x0038');
+    it.skipIf(skip)('NMI̅ falling edge pushes PC and vectors to 0x0066', async () => {
+      // EI ; loop: NOP ; JR -1
+      // ISR at 0x0066: LD A, 0xAB ; LD (0x9000), A ; HALT
+      const program = new Uint8Array(0x80);
+      program.fill(0x00);
+      program[0x00] = 0xFB;             // EI
+      program[0x01] = 0x00;             // NOP
+      program[0x02] = 0x18; program[0x03] = 0xFD;   // JR -3 → loop
+      program[0x66] = 0x3E; program[0x67] = 0xAB;   // LD A, 0xAB
+      program[0x68] = 0x32; program[0x69] = 0x00; program[0x6A] = 0x90; // LD (0x9000), A
+      program[0x6B] = 0x76;             // HALT
+      const { board, ram } = await bootZ80(program);
+      // Run a few cycles to enter the loop.
+      for (let i = 0; i < 50; i++) board.advanceNanos(CLOCK_NS);
+      // Pulse NMI̅ low (active low) → falling edge triggers interrupt.
+      board.setNet('NMI', false);
+      board.advanceNanos(CLOCK_NS * 4);
+      board.setNet('NMI', true);
+      for (let i = 0; i < 200; i++) board.advanceNanos(CLOCK_NS);
+      expect(ram.peek(0x9000)).toBe(0xAB);
+      board.dispose();
+    });
+
+    it.skipIf(skip)('IM 1 + INT̅ vectors to 0x0038', async () => {
+      // EI ; IM 1 ; loop: NOP ; JR -1
+      // ISR at 0x0038: LD A, 0x39 ; LD (0x9000), A ; HALT
+      const program = new Uint8Array(0x80);
+      program.fill(0x00);
+      program[0x00] = 0xFB;             // EI
+      program[0x01] = 0xED; program[0x02] = 0x56;   // IM 1
+      program[0x03] = 0x00;             // NOP loop
+      program[0x04] = 0x18; program[0x05] = 0xFD;   // JR -3
+      program[0x38] = 0x3E; program[0x39] = 0x39;   // LD A, 0x39
+      program[0x3A] = 0x32; program[0x3B] = 0x00; program[0x3C] = 0x90;
+      program[0x3D] = 0x76;             // HALT
+      const { board, ram } = await bootZ80(program);
+      for (let i = 0; i < 50; i++) board.advanceNanos(CLOCK_NS);
+      // INT̅ active-low: drive low to request interrupt.
+      board.setNet('INT', false);
+      for (let i = 0; i < 200; i++) board.advanceNanos(CLOCK_NS);
+      board.setNet('INT', true);
+      for (let i = 0; i < 200; i++) board.advanceNanos(CLOCK_NS);
+      expect(ram.peek(0x9000)).toBe(0x39);
+      board.dispose();
+    });
+
     it.todo('IM 2 + INT̅ uses I:byte to vector through a table');
   });
 
