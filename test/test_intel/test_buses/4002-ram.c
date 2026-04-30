@@ -9,8 +9,7 @@
  * Source: Intel MCS-4 User's Manual (Feb 1973), §V "4002 Random
  * Access Memory" + Fig. 5-15 pin diagram.
  *
- * Pin contract (we register 14 named pins; some 4002 variants have
- * additional power rails we collapse):
+ * Pin contract (we register 14 named pins):
  *   D0..D3    I/O   shared multiplexed bus with the 4004
  *   O0..O3    out   dedicated output port (driven by WMP)
  *   SYNC      in    cycle marker driven by the 4004
@@ -19,31 +18,32 @@
  *   CM        in    chip-match strobe (one of CM-RAM0..3)
  *   VDD, VSS  power
  *
- * Address protocol (the SRC instruction):
- *   When the 4004 executes SRC Pn, during X2 of that cycle the bus
- *   carries the chip-select address (high nibble of the register
- *   pair). During X3 it carries the char address (low nibble). The
- *   4002 latches both, but only retains them if the high nibble's
- *   bits 3..2 match the chip's hardcoded chip-pair number AND the
- *   strobed CM line is the one this chip is wired to.
+ * Timing model — like the 4001, this chip is registered BEFORE the
+ * 4004 so its on_phase fires first per advanceNanos. Within a cycle
+ * the relationship is:
  *
- * Subsequent I/O ops (WRM/RDM/WR0..3/RD0..3) use the latched address.
+ *   absolute frame  | 4002 phase_count | bus contents when 4002 fires
+ *   ----------------|------------------|-----------------------------
+ *   A1              | (post-sync 0)    | (4002 fires before sync rise)
+ *   A2              | 1                | A1's drive (PC[3:0])
+ *   A3              | 2                | A2's drive (PC[7:4])
+ *   M1              | 3                | A3's drive WAS PC[11:8]; the
+ *                   |                  | 4001 (registered before 4002)
+ *                   |                  | has just driven opcode_hi
+ *   M2              | 4                | 4001 just drove opcode_lo
+ *                   |                  | → full opcode known here
+ *   X1              | 5                | (idle)
+ *   X2              | 6                | bus is stale; for read ops
+ *                   |                  | the 4002 drives D HERE so the
+ *                   |                  | 4004 (firing next) samples it
+ *   X3              | 7                | bus = 4004's X2 drive — for
+ *                   |                  | SRC this is chip-select+reg;
+ *                   |                  | for WRM/WMP/WR0..3 it's ACC
+ *   A1-of-next      | 8                | bus = 4004's X3 drive — for
+ *                   |                  | SRC this is char-addr nibble
  *
- * For the FIRST cut of this chip:
- *   - Storage exists (80 nibbles + 4 status lines).
- *   - Pin contract registered.
- *   - SRC chip-select latching tracked via SYNC + timer + D-bus
- *     observation during the X2/X3 phases (works only when the 4004
- *     is modified to actually drive the SRC address — currently the
- *     4004 stubs SRC so this chip's storage is never reached
- *     end-to-end. Tracked as a Phase D follow-up.)
- *   - WMP write drives the 4 output port pins.
- *
- * NOT yet implemented:
- *   - WRR/RDR (these are 4001 ROM-port operations, unrelated to RAM).
- *   - Status-character (WR0..WR3 / RD0..RD3) handling beyond raw
- *     storage.
- *   - Cycle-accurate latch timing across CM strobes.
+ * On the next SYNC edge, phase_count resets to 0 and the cycle repeats.
+ * The 4001 ROM uses an analogous one-frame-behind state machine.
  */
 #include "velxio-chip.h"
 #include <stdint.h>
@@ -57,11 +57,6 @@
 #define MAIN_CHARS_PER_REG 16
 #define STATUS_PER_REG     4
 #define NUM_REGS           4
-
-typedef enum {
-    S_IDLE = 0,
-    S_AFTER_SYNC,    /* tracking phases since last SYNC */
-} state_t;
 
 typedef struct {
     vx_pin d[4];
@@ -84,8 +79,10 @@ typedef struct {
     uint8_t latched_char;       /* 0..15 */
     bool    selected;           /* this chip's pair matches the latched reg's high bits */
 
-    state_t  state;
-    int      phase_count;       /* phases since last SYNC */
+    /* Cycle-tracking state. */
+    bool     after_sync;
+    int      phase_count;
+    uint8_t  cur_opcode;        /* assembled at phase_count 3+4 */
     bool     driving_d;
 } chip_t;
 
@@ -116,30 +113,85 @@ static void drive_output(uint8_t v) {
 }
 
 /* ─── Phase tracking ────────────────────────────────────────────────────── */
+static bool is_src_op(uint8_t op) { return (op & 0xF1) == 0x21; }
+
 static void on_phase(void* user_data) {
     (void)user_data;
-    if (G.state != S_AFTER_SYNC) return;
+    if (!G.after_sync) return;
     G.phase_count++;
-    /* A faithful 4002 latches the SRC chip-select bits at X2 (phase 6
-       counting from A1=0) when CM is asserted. Without explicit X2
-       opcode tracking from the 4004, we approximate: capture the bus
-       contents at phase 6 IF CM is high. */
-    if (G.phase_count == 6 && vx_pin_read(G.cm)) {
-        uint8_t hi = read_d_nibble();   /* chip# (bits 3..2) | reg# (bits 1..0) */
-        G.selected = ((hi >> 2) & 3) == RAM4002_CHIP_PAIR;
-        if (G.selected) {
-            G.latched_reg = hi & 3;
+
+    switch (G.phase_count) {
+        case 3:
+            /* M1 frame — 4001 drove opcode_hi just before us. */
+            G.cur_opcode = (read_d_nibble() & 0xF) << 4;
+            break;
+        case 4:
+            /* M2 frame — opcode_lo. Full opcode known. */
+            G.cur_opcode |= read_d_nibble() & 0xF;
+            break;
+        case 6: {
+            /* X2 frame — drive D for read ops BEFORE the 4004 samples.
+               Only act if a prior SRC selected us. */
+            if (!G.selected) break;
+            uint8_t op = G.cur_opcode;
+            if (op == 0xE9 /* RDM */ || op == 0xE8 /* SBM */ || op == 0xEB /* ADM */) {
+                drive_d_nibble(G.main[G.latched_reg & 3][G.latched_char & 0xF]);
+            } else if (op >= 0xEC && op <= 0xEF /* RD0..RD3 */) {
+                drive_d_nibble(G.status[G.latched_reg & 3][op & 3]);
+            }
+            break;
         }
-    } else if (G.phase_count == 7 && G.selected && vx_pin_read(G.cm)) {
-        G.latched_char = read_d_nibble() & 0xF;
+        case 7: {
+            /* X3 frame — bus has 4004's X2 drive. */
+            uint8_t op = G.cur_opcode;
+            if (is_src_op(op)) {
+                /* High nibble of pair — chip-select-pair bits are 3..2,
+                   register-within-chip is bits 1..0. CM gating: the CM
+                   line is wired to the 4004's CMRAM[cmram_select], and
+                   the 4004 asserted it during X2 (the prior frame).
+                   It's still high here. */
+                if (vx_pin_read(G.cm)) {
+                    uint8_t hi = read_d_nibble();
+                    G.selected = ((hi >> 2) & 3) == RAM4002_CHIP_PAIR;
+                    if (G.selected) G.latched_reg = hi & 3;
+                }
+            } else if (G.selected && vx_pin_read(G.cm)) {
+                /* Write group — 4004 drove ACC at X2; latch from bus. */
+                uint8_t v = read_d_nibble();
+                if (op == 0xE0 /* WRM */) {
+                    G.main[G.latched_reg & 3][G.latched_char & 0xF] = v;
+                } else if (op == 0xE1 /* WMP */) {
+                    drive_output(v);
+                } else if (op >= 0xE4 && op <= 0xE7 /* WR0..WR3 */) {
+                    G.status[G.latched_reg & 3][op & 3] = v;
+                }
+                /* WRR (0xE2) addresses 4001 ROM ports, not us. */
+            }
+            /* Whatever we drove at X2 (for reads) is no longer needed —
+               release so we don't fight 4004's A1 PC drive next cycle. */
+            release_d();
+            break;
+        }
+        case 8: {
+            /* A1-of-next-cycle frame — bus has 4004's X3 drive. The
+               only op that drives X3 distinct from X2 is SRC (low
+               nibble = char addr). */
+            if (G.selected && is_src_op(G.cur_opcode)) {
+                G.latched_char = read_d_nibble() & 0xF;
+            }
+            break;
+        }
+        default:
+            break;
     }
 }
 
 static void on_sync(void* user_data, vx_pin pin, int value) {
     (void)user_data; (void)pin;
     if (value) {
-        G.state = S_AFTER_SYNC;
+        G.after_sync = true;
         G.phase_count = 0;
+        G.cur_opcode = 0;
     }
 }
 
@@ -152,6 +204,9 @@ static void on_reset(void* user_data, vx_pin pin, int value) {
         G.selected = false;
         G.latched_reg = 0;
         G.latched_char = 0;
+        G.after_sync = false;
+        G.phase_count = 0;
+        G.cur_opcode = 0;
         release_d();
     }
 }
@@ -176,8 +231,9 @@ void chip_setup(void) {
     memset(G.main, 0, sizeof G.main);
     memset(G.status, 0, sizeof G.status);
     G.output_port = 0;
-    G.state = S_IDLE;
+    G.after_sync = false;
     G.phase_count = 0;
+    G.cur_opcode = 0;
     G.selected = false;
     G.driving_d = false;
 

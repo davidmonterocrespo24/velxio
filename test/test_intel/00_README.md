@@ -117,7 +117,7 @@ address and data pins, just like in a real PCB.
 | **test_8086/**| ✅ 13  | ✅    | **🎯 3 passing + 10 todo. ~750 LOC clean-room from Intel iAPX 86,88 User's Manual (Oct 1979).** Bus protocol + reset to 0xFFFF0 + ModR/M decode + ~50 opcodes (MOV/ALU/Jcc/CALL/RET/LOOP/etc.). Deferred: string ops, MUL/DIV, BCD, port I/O, interrupts. |
 | **test_z80/**| ✅ 13  | ✅    | **🎯 11 passing + 2 todo (IM 2 vectoring, ZEXDOC). ~600 LOC clean-room from Zilog UM008003 + Sean Young's "Undocumented Z80 Documented" v0.91.** Full bus + ISA + INT + NMI + LDIR + IX/IY + EXX + IM 0/1/2. Deferred: undocumented X/Y flags, MEMPTR, full DAA, CB-prefix bit ops. |
 
-Total: **124 tests authored, 113 passing** across 19 test files,
+Total: **126 tests authored, 115 passing** across 19 test files,
 0 skipping, 11 todo, 0 failed.
 
 | Chip | Type | Tests | LOC | Validation |
@@ -134,7 +134,7 @@ Total: **124 tests authored, 113 passing** across 19 test files,
 | `8255-ppi` | bus | 5 | 200 | 3 × 8-bit parallel ports, Mode 0 |
 | `8251-usart` | bus | 4 | 200 | Async UART via vx_uart_attach |
 | **`4001-rom`** | bus | 1 | 140 | ROM partner for 4004; integrates over multiplexed nibble bus |
-| **`4002-ram`** | bus | 2 | 150 | RAM partner for 4004 (skeleton; full I/O cycle pending) |
+| **`4002-ram`** | bus | 4 | 200 | RAM partner for 4004; SRC + WRM/RDM/WMP round-trip integration tests pass |
 | **`8259-pic`** | bus | 7 | 280 | Interrupt controller, single-master, full ICW/OCW |
 | **`8253-pit`** | bus | 4 | 210 | Programmable timer, Modes 0/2/3 |
 
@@ -145,7 +145,8 @@ Frank Cringle's ZEXDOC; 8086 takes hardware interrupts from a real
 8259 PIC chip on the same board.**
 
 Phase plan in `autosearch/18_complete_emulation_plan.md` tracks
-remaining work: 4004 SRC/I/O wiring to exchange data with the 4002,
-Busicom 141-PF integration, full ZEXDOC validation, 8088 V2
-SingleStepTests, Phase G cycle accuracy. No velxio core source has
-been modified. Run `npm test` from `test/test_intel/` to confirm.
+remaining work: Busicom 141-PF demo (4004 SRC/I/O wiring to the
+4002 is now complete and proven by integration tests), full
+ZEXDOC validation, 8088 V2 SingleStepTests, Phase G cycle
+accuracy. No velxio core source has been modified. Run `npm test`
+from `test/test_intel/` to confirm.

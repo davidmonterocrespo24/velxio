@@ -27,7 +27,7 @@ top of each phase reflects status.
 | **A** | 8080 INTA bus cycle | low | ✅ done 2026-04-30 |
 | **B** | Z80 ISA polish for ZEXDOC | high | ✅ done 2026-04-30 (ZEXDOC ROM run deferred to Phase F) |
 | **C** | Support chip ecosystem (rom-1m, 8255, 8251 done; 4001/4002/8253/8259 deferred) | high | ⚠️ partial 2026-04-30 |
-| **D** | 4004/4040 I/O completion (4001 done; 4002/SRC/WRM still pending) | medium | ⚠️ partial 2026-04-30 |
+| **D** | 4004/4040 I/O completion (4001+4002 + 4004 SRC/WRM/RDM/WMP bus wiring done; only Busicom 141-PF demo remains) | medium | ✅ done 2026-05-01 |
 | **E** | 8086 ISA completion | high | ✅ done 2026-04-30 (CALL/RET edge case deferred) |
 | **F** | Real software validation (CPUDIAG, ZEXDOC done; Busicom + 8088 V2 deferred) | medium | ⚠️ partial 2026-04-30 |
 | **G** | Cycle accuracy (optional) | high | ⏸️ deferred |
@@ -656,18 +656,56 @@ SYNC rising. Documented in `4001-rom.c`.
   latching at X2/X3. RESET clears storage and output port. 2/2 unit
   tests pass.
 
+### Phase D-2 — 4004 SRC + I/O bus wiring (2026-05-01)
+- **4004 chip** (`test_4004/4004.c`) — extended with an `xact_t` enum
+  and per-phase bus action so the previously-stubbed SRC and I/O
+  group opcodes (WRM/WMP/WRR/WPM/WR0..3/SBM/RDM/RDR/ADM/RD0..3) now
+  actually drive or sample the multiplexed nibble bus during X2/X3
+  with CM-RAM (or CM-ROM) strobed:
+  - **M2**: opcode is fully assembled — decode and stage `G.xact`,
+    `G.xact_pair`, `G.xact_status_idx`.
+  - **X2**: per-xact bus action. For SRC drive `pair_hi` + assert
+    CM-RAM[cmram_select]. For WRM/WMP/WRR/WPM/WR0..3 drive ACC +
+    assert the matching strobe (CM-RAM for RAM ops, CM-ROM for
+    ROM-port ops). For RDM/SBM/ADM/RDR/RD0..3 release D + assert
+    strobe + sample `io_data_in`.
+  - **X3**: drive the SRC low nibble (char addr); for read ops
+    deassert strobes and release D.
+  - **A1**: deassert any leftover CM-RAM/CM-ROM at start of every
+    new cycle.
+  - The I/O-group `exec_1byte` cases now consume `io_data_in` for
+    RDM/ADM/SBM/RDR/RD0..3 instead of returning 0.
+- **4002 RAM** (`test_buses/4002-ram.c`) — rewritten timing model
+  using a one-frame-behind state machine driven off SYNC + a
+  per-phase counter. Samples opcode nibbles at phase-counts 3
+  (M1) and 4 (M2). For SRC, latches the chip-select+register
+  nibble at phase-count 7 (gated by CM high) and the char address
+  at phase-count 8. For writes (WRM/WMP/WR0..3) latches the bus at
+  phase-count 7 and updates RAM (or output port for WMP). For
+  reads (RDM/SBM/ADM/RD0..3) drives the bus from RAM at
+  phase-count 6 — i.e. before the 4004's PHASE_X2 fires for that
+  frame, so the 4004 sees the 4002's drive when it samples.
+- **Two integration tests** in `test_buses/4002-ram.test.js`:
+  1. SRC P0 + LDM 3 + WMP — verifies WMP drives the 4002's output
+     port to 3 after the SRC selects this chip-pair.
+  2. SRC P0 + WRM/RDM round-trip — writes 5 to mem[0][0] then
+     CLB-clears ACC, RDM reads it back, WMP surfaces the read
+     value on the output port. Proves both the write path
+     (4004 drives → 4002 latches) and the read path (4002 drives
+     → 4004 samples).
+- The integration tests use a JS-side nibble-bus driver (rather
+  than baking a custom 4001 ROM image per program) — same idea
+  as `test_4004`'s `Bus4004` helper, with a real 4002 added to
+  the board.
+
 ### Phase D — still pending
-- **4004 SRC + WRM/RDM/WMP wiring** — the 4004 chip currently stubs
-  the I/O group instructions; for the 4002 to actually receive
-  addresses and exchange data, the 4004's SRC must drive the bus
-  during X2/X3 and the I/O group ops must drive/sample during M2.
-  Full I/O-group end-to-end is a Phase D-2 follow-up.
-- **Busicom 141-PF integration test** for 4004 — requires both 4001
-  and 4002 working end-to-end (i.e. Phase D-2 complete) plus a baked
-  Busicom firmware ROM variant (~1 KB).
+- **Busicom 141-PF integration test** for 4004 — requires a baked
+  Busicom firmware ROM variant (~1 KB) plus a 4001 chip-id
+  override. The bus protocol is now ready for it.
 
 ### Tests delta
-- Total test_intel: 98 → **99 passing**, 11 todo, 0 failed.
+- Total test_intel: 113 → **115 passing**, 11 todo, 0 failed
+  (added 2 integration tests in `4002-ram.test.js`).
 
 ---
 

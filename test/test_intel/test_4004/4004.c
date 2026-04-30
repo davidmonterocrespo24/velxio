@@ -39,6 +39,18 @@ typedef enum {
     FETCH_OPERAND,      /* this cycle is fetching the second byte of a 2-byte op */
 } fetch_t;
 
+/* X2/X3 bus action selected at end of M2 based on the opcode. */
+typedef enum {
+    XACT_NONE = 0,
+    XACT_SRC,        /* drive pair_hi at X2, pair_lo at X3, CMRAM strobe */
+    XACT_WRM_WMP,    /* drive ACC at X2, CMRAM strobe */
+    XACT_RDM,        /* release D at X2, sample (4002 drives), use as ACC at X3 */
+    XACT_RDS,        /* RDR (read ROM port) — release D at X2, sample */
+    XACT_ADM_SBM,    /* like RDM but result fed to ADD/SUB */
+    XACT_WR_STATUS,  /* WR0..WR3 (write status char) — drive ACC at X2 */
+    XACT_RD_STATUS,  /* RD0..RD3 (read status char) — release at X2 */
+} xact_t;
+
 typedef struct {
     /* Pin handles */
     vx_pin dpin[4];
@@ -64,12 +76,17 @@ typedef struct {
     fetch_t  fetch_state;
     bool     reset_active;
     bool     driving_d;
-    bool     pc_overridden;    /* set by JCN/JUN/JMS/JIN/BBL/ISZ to suppress
-                                  the default PC++ at end of cycle */
+    bool     pc_overridden;
 
-    /* I/O port writes (stubbed — no real ROM/RAM chips on bus yet) */
-    uint8_t  iomem_wmp;        /* last value written by WMP */
-    uint8_t  iomem_wrr;        /* last value written by WRR */
+    /* X2/X3 staging — populated at M2 from the decoded opcode. */
+    xact_t   xact;
+    uint8_t  xact_pair;        /* register pair index for SRC */
+    uint8_t  xact_status_idx;  /* 0..3 for WR0..3 / RD0..3 */
+    uint8_t  io_data_in;       /* sampled by RDM/RDR/ADM/SBM/RD0..3 at X2 */
+
+    /* Stub registers retained for legacy compat (pre-Phase-D-2 tests) */
+    uint8_t  iomem_wmp;
+    uint8_t  iomem_wrr;
 } cpu_t;
 
 static cpu_t G;
@@ -118,6 +135,8 @@ static void reset_state(void) {
     G.pc_overridden = false;
     G.iomem_wmp = 0;
     G.iomem_wrr = 0;
+    G.xact = XACT_NONE;
+    G.io_data_in = 0;
 
     vx_pin_write(G.sync, 0);
     vx_pin_write(G.cmrom, 0);
@@ -261,32 +280,34 @@ static void exec_1byte(uint8_t op) {
         case 0xD:  /* LDM d — A ← d */
             G.acc = lo;
             break;
-        case 0xE:  /* I/O / RAM group ([M4] p. 30 +) */
+        case 0xE:  /* I/O / RAM group ([M4] p. 30 +). The bus heavy lifting
+                      already happened in X2/X3; we just consume io_data_in
+                      and update ACC/flags here. */
             switch (lo) {
-                case 0x0: /* WRM — write A to RAM at SRC addr (stub) */ break;
-                case 0x1: G.iomem_wmp = G.acc; break;  /* WMP */
-                case 0x2: G.iomem_wrr = G.acc; break;  /* WRR */
-                case 0x3: /* WPM — write program memory (4289 stub) */ break;
-                case 0x4: /* WR0 */ G.iomem_wmp = G.acc; break;
-                case 0x5: /* WR1 */ break;
-                case 0x6: /* WR2 */ break;
-                case 0x7: /* WR3 */ break;
-                case 0x8: /* SBM — A ← A + ~RAM[SRC] + ~CY (stub: RAM=0) */ {
-                    uint8_t r = G.acc + 0xF + (G.cy ? 0 : 1);
+                case 0x0: /* WRM — RAM latched value at X2; nothing more here */
+                    G.iomem_wmp = G.acc;   /* legacy stub for old tests */
+                    break;
+                case 0x1: G.iomem_wmp = G.acc; break;   /* WMP */
+                case 0x2: G.iomem_wrr = G.acc; break;   /* WRR */
+                case 0x3: break;                         /* WPM — 4289 stub */
+                case 0x4: case 0x5: case 0x6: case 0x7:  /* WR0..3 */
+                    break;
+                case 0x8: { /* SBM — A ← A + ~RAM + ~CY */
+                    uint8_t r = G.acc + ((~G.io_data_in) & 0xF) + (G.cy ? 0 : 1);
                     G.cy = (r > 0xF);
                     G.acc = r & 0xF;
                     break;
                 }
-                case 0x9: /* RDM — A ← RAM[SRC] (stub: 0) */ G.acc = 0; break;
-                case 0xA: /* RDR — A ← ROM-port[SRC] (stub: 0) */ G.acc = 0; break;
-                case 0xB: /* ADM — A ← A + RAM[SRC] + CY (stub: RAM=0) */ {
-                    uint8_t r = G.acc + 0 + (G.cy ? 1 : 0);
+                case 0x9: G.acc = G.io_data_in; break;  /* RDM */
+                case 0xA: G.acc = G.io_data_in; break;  /* RDR */
+                case 0xB: { /* ADM — A ← A + RAM + CY */
+                    uint8_t r = G.acc + G.io_data_in + (G.cy ? 1 : 0);
                     G.cy = (r > 0xF);
                     G.acc = r & 0xF;
                     break;
                 }
-                case 0xC: case 0xD: case 0xE: case 0xF:  /* RD0..RD3 (stub) */
-                    G.acc = 0;
+                case 0xC: case 0xD: case 0xE: case 0xF:  /* RD0..3 */
+                    G.acc = G.io_data_in;
                     break;
             }
             break;
@@ -393,6 +414,7 @@ static void on_phase(void* user_data) {
 
     if (G.phase == PHASE_A1) {
         vx_pin_write(G.cmrom, 0);
+        for (int i = 0; i < 4; i++) vx_pin_write(G.cmram[i], 0);
     }
 
     switch (G.phase) {
@@ -422,14 +444,117 @@ static void on_phase(void* user_data) {
             } else {
                 G.operand |= read_d() & 0xF;
             }
+            /* Decode the now-complete opcode and set up the X2/X3 bus
+               action. Only matters during opcode-fetch cycles; the
+               2nd byte of a 2-byte instruction never has an I/O xact. */
+            G.xact = XACT_NONE;
+            if (G.fetch_state == FETCH_OPCODE) {
+                uint8_t op = G.opcode;
+                /* SRC Pn — opcode 0010_PPP1 (pair index in bits 3..1). */
+                if ((op & 0xF1) == 0x21) {
+                    G.xact = XACT_SRC;
+                    G.xact_pair = (op >> 1) & 7;
+                } else if ((op & 0xF0) == 0xE0) {
+                    /* I/O group 0xE0..0xEF */
+                    uint8_t lo = op & 0xF;
+                    switch (lo) {
+                        case 0x0:  /* WRM */
+                        case 0x1:  /* WMP */
+                            G.xact = XACT_WRM_WMP; break;
+                        case 0x2:  /* WRR — ROM port write */
+                        case 0x3:  /* WPM — 4289 program-memory write */
+                            G.xact = XACT_WRM_WMP; break;
+                        case 0x4: case 0x5: case 0x6: case 0x7:  /* WR0..WR3 */
+                            G.xact = XACT_WR_STATUS;
+                            G.xact_status_idx = lo - 4;
+                            break;
+                        case 0x8:  /* SBM */
+                        case 0xB:  /* ADM */
+                            G.xact = XACT_ADM_SBM; break;
+                        case 0x9:  /* RDM */
+                            G.xact = XACT_RDM; break;
+                        case 0xA:  /* RDR — ROM port read */
+                            G.xact = XACT_RDS; break;
+                        case 0xC: case 0xD: case 0xE: case 0xF:  /* RD0..RD3 */
+                            G.xact = XACT_RD_STATUS;
+                            G.xact_status_idx = lo - 0xC;
+                            break;
+                    }
+                }
+            }
             break;
         case PHASE_X1:
-            /* idle; most ops execute at X2/X3 in real silicon, but for
-               our cycle-coarse model we do everything at X3 below. */
+            /* idle */
             break;
         case PHASE_X2:
+            switch (G.xact) {
+                case XACT_SRC:
+                    /* Drive HIGH nibble of pair (chip-select | reg).
+                       CM-RAM strobe asserted on the line picked by DCL. */
+                    drive_d((pair_read(G.xact_pair) >> 4) & 0xF);
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    break;
+                case XACT_WRM_WMP: {
+                    /* WRM/WMP/WRR/WPM — drive ACC. Strobe depends on op:
+                       WRR (0xE2) and WPM (0xE3) → CM-ROM; rest → CM-RAM. */
+                    drive_d(G.acc & 0xF);
+                    uint8_t lo = G.opcode & 0xF;
+                    if (lo == 0x2 || lo == 0x3) {
+                        vx_pin_write(G.cmrom, 1);
+                    } else {
+                        vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    }
+                    break;
+                }
+                case XACT_WR_STATUS:
+                    /* WR0..3 — drive ACC, CM-RAM strobe. */
+                    drive_d(G.acc & 0xF);
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    break;
+                case XACT_RDM:
+                case XACT_ADM_SBM:
+                case XACT_RD_STATUS:
+                    /* Read ops: release D so the 4002 can drive,
+                       assert CM-RAM, sample bus into io_data_in. */
+                    release_d();
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    G.io_data_in = read_d() & 0xF;
+                    break;
+                case XACT_RDS:
+                    /* RDR — ROM port read; CM-ROM strobe. */
+                    release_d();
+                    vx_pin_write(G.cmrom, 1);
+                    G.io_data_in = read_d() & 0xF;
+                    break;
+                default:
+                    break;
+            }
             break;
         case PHASE_X3:
+            /* Finish the X2/X3 bus action. */
+            switch (G.xact) {
+                case XACT_SRC:
+                    /* Low nibble of pair = char address. */
+                    drive_d(pair_read(G.xact_pair) & 0xF);
+                    /* CMRAM stays asserted through X3, then drops at A1 next. */
+                    break;
+                case XACT_WRM_WMP:
+                case XACT_WR_STATUS:
+                    /* Data already driven at X2; just keep CMRAM asserted. */
+                    break;
+                case XACT_RDM:
+                case XACT_ADM_SBM:
+                case XACT_RD_STATUS:
+                case XACT_RDS:
+                    /* Sample already done at X2; deassert CMRAM. */
+                    vx_pin_write(G.cmram[G.cmram_select], 0);
+                    vx_pin_write(G.cmrom, 0);
+                    release_d();
+                    break;
+                default:
+                    break;
+            }
+            /* End of cycle bookkeeping. */
             G.pc_overridden = false;
             if (G.fetch_state == FETCH_OPCODE) {
                 if (is_two_byte(G.opcode)) {
