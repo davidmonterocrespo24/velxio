@@ -2,19 +2,17 @@
 synchronously, alongside the existing I2C slaves in
 ``esp32_i2c_slaves.py``.
 
-The first inhabitant is the SSD168x ePaper decoder. It mirrors the
-reference implementation in
-``test/test_epaper/ssd168x_decoder.py`` byte-for-byte (same field
-names, same algorithm) so the cross-decoder consistency test can
-replay the same fixtures through both implementations.
+Currently houses two ePaper decoders:
 
-Velxio's ``esp32_worker.py`` instantiates one ``Ssd168xEpaperSlave``
-per ePaper component on the canvas, hooks the DC/CS/RST GPIO
-``_on_pin_change`` callback to track those pins, and feeds every SPI
-byte (op == 0x00 from the picsimlab dispatch) into ``feed()``. On
-``MASTER_ACTIVATION`` (0x20) the slave invokes ``on_flush(frame)``;
-the worker base64-encodes that frame and pushes it to the frontend
-as an ``epaper_update`` WebSocket event for real-time rendering.
+* :class:`Ssd168xEpaperSlave` — Solomon Systech SSD168x family
+  (mono + B/W/Red panels, 1.54"–7.5"). Latches on opcode 0x20.
+* :class:`Uc8159cEpaperSlave` — UltraChip UC8159c (ACeP 7-colour 5.65"
+  GoodDisplay GDEP0565D90 / Waveshare). Latches on opcode 0x12.
+
+Both classes have the same surface (``feed(byte, dc_high)``, ``reset()``,
+``on_flush`` callback) so the worker dispatch in
+``esp32_worker.py::_on_spi_event`` can route bytes by ``cs_low`` without
+caring which controller is mounted.
 """
 from __future__ import annotations
 
@@ -205,3 +203,127 @@ class Ssd168xEpaperSlave:
             else:
                 self._x_byte = self._xrange[1]
                 self._y += 1
+
+
+# ── UC8159c (ACeP 7-colour 5.65" GoodDisplay GDEP0565D90) ───────────────────
+#
+# Different command set from SSD168x. Pixel packing: 2 px per byte, upper
+# nibble = first pixel, each nibble's lower 3 bits = palette index 0..6.
+
+UC_CMD_PANEL_SETTING = 0x00
+UC_CMD_POWER_SETTING = 0x01
+UC_CMD_POWER_OFF = 0x02
+UC_CMD_POWER_OFF_SEQ = 0x03
+UC_CMD_POWER_ON = 0x04
+UC_CMD_BOOSTER_SOFT_START = 0x06
+UC_CMD_DEEP_SLEEP = 0x07
+UC_CMD_DTM1 = 0x10
+UC_CMD_DISPLAY_REFRESH = 0x12
+UC_CMD_PLL_CONTROL = 0x30
+UC_CMD_TSE = 0x41
+UC_CMD_VCOM_DATA_INTERVAL = 0x50
+UC_CMD_TCON_SETTING = 0x60
+UC_CMD_RESOLUTION_SETTING = 0x61
+UC_CMD_PWS = 0xE3
+
+
+@dataclass
+class Uc8159cEpaperSlave:
+    """ACeP 7-colour decoder. Latches on 0x12 DRF and emits a Frame whose
+    `pixels` are 1 byte/pixel palette indices (0=black .. 6=orange). The
+    worker maps those indices to RGB on the frontend side."""
+
+    component_id: str
+    width: int
+    height: int
+    on_flush: Optional[Callable[[Frame], None]] = None
+
+    ram: bytearray = field(init=False)
+    _write_idx: int = 0
+    _current_cmd: int = -1
+    _params: List[int] = field(default_factory=list)
+    refreshed_count: int = 0
+    unknown_cmds: List[int] = field(default_factory=list)
+    in_deep_sleep: bool = False
+    powered_on: bool = False
+
+    def __post_init__(self) -> None:
+        # Default to all-white (index 1) so a freshly-mounted panel doesn't
+        # render as transparent.
+        self.ram = bytearray([1] * (self.width * self.height))
+
+    # ── Public API ─────────────────────────────────────────────────────
+
+    def feed(self, byte: int, dc_high: bool) -> None:
+        if not dc_high:
+            self._begin_command(byte & 0xFF)
+        else:
+            self._handle_data(byte & 0xFF)
+
+    def reset(self) -> None:
+        self.ram = bytearray([1] * (self.width * self.height))
+        self._write_idx = 0
+        self._current_cmd = -1
+        self._params = []
+        self.refreshed_count = 0
+        self.powered_on = False
+        self.in_deep_sleep = False
+
+    def compose_frame(self) -> Frame:
+        return Frame(self.width, self.height, bytes(self.ram))
+
+    def compose_frame_b64(self) -> str:
+        return base64.b64encode(bytes(self.ram)).decode("ascii")
+
+    # ── Internal: command / data dispatch ──────────────────────────────
+
+    def _begin_command(self, cmd: int) -> None:
+        self._current_cmd = cmd
+        self._params = []
+
+        if cmd == UC_CMD_POWER_ON:
+            self.powered_on = True
+            return
+        if cmd == UC_CMD_POWER_OFF:
+            self.powered_on = False
+            return
+        if cmd == UC_CMD_DTM1:
+            self._write_idx = 0
+            return
+        if cmd == UC_CMD_DISPLAY_REFRESH:
+            self.refreshed_count += 1
+            frame = self.compose_frame()
+            if self.on_flush:
+                try:
+                    self.on_flush(frame)
+                except Exception:
+                    pass
+            return
+        if cmd == UC_CMD_DEEP_SLEEP:
+            return
+        if cmd in (
+            UC_CMD_PANEL_SETTING, UC_CMD_POWER_SETTING, UC_CMD_POWER_OFF_SEQ,
+            UC_CMD_BOOSTER_SOFT_START, UC_CMD_PLL_CONTROL, UC_CMD_TSE,
+            UC_CMD_VCOM_DATA_INTERVAL, UC_CMD_TCON_SETTING,
+            UC_CMD_RESOLUTION_SETTING, UC_CMD_PWS,
+        ):
+            return
+        self.unknown_cmds.append(cmd)
+
+    def _handle_data(self, byte: int) -> None:
+        cmd = self._current_cmd
+        self._params.append(byte)
+
+        if cmd == UC_CMD_DEEP_SLEEP:
+            if byte == 0xA5:
+                self.in_deep_sleep = True
+            return
+
+        if cmd == UC_CMD_DTM1:
+            total = self.width * self.height
+            if self._write_idx < total:
+                self.ram[self._write_idx] = (byte >> 4) & 0x07
+                self._write_idx += 1
+            if self._write_idx < total:
+                self.ram[self._write_idx] = byte & 0x07
+                self._write_idx += 1

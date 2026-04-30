@@ -7,15 +7,25 @@ component, one decoder, one Web Component — parameterised by `panelKind`.
 > Phase 1 = mono only. Tri-colour (B/W/R), 7-colour ACeP, and the user-cited
 > 13.3" Spectra 6 are roadmap items — see "Phase 2 / out of scope" below.
 
-## Supported panels (Phase 1)
+## Supported panels
 
-| `panelKind` (metadata id) | Size | Resolution | Controller IC | AVR Uno? | RP2040? | ESP32? |
-|---|---|---|---|:---:|:---:|:---:|
-| `epaper-1in54-bw` | 1.54" | 200×200 | SSD1681 | ✅ paged | ✅ | ✅ |
-| `epaper-2in13-bw` | 2.13" | 250×122 | SSD1675A / IL3897 | ✅ paged | ✅ | ✅ |
-| `epaper-2in9-bw`  | 2.9"  | 296×128 | SSD1680 | ⚠️ tight | ✅ | ✅ |
-| `epaper-4in2-bw`  | 4.2"  | 400×300 | SSD1683 / UC8176 | ❌ flash | ✅ | ✅ |
-| `epaper-7in5-bw`  | 7.5"  | 800×480 | UC8179 / GD7965 | ❌ | ⚠️ tight | ✅ |
+| `panelKind` (metadata id) | Size | Resolution | Palette | Controller IC | AVR Uno? | RP2040? | ESP32? |
+|---|---|---|---|---|:---:|:---:|:---:|
+| `epaper-1in54-bw`  | 1.54" | 200×200 | B/W   | SSD1681           | ✅ paged | ✅ | ✅ |
+| `epaper-2in13-bw`  | 2.13" | 250×122 | B/W   | SSD1675A / IL3897 | ✅ paged | ✅ | ✅ |
+| `epaper-2in13-bwr` | 2.13" | 250×122 | B/W/R | SSD1680 (3-colour)| ⚠️ tight | ✅ | ✅ |
+| `epaper-2in9-bw`   | 2.9"  | 296×128 | B/W   | SSD1680           | ⚠️ tight | ✅ | ✅ |
+| `epaper-2in9-bwr`  | 2.9"  | 296×128 | B/W/R | SSD1680 (3-colour)| ❌ flash | ✅ | ✅ |
+| `epaper-4in2-bw`   | 4.2"  | 400×300 | B/W   | SSD1683 / UC8176  | ❌ flash | ✅ | ✅ |
+| `epaper-7in5-bw`   | 7.5"  | 800×480 | B/W   | UC8179 / GD7965   | ❌       | ⚠️ tight | ✅ |
+| `epaper-5in65-7c`  | 5.65" | 600×448 | **ACeP 7-colour** | **UC8159c** | ❌ flash | ⚠️ tight | ✅ |
+
+The 7-colour `epaper-5in65-7c` panel uses a **different controller family**
+(UltraChip UC8159c). The decoder lives at
+`frontend/src/simulation/displays/UC8159cDecoder.ts` and the matching
+backend slave is `Uc8159cEpaperSlave` in `esp32_spi_slaves.py`. The hook
+(`EPaperPart.ts`) picks the decoder via `cfg.controllerFamily` so the same
+component code drives all panels.
 
 "AVR ⚠️ tight" means the GxEPD2 paged build fits but Adafruit_GFX font
 selection matters; "❌" means the binary blows past 32 KB at any sane
@@ -88,8 +98,9 @@ that lists them in `libraries: [...]`.
 
 | Feature | Why not yet |
 |---|---|
-| Tri-colour SSD168x (B/W/R) | Same scaffold; just enables the red plane. Easy follow-up. |
-| UC81xx 4-colour / 7-colour ACeP | New decoder + palette; 5.65" 600×448 ACeP planned. |
+| ~~Tri-colour SSD168x (B/W/R)~~ | **✅ shipped** — `epaper-2in13-bwr`, `epaper-2in9-bwr` panel kinds. The decoder's red RAM plane (`0x26 WRITE_RED_VRAM`) was always there; we just enabled it for the SSD1680 3-colour panels. |
+| ~~UC8159c 5.65" 7-colour ACeP~~ | **✅ shipped** — `epaper-5in65-7c` panel kind. New decoder family, same hook + Web Component. |
+| Other UC81xx panels (UC8176 4.2" alt, UC8179 7.5" full driver) | The SSD168x driver covers these panels' GxEPD2 path today (those Arduino driver classes emit SSD168x-compatible traffic for B/W). Only matters if someone uses a panel whose GxEPD2 class strictly emits UC81xx commands. |
 | **E Ink Spectra 6 13.3" 1200×1600** (Seeed [6569](https://www.seeedstudio.com/13-3inch-Six-Color-eInk-ePaper-Display-with-1200x1600-Pixels-p-6569.html)) | Reverse-engineered command set; ship after Phase 1 proves the scaffold and we can capture real SPI traces from a Seeed EE02. |
 | IT8951 Carta panels | Different protocol entirely (SPI packet stream). |
 | LUT (`0x32`) waveform validation | Accept silently; never validate. Real panels sometimes send vendor-specific LUTs that aren't worth fingerprinting. |

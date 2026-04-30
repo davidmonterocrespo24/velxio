@@ -228,6 +228,98 @@ describe('SSD168xDecoder — end-to-end hello world', () => {
   });
 });
 
+describe('SSD168xDecoder — tri-colour B/W/R pipeline', () => {
+  // Mirrors how GxEPD2_3C drives a real SSD1680 panel: write the BW plane
+  // first (cmd 0x24), reset cursors, then write the red plane (cmd 0x26),
+  // then activate. The composed frame must mix both planes correctly.
+
+  it('three-row pattern composes B / W / R correctly', () => {
+    // 16-wide × 3-high panel — easy to pin every pixel by hand.
+    const seen: Frame[] = [];
+    const d = new SSD168xDecoder({
+      width: 16,
+      height: 3,
+      onFlush: (f) => seen.push(f),
+    });
+
+    // Match the typical GxEPD2 init sub-sequence enough to set window + cursor.
+    feedAll(
+      d,
+      cmd(CMD_DATA_ENTRY_MODE), data(0x03),
+      cmd(CMD_SET_RAMX_RANGE),  data(0x00, 0x01),         // 2 bytes wide
+      cmd(CMD_SET_RAMY_RANGE),  data(0x00, 0x00, 0x02, 0x00), // rows 0..2
+      cmd(CMD_SET_RAMX_COUNTER), data(0x00),
+      cmd(CMD_SET_RAMY_COUNTER), data(0x00, 0x00),
+    );
+
+    // BW plane: row 0 all-black, row 1 all-white, row 2 mixed (left half black)
+    feedAll(
+      d,
+      cmd(CMD_WRITE_BLACK_VRAM),
+      data(
+        0x00, 0x00, // row 0
+        0xff, 0xff, // row 1
+        0x00, 0xff, // row 2
+      ),
+    );
+
+    // Reset cursor for the red plane.
+    feedAll(
+      d,
+      cmd(CMD_SET_RAMX_COUNTER), data(0x00),
+      cmd(CMD_SET_RAMY_COUNTER), data(0x00, 0x00),
+    );
+
+    // Red plane: row 0 nothing, row 1 first 4 px red, row 2 nothing.
+    feedAll(
+      d,
+      cmd(CMD_WRITE_RED_VRAM),
+      data(
+        0x00, 0x00, // row 0 — no red
+        0xf0, 0x00, // row 1 — first 4 px red
+        0x00, 0x00, // row 2 — no red
+      ),
+    );
+
+    feedAll(d, cmd(CMD_MASTER_ACTIVATION));
+    expect(seen.length).toBe(1);
+    const px = seen[0].pixels;
+
+    // Row 0: all black (0)
+    for (let x = 0; x < 16; x++) expect(px[x]).toBe(0);
+
+    // Row 1: cols 0-3 red (red wins over white), cols 4-15 white
+    for (let x = 0; x < 4; x++) expect(px[16 + x]).toBe(2);
+    for (let x = 4; x < 16; x++) expect(px[16 + x]).toBe(1);
+
+    // Row 2: cols 0-7 black, cols 8-15 white
+    for (let x = 0; x < 8; x++) expect(px[32 + x]).toBe(0);
+    for (let x = 8; x < 16; x++) expect(px[32 + x]).toBe(1);
+  });
+
+  it('writing the red plane alone (BW left default white) shows red on white', () => {
+    const seen: Frame[] = [];
+    const d = new SSD168xDecoder({
+      width: 8,
+      height: 1,
+      onFlush: (f) => seen.push(f),
+    });
+    feedAll(
+      d,
+      cmd(CMD_DATA_ENTRY_MODE), data(0x03),
+      cmd(CMD_SET_RAMX_RANGE),  data(0x00, 0x00),
+      cmd(CMD_SET_RAMY_RANGE),  data(0x00, 0x00, 0x00, 0x00),
+      cmd(CMD_SET_RAMX_COUNTER), data(0x00),
+      cmd(CMD_SET_RAMY_COUNTER), data(0x00, 0x00),
+      cmd(CMD_WRITE_RED_VRAM),
+      data(0xaa), // alternating red pixels (1010 1010)
+      cmd(CMD_MASTER_ACTIVATION),
+    );
+    const px = seen[0].pixels;
+    expect(Array.from(px)).toEqual([2, 1, 2, 1, 2, 1, 2, 1]);
+  });
+});
+
 describe('SSD168xDecoder — larger panel sizes', () => {
   // Use Uint8Array.every() (single hot loop, one assertion) rather than per-pixel
   // expect() — at 400×300 = 120k pixels Vitest's per-call overhead dominates.

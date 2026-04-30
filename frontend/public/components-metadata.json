@@ -786,6 +786,304 @@
       ]
     },
     {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"4\" y=\"6\" width=\"56\" height=\"48\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"10\" y=\"12\" width=\"44\" height=\"36\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"34\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">e-Paper</text><rect x=\"22\" y=\"54\" width=\"20\" height=\"6\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1681",
+        "1.54",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-1in54-bw",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 50,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-1in54-bw",
+        "refreshMs": 50
+      },
+      "pinCount": 8,
+      "$comment": "ePaper / e-Ink panels — Velxio-native components. The Web Component is `velxio-epaper`; the panel size + palette is selected via the `panelKind` property. See docs/wiki/epaper-emulation.md.",
+      "id": "epaper-1in54-bw",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 1.54\" (200×200, B/W)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"18\" width=\"60\" height=\"30\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"22\" width=\"52\" height=\"22\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.13\"</text><rect x=\"24\" y=\"48\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1675",
+        "il3897",
+        "2.13",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-2in13-bw",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 50,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-2in13-bw",
+        "refreshMs": 50
+      },
+      "pinCount": 8,
+      "id": "epaper-2in13-bw",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 2.13\" (250×122, B/W)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"18\" width=\"60\" height=\"30\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"22\" width=\"52\" height=\"22\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"15\" cy=\"32\" r=\"3\" fill=\"#c01818\"/><text x=\"38\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">B/W/R</text><rect x=\"24\" y=\"48\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1680",
+        "tri-color",
+        "red",
+        "2.13",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-2in13-bwr",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 80,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-2in13-bwr",
+        "refreshMs": 80
+      },
+      "pinCount": 8,
+      "id": "epaper-2in13-bwr",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 2.13\" (250×122, B/W/Red)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"16\" width=\"60\" height=\"34\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"20\" width=\"52\" height=\"26\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.9\"</text><rect x=\"24\" y=\"50\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1680",
+        "2.9",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-2in9-bw",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 50,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-2in9-bw",
+        "refreshMs": 50
+      },
+      "pinCount": 8,
+      "id": "epaper-2in9-bw",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 2.9\" (296×128, B/W)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"16\" width=\"60\" height=\"34\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"20\" width=\"52\" height=\"26\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"15\" cy=\"32\" r=\"3\" fill=\"#c01818\"/><text x=\"38\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">B/W/R</text><rect x=\"24\" y=\"50\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1680",
+        "tri-color",
+        "red",
+        "2.9",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-2in9-bwr",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 80,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-2in9-bwr",
+        "refreshMs": 80
+      },
+      "pinCount": 8,
+      "id": "epaper-2in9-bwr",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 2.9\" (296×128, B/W/Red)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"6\" width=\"60\" height=\"50\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"10\" width=\"52\" height=\"38\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">4.2\"</text><rect x=\"24\" y=\"56\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "ssd1683",
+        "uc8176",
+        "4.2",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-4in2-bw",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 80,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-4in2-bw",
+        "refreshMs": 80
+      },
+      "pinCount": 8,
+      "id": "epaper-4in2-bw",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 4.2\" (400×300, B/W)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"6\" width=\"60\" height=\"50\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"10\" width=\"52\" height=\"38\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"14\" cy=\"19\" r=\"3\" fill=\"#202020\"/><circle cx=\"22\" cy=\"19\" r=\"3\" fill=\"#c01010\"/><circle cx=\"30\" cy=\"19\" r=\"3\" fill=\"#20a040\"/><circle cx=\"38\" cy=\"19\" r=\"3\" fill=\"#3060c0\"/><circle cx=\"46\" cy=\"19\" r=\"3\" fill=\"#e0c830\"/><circle cx=\"54\" cy=\"19\" r=\"3\" fill=\"#e08020\"/><text x=\"32\" y=\"38\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">ACeP 7</text><rect x=\"24\" y=\"56\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "uc8159c",
+        "acep",
+        "7-color",
+        "5.65",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-5in65-7c",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 150,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-5in65-7c",
+        "refreshMs": 150
+      },
+      "pinCount": 8,
+      "id": "epaper-5in65-7c",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 5.65\" (600×448, ACeP 7-colour)",
+      "category": "displays"
+    },
+    {
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"1\" y=\"4\" width=\"62\" height=\"54\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"5\" y=\"8\" width=\"54\" height=\"42\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"8\" fill=\"#5a5040\" font-family=\"monospace\">7.5\"</text><rect x=\"24\" y=\"58\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
+      "tags": [
+        "epaper",
+        "e-paper",
+        "e-ink",
+        "display",
+        "uc8179",
+        "gd7965",
+        "7.5",
+        "gxepd2",
+        "spi"
+      ],
+      "properties": [
+        {
+          "name": "panelKind",
+          "type": "string",
+          "defaultValue": "epaper-7in5-bw",
+          "control": "text"
+        },
+        {
+          "name": "refreshMs",
+          "type": "number",
+          "defaultValue": 100,
+          "control": "number"
+        }
+      ],
+      "defaultValues": {
+        "panelKind": "epaper-7in5-bw",
+        "refreshMs": 100
+      },
+      "pinCount": 8,
+      "id": "epaper-7in5-bw",
+      "tagName": "velxio-epaper",
+      "name": "ePaper 7.5\" (800×480, B/W)",
+      "category": "displays"
+    },
+    {
       "id": "ili9341",
       "tagName": "wokwi-ili9341",
       "name": "ILI9341",
@@ -3826,76 +4124,6 @@
         "motion",
         "sensor"
       ]
-    },
-    {
-      "id": "epaper-1in54-bw",
-      "tagName": "velxio-epaper",
-      "name": "ePaper 1.54\" (200×200, B/W)",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"4\" y=\"6\" width=\"56\" height=\"48\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"10\" y=\"12\" width=\"44\" height=\"36\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"34\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">e-Paper</text><rect x=\"22\" y=\"54\" width=\"20\" height=\"6\" fill=\"#d49a3c\"/></svg>",
-      "properties": [
-        { "name": "panelKind", "type": "string", "defaultValue": "epaper-1in54-bw", "control": "text" },
-        { "name": "refreshMs", "type": "number", "defaultValue": 50, "control": "number" }
-      ],
-      "defaultValues": { "panelKind": "epaper-1in54-bw", "refreshMs": 50 },
-      "pinCount": 8,
-      "tags": ["epaper", "e-paper", "e-ink", "display", "ssd1681", "1.54", "gxepd2", "spi"]
-    },
-    {
-      "id": "epaper-2in13-bw",
-      "tagName": "velxio-epaper",
-      "name": "ePaper 2.13\" (250×122, B/W)",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"18\" width=\"60\" height=\"30\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"22\" width=\"52\" height=\"22\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.13\"</text><rect x=\"24\" y=\"48\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
-      "properties": [
-        { "name": "panelKind", "type": "string", "defaultValue": "epaper-2in13-bw", "control": "text" },
-        { "name": "refreshMs", "type": "number", "defaultValue": 50, "control": "number" }
-      ],
-      "defaultValues": { "panelKind": "epaper-2in13-bw", "refreshMs": 50 },
-      "pinCount": 8,
-      "tags": ["epaper", "e-paper", "e-ink", "display", "ssd1675", "il3897", "2.13", "gxepd2", "spi"]
-    },
-    {
-      "id": "epaper-2in9-bw",
-      "tagName": "velxio-epaper",
-      "name": "ePaper 2.9\" (296×128, B/W)",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"16\" width=\"60\" height=\"34\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"20\" width=\"52\" height=\"26\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.9\"</text><rect x=\"24\" y=\"50\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
-      "properties": [
-        { "name": "panelKind", "type": "string", "defaultValue": "epaper-2in9-bw", "control": "text" },
-        { "name": "refreshMs", "type": "number", "defaultValue": 50, "control": "number" }
-      ],
-      "defaultValues": { "panelKind": "epaper-2in9-bw", "refreshMs": 50 },
-      "pinCount": 8,
-      "tags": ["epaper", "e-paper", "e-ink", "display", "ssd1680", "2.9", "gxepd2", "spi"]
-    },
-    {
-      "id": "epaper-4in2-bw",
-      "tagName": "velxio-epaper",
-      "name": "ePaper 4.2\" (400×300, B/W)",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"6\" width=\"60\" height=\"50\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"10\" width=\"52\" height=\"38\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">4.2\"</text><rect x=\"24\" y=\"56\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
-      "properties": [
-        { "name": "panelKind", "type": "string", "defaultValue": "epaper-4in2-bw", "control": "text" },
-        { "name": "refreshMs", "type": "number", "defaultValue": 80, "control": "number" }
-      ],
-      "defaultValues": { "panelKind": "epaper-4in2-bw", "refreshMs": 80 },
-      "pinCount": 8,
-      "tags": ["epaper", "e-paper", "e-ink", "display", "ssd1683", "uc8176", "4.2", "gxepd2", "spi"]
-    },
-    {
-      "id": "epaper-7in5-bw",
-      "tagName": "velxio-epaper",
-      "name": "ePaper 7.5\" (800×480, B/W)",
-      "category": "displays",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"1\" y=\"4\" width=\"62\" height=\"54\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"5\" y=\"8\" width=\"54\" height=\"42\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"8\" fill=\"#5a5040\" font-family=\"monospace\">7.5\"</text><rect x=\"24\" y=\"58\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
-      "properties": [
-        { "name": "panelKind", "type": "string", "defaultValue": "epaper-7in5-bw", "control": "text" },
-        { "name": "refreshMs", "type": "number", "defaultValue": 100, "control": "number" }
-      ],
-      "defaultValues": { "panelKind": "epaper-7in5-bw", "refreshMs": 100 },
-      "pinCount": 8,
-      "tags": ["epaper", "e-paper", "e-ink", "display", "uc8179", "gd7965", "7.5", "gxepd2", "spi"]
     }
   ]
 }

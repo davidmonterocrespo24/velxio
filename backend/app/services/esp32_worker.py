@@ -68,7 +68,10 @@ except ImportError:
 # SPI slaves (Phase 1: SSD168x ePaper). Same fallback dance — when the worker
 # runs as a subprocess from backend/ the package import won't resolve.
 try:
-    from app.services.esp32_spi_slaves import Ssd168xEpaperSlave as _Ssd168xEpaperSlave
+    from app.services.esp32_spi_slaves import (
+        Ssd168xEpaperSlave as _Ssd168xEpaperSlave,
+        Uc8159cEpaperSlave as _Uc8159cEpaperSlave,
+    )
 except ImportError:
     import importlib.util, pathlib
     _here = pathlib.Path(__file__).parent
@@ -76,6 +79,7 @@ except ImportError:
     _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
     _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
     _Ssd168xEpaperSlave = _mod.Ssd168xEpaperSlave  # type: ignore[assignment]
+    _Uc8159cEpaperSlave = _mod.Uc8159cEpaperSlave  # type: ignore[assignment]
 
 # ─── stdout helpers ──────────────────────────────────────────────────────────
 
@@ -1006,10 +1010,20 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                                 pass
                     return _on_flush
 
-                slave = _Ssd168xEpaperSlave(
-                    component_id=comp_id, width=width, height=height,
-                    on_flush=_flush_factory(),
-                )
+                # Pick the decoder family from the payload. Defaults to
+                # SSD168x for backward compatibility (initial frontends only
+                # sent SSD168x); the UC8159c value is sent for ACeP panels.
+                ctl_family = str(s.get('controller_family', 'ssd168x'))
+                if ctl_family == 'uc8159c':
+                    slave = _Uc8159cEpaperSlave(
+                        component_id=comp_id, width=width, height=height,
+                        on_flush=_flush_factory(),
+                    )
+                else:
+                    slave = _Ssd168xEpaperSlave(
+                        component_id=comp_id, width=width, height=height,
+                        on_flush=_flush_factory(),
+                    )
                 state = {
                     'slave': slave,
                     'dc_pin': int(s.get('dc_pin', -1)),
@@ -1019,11 +1033,12 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     'cs_low': False,
                     'dc_high': False,
                     'refresh_ms': refresh_ms,
+                    'controller_family': ctl_family,
                 }
                 _epaper_slaves[comp_id] = slave
                 _epaper_state[comp_id] = state
                 sensor_data['epaper_component_id'] = comp_id
-                _log(f"[epaper] registered '{comp_id}' "
+                _log(f"[epaper:{ctl_family}] registered '{comp_id}' "
                      f"({width}x{height}) "
                      f"DC={state['dc_pin']} CS={state['cs_pin']} "
                      f"RST={state['rst_pin']} BUSY={state['busy_pin']}")
@@ -1340,6 +1355,76 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     _i2c_slaves[i2c_addr] = sink
                     sensor_data['i2c_addr'] = i2c_addr
                     sensor_data['slave'] = sink
+                elif sensor_type == 'epaper-ssd168x':
+                    # Runtime registration of an SSD168x ePaper panel. Mirrors
+                    # the `_init_sensors` branch above. Component-id keyed so
+                    # multiple panels on the same board route correctly.
+                    comp_id = str(cmd.get('component_id', f'epaper-{gpio}'))
+                    width = int(cmd.get('width', 200))
+                    height = int(cmd.get('height', 200))
+                    refresh_ms = int(cmd.get('refresh_ms', 50))
+                    busy_pin = int(cmd.get('busy_pin', -1))
+
+                    def _flush_factory_rt(_comp_id=comp_id,
+                                          _w=width, _h=height,
+                                          _refresh=refresh_ms,
+                                          _busy=busy_pin,
+                                          _lib=lib):
+                        def _on_flush(frame):
+                            try:
+                                frame_b64 = base64.b64encode(frame.pixels).decode('ascii')
+                            except Exception:
+                                return
+                            _emit({
+                                'type': 'epaper_update',
+                                'data': {
+                                    'component_id': _comp_id,
+                                    'width': _w,
+                                    'height': _h,
+                                    'frame_b64': frame_b64,
+                                    'refresh_ms': _refresh,
+                                },
+                            })
+                            if _busy is not None and _busy >= 0:
+                                try:
+                                    _lib.qemu_picsimlab_set_pin(_busy + 1, 1)
+
+                                    def _busy_low(_b=_busy):
+                                        try:
+                                            _lib.qemu_picsimlab_set_pin(_b + 1, 0)
+                                        except Exception:
+                                            pass
+
+                                    threading.Timer(_refresh / 1000.0, _busy_low).start()
+                                except Exception:
+                                    pass
+                        return _on_flush
+
+                    ctl_family = str(cmd.get('controller_family', 'ssd168x'))
+                    if ctl_family == 'uc8159c':
+                        slave = _Uc8159cEpaperSlave(
+                            component_id=comp_id, width=width, height=height,
+                            on_flush=_flush_factory_rt(),
+                        )
+                    else:
+                        slave = _Ssd168xEpaperSlave(
+                            component_id=comp_id, width=width, height=height,
+                            on_flush=_flush_factory_rt(),
+                        )
+                    state = {
+                        'slave': slave,
+                        'dc_pin': int(cmd.get('dc_pin', -1)),
+                        'cs_pin': int(cmd.get('cs_pin', -1)),
+                        'rst_pin': int(cmd.get('rst_pin', -1)),
+                        'busy_pin': busy_pin,
+                        'cs_low': False,
+                        'dc_high': False,
+                        'refresh_ms': refresh_ms,
+                        'controller_family': ctl_family,
+                    }
+                    _epaper_slaves[comp_id] = slave
+                    _epaper_state[comp_id] = state
+                    sensor_data['epaper_component_id'] = comp_id
                 _sensors[gpio] = sensor_data
             _log(f'Sensor {sensor_type} attached on GPIO {gpio}')
 
@@ -1377,6 +1462,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 sensor = _sensors.pop(gpio, None)
                 if sensor and 'i2c_addr' in sensor:
                     _i2c_slaves.pop(sensor['i2c_addr'], None)
+                if sensor and 'epaper_component_id' in sensor:
+                    cid = sensor['epaper_component_id']
+                    _epaper_slaves.pop(cid, None)
+                    _epaper_state.pop(cid, None)
             _log(f'Sensor detached from GPIO {gpio}')
 
         elif c == 'stop':

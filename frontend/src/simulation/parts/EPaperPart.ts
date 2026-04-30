@@ -18,6 +18,11 @@
 
 import { PartSimulationRegistry, type AnySimulator } from './PartSimulationRegistry';
 import { SSD168xDecoder, type Frame } from '../displays/SSD168xDecoder';
+import {
+  UC8159cDecoder,
+  type UC8159cFrame,
+  ACEP_PALETTE_RGB,
+} from '../displays/UC8159cDecoder';
 import { PANEL_CONFIGS, getPanelConfig, PANEL_IDS } from '../displays/EPaperPanels';
 import { RP2040Simulator } from '../RP2040Simulator';
 import type { AVRSimulator } from '../AVRSimulator';
@@ -78,7 +83,9 @@ function b64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Render a palette frame (0=black, 1=white, 2=red) into RGBA on canvas. */
+/**
+ * Render an SSD168x palette frame (0=black, 1=white, 2=red) into RGBA on canvas.
+ */
 function paintFrame(ctx: CanvasRenderingContext2D, frame: Frame): void {
   const { width, height, pixels } = frame;
   const id = ctx.createImageData(width, height);
@@ -86,21 +93,37 @@ function paintFrame(ctx: CanvasRenderingContext2D, frame: Frame): void {
     const v = pixels[i];
     const o = i * 4;
     if (v === 0) {
-      // black
       id.data[o] = 0x20;
       id.data[o + 1] = 0x20;
       id.data[o + 2] = 0x20;
     } else if (v === 2) {
-      // red
       id.data[o] = 0xc0;
       id.data[o + 1] = 0x10;
       id.data[o + 2] = 0x10;
     } else {
-      // white (paper)
       id.data[o] = 0xf4;
       id.data[o + 1] = 0xf1;
       id.data[o + 2] = 0xe8;
     }
+    id.data[o + 3] = 0xff;
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+/**
+ * Render a UC8159c ACeP 7-colour frame using the palette table.
+ * Palette indices 7+ render as white (clean state).
+ */
+function paintAcePFrame(ctx: CanvasRenderingContext2D, frame: UC8159cFrame): void {
+  const { width, height, pixels } = frame;
+  const id = ctx.createImageData(width, height);
+  for (let i = 0; i < pixels.length; i++) {
+    const idx = pixels[i];
+    const rgb = ACEP_PALETTE_RGB[idx] ?? ACEP_PALETTE_RGB[1];
+    const o = i * 4;
+    id.data[o] = rgb[0];
+    id.data[o + 1] = rgb[1];
+    id.data[o + 2] = rgb[2];
     id.data[o + 3] = 0xff;
   }
   ctx.putImageData(id, 0, 0);
@@ -177,16 +200,23 @@ const epaperSimulation = {
     });
 
     // ── RAF-batched flush ────────────────────────────────────────────────
-    let pendingFrame: Frame | null = null;
+    // Both decoder families produce {width, height, pixels: Uint8Array}.
+    // The palette interpretation differs (B/W/R vs ACeP 7-colour), so we
+    // dispatch on `cfg.palette` rather than the structural type.
+    type AnyFrame = Frame | UC8159cFrame;
+    let pendingFrame: AnyFrame | null = null;
     let rafId: number | null = null;
-    const scheduleFlush = (frame: Frame) => {
+    const scheduleFlush = (frame: AnyFrame) => {
       pendingFrame = frame;
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
         if (!pendingFrame) return;
         if (!ctx) ctx = initCanvas();
-        if (ctx) paintFrame(ctx, pendingFrame);
+        if (ctx) {
+          if (cfg.palette === 'acep') paintAcePFrame(ctx, pendingFrame as UC8159cFrame);
+          else paintFrame(ctx, pendingFrame as Frame);
+        }
         pendingFrame = null;
       });
     };
@@ -196,14 +226,27 @@ const epaperSimulation = {
 
     // ── Browser-side decoder + SPI hook (AVR / RP2040) ───────────────────
     const installBrowserPath = () => {
-      const decoder = new SSD168xDecoder({
-        width: cfg.width,
-        height: cfg.height,
-        onFlush: (frame) => {
-          scheduleFlush(frame);
-          pulseBusy(refreshMs);
-        },
-      });
+      // Pick the decoder that matches the panel's controller family. Both
+      // expose .feed(byte, dcHigh) + .reset() so the SPI hook below stays
+      // family-agnostic.
+      const decoder =
+        cfg.controllerFamily === 'uc8159c'
+          ? new UC8159cDecoder({
+              width: cfg.width,
+              height: cfg.height,
+              onFlush: (frame) => {
+                scheduleFlush(frame);
+                pulseBusy(refreshMs);
+              },
+            })
+          : new SSD168xDecoder({
+              width: cfg.width,
+              height: cfg.height,
+              onFlush: (frame) => {
+                scheduleFlush(frame);
+                pulseBusy(refreshMs);
+              },
+            });
 
       // CS / DC / RST pin tracking.
       let csLow = false; // start with CS de-asserted (idle)
@@ -292,6 +335,7 @@ const epaperSimulation = {
       simulator.registerSensor!('epaper-ssd168x', virtualPin, {
         component_id: componentId,
         panel_kind: panelKind,
+        controller_family: cfg.controllerFamily,
         width: cfg.width,
         height: cfg.height,
         dc_pin: dcPin,

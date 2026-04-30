@@ -519,4 +519,9 @@ export const INLINE_SVGS: Record<string, InlineEntry> = {
   'epaper-2in9-bw':  { component: EPaperGlyph, w: 340, h: 180 },
   'epaper-4in2-bw':  { component: EPaperGlyph, w: 440, h: 360 },
   'epaper-7in5-bw':  { component: EPaperGlyph, w: 860, h: 540 },
+  // Tri-colour B/W/R panels share the same body geometry as their B/W siblings.
+  'epaper-2in13-bwr': { component: EPaperGlyph, w: 290, h: 170 },
+  'epaper-2in9-bwr':  { component: EPaperGlyph, w: 340, h: 180 },
+  // ACeP 7-colour 5.65" — same FPC pinout, different palette.
+  'epaper-5in65-7c':  { component: EPaperGlyph, w: 660, h: 520 },
 };

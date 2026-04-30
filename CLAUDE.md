@@ -362,6 +362,37 @@ that wires to it, confirm wires terminate on the pin tips (not the corner),
 and add the pin coords to `BoardOnCanvas.tsx`'s `BOARD_SIZE` table if it's a
 board.
 
+### 6b. Component metadata JSON is GENERATED — never edit by hand ⚠️
+
+`frontend/public/components-metadata.json` is produced by
+`scripts/generate-component-metadata.ts`. **Direct edits get wiped** the
+next time the generator runs (which happens on every wokwi-libs update,
+plus anyone who runs `npm run generate:metadata` from `frontend/`).
+
+For Velxio-native components that don't exist in wokwi-elements (custom
+chips, ePaper panels, logic gates, voltmeters, …) add the entry to
+**`scripts/component-overrides.json`** under the `_customComponents`
+array. The generator copies them verbatim into the output and they
+survive every regeneration.
+
+For wokwi-elements-derived components that need a richer UI control
+(e.g. LED color → dropdown, SSD1306 protocol → I2C/SPI selector), add a
+keyed entry under the same file with `properties` + `defaultValues`
+patches (see `docs/wiki/component-metadata-generator.md`).
+
+To regenerate after editing the override file:
+
+```bash
+cd frontend
+npm run generate:metadata
+```
+
+(The script needs `tsx` and `typescript` resolvable; the npm script in
+`frontend/package.json:8` is the supported entry point — if it errors
+with "Cannot find module 'typescript'", run with
+`NODE_PATH="$PWD/frontend/node_modules" npx tsx scripts/generate-component-metadata.ts`
+from the repo root.)
+
 ### 7. Pre-existing TypeScript Errors
 
 There are known pre-existing TS errors that do NOT block the app from running:
