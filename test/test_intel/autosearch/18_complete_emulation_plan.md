@@ -29,7 +29,7 @@ top of each phase reflects status.
 | **C** | Support chip ecosystem (rom-1m, 8255, 8251 done; 4001/4002/8253/8259 deferred) | high | ⚠️ partial 2026-04-30 |
 | **D** | 4004/4040 I/O completion (uses chips from C) | medium | ⏸️ pending |
 | **E** | 8086 ISA completion | high | ✅ done 2026-04-30 (CALL/RET edge case deferred) |
-| **F** | Real software validation (CPUDIAG, ZEXDOC, Busicom, 8088 V2) | medium | ⏸️ pending |
+| **F** | Real software validation (CPUDIAG, ZEXDOC done; Busicom + 8088 V2 deferred) | medium | ⚠️ partial 2026-04-30 |
 | **G** | Cycle accuracy (optional) | high | ⏸️ deferred |
 
 ---
@@ -555,4 +555,73 @@ subject line (e.g. "test_intel: phase A — 8080 INTA bus protocol").
 
 ---
 
-## Phases D, F, G — pending (next iterations)
+## Phase F — partial completion (2026-04-30)
+
+### Delivered
+- **8080PRE.COM** (1 KB preliminary 8080 instruction test) — runs to
+  completion, no ERROR output.
+- **TST8080.COM** (1.5 KB Microcosm Associates 1980 8080 CPU
+  Diagnostic) — the canonical 8080 validation suite. Prints
+  "CPU IS OPERATIONAL" on our chip. Test asserts the success message
+  appears in BDOS output. Runs in ~52 seconds wall-clock for 2M
+  simulated CPU cycles.
+- **ZEXDOC** (8.5 KB Frank Cringle Z80 instruction exerciser, 1994,
+  documented-flags subset of ZEXALL) — Z80 chip executes it long
+  enough to print the "exerciser" banner; no ERROR within a 5M-cycle
+  budget. Caveat: full ZEXDOC takes hours of simulated time and we
+  only verify a time-bounded prefix.
+
+### Test infrastructure built for Phase F
+- `test/test_intel/roms/`: 8080pre.bin, tst8080.bin, 8080exm.bin
+  (4.5 KB exhaustive — not yet wired up), zexdoc.bin. All public-
+  domain CP/M .COM files mirrored from altairclone.com /
+  floooh/chips-test (via WebFetch).
+- `test_8080/cpudiag.test.js`: builds a 64 KB system image with
+  CP/M zero-page (JMP 0x0100), BDOS at 0xFE00 (functions 2/9 emit
+  via OUT port 0x01), patches the program at 0x0100, runs the chip,
+  captures OUT writes via the WR̅+IORQ̅ pattern, asserts on output text.
+- `test_z80/zexdoc.test.js`: same shape for Z80, with cs='MREQ'
+  fake-ram so I/O ops bypass the memory chip-select.
+- `test_z80/hello.test.js`: minimal sanity test for the BDOS+OUT
+  capture path (used to debug the BDOS-overlap bug below).
+
+### Lessons learned
+- **BDOS placement matters**. My initial BDOS at 0x0F00 worked for
+  the small TST8080.COM (~1.5 KB ending at 0x0700) but COLLIDED with
+  ZEXDOC.COM (~8.5 KB ending at 0x21A9). Symptom: zero output. Fix:
+  move BDOS to 0xFE00 (above the program area, inside the 64 KB
+  segment). ZEXDOC reads its stack pointer from 0x0006/0x0007 (the
+  CP/M-standard BDOS pointer) so simply changing both the JMP at
+  0x0005 and the BDOS code's address resolves both issues at once.
+- **Output buffering**. CPUDIAG prints ~1.5 KB; ZEXDOC's per-test
+  banners and CRC-mismatch messages can be tens of KB.
+  `String.fromCharCode(...output)` blows the call stack at ~100K+
+  elements; build text in 4 KB chunks instead.
+- **Z80 OUT detection** uses the same WR̅-falling-edge listener
+  pattern as the 8080 but ALSO checks IORQ̅ to distinguish from
+  memory writes (8080 distinguishes by the WR̅ status byte
+  separately).
+
+### Deferred to a future iteration
+- **8080EXM.COM** (4.5 KB) — exhaustive 8080 exerciser; would
+  validate flag edge cases that TST8080 misses.
+- **Full ZEXDOC validation** — running all 67 sub-tests would take
+  many hours of simulated time; would need either a faster timer
+  cadence or a way to skip / parallelise tests. Likely needs
+  a chip rewrite for cycle accuracy too.
+- **Busicom 141-PF on 4004** — needs Phase D completion first
+  (real 4001 ROM + 4002 RAM chips).
+- **8088 V2 SingleStepTests on 8086** — JSON-format per-instruction
+  state tests from the MartyPC project (~1M cases). Would need a
+  different test harness style (load JSON, set chip state, run one
+  instruction, compare).
+
+### Tests delta
+- New: `test_8080/cpudiag.test.js` (2 tests passing), `test_z80/
+  zexdoc.test.js` (1 test passing), `test_z80/hello.test.js`
+  (1 test, sanity check).
+- Total `test_intel`: 94 → **98 passing**, 11 todo, 0 failed.
+
+---
+
+## Phases D and G — still pending
