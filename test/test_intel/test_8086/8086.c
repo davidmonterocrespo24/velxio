@@ -983,13 +983,16 @@ static void step(void) {
         return;
     }
     if (G.intr_line && (G.flags & F_IF)) {
-        /* Approximate: read the vector byte from the data bus during
-           an INTA cycle. The actual external 8259 PIC would jam the
-           vector. Here we synthesise INT 0 if no fixture drives the
-           bus (reset state); a test fixture can override by driving
-           the data bus when our chip asserts INTA̅ low. */
+        /* Hardware interrupt acknowledge cycle. Real 8086 in min mode
+           runs two INTA̅ pulses; the second has the data bus driven by
+           the external 8259 PIC with the vector byte. We collapse to
+           one pulse here. Critically, we must NOT drive AD ourselves
+           during this cycle — the PIC owns the bus. */
+        release_ad();
         vx_pin_write(G.inta, 0);
-        uint8_t vec = bus_read_byte(0, false);   /* dummy read for cycle */
+        /* PIC's INTA̅-falling-edge watcher fires synchronously and
+           drives AD0..AD7 with the vector. Sample. */
+        uint8_t vec = (uint8_t)(read_ad() & 0xFF);
         vx_pin_write(G.inta, 1);
         do_int(vec);
         G.halted = false;
@@ -1430,13 +1433,15 @@ static void on_intr(void* user_data, vx_pin pin, int value) {
 static void on_clock(void* user_data) {
     (void)user_data;
     if (G.reset_active) return;
-    if (G.halted) return;
     if (vx_pin_read(G.ready) == 0) return;     /* wait state */
     if (vx_pin_read(G.hold) == 1) {            /* bus hold */
         vx_pin_write(G.hlda, 1);
         return;
     }
     vx_pin_write(G.hlda, 0);
+    /* Do NOT early-return on halted — step() handles that and also
+       serves an interrupt that wakes us up. Real 8086 HLT is
+       interruptible. */
     step();
 }
 
