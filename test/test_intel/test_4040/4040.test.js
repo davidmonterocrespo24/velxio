@@ -236,4 +236,87 @@ describe('Intel 4040 chip', () => {
       board.dispose();
     });
   });
+
+  describe('4040 + 4002 RAM integration', () => {
+    const RAM = '4002-ram';
+    const skipIntegration = skip || !chipWasmExists(RAM);
+
+    it.skipIf(skipIntegration)(
+      'SRC + WMP drives the 4002 output port from ACC',
+      async () => {
+        //   PC=0x00: 0xD3  LDM 3   →  ACC=3
+        //   PC=0x01: 0x21  SRC P0  →  drive R0:R1=0:0 → chip-pair=0
+        //   PC=0x02: 0xE1  WMP     →  4002.O0..O3 = 3
+        const PROG = new Uint8Array(0x40);
+        PROG[0] = 0xD3;
+        PROG[1] = 0x21;
+        PROG[2] = 0xE1;
+
+        const board = new BoardHarness();
+        // Register the 4002 BEFORE the 4040 (same ordering trick as
+        // 4004/4002 integration). 4040.CMRAM0 → 4002.CM.
+        await board.addChip(RAM, {
+          SYNC: 'SYNC', CL: 'CLK1', RESET: 'RESET', CM: 'CMRAM0',
+          VDD: 'VDD', VSS: 'VSS',
+          D0: 'D0', D1: 'D1', D2: 'D2', D3: 'D3',
+          O0: 'O0', O1: 'O1', O2: 'O2', O3: 'O3',
+        });
+        await board.addChip(CHIP, fullPinMap());
+
+        board.setNet('STP', false);
+        board.setNet('INT', false);
+        board.setNet('TEST', false);
+        board.setNet('RESET', true);
+        board.advanceNanos(CLOCK_NS * 12);
+        board.setNet('RESET', false);
+
+        const bus = new Bus4040(board, PROG);
+        for (let cyc = 0; cyc < 8; cyc++) bus.runCycle();
+
+        let out = 0;
+        for (let i = 0; i < 4; i++) if (board.getNet(`O${i}`)) out |= (1 << i);
+        expect(out, '4002 output port after WMP must equal ACC (= 3)').toBe(3);
+        board.dispose();
+      }
+    );
+
+    it.skipIf(skipIntegration)(
+      'WRM stores into RAM and RDM reads it back through the bus',
+      async () => {
+        //   0xD5 LDM 5  ; 0x21 SRC P0 ; 0xE0 WRM ; 0xF0 CLB
+        //   0xE9 RDM    ; 0xE1 WMP    ; 0x00 NOP
+        const PROG = new Uint8Array(0x40);
+        PROG[0] = 0xD5;
+        PROG[1] = 0x21;
+        PROG[2] = 0xE0;
+        PROG[3] = 0xF0;
+        PROG[4] = 0xE9;
+        PROG[5] = 0xE1;
+
+        const board = new BoardHarness();
+        await board.addChip(RAM, {
+          SYNC: 'SYNC', CL: 'CLK1', RESET: 'RESET', CM: 'CMRAM0',
+          VDD: 'VDD', VSS: 'VSS',
+          D0: 'D0', D1: 'D1', D2: 'D2', D3: 'D3',
+          O0: 'O0', O1: 'O1', O2: 'O2', O3: 'O3',
+        });
+        await board.addChip(CHIP, fullPinMap());
+
+        board.setNet('STP', false);
+        board.setNet('INT', false);
+        board.setNet('TEST', false);
+        board.setNet('RESET', true);
+        board.advanceNanos(CLOCK_NS * 12);
+        board.setNet('RESET', false);
+
+        const bus = new Bus4040(board, PROG);
+        for (let cyc = 0; cyc < 12; cyc++) bus.runCycle();
+
+        let out = 0;
+        for (let i = 0; i < 4; i++) if (board.getNet(`O${i}`)) out |= (1 << i);
+        expect(out, 'WMP after RDM must surface the mem-stored 5').toBe(5);
+        board.dispose();
+      }
+    );
+  });
 });

@@ -50,6 +50,19 @@ typedef enum {
     FETCH_OPERAND,
 } fetch_t;
 
+/* X2/X3 bus action selected at end of M2 from the decoded opcode.
+   Same set as the 4004 (the 4040 inherits MCS-4 I/O semantics). */
+typedef enum {
+    XACT_NONE = 0,
+    XACT_SRC,        /* drive pair_hi at X2, pair_lo at X3, CM-RAM strobe */
+    XACT_WRM_WMP,    /* drive ACC at X2, CM-RAM (or CM-ROM for WRR/WPM) */
+    XACT_RDM,        /* release D at X2, sample → io_data_in (4002 drives) */
+    XACT_RDS,        /* RDR — release D at X2, sample (CM-ROM strobed) */
+    XACT_ADM_SBM,    /* like RDM but feeds ADD/SUB */
+    XACT_WR_STATUS,  /* WR0..WR3 — drive ACC at X2 */
+    XACT_RD_STATUS,  /* RD0..RD3 — release at X2, sample */
+} xact_t;
+
 typedef struct {
     /* Pin handles — names from [M40] pp. 1-5/1-6 */
     vx_pin dpin[4];
@@ -94,6 +107,12 @@ typedef struct {
     bool     stop_ff;
     bool     halt_ff;
     bool     inta_ff;
+
+    /* X2/X3 staging — populated at M2 from the decoded opcode. */
+    xact_t   xact;
+    uint8_t  xact_pair;
+    uint8_t  xact_status_idx;
+    uint8_t  io_data_in;
 } cpu_t;
 
 static cpu_t G;
@@ -162,6 +181,8 @@ static void reset_state(void) {
     G.stop_ff = false;
     G.halt_ff = false;
     G.inta_ff = false;
+    G.xact = XACT_NONE;
+    G.io_data_in = 0;
 
     vx_pin_write(G.sync, 0);
     vx_pin_write(G.cmrom[0], 0);
@@ -336,24 +357,31 @@ static void exec_1byte(uint8_t op) {
             G.pc_overridden = true;
             break;
         case 0xD: G.acc = lo; break;              /* LDM d */
-        case 0xE:  /* I/O / RAM group — stubs (no real RAM/ROM ports yet) */
+        case 0xE:  /* I/O / RAM group — bus heavy lifting happened during
+                      X2/X3; here we only update ACC/flags from io_data_in
+                      for read ops. Writes have no further effect on CPU
+                      state (output side of the 4002/4001 was driven by
+                      the X2 bus action). */
             switch (lo) {
-                case 0x8: { /* SBM */
-                    uint8_t r = G.acc + 0xF + (G.cy ? 0 : 1);
+                case 0x8: { /* SBM — A ← A + ~RAM + ~CY */
+                    uint8_t r = G.acc + ((~G.io_data_in) & 0xF) + (G.cy ? 0 : 1);
                     G.cy = (r > 0xF);
                     G.acc = r & 0xF;
                     break;
                 }
-                case 0x9: case 0xA: case 0xC: case 0xD: case 0xE: case 0xF:
-                    G.acc = 0;
-                    break;
-                case 0xB: { /* ADM (RAM=0) */
-                    uint8_t r = G.acc + 0 + (G.cy ? 1 : 0);
+                case 0x9: G.acc = G.io_data_in; break;  /* RDM */
+                case 0xA: G.acc = G.io_data_in; break;  /* RDR */
+                case 0xB: { /* ADM — A ← A + RAM + CY */
+                    uint8_t r = G.acc + G.io_data_in + (G.cy ? 1 : 0);
                     G.cy = (r > 0xF);
                     G.acc = r & 0xF;
                     break;
                 }
-                /* 0,1,2,3,4,5,6,7 = WRM/WMP/WRR/WPM/WR0..3 — write stubs */
+                case 0xC: case 0xD: case 0xE: case 0xF:  /* RD0..RD3 */
+                    G.acc = G.io_data_in;
+                    break;
+                /* 0,1,2,3,4,5,6,7 = WRM/WMP/WRR/WPM/WR0..3 — bus drives
+                   ACC at X2; nothing more for the CPU side. */
                 default: break;
             }
             break;
@@ -428,6 +456,7 @@ static void on_phase(void* user_data) {
     if (G.phase == PHASE_A1) {
         vx_pin_write(G.cmrom[0], 0);
         vx_pin_write(G.cmrom[1], 0);
+        for (int i = 0; i < 4; i++) vx_pin_write(G.cmram[i], 0);
     }
 
     switch (G.phase) {
@@ -460,13 +489,93 @@ static void on_phase(void* user_data) {
             G.stp_latched = vx_pin_read(G.stp) ? true : false;
             G.int_latched = (G.iff_enable && !G.stp_latched && !G.inta_ff
                              && vx_pin_read(G.intn)) ? true : false;
+            /* Decode opcode → set up X2/X3 bus action (mirrors 4004). */
+            G.xact = XACT_NONE;
+            if (G.fetch_state == FETCH_OPCODE) {
+                uint8_t op = G.opcode;
+                if ((op & 0xF1) == 0x21) {
+                    G.xact = XACT_SRC;
+                    G.xact_pair = (op >> 1) & 7;
+                } else if ((op & 0xF0) == 0xE0) {
+                    uint8_t lo = op & 0xF;
+                    switch (lo) {
+                        case 0x0: case 0x1:
+                        case 0x2: case 0x3:
+                            G.xact = XACT_WRM_WMP; break;
+                        case 0x4: case 0x5: case 0x6: case 0x7:
+                            G.xact = XACT_WR_STATUS;
+                            G.xact_status_idx = lo - 4;
+                            break;
+                        case 0x8: case 0xB: G.xact = XACT_ADM_SBM; break;
+                        case 0x9: G.xact = XACT_RDM; break;
+                        case 0xA: G.xact = XACT_RDS; break;
+                        case 0xC: case 0xD: case 0xE: case 0xF:
+                            G.xact = XACT_RD_STATUS;
+                            G.xact_status_idx = lo - 0xC;
+                            break;
+                    }
+                }
+            }
             break;
         case PHASE_X1:
             vx_pin_write(G.cy_pin, G.cy ? 1 : 0);
             break;
         case PHASE_X2:
+            switch (G.xact) {
+                case XACT_SRC:
+                    drive_d((pair_read(G.xact_pair) >> 4) & 0xF);
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    break;
+                case XACT_WRM_WMP: {
+                    drive_d(G.acc & 0xF);
+                    uint8_t lo = G.opcode & 0xF;
+                    if (lo == 0x2 || lo == 0x3) {
+                        vx_pin_write(active_cmrom(), 1);
+                    } else {
+                        vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    }
+                    break;
+                }
+                case XACT_WR_STATUS:
+                    drive_d(G.acc & 0xF);
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    break;
+                case XACT_RDM:
+                case XACT_ADM_SBM:
+                case XACT_RD_STATUS:
+                    release_d();
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 1);
+                    G.io_data_in = read_d() & 0xF;
+                    break;
+                case XACT_RDS:
+                    release_d();
+                    vx_pin_write(active_cmrom(), 1);
+                    G.io_data_in = read_d() & 0xF;
+                    break;
+                default:
+                    break;
+            }
             break;
         case PHASE_X3: {
+            switch (G.xact) {
+                case XACT_SRC:
+                    drive_d(pair_read(G.xact_pair) & 0xF);
+                    break;
+                case XACT_WRM_WMP:
+                case XACT_WR_STATUS:
+                    /* drive held from X2 */
+                    break;
+                case XACT_RDM:
+                case XACT_ADM_SBM:
+                case XACT_RD_STATUS:
+                case XACT_RDS:
+                    vx_pin_write(G.cmram[G.cmram_select & 3], 0);
+                    vx_pin_write(active_cmrom(), 0);
+                    release_d();
+                    break;
+                default:
+                    break;
+            }
             G.pc_overridden = false;
 
             if (G.stp_latched) {
