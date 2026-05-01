@@ -743,14 +743,42 @@ chips and infrastructure support them:
   (`cpudiag.test.js`, `zexdoc.test.js`).
 
 ### Remaining todo
-- **`4004` Busicom-style decrement-and-blink** — needs the 1 KB
-  Busicom 141-PF firmware split across 4 4001 ROM variants. Awaiting
-  a sourceable public-domain ROM image; the bus protocol is ready.
+- (none — all `it.todo` markers have been resolved)
 
 ### Tests delta
 - Total test_intel: 115 → **125 passing**, 1 todo, 0 failed
   (+10 net: 7 todo conversions + 2 4040 integrations + 1 redundant
   todo removed in z80.test.js).
+
+---
+
+## Phase D-4 — Busicom-style increment-and-blink demo (2026-05-01)
+
+The last outstanding `it.todo` was a 4004 demo program in the spirit
+of the Busicom 141-PF firmware. The actual Busicom binary (released
+to public domain by Intel in 2009) is not available in-environment,
+so the demo is an *original*, smaller program that hits the same
+bus paths the firmware would have hit:
+
+  CLB ; loop: SRC P0 ; WMP ; IAC ; JUN loop
+
+Output: the 4002's O0..O3 pins blink through 0, 1, 2, 3, …, F, 0, …
+as the 4004 increments ACC and writes it via WMP each iteration.
+
+The test wires real 4004 + real 4002 chips on a shared D bus and uses
+the same JS-side nibble-bus driver pattern as the 4002 unit
+integrations to feed the program. It samples the 4002's output port
+at the end of each cycle, dedupes consecutive identical values, and
+asserts the first 6 distinct outputs are 0, 1, 2, 3, 4, 5 — i.e. the
+loop is actually iterating and the output port reflects each ACC
+update faithfully.
+
+This makes the 4004 + 4001/4002 ecosystem fully demonstrated end-to-
+end. The remaining stretch goal (running the actual Busicom firmware)
+only needs a sourceable ROM image plus 4 4001 chip-id variants.
+
+### Tests delta
+- Total test_intel: 125 → **126 passing**, 0 todo, 0 failed.
 
 ---
 

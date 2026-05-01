@@ -111,15 +111,14 @@ address and data pins, just like in a real PCB.
 | autosearch/  | n/a   | n/a   | ✅ Intel 4004/4040/8080/8086 + Zilog Z80 manuals + 27C256/HM62256/8282 datasheets cited; PDFs under `pdfs/` |
 | harness      | ✅     | ✅    | `BoardHarness`, `helpers`, scripts/ — all working |
 | **test_buses/**| ✅ 17  | ✅    | **🎯 17/17 passing**. `rom-32k.c` (~80 LOC) + `ram-64k.c` (~110 LOC) + `latch-8282.c` (~80 LOC). |
-| **test_4004/**| ✅ 12  | ✅    | **🎯 11 passing + 1 todo (Busicom). ~600 LOC clean-room from Intel MCS-4 manual (Feb 1973).** Full 46-instruction ISA + SRC/WRM/RDM/WMP/WRR/WPM/WR0..3/RD0..3 bus wiring. |
+| **test_4004/**| ✅ 12  | ✅    | **🎯 12/12 passing. ~600 LOC clean-room from Intel MCS-4 manual (Feb 1973).** Full 46-instruction ISA + SRC/WRM/RDM/WMP/WRR/WPM/WR0..3/RD0..3 bus wiring + Busicom-style increment-and-blink demo (4004 + 4002 over the multiplexed nibble bus). |
 | **test_4040/**| ✅ 7   | ✅    | **🎯 7/7 passing. ~600 LOC clean-room from Intel MCS-40 manual (Nov 1974).** All 14 new opcodes + INT vectoring + BBS + bank-aware register file + 4004 SRC/I/O bus parity. |
 | **test_8080/**| ✅ 20  | ✅    | **🎯 19 passing. ~470 LOC clean-room from Intel 1975/1981 manuals.** CPUDIAG end-to-end run lives in cpudiag.test.js. |
 | **test_8086/**| ✅ 16  | ✅    | **🎯 7 passing + 9 deferred (skipIf TODO areas). ~800 LOC clean-room from Intel iAPX 86,88 User's Manual (Oct 1979).** Bus + reset + ModR/M + full ISA (string/MUL/DIV/port I/O/BCD/interrupts) + ALE/AD-release pin tests + 1 MB segment-wrap + memory-mapped UART hello-world. |
 | **test_z80/**| ✅ 22  | ✅    | **🎯 22 passing. ~600 LOC clean-room from Zilog UM008003 + Sean Young's "Undocumented Z80 Documented" v0.91.** Full bus + ISA + INT (IM 0/1/2 incl. vector-table lookup) + NMI + LDIR + IX/IY + EXX. ZEXDOC end-to-end run lives in zexdoc.test.js. |
 
-Total: **126 tests authored, 125 passing** across 19 test files,
-0 skipping, 1 todo (Busicom 141-PF demo, awaiting firmware ROM),
-0 failed.
+Total: **126 tests authored, 126 passing** across 19 test files,
+0 skipping, 0 todo, 0 failed.
 
 | Chip | Type | Tests | LOC | Validation |
 | --- | --- | --- | --- | --- |
