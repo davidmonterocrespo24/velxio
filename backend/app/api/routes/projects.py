@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -8,26 +9,89 @@ from app.core.dependencies import get_current_user, require_auth
 from app.database.session import get_db
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest, SketchFile
+from app.schemas.project import (
+    FileGroup,
+    ProjectCreateRequest,
+    ProjectResponse,
+    ProjectUpdateRequest,
+    SketchFile,
+)
 from app.services.metrics import record_project_open, record_save
-from app.services.project_files import delete_files, read_files, write_files
+from app.services.project_files import (
+    LEGACY_GROUP_KEY,
+    delete_files,
+    read_groups,
+    write_groups,
+)
 from app.utils.slug import slugify
 
 router = APIRouter()
 
 
-def _files_for_project(project: Project) -> list[SketchFile]:
-    """Load files from disk; fall back to legacy code field if disk is empty."""
-    disk = read_files(project.id)
-    if disk:
-        return [SketchFile(name=f["name"], content=f["content"]) for f in disk]
-    # Legacy: single sketch.ino from DB code field
-    if project.code:
-        return [SketchFile(name="sketch.ino", content=project.code)]
-    return []
+def _active_group_id(project: Project) -> str:
+    """Group ID that holds the active board's files. Used to label legacy
+    flat-layout files when promoting them into the multi-group response."""
+    # Try to extract activeFileGroupId from boards_json; fall back to a derived
+    # name based on board_type. This matches the frontend convention
+    # `group-${boardId}` (see useSimulatorStore.ts:615).
+    try:
+        boards = json.loads(project.boards_json or "[]")
+        if isinstance(boards, list) and boards:
+            first = boards[0]
+            if isinstance(first, dict):
+                gid = first.get("activeFileGroupId")
+                if isinstance(gid, str) and gid:
+                    return gid
+    except (ValueError, TypeError):
+        pass
+    return f"group-{project.board_type or 'arduino-uno'}"
+
+
+def _groups_for_project(project: Project) -> list[FileGroup]:
+    """Load files from disk grouped per-board. Promotes legacy flat layouts
+    into a single group keyed off the project's active board id."""
+    raw = read_groups(project.id)
+    if not raw:
+        if project.code:
+            # No on-disk files but a legacy code field: synthesise a single
+            # sketch.ino under the active group.
+            return [
+                FileGroup(
+                    groupId=_active_group_id(project),
+                    files=[SketchFile(name="sketch.ino", content=project.code)],
+                )
+            ]
+        return []
+
+    groups: list[FileGroup] = []
+    if LEGACY_GROUP_KEY in raw:
+        legacy_files = raw.pop(LEGACY_GROUP_KEY)
+        groups.append(
+            FileGroup(
+                groupId=_active_group_id(project),
+                files=[SketchFile(**f) for f in legacy_files],
+            )
+        )
+    for gid, files in raw.items():
+        groups.append(
+            FileGroup(groupId=gid, files=[SketchFile(**f) for f in files])
+        )
+    return groups
+
+
+def _files_for_active_board(groups: list[FileGroup], project: Project) -> list[SketchFile]:
+    """Pick the SketchFile list of the active board (legacy `files` field)."""
+    if not groups:
+        return []
+    target = _active_group_id(project)
+    for g in groups:
+        if g.groupId == target:
+            return list(g.files)
+    return list(groups[0].files)
 
 
 def _to_response(project: Project, owner_username: str) -> ProjectResponse:
+    groups = _groups_for_project(project)
     return ProjectResponse(
         id=project.id,
         name=project.name,
@@ -35,10 +99,12 @@ def _to_response(project: Project, owner_username: str) -> ProjectResponse:
         description=project.description,
         is_public=project.is_public,
         board_type=project.board_type,
-        files=_files_for_project(project),
+        files=_files_for_active_board(groups, project),
+        file_groups=groups,
         code=project.code,
         components_json=project.components_json,
         wires_json=project.wires_json,
+        boards_json=project.boards_json or "[]",
         owner_username=owner_username,
         created_at=project.created_at,
         updated_at=project.updated_at,
@@ -49,6 +115,44 @@ def _to_response(project: Project, owner_username: str) -> ProjectResponse:
         last_compiled_at=project.last_compiled_at,
         last_run_at=project.last_run_at,
     )
+
+
+def _persist_files_from_body(
+    project: Project,
+    body: "ProjectCreateRequest | ProjectUpdateRequest",
+) -> None:
+    """Write the request body's file representation to disk.
+
+    Priority:
+      1. ``body.file_groups`` (full multi-board layout) — full replace.
+      2. ``body.files`` (legacy single-board list) — update only the active
+         group, preserve other groups on disk.
+      3. ``body.code`` (legacy code field, create only) — wrap as sketch.ino
+         in the active group.
+    """
+    if body.file_groups is not None:
+        groups = {
+            g.groupId: [f.model_dump() for f in g.files] for g in body.file_groups
+        }
+        write_groups(project.id, groups)
+        return
+
+    legacy_files: list[dict] | None = None
+    if body.files is not None:
+        legacy_files = [f.model_dump() for f in body.files]
+    elif getattr(body, "code", None):
+        legacy_files = [{"name": "sketch.ino", "content": body.code}]
+
+    if not legacy_files:
+        return
+
+    # Update only the active group, leaving any other groups (multi-board
+    # projects) intact on disk.
+    active_gid = _active_group_id(project)
+    existing = read_groups(project.id)
+    existing.pop(LEGACY_GROUP_KEY, None)
+    existing[active_gid] = legacy_files
+    write_groups(project.id, existing)
 
 
 async def _unique_slug(db: AsyncSession, user_id: str, base_slug: str) -> str:
@@ -129,15 +233,14 @@ async def create_project(
         code=body.code,
         components_json=body.components_json,
         wires_json=body.wires_json,
+        boards_json=body.boards_json or "[]",
     )
     db.add(project)
     await db.commit()
     await db.refresh(project)
 
-    # Write sketch files to volume
-    files = body.files or ([SketchFile(name="sketch.ino", content=body.code)] if body.code else [])
-    if files:
-        write_files(project.id, [f.model_dump() for f in files])
+    # Write sketch files to volume (multi-group layout under {pid}/{gid}/...)
+    _persist_files_from_body(project, body)
 
     await record_save(db, user=user, project=project, is_create=True, request=request)
     return _to_response(project, user.username)
@@ -177,19 +280,16 @@ async def update_project(
         project.components_json = body.components_json
     if body.wires_json is not None:
         project.wires_json = body.wires_json
+    if body.boards_json is not None:
+        project.boards_json = body.boards_json
 
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(project)
 
-    # Write updated files to volume
-    if body.files is not None:
-        write_files(project.id, [f.model_dump() for f in body.files])
-    elif body.code is not None:
-        # Legacy: update sketch.ino from code field only if no files were sent
-        existing = read_files(project.id)
-        if not existing:
-            write_files(project.id, [{"name": "sketch.ino", "content": body.code}])
+    # Write updated files to volume (multi-group; legacy `files` only updates
+    # the active group, leaving other boards intact).
+    _persist_files_from_body(project, body)
 
     await record_save(db, user=user, project=project, is_create=False, request=request)
     return _to_response(project, user.username)

@@ -100,6 +100,11 @@ test/esp32-emulator/**/*.elf
 test/esp32-emulator/**/*.map
 test/esp32-emulator/out_*/
 
+# ESP32-CAM blink regression test (issue #129) — firmware compiled on the
+# fly via /api/compile/, never committed.
+test/esp32_cam/binaries/
+test/esp32_cam/out_*/
+
 # Arduino-cli compilation by-products (not needed for tests)
 **/*.ino.eep
 **/*.ino.with_bootloader.bin
@@ -129,8 +134,9 @@ frontend/src/__tests__/fixtures/rp2040-blink/
 **/*.ino.map
 **/*.ino.uf2
 .claude/scheduled_tasks.lock
-
-# Database / volume backups — contain user PII, never commit
-backups/
+backups/*
+# Sidecar checksum file for data/ backups (matches a specific .tar.gz snapshot)
+MANIFEST.sha256
 *.tar.gz
 *.sqlite-backup
+

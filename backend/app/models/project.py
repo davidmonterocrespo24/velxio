@@ -21,6 +21,8 @@ class Project(Base):
     code: Mapped[str] = mapped_column(Text, default="")
     components_json: Mapped[str] = mapped_column(Text, default="[]")
     wires_json: Mapped[str] = mapped_column(Text, default="[]")
+    # Multi-board state — array of {id, boardKind, x, y, activeFileGroupId, ...}
+    boards_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

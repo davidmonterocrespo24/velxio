@@ -140,6 +140,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend application code
 COPY backend/app/ ./app/
 
+# One-off maintenance scripts (e.g. backfill_boards_2026_05). Pure stdlib —
+# run with: docker exec velxio-app python /app/scripts/<script> --apply
+COPY backend/scripts/ ./scripts/
+
 # Setup Nginx configuration
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 

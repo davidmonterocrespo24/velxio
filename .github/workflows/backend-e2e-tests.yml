@@ -187,6 +187,19 @@ jobs:
         env:
           BACKEND_URL: http://localhost:8001
 
+      # ── ESP32-CAM regression test for issue #129 ───────────────────────
+      # Compiles an IRAM-safe blink sketch via /api/compile/ and asserts
+      # GPIO13 actually toggles in QEMU. Skips automatically if the
+      # backend hasn't come up; runs fully here because the previous
+      # steps already brought it up on port 8001.
+      - name: Install pytest + httpx + websockets
+        run: pip install pytest pytest-asyncio httpx websockets
+
+      - name: Run ESP32-CAM blink regression test (issue #129)
+        run: pytest test/esp32_cam/ -v --tb=short
+        env:
+          VELXIO_BACKEND_URL: http://localhost:8001
+
       # ── Always dump backend logs so failures are diagnosable ──────────────────
       - name: Show backend logs
         if: always()

@@ -309,8 +309,18 @@ interface SimulatorState {
   boards: BoardInstance[];
   activeBoardId: string | null;
 
-  addBoard: (boardKind: BoardKind, x: number, y: number) => string;
+  addBoard: (boardKind: BoardKind, x: number, y: number, explicitId?: string) => string;
   removeBoard: (boardId: string) => void;
+  /** Reload the entire workspace from a saved project payload. Tears down
+   *  all current boards, recreates them with their saved IDs (so wire
+   *  endpoints remain valid), restores file groups, components, wires. */
+  loadProjectState: (payload: {
+    boards: BoardInstance[];
+    fileGroups: Record<string, { name: string; content: string }[]>;
+    components: Component[];
+    wires: Wire[];
+    activeBoardId: string | null;
+  }) => void;
   updateBoard: (boardId: string, updates: Partial<BoardInstance>) => void;
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
   setActiveBoardId: (boardId: string) => void;
@@ -506,9 +516,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     boards: [INITIAL_BOARD],
     activeBoardId: INITIAL_BOARD_ID,
 
-    addBoard: (boardKind: BoardKind, x: number, y: number) => {
-      const existing = get().boards.filter((b) => b.boardKind === boardKind);
-      const id = existing.length === 0 ? boardKind : `${boardKind}-${existing.length + 1}`;
+    addBoard: (boardKind: BoardKind, x: number, y: number, explicitId?: string) => {
+      let id: string;
+      if (explicitId) {
+        id = explicitId;
+      } else {
+        const existing = get().boards.filter((b) => b.boardKind === boardKind);
+        id = existing.length === 0 ? boardKind : `${boardKind}-${existing.length + 1}`;
+      }
 
       const pm = new PinManager();
       pinManagerMap.set(id, pm);
@@ -674,6 +689,51 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       set((s) => ({
         boards: s.boards.map((b) => (b.id === boardId ? { ...b, ...updates } : b)),
       }));
+    },
+
+    loadProjectState: (payload) => {
+      const { stopSimulation, removeBoard, addBoard, setComponents, setWires,
+        setActiveBoardId, recalculateAllWirePositions } = get();
+      // Tear down current state
+      if (get().running) stopSimulation();
+      const oldIds = get().boards.map((b) => b.id);
+      oldIds.forEach((id) => removeBoard(id));
+
+      // Recreate boards with their saved ids so wire endpoints (which embed
+      // the literal board id) keep matching.
+      payload.boards.forEach((b) => {
+        addBoard(b.boardKind, b.x, b.y, b.id);
+        // Apply the rest of the saved fields that addBoard doesn't set.
+        if (b.languageMode && b.languageMode !== 'arduino') {
+          set((s) => ({
+            boards: s.boards.map((bb) =>
+              bb.id === b.id ? { ...bb, languageMode: b.languageMode } : bb,
+            ),
+          }));
+        }
+      });
+
+      // Replace editor file groups atomically. Skip groups that already exist
+      // (createFileGroup is a no-op for existing ids) — overwrite their files.
+      useEditorStore.getState().replaceFileGroups(payload.fileGroups);
+
+      // Components and wires
+      setComponents(payload.components);
+      setWires(payload.wires);
+
+      // Active board: prefer the saved one, fall back to the first.
+      const targetActive = payload.activeBoardId &&
+        get().boards.find((b) => b.id === payload.activeBoardId)
+        ? payload.activeBoardId
+        : (get().boards[0]?.id ?? null);
+      if (targetActive) setActiveBoardId(targetActive);
+
+      // Wires need a frame for the wokwi-elements to mount in the DOM before
+      // pinPositionCalculator can resolve their pinInfo.
+      requestAnimationFrame(() => {
+        recalculateAllWirePositions();
+        icUpdateWires(get().wires);
+      });
     },
 
     setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => {

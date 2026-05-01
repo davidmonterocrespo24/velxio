@@ -4,13 +4,61 @@ import { useAuthStore } from '../../store/useAuthStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { ShareModal } from './ShareModal';
 import { trackVisitGitHub, trackVisitDiscord } from '../../utils/analytics';
+import type { AutoSaveState } from '../../hooks/useAutoSaveProject';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
 const DISCORD_URL = 'https://discord.gg/3mARjJrh4E';
 
-interface AppHeaderProps {}
+interface AppHeaderProps {
+  /** Optional auto-save state — when set, renders a save status indicator. */
+  autoSave?: AutoSaveState;
+}
 
-export const AppHeader: React.FC<AppHeaderProps> = () => {
+const SAVE_STATUS_COPY: Record<AutoSaveState['status'], { label: string; color: string }> = {
+  idle: { label: 'Saved', color: '#7d8590' },
+  dirty: { label: 'Unsaved changes', color: '#f0883e' },
+  saving: { label: 'Saving…', color: '#3fb950' },
+  saved: { label: 'Saved', color: '#3fb950' },
+  error: { label: 'Save failed', color: '#f85149' },
+};
+
+const AutoSaveIndicator: React.FC<{ state: AutoSaveState }> = ({ state }) => {
+  const meta = SAVE_STATUS_COPY[state.status];
+  const tip =
+    state.status === 'error' && state.errorMessage
+      ? `Auto-save failed: ${state.errorMessage}`
+      : state.lastSavedAt
+        ? `Last saved ${new Date(state.lastSavedAt).toLocaleTimeString()}`
+        : 'Auto-save ready';
+  return (
+    <div
+      title={tip}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        fontSize: 12,
+        color: meta.color,
+        userSelect: 'none',
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: meta.color,
+          opacity: state.status === 'saving' ? 0.7 : 1,
+          animation: state.status === 'saving' ? 'velxio-pulse 1s ease-in-out infinite' : 'none',
+        }}
+      />
+      <span>{meta.label}</span>
+    </div>
+  );
+};
+
+export const AppHeader: React.FC<AppHeaderProps> = ({ autoSave }) => {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
@@ -127,6 +175,10 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
 
         {/* Right: share + auth + mobile hamburger */}
         <div className="header-right">
+          {/* Auto-save status — only when a project is loaded and the editor
+              page mounted the hook */}
+          {autoSave && currentProject && <AutoSaveIndicator state={autoSave} />}
+
           {/* Share button — visible when a project is loaded */}
           {currentProject && location.pathname === '/editor' && (
             <button

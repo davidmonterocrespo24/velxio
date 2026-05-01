@@ -9,6 +9,11 @@ export interface SketchFile {
   content: string;
 }
 
+export interface FileGroup {
+  groupId: string;
+  files: SketchFile[];
+}
+
 export interface ProjectResponse {
   id: string;
   name: string;
@@ -16,10 +21,12 @@ export interface ProjectResponse {
   description: string | null;
   is_public: boolean;
   board_type: string;
-  files: SketchFile[];
+  files: SketchFile[]; // active board's files (legacy)
+  file_groups: FileGroup[]; // all boards' file groups
   code: string; // legacy fallback
   components_json: string;
   wires_json: string;
+  boards_json: string; // serialized BoardInstance[]
   owner_username: string;
   created_at: string;
   updated_at: string;
@@ -30,10 +37,12 @@ export interface ProjectSaveData {
   description?: string;
   is_public: boolean;
   board_type: string;
-  files: SketchFile[];
+  files: SketchFile[]; // legacy: active board's files
+  file_groups?: FileGroup[]; // multi-board: all groups
   code?: string; // legacy fallback
   components_json: string;
   wires_json: string;
+  boards_json?: string; // serialized BoardInstance[]
 }
 
 export async function getMyProjects(): Promise<ProjectResponse[]> {

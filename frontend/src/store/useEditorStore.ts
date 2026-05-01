@@ -115,6 +115,8 @@ interface EditorState {
   setActiveGroup: (groupId: string) => void;
   getGroupFiles: (groupId: string) => WorkspaceFile[];
   updateGroupFile: (groupId: string, fileId: string, content: string) => void;
+  /** Replace ALL file groups atomically (used when loading a saved project). */
+  replaceFileGroups: (groups: Record<string, { name: string; content: string }[]>) => void;
 
   // Settings
   setTheme: (theme: 'vs-dark' | 'light') => void;
@@ -388,6 +390,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         f.id === fileId ? { ...f, content, modified: true } : f,
       );
       return { fileGroups: { ...s.fileGroups, [groupId]: groupFiles } };
+    });
+  },
+
+  replaceFileGroups: (groups) => {
+    const fileGroups: Record<string, WorkspaceFile[]> = {};
+    const activeGroupFileId: Record<string, string> = {};
+    const openGroupFileIds: Record<string, string[]> = {};
+    for (const [gid, files] of Object.entries(groups)) {
+      const wsFiles: WorkspaceFile[] = files.map((f, i) => ({
+        id: i === 0 ? `${gid}-main` : crypto.randomUUID(),
+        name: f.name,
+        content: f.content,
+        modified: false,
+      }));
+      fileGroups[gid] = wsFiles;
+      const firstId = wsFiles[0]?.id ?? `${gid}-main`;
+      activeGroupFileId[gid] = firstId;
+      openGroupFileIds[gid] = wsFiles[0] ? [firstId] : [];
+    }
+    set((s) => {
+      const activeGroupId = fileGroups[s.activeGroupId]
+        ? s.activeGroupId
+        : (Object.keys(fileGroups)[0] ?? s.activeGroupId);
+      const groupFiles = fileGroups[activeGroupId] ?? [];
+      return {
+        fileGroups,
+        activeGroupFileId,
+        openGroupFileIds,
+        activeGroupId,
+        // Mirror legacy flat fields to the active group
+        files: groupFiles,
+        activeFileId: activeGroupFileId[activeGroupId] ?? '',
+        openFileIds: openGroupFileIds[activeGroupId] ?? [],
+      };
     });
   },
 

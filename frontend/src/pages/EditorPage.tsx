@@ -28,6 +28,7 @@ import { useSimulatorStore, DEFAULT_BOARD_POSITION } from '../store/useSimulator
 import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useProjectStore } from '../store/useProjectStore';
+import { useAutoSaveProject } from '../hooks/useAutoSaveProject';
 import type { CompilationLog } from '../utils/compilationLogger';
 import '../App.css';
 
@@ -57,6 +58,10 @@ export const EditorPage: React.FC = () => {
       'Write, compile and simulate Arduino, ESP32, Raspberry Pi Pico, ESP32-C3, and Raspberry Pi 3 code in your browser. 19 boards, 5 CPU architectures, 48+ components. Free and open-source.',
     url: 'https://velxio.dev/editor',
   });
+
+  // Silent auto-save for the loaded project (only fires when authed AND
+  // currentProject has a UUID — see useAutoSaveProject for the gating rules).
+  const autoSave = useAutoSaveProject();
 
   const [editorWidthPct, setEditorWidthPct] = useState(45);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -277,7 +282,7 @@ export const EditorPage: React.FC = () => {
 
   return (
     <div className="app">
-      <AppHeader />
+      <AppHeader autoSave={autoSave} />
 
       {/* ── Mobile tab bar (top, above panels) ── */}
       {isMobile && (

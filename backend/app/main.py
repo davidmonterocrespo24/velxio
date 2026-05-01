@@ -72,6 +72,8 @@ async def lifespan(_app: FastAPI):
             "ALTER TABLE users ADD COLUMN signup_country VARCHAR(2)",
             "ALTER TABLE users ADD COLUMN last_country VARCHAR(2)",
             "ALTER TABLE usage_events ADD COLUMN country VARCHAR(2)",
+            # Multi-board persistence (replaces single board_type as the source of truth)
+            "ALTER TABLE projects ADD COLUMN boards_json TEXT NOT NULL DEFAULT '[]'",
         ]
         for stmt in legacy_migrations:
             try:

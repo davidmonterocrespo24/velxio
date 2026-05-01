@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useEditorStore } from '../../store/useEditorStore';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { createProject, updateProject } from '../../services/projectService';
 import { trackCreateProject, trackSaveProject } from '../../utils/analytics';
+import { buildSavePayload } from '../../utils/projectPayload';
 
 interface SaveProjectModalProps {
   onClose: () => void;
@@ -12,19 +11,6 @@ interface SaveProjectModalProps {
 
 export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) => {
   const navigate = useNavigate();
-  const { boards, activeBoardId, components, wires } = useSimulatorStore();
-  const activeBoard = boards.find((b) => b.id === activeBoardId) ?? boards[0];
-  // Use the active board's file group; fall back to legacy global files
-  const activeFiles = useEditorStore(
-    (s) =>
-      (s.fileGroups[activeBoard?.activeFileGroupId ?? '']?.length
-        ? s.fileGroups[activeBoard.activeFileGroupId]
-        : s.files) ?? s.files,
-  );
-  const boardKind = activeBoard?.boardKind ?? 'arduino-uno';
-  // Legacy: save primary .ino content for the project code field
-  const code =
-    activeFiles.find((f) => f.name.endsWith('.ino'))?.content ?? activeFiles[0]?.content ?? '';
   const currentProject = useProjectStore((s) => s.currentProject);
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
 
@@ -52,16 +38,11 @@ export const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ onClose }) =
     setSaving(true);
     setError('');
 
-    const payload = {
+    const payload = buildSavePayload({
       name: name.trim(),
       description: description.trim() || undefined,
-      is_public: isPublic,
-      board_type: boardKind,
-      files: activeFiles.map((f) => ({ name: f.name, content: f.content })),
-      code,
-      components_json: JSON.stringify(components),
-      wires_json: JSON.stringify(wires),
-    };
+      isPublic,
+    });
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isValidUpdate = isUpdate && currentProject && UUID_RE.test(currentProject.id);

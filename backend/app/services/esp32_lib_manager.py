@@ -49,15 +49,26 @@ logger = logging.getLogger(__name__)
 # ── Library path detection ────────────────────────────────────────────────────
 _SERVICES_DIR = pathlib.Path(__file__).parent
 
+# Per-platform shared library extension. The build-libqemu CI publishes
+# .so for Linux, .dll for Windows MINGW64, .dylib for macOS — and the
+# release-download step in Dockerfile.standalone / native installers
+# renames the arch-specific asset to the bare name expected here.
+if sys.platform == 'win32':
+    _LIB_EXT = '.dll'
+elif sys.platform == 'darwin':
+    _LIB_EXT = '.dylib'
+else:
+    _LIB_EXT = '.so'
+
 # Xtensa library (ESP32, ESP32-S3)
-_LIB_XTENSA_NAME = 'libqemu-xtensa.dll' if sys.platform == 'win32' else 'libqemu-xtensa.so'
+_LIB_XTENSA_NAME = f'libqemu-xtensa{_LIB_EXT}'
 _DEFAULT_LIB_XTENSA = str(_SERVICES_DIR / _LIB_XTENSA_NAME)
 LIB_PATH: str = os.environ.get('QEMU_ESP32_LIB', '') or (
     _DEFAULT_LIB_XTENSA if os.path.isfile(_DEFAULT_LIB_XTENSA) else ''
 )
 
 # RISC-V library (ESP32-C3)
-_LIB_RISCV_NAME = 'libqemu-riscv32.dll' if sys.platform == 'win32' else 'libqemu-riscv32.so'
+_LIB_RISCV_NAME = f'libqemu-riscv32{_LIB_EXT}'
 _DEFAULT_LIB_RISCV = str(_SERVICES_DIR / _LIB_RISCV_NAME)
 LIB_RISCV_PATH: str = os.environ.get('QEMU_RISCV32_LIB', '') or (
     _DEFAULT_LIB_RISCV if os.path.isfile(_DEFAULT_LIB_RISCV) else ''

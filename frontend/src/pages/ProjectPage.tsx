@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getProject } from '../services/projectService';
-import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useProjectStore } from '../store/useProjectStore';
 import { EditorPage } from './EditorPage';
+import { buildLoadPayload } from './ProjectByIdPage';
 
 /**
  * Legacy route: /:username/:projectName
@@ -14,8 +14,7 @@ import { EditorPage } from './EditorPage';
 export const ProjectPage: React.FC = () => {
   const { username, projectName } = useParams<{ username: string; projectName: string }>();
   const navigate = useNavigate();
-  const loadFiles = useEditorStore((s) => s.loadFiles);
-  const { setComponents, setWires, setBoardType } = useSimulatorStore();
+  const loadProjectState = useSimulatorStore((s) => s.loadProjectState);
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -24,18 +23,7 @@ export const ProjectPage: React.FC = () => {
     if (!username || !projectName) return;
     getProject(username, projectName)
       .then((project) => {
-        const files =
-          project.files.length > 0
-            ? project.files
-            : [{ name: 'sketch.ino', content: project.code }];
-        loadFiles(files);
-        setBoardType(project.board_type as any);
-        try {
-          setComponents(JSON.parse(project.components_json));
-          setWires(JSON.parse(project.wires_json));
-        } catch {
-          // keep defaults
-        }
+        loadProjectState(buildLoadPayload(project));
         setCurrentProject({
           id: project.id,
           slug: project.slug,

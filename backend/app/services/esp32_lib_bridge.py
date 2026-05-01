@@ -53,7 +53,12 @@ logger = logging.getLogger(__name__)
 _MINGW64_BIN = r"C:\msys64\mingw64\bin"
 
 # Default library path: .dll on Windows, .so on Linux/macOS
-_LIB_NAME = "libqemu-xtensa.dll" if sys.platform == "win32" else "libqemu-xtensa.so"
+if sys.platform == "win32":
+    _LIB_NAME = "libqemu-xtensa.dll"
+elif sys.platform == "darwin":
+    _LIB_NAME = "libqemu-xtensa.dylib"
+else:
+    _LIB_NAME = "libqemu-xtensa.so"
 _DEFAULT_LIB = str(pathlib.Path(__file__).parent / _LIB_NAME)
 
 # ── GPIO pinmap ──────────────────────────────────────────────────────────────
