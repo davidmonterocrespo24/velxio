@@ -1209,7 +1209,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               );
               return { boards, serialBaudRate: baud };
             }),
-          getOscilloscopeCallback(),
+          getOscilloscopeCallback(boardId),
         );
         simulatorMap.set(boardId, sim);
 
@@ -1289,7 +1289,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               );
               return { boards, serialBaudRate: baud };
             }),
-          getOscilloscopeCallback(),
+          getOscilloscopeCallback(boardId),
         );
         simulatorMap.set(boardId, sim);
         set({ simulator: sim, serialOutput: '', serialBaudRate: 0 });
