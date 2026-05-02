@@ -516,7 +516,11 @@ class ArduinoCLIService:
                 # frontend can access lib.latest.version / author / sentence directly.
                 def _parse_version(v: str):
                     try:
-                        return tuple(int(x) for x in v.split("."))
+                        parts = v.split(".")
+                        # Reject if any part is not a digit (filters out "1_2_3", "beta", "latest")
+                        if any(not p.isdigit() for p in parts):
+                            return (0,)
+                        return tuple(int(p) for p in parts)
                     except Exception:
                         return (0,)
 
@@ -539,16 +543,41 @@ class ArduinoCLIService:
         Install an Arduino library.
         Handles standard library names as well as Wokwi-hosted entries in
         the form  "LibName@wokwi:projectHash".
+        Also handles versioned installs via "LibName@version" syntax
+        (e.g. "Adafruit NeoPixel@1.11.0").
+
+        @latest is stripped — arduino-cli does not support it.
+        Malformed version strings (non-semver) fall back to plain name install.
         """
         if '@wokwi:' in library_name:
             return await self._install_wokwi_library(library_name)
 
+        # Strip @latest — arduino-cli does not support this token
+        if library_name.endswith('@latest'):
+            library_name = library_name[:-7]
+
         try:
             print(f"Installing library: {library_name}")
 
+            # Handle "Name@version" syntax for versioned installs
+            # Only quote if the version part is valid semver (major.minor.patch)
+            import re
+            lib_spec = library_name
+            if '@' in library_name:
+                parts = library_name.rsplit('@', 1)
+                if len(parts) == 2 and parts[1]:
+                    version = parts[1]
+                    # Validate semver: major.minor.patch (all numeric)
+                    if re.fullmatch(r'\d+\.\d+\.\d+', version):
+                        lib_spec = library_name  # no quotes needed — subprocess passes args literally
+                    else:
+                        # Bad/empty version — fall back to plain name
+                        library_name = parts[0]
+                        lib_spec = library_name
+
             def _run():
                 return subprocess.run(
-                    [self.cli_path, "lib", "install", library_name],
+                    [self.cli_path, "lib", "install", lib_spec],
                     capture_output=True, text=True, encoding='utf-8', errors='replace'
                 )
 
@@ -558,6 +587,27 @@ class ArduinoCLIService:
                 print(f"Successfully installed {library_name}")
                 return {"success": True, "stdout": result.stdout}
             else:
+                # If a specific version failed, retry with plain name (latest) in case
+                # the version string is valid semver but rejected by arduino-cli for
+                # other reasons (e.g. leading zeros, lib index corruption).
+                if '@' in library_name:
+                    plain_name = library_name.rsplit('@', 1)[0]
+                    version = library_name.rsplit('@', 1)[1]
+                    print(f"Versioned install failed, retrying with plain name: {plain_name}")
+                    def _run_plain():
+                        return subprocess.run(
+                            [self.cli_path, "lib", "install", plain_name],
+                            capture_output=True, text=True, encoding='utf-8', errors='replace'
+                        )
+                    result = await asyncio.to_thread(_run_plain)
+                    if result.returncode == 0:
+                        print(f"Successfully installed {plain_name} (fallback to latest)")
+                        return {
+                            "success": True,
+                            "stdout": result.stdout,
+                            "fallback": True,
+                            "requested_version": version,
+                        }
                 print(f"Failed to install {library_name}: {result.stderr}")
                 return {"success": False, "error": result.stderr, "stdout": result.stdout}
 
@@ -718,4 +768,30 @@ class ArduinoCLIService:
 
         except Exception as e:
             print(f"Exception listing libraries: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def uninstall_library(self, library_name: str) -> dict:
+        """
+        Uninstall an Arduino library.
+        """
+        try:
+            print(f"Uninstalling library: {library_name}")
+
+            def _run():
+                return subprocess.run(
+                    [self.cli_path, "lib", "uninstall", library_name],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace'
+                )
+
+            result = await asyncio.to_thread(_run)
+
+            if result.returncode == 0:
+                print(f"Successfully uninstalled {library_name}")
+                return {"success": True, "stdout": result.stdout}
+            else:
+                print(f"Failed to uninstall {library_name}: {result.stderr}")
+                return {"success": False, "error": result.stderr, "stdout": result.stdout}
+
+        except Exception as e:
+            print(f"Exception uninstalling library: {e}")
             return {"success": False, "error": str(e)}
