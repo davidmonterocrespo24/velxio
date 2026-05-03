@@ -72,14 +72,25 @@
 SPIClass tftSPI(VSPI);
 Adafruit_ILI9341 tft = Adafruit_ILI9341(&tftSPI, TFT_DC, TFT_CS, TFT_RST);
 
-// Preview is scaled 1/2 from the QVGA capture (320×240 → 160×120).
-// 160 × 120 × 2 bytes = 38 400 bytes — fits comfortably in DRAM.
-// Centered in the 320×240 landscape TFT at offset (80, 60).
-#define PREVIEW_W  160
-#define PREVIEW_H  120
-#define PREVIEW_X   80
-#define PREVIEW_Y   60
+// Preview is scaled 1/4 from the QVGA capture (320×240 → 80×60).
+// 80 × 60 × 2 bytes = 9 600 bytes — minimal SPI traffic per frame.
+// Centered in the 320×240 landscape TFT.
+//
+// Why so small: every SPI byte takes a full QEMU→worker→backend→
+// frontend round-trip. drawRGBBitmap pushes width×height×2 bytes;
+// at 80×60 that's 9 600 SPI events per frame vs 38 400 at 160×120.
+// Net effect on the user: roughly 4× faster perceived FPS in the
+// emulator. Real hardware doesn't care — its SPI runs at 80 MHz.
+#define PREVIEW_W   80
+#define PREVIEW_H   60
+#define PREVIEW_X  120   // (320 - 80) / 2
+#define PREVIEW_Y   90   // (240 - 60) / 2
 static uint8_t rgbBuf[PREVIEW_W * PREVIEW_H * 2];
+
+// Throttle the status-bar redraw — text writes hit SPI too. Updating
+// the bar once every STATUS_REFRESH_EVERY frames keeps the headline
+// numbers visible without burning bandwidth on every loop iteration.
+#define STATUS_REFRESH_EVERY  10
 
 // Counters for status overlay
 uint32_t frame_count   = 0;
@@ -223,19 +234,15 @@ void loop() {
   frame_count++;
   size_t fb_len = fb->len;
 
-  // Decode the JPEG into RGB565 at half resolution (160×120).
-  // The conversions library ships inside libesp32-camera.a; the
-  // Velxio CMakeLists template adds the include path automatically.
-  bool ok = jpg2rgb565(fb->buf, fb->len, rgbBuf, JPG_SCALE_2X);
+  // Decode the JPEG into RGB565 at 1/4 resolution (80×60).
+  bool ok = jpg2rgb565(fb->buf, fb->len, rgbBuf, JPG_SCALE_4X);
   esp_camera_fb_return(fb);
 
   if (ok) {
-    // Push the bitmap to the centre of the TFT.
     tft.drawRGBBitmap(PREVIEW_X, PREVIEW_Y,
                       (uint16_t*)rgbBuf, PREVIEW_W, PREVIEW_H);
   } else {
     decode_fails++;
-    // Decode failure → grey rectangle with an X.
     tft.fillRect(PREVIEW_X, PREVIEW_Y, PREVIEW_W, PREVIEW_H, ILI9341_DARKGREY);
     tft.drawLine(PREVIEW_X, PREVIEW_Y,
                  PREVIEW_X + PREVIEW_W, PREVIEW_Y + PREVIEW_H, ILI9341_RED);
@@ -243,9 +250,10 @@ void loop() {
                  PREVIEW_X, PREVIEW_Y + PREVIEW_H, ILI9341_RED);
   }
 
-  // Always refresh the status bar (cheap — only top 60 px).
-  draw_status_bar((uint32_t)fb_len, ok);
-
-  // Mild throttle so the CPU has time to refresh the SPI bus.
-  delay(20);
+  // Throttled status-bar redraw — every Nth frame only. Text writes hit
+  // the SPI bus too; updating once every STATUS_REFRESH_EVERY frames
+  // keeps the headline visible without burning bandwidth on every loop.
+  if (frame_count % STATUS_REFRESH_EVERY == 0) {
+    draw_status_bar((uint32_t)fb_len, ok);
+  }
 }
