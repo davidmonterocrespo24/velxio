@@ -793,17 +793,19 @@ PartSimulationRegistry.register('lcd2002', createLcdSimulation(20, 2));
  * DC/RS pin: LOW = command byte, HIGH = data bytes.
  */
 const ili9341Simulation = {
-  attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
+  attachEvents: (element, simulator, getArduinoPinHelper) => {
     const el = element as any;
-    const pinManager = (avrSimulator as any).pinManager;
-    const spi = (avrSimulator as any).spi;
-    // ESP32 path: simulator is Esp32BridgeShim — no .spi member, but it
-    // exposes getBridge() to subscribe to the worker's spi_event stream.
-    const getBridge = (avrSimulator as any).getBridge;
-    const esp32Bridge = typeof getBridge === 'function' ? getBridge.call(avrSimulator) : null;
+    const pinManager = (simulator as any).pinManager;
+    // Generic .spi accessor — every simulator (AVR, RP2040, ESP32 family)
+    // exposes a SpiBusLike object via this name (see frontend/src/simulation/
+    // SpiBus.ts). Single-listener channel: assign to spi.onByte and
+    // chain any prior handler in our cleanup.
+    const spi = (simulator as any).spi as
+      | { onByte: ((mosi: number) => void) | null;
+          completeTransfer?: (miso: number) => void }
+      | undefined;
 
-    if (!pinManager) return () => {};
-    if (!spi && !esp32Bridge) return () => {};
+    if (!pinManager || !spi) return () => {};
 
     // ── Canvas setup ──────────────────────────────────────────────────
     const SCREEN_W = 240;
@@ -955,39 +957,25 @@ const ili9341Simulation = {
       }
     };
 
-    // ── Intercept SPI ─────────────────────────────────────────────────
-    let prevOnByte: ((value: number) => void) | null = null;
-    let prevSpiByte: ((mosi: number) => void) | null = null;
-
-    if (spi) {
-      // AVR (Arduino) path — hook the simulator's SPI peripheral
-      prevOnByte = spi.onByte.bind(spi);
-      spi.onByte = (value: number) => {
-        if (!dcState) processCommand(value);
-        else          processData(value);
-        spi.completeTransfer(0xff);
-      };
-    } else if (esp32Bridge) {
-      // ESP32 path — subscribe to the QEMU worker's SPI byte stream
-      // routed through the Esp32Bridge. Each byte arrives via onSpiByte
-      // (CS gating is left to the user's wiring; with one ILI9341 on the
-      // bus this works without explicit CS tracking). DC tracking still
-      // happens via pinManager.onPinChange above — that path is shared
-      // because the Esp32BridgeShim's pinManager fires on every gpio
-      // change emitted by the worker.
-      prevSpiByte = esp32Bridge.onSpiByte;
-      esp32Bridge.onSpiByte = (mosi: number) => {
-        if (!dcState) processCommand(mosi);
-        else          processData(mosi);
-        // Chain to any prior subscriber (defensive — there shouldn't be one)
-        if (prevSpiByte) prevSpiByte(mosi);
-      };
-    }
+    // ── Intercept SPI (board-agnostic) ────────────────────────────────
+    // Single hook regardless of board kind: every simulator's `.spi`
+    // exposes the same shape — settable onByte handler + optional
+    // completeTransfer to drive MISO. AVR and RP2040 actually use
+    // completeTransfer; ESP32 ignores it (worker drives MISO via
+    // its own _spi_response global).
+    const prevOnByte = spi.onByte;
+    spi.onByte = (value: number) => {
+      if (!dcState) processCommand(value);
+      else          processData(value);
+      // Idle-byte response — the typical ILI9341 driver writes only,
+      // so any value works. 0xff matches what the prior AVR path
+      // returned to keep behaviour stable.
+      spi.completeTransfer?.(0xff);
+    };
 
     // ── Cleanup ───────────────────────────────────────────────────────
     return () => {
-      if (spi && prevOnByte) spi.onByte = prevOnByte;
-      if (esp32Bridge) esp32Bridge.onSpiByte = prevSpiByte;
+      spi.onByte = prevOnByte;
       if (rafId !== null) cancelAnimationFrame(rafId);
       el.removeEventListener('canvas-ready', onCanvasReady);
       unsubscribers.forEach((u) => u());
