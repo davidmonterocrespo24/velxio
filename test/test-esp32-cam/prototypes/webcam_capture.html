@@ -1,0 +1,203 @@
+<!doctype html>
+<!--
+  webcam_capture.html — standalone prototype for the webcam → WebSocket
+  path described in autosearch/03_browser_webcam_capture.md.
+
+  Open this file directly in a browser (Chrome / Firefox / Safari ≥16.4).
+  It captures the user's webcam, encodes 320×240 JPEGs at 10 fps, and
+  ships them as binary frames over a WebSocket. There's a counter and a
+  preview <img> that re-decodes the JPEG to verify the round-trip.
+
+  By default it points at  ws://localhost:8765 — a tiny echo server
+  that's NOT bundled with this repo. Easiest one-liner:
+
+      pip install websockets
+      python -c "
+      import asyncio, websockets, sys
+      n=[0]
+      async def h(ws):
+          async for m in ws:
+              if isinstance(m, (bytes, bytearray)):
+                  n[0]+=1
+                  print(f'frame {n[0]}: {len(m)} bytes', file=sys.stderr)
+                  await ws.send(m)   # echo back so the page can preview
+      async def main():
+          async with websockets.serve(h, 'localhost', 8765):
+              await asyncio.Future()
+      asyncio.run(main())
+      "
+
+  Then open this HTML, click 'Start camera', grant permission, and watch
+  the counter climb. If the preview image updates ~10 fps you've
+  validated the whole transport — frame format, MIME, base64-or-binary
+  framing, bandwidth — without depending on the QEMU side at all.
+
+  This file lives under tests/ but isn't run by pytest; it's a manual
+  smoke prototype for the camera path. When the production hook ships
+  in frontend/src/hooks/useWebcamFrames.ts, this file's logic is the
+  reference.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Velxio webcam → WS prototype</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #1e1e1e; color: #ddd; padding: 20px; }
+    button { padding: 8px 14px; background: #0e639c; border: none; color: #fff; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    button[disabled] { opacity: 0.5; cursor: default; }
+    .row { display: flex; gap: 24px; margin-top: 16px; align-items: flex-start; }
+    .panel { background: #252526; padding: 12px; border: 1px solid #3c3c3c; border-radius: 6px; }
+    label { display: block; font-size: 12px; color: #999; margin-bottom: 4px; }
+    input { background: #3c3c3c; color: #ddd; border: 1px solid #555; padding: 4px 8px; border-radius: 3px; }
+    .stats { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+    .ok { color: #3fb950; }
+    .err { color: #f85149; }
+    video, img, canvas { background: #000; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h2>Velxio webcam → WebSocket prototype</h2>
+  <p>Validates the camera transport end-to-end without QEMU. See header comment for the matching echo-server one-liner.</p>
+
+  <div class="panel">
+    <label for="ws-url">WebSocket URL</label>
+    <input id="ws-url" value="ws://localhost:8765" size="40" />
+    &nbsp;
+    <label for="fps" style="display:inline">FPS</label>
+    <input id="fps" type="number" value="10" min="1" max="30" style="width:60px" />
+    &nbsp;
+    <label for="quality" style="display:inline">JPEG quality</label>
+    <input id="quality" type="number" value="0.6" min="0.1" max="1" step="0.1" style="width:60px" />
+    &nbsp;
+    <button id="start">Start camera</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <strong>Source (live video)</strong>
+      <div><video id="video" width="320" height="240" autoplay muted playsinline></video></div>
+    </div>
+    <div class="panel">
+      <strong>Round-trip preview (echoed back)</strong>
+      <div><img id="preview" width="320" height="240" alt="preview" /></div>
+    </div>
+    <div class="panel stats">
+      <div>WS state:        <span id="state">idle</span></div>
+      <div>Frames sent:     <span id="sent">0</span></div>
+      <div>Frames echoed:   <span id="echoed">0</span></div>
+      <div>Last frame size: <span id="size">0</span> bytes</div>
+      <div>Avg bytes/sec:   <span id="bps">0</span></div>
+      <div>Errors:          <span id="errors" class="err">none</span></div>
+    </div>
+  </div>
+
+  <canvas id="canvas" width="320" height="240" style="display:none"></canvas>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const video = $('video');
+      const canvas = $('canvas');
+      const preview = $('preview');
+      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+
+      let stream = null;
+      let ws = null;
+      let timer = null;
+      let stats = { sent: 0, echoed: 0, bytes: 0, started: 0 };
+
+      const setState = (s, ok = true) => {
+        const el = $('state');
+        el.textContent = s;
+        el.className = ok ? 'ok' : 'err';
+      };
+
+      const updateStats = () => {
+        $('sent').textContent = stats.sent;
+        $('echoed').textContent = stats.echoed;
+        const elapsed = (performance.now() - stats.started) / 1000;
+        $('bps').textContent = elapsed > 0 ? Math.round(stats.bytes / elapsed) : 0;
+      };
+
+      $('start').addEventListener('click', async () => {
+        $('start').disabled = true;
+        $('errors').textContent = 'none';
+        $('errors').className = 'ok';
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 320, height: 240, frameRate: { ideal: 10, max: 15 } },
+            audio: false,
+          });
+          video.srcObject = stream;
+          await video.play();
+        } catch (e) {
+          $('errors').textContent = e.name + ': ' + e.message;
+          $('errors').className = 'err';
+          $('start').disabled = false;
+          return;
+        }
+
+        const url = $('ws-url').value;
+        const fps = Math.max(1, Math.min(30, parseInt($('fps').value || '10', 10)));
+        const quality = Math.max(0.1, Math.min(1, parseFloat($('quality').value || '0.6')));
+
+        ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          setState('open');
+          stats = { sent: 0, echoed: 0, bytes: 0, started: performance.now() };
+          $('stop').disabled = false;
+
+          timer = setInterval(async () => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ctx.drawImage(video, 0, 0, 320, 240);
+            // Synchronous toBlob path: works in all target browsers.
+            const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
+            if (!blob) return;
+            const buf = await blob.arrayBuffer();
+            ws.send(buf);
+            stats.sent++;
+            stats.bytes += buf.byteLength;
+            $('size').textContent = buf.byteLength;
+            updateStats();
+          }, 1000 / fps);
+        };
+
+        ws.onmessage = (ev) => {
+          stats.echoed++;
+          updateStats();
+          // Decode the echoed bytes for visual confirmation.
+          if (ev.data instanceof ArrayBuffer) {
+            const blob = new Blob([ev.data], { type: 'image/jpeg' });
+            preview.src = URL.createObjectURL(blob);
+            // Revoke after the next frame loads to avoid leaking objectURLs.
+            preview.onload = () => URL.revokeObjectURL(preview.src);
+          }
+        };
+
+        ws.onerror = (e) => {
+          $('errors').textContent = 'WebSocket error (check server)';
+          $('errors').className = 'err';
+        };
+
+        ws.onclose = () => {
+          setState('closed', false);
+          if (timer) { clearInterval(timer); timer = null; }
+          $('stop').disabled = true;
+          $('start').disabled = false;
+        };
+      });
+
+      $('stop').addEventListener('click', () => {
+        if (ws) ws.close();
+        if (timer) { clearInterval(timer); timer = null; }
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+        setState('idle');
+      });
+    })();
+  </script>
+</body>
+</html>

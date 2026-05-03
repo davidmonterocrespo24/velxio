@@ -250,6 +250,28 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                 else:
                     esp_qemu_manager.sensor_detach(client_id, pin)
 
+            # ── ESP32-CAM camera frame injection ───────────────────────────
+            # Browser pushes JPEGs from getUserMedia. Backend forwards to the
+            # worker which writes them into the I²S camera peripheral.
+            # See test/test-esp32-cam/autosearch/04_proposed_architecture.md
+            elif msg_type == 'esp32_camera_attach':
+                if _use_lib():
+                    esp_lib_manager.camera_attach(client_id, msg_data)
+
+            elif msg_type == 'esp32_camera_frame':
+                if _use_lib():
+                    esp_lib_manager.camera_frame(
+                        client_id,
+                        msg_data.get('b64', ''),
+                        fmt=msg_data.get('fmt', 'jpeg'),
+                        width=int(msg_data.get('w', 0)),
+                        height=int(msg_data.get('h', 0)),
+                    )
+
+            elif msg_type == 'esp32_camera_detach':
+                if _use_lib():
+                    esp_lib_manager.camera_detach(client_id)
+
             # ── ESP32 status query ────────────────────────────────────────
             elif msg_type == 'esp32_status':
                 if _use_lib():

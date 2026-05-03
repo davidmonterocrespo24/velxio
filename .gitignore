@@ -89,6 +89,17 @@ backend/app/services/esp32-v3-rom.bin
 backend/app/services/esp32-v3-rom-app.bin
 backend/app/services/esp32c3-rom.bin
 
+# QEMU DLL backups / intermediate builds — local rollback points only,
+# never committed (huge, recreated by rebuilding the qemu-lcgamboa fork).
+backend/app/services/libqemu-*.dll.pre-camera
+backend/app/services/libqemu-*.dll.new
+backend/app/services/libqemu-*.dll.bak
+
+# esp32-camera repo is cloned during dev (used as include path by the
+# arduino-esp32 toolchain via ARDUINO_ESP32_PATH). Not a submodule and
+# not part of the main repo — gitignored to keep the working tree clean.
+wokwi-libs/esp32-camera/
+
 # Pre-built QEMU .so for Docker (built by build-qemu.sh — ~30MB Linux binaries)
 prebuilt/*
 !prebuilt/qemu/

@@ -110,6 +110,12 @@ export class Esp32Bridge {
   onI2cEvent: ((addr: number, data: number) => void) | null = null;
   onI2cTransaction: ((addr: number, data: number[]) => void) | null = null;
   onSpiEvent: ((data: number) => void) | null = null;
+  /** Same as onSpiEvent but more explicit (a single MOSI byte). */
+  onSpiByte: ((mosi: number) => void) | null = null;
+  /** Fires on every CS line change emitted by the SoC's SPI peripheral.
+   * `csIdx` is the index of the CS pin within the SPI bus (0-3 typical),
+   * `low` is true when CS goes LOW (slave selected), false when HIGH. */
+  onSpiCsChange: ((csIdx: number, low: boolean) => void) | null = null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   onError: ((msg: string) => void) | null = null;
@@ -287,8 +293,25 @@ export class Esp32Bridge {
           break;
         }
         case 'spi_event': {
-          const data = msg.data.data as number;
-          this.onSpiEvent?.(data);
+          // Worker emits {bus, event, response}. The 'event' field encodes:
+          //   event = mosi << 8        (op = event & 0xFF == 0x00) → byte transfer
+          //   event = ((cs<<1)|level) << 8 | 0x01 (op == 0x01)     → CS line change
+          // See backend/app/services/esp32_worker.py::_on_spi_event.
+          const event = msg.data.event as number;
+          const op    = (event ?? 0) & 0xFF;
+          if (op === 0x00) {
+            const mosi = (event >> 8) & 0xFF;
+            this.onSpiEvent?.(mosi);
+            this.onSpiByte?.(mosi);
+          } else if (op === 0x01) {
+            const csIdx = (event >> 9) & 0x3;
+            const level = (event >> 8) & 0x1;
+            this.onSpiCsChange?.(csIdx, level === 1);
+          }
+          // Backwards-compat path for callers reading the old `data` field.
+          if (msg.data.data !== undefined) {
+            this.onSpiEvent?.(msg.data.data as number);
+          }
           break;
         }
         case 'system': {
@@ -472,6 +495,43 @@ export class Esp32Bridge {
   sendSensorDetach(pin: number): void {
     this._pendingSensors = this._pendingSensors.filter((s) => s['pin'] !== pin);
     this._send({ type: 'esp32_sensor_detach', data: { pin } });
+  }
+
+  // ── ESP32-CAM webcam injection ────────────────────────────────────────────
+  /** Tell the backend a frame source is connected (call once when the user
+   *  grants webcam permission). */
+  sendCameraAttach(): void {
+    this._send({ type: 'esp32_camera_attach', data: { board: 'esp32-cam' } });
+  }
+
+  /** Push one JPEG frame from the browser webcam to the emulator. The
+   *  backend forwards it via ctypes to the QEMU OV2640+I²S device, which
+   *  delivers the bytes to the firmware's DMA buffer.
+   *
+   *  Encoding: base64 in JSON. ~10–14 KB per QVGA frame at quality 0.6.
+   *  At 10 fps that's ~120 KB/s — trivial over local WS. */
+  sendCameraFrame(jpegBytes: ArrayBuffer | Uint8Array,
+                  width = 320, height = 240): void {
+    const u8 = jpegBytes instanceof Uint8Array
+      ? jpegBytes
+      : new Uint8Array(jpegBytes);
+    // btoa needs a binary string; build one in 32 KB chunks to avoid
+    // "argument size limit" issues with very large frames.
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < u8.length; i += chunkSize) {
+      binary += String.fromCharCode(...u8.subarray(i, i + chunkSize));
+    }
+    const b64 = btoa(binary);
+    this._send({
+      type: 'esp32_camera_frame',
+      data: { fmt: 'jpeg', w: width, h: height, b64 },
+    });
+  }
+
+  /** Drop the queued frame. Call when the user stops the webcam. */
+  sendCameraDetach(): void {
+    this._send({ type: 'esp32_camera_detach', data: {} });
   }
 
   /**

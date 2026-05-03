@@ -11,6 +11,7 @@ import { DynamicComponent, createComponentFromMetadata } from '../DynamicCompone
 import { InstrumentComponent } from '../components-instruments/InstrumentComponent';
 import { ComponentRegistry } from '../../services/ComponentRegistry';
 import { getTabSessionId } from '../../simulation/Esp32Bridge';
+import { CameraToggle } from './CameraToggle';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle, WaypointHandle, AlignmentGuide } from './WireLayer';
 import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
@@ -1685,6 +1686,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               </svg>
               Serial
             </button>
+
+            {/* ESP32-CAM webcam stream toggle */}
+            {activeBoard?.boardKind === 'esp32-cam' && (
+              <CameraToggle boardId={activeBoard.id} />
+            )}
 
             {/* WiFi status indicator (ESP32 boards only) */}
             {activeBoard &&

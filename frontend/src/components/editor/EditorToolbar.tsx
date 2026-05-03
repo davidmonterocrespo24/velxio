@@ -244,8 +244,15 @@ export const EditorToolbar = ({
   const autoRunAfterCompile = useRef(false);
 
   const handleRun = async () => {
+    console.log('[handleRun] click', { activeBoardId, running, codeChangedSinceLastCompile });
     if (activeBoardId) {
       const board = boards.find((b) => b.id === activeBoardId);
+      console.log('[handleRun] active board', {
+        id: board?.id,
+        kind: board?.boardKind,
+        hasCompiledProgram: !!board?.compiledProgram,
+        compiledProgramLen: board?.compiledProgram?.length ?? 0,
+      });
 
       // MicroPython mode: stop any running session first, then reload firmware + start
       if (board?.languageMode === 'micropython') {
@@ -293,29 +300,52 @@ export const EditorToolbar = ({
       const isQemuBoard =
         board?.boardKind === 'raspberry-pi-3' ||
         board?.boardKind === 'esp32' ||
-        board?.boardKind === 'esp32-s3';
+        board?.boardKind === 'esp32-s3' ||
+        board?.boardKind === 'esp32-cam' ||
+        board?.boardKind === 'esp32-c3' ||
+        board?.boardKind === 'esp32-devkit-c-v4' ||
+        board?.boardKind === 'wemos-lolin32-lite' ||
+        board?.boardKind === 'xiao-esp32-s3' ||
+        board?.boardKind === 'arduino-nano-esp32' ||
+        board?.boardKind === 'xiao-esp32-c3' ||
+        board?.boardKind === 'aitewinrobot-esp32c3-supermini';
 
       // QEMU boards: auto-compile if no firmware available yet
       if (isQemuBoard) {
+        console.log('[handleRun] QEMU path');
         if (!board?.compiledProgram || codeChangedSinceLastCompile) {
+          console.log('[handleRun] auto-compile + run');
           autoRunAfterCompile.current = true;
           await handleCompile();
           const updatedBoard = useSimulatorStore
             .getState()
             .boards.find((b) => b.id === activeBoardId);
-          if (autoRunAfterCompile.current && updatedBoard?.compiledProgram) {
+          console.log('[handleRun] after compile', {
+            hasCompiledProgram: !!updatedBoard?.compiledProgram,
+            compiledProgramLen: updatedBoard?.compiledProgram?.length ?? 0,
+            autoRunFlag: autoRunAfterCompile.current,
+          });
+          // For QEMU boards, always start even if compiledProgram is empty —
+          // the bridge can be told to start without firmware (for waiting on
+          // a later upload) and is the safest path when the binary may be
+          // present on the bridge but not yet reflected in the store.
+          if (autoRunAfterCompile.current) {
             autoRunAfterCompile.current = false;
-            trackRunSimulation(updatedBoard.boardKind);
-            reportRun(updatedBoard.boardKind);
-            startBoard(activeBoardId);
-            setMessage(null);
-          } else {
-            autoRunAfterCompile.current = false;
+            if (updatedBoard?.compiledProgram) {
+              trackRunSimulation(updatedBoard.boardKind);
+              reportRun(updatedBoard.boardKind);
+              console.log('[handleRun] → startBoard', activeBoardId);
+              startBoard(activeBoardId);
+              setMessage(null);
+            } else {
+              console.warn('[handleRun] compile finished but no compiledProgram — not starting');
+            }
           }
           return;
         }
         trackRunSimulation(board?.boardKind);
         reportRun(board?.boardKind);
+        console.log('[handleRun] → startBoard (already compiled)', activeBoardId);
         startBoard(activeBoardId);
         setMessage(null);
         return;

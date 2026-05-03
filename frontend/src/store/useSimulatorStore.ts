@@ -208,6 +208,38 @@ class Esp32BridgeShim {
   getBridge(): Esp32Bridge {
     return this.bridge;
   }
+
+  /**
+   * Generic SPI bus adapter — same shape as AVRSimulator.spi so SPI-driven
+   * parts (ILI9341, SD cards, custom chips…) can hook the bus without
+   * caring whether they're on AVR, RP2040, or any of the ESP32 variants.
+   * The MOSI byte arrives via the QEMU worker's spi_event WS message
+   * (decoded in Esp32Bridge); MISO is driven by the worker's
+   * `_spi_response` global, so `completeTransfer` is a no-op on ESP32.
+   *
+   * Lazy-initialised so the bridge subscription only happens once a part
+   * actually accesses `.spi`.
+   */
+  private _spiAdapter: { onByte: ((mosi: number) => void) | null;
+                         completeTransfer: (miso: number) => void } | null = null;
+  get spi(): { onByte: ((mosi: number) => void) | null;
+               completeTransfer: (miso: number) => void } {
+    if (!this._spiAdapter) {
+      const adapter = {
+        onByte: null as ((mosi: number) => void) | null,
+        completeTransfer: (_miso: number) => {
+          /* ESP32 worker drives MISO via _spi_response — no-op here. */
+        },
+      };
+      // Forward every per-byte WS event into whichever handler the part
+      // installed. Single-listener channel — last writer wins.
+      this.bridge.onSpiByte = (mosi: number) => {
+        adapter.onByte?.(mosi);
+      };
+      this._spiAdapter = adapter;
+    }
+    return this._spiAdapter;
+  }
   updateSensor(pin: number, properties: Record<string, unknown>): void {
     this.bridge.sendSensorUpdate(pin, properties);
   }
@@ -771,7 +803,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     compileBoardProgram: (boardId: string, program: string) => {
       const board = get().boards.find((b) => b.id === boardId);
-      if (!board) return;
+      if (!board) {
+        console.warn(`[compileBoardProgram] board not found: ${boardId}`);
+        return;
+      }
+      console.log(`[compileBoardProgram] ${boardId} kind=${board.boardKind} programLen=${program?.length ?? 0}`);
 
       if (isEsp32Kind(board.boardKind)) {
         // All ESP32 boards (Xtensa + RISC-V C3): send firmware to QEMU via bridge.

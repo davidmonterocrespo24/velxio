@@ -72,6 +72,38 @@ export class RP2040Simulator {
   /** Serial output callback — fires for each byte the Pico sends on UART0 (or USBCDC in MicroPython mode) */
   public onSerialData: ((char: string) => void) | null = null;
 
+  /**
+   * Generic SPI bus adapter — same shape as AVRSimulator.spi so SPI parts
+   * (ILI9341, SD cards, custom chips) can hook the bus uniformly across
+   * boards. Defaults to RP2040 SPI0; firmware that uses SPI1 will need to
+   * wrap rp2040.spi[1] manually until we add a .spi1 alias.
+   *
+   * Lazy-initialised so the rp2040.spi[0].onTransmit is only overridden
+   * once a part actually accesses .spi (avoiding clobbering the default
+   * loopback handler if no SPI part is on the canvas).
+   */
+  private _spiAdapter: { onByte: ((mosi: number) => void) | null;
+                         completeTransfer: (miso: number) => void } | null = null;
+  public get spi(): { onByte: ((mosi: number) => void) | null;
+                      completeTransfer: (miso: number) => void } {
+    if (!this._spiAdapter) {
+      const adapter = {
+        onByte: null as ((mosi: number) => void) | null,
+        completeTransfer: (miso: number) => {
+          this.rp2040?.spi[0].completeTransmit(miso & 0xff);
+        },
+      };
+      // Re-route SPI0's onTransmit through our adapter when initMCU /
+      // initMicroPython runs. Until rp2040 is constructed (mcu=null) the
+      // setter just stages the handler — we wire it in start().
+      this._spiAdapter = adapter;
+      if (this.rp2040) {
+        this.rp2040.spi[0].onTransmit = (v: number) => adapter.onByte?.(v);
+      }
+    }
+    return this._spiAdapter;
+  }
+
   /** Fires when the on-board LED on Pico W (driven through the CYW43, not GPIO 25) toggles. */
   public onPicoWLed: ((on: boolean) => void) | null = null;
   /** Fires whenever the chip emits a Wi-Fi link-up event for the synthetic AP. */
@@ -175,8 +207,16 @@ export class RP2040Simulator {
     };
     this.wireI2C(0);
     this.wireI2C(1);
+    // Default loopback for SPI0 — overridden by the generic .spi adapter
+    // if a SPI part later accesses simulator.spi. The adapter routes
+    // onTransmit into adapter.onByte and uses completeTransmit to drive
+    // MISO when the part calls completeTransfer.
     this.rp2040.spi[0].onTransmit = (v: number) => {
-      this.rp2040!.spi[0].completeTransmit(v);
+      if (this._spiAdapter && this._spiAdapter.onByte) {
+        this._spiAdapter.onByte(v);
+      } else {
+        this.rp2040!.spi[0].completeTransmit(v);
+      }
     };
     this.rp2040.spi[1].onTransmit = (v: number) => {
       this.rp2040!.spi[1].completeTransmit(v);

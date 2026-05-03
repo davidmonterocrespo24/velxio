@@ -425,6 +425,41 @@ class EspLibManager:
         if inst and inst.running and inst.process.returncode is None:
             self._write_cmd(inst, {'cmd': 'sensor_detach', 'pin': pin})
 
+    # ── ESP32-CAM: OV2640 frame injection ─────────────────────────────────────
+    # The QEMU peripheral (hw/misc/esp32_i2s_cam.c) accepts host-pushed
+    # frames via velxio_push_camera_frame(). We forward the JPEG/RGB565
+    # payload to the worker which calls the ctypes binding. Once the .so
+    # is rebuilt with the camera patches, this path delivers the bytes
+    # the upstream esp32-camera driver returns from esp_camera_fb_get().
+
+    def camera_attach(self, client_id: str, properties: dict) -> None:
+        """Tell the worker a camera is wired (frame source ready)."""
+        with self._instances_lock:
+            inst = self._instances.get(client_id)
+        if inst and inst.running and inst.process.returncode is None:
+            self._write_cmd(inst, {
+                'cmd': 'camera_attach',
+                **{k: v for k, v in properties.items() if k != 'cmd'},
+            })
+
+    def camera_frame(self, client_id: str, jpeg_b64: str,
+                     fmt: str = 'jpeg', width: int = 0, height: int = 0) -> None:
+        """Push a single frame to the worker's QEMU image."""
+        with self._instances_lock:
+            inst = self._instances.get(client_id)
+        if inst and inst.running and inst.process.returncode is None:
+            self._write_cmd(inst, {
+                'cmd': 'camera_frame',
+                'fmt': fmt, 'w': width, 'h': height, 'b64': jpeg_b64,
+            })
+
+    def camera_detach(self, client_id: str) -> None:
+        """Drop the queued frame and any host-side camera state."""
+        with self._instances_lock:
+            inst = self._instances.get(client_id)
+        if inst and inst.running and inst.process.returncode is None:
+            self._write_cmd(inst, {'cmd': 'camera_detach'})
+
     # ── LEDC polling (no-op: worker polls automatically) ─────────────────────
 
     async def poll_ledc(self, client_id: str) -> None:

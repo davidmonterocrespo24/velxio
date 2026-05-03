@@ -793,10 +793,17 @@ PartSimulationRegistry.register('lcd2002', createLcdSimulation(20, 2));
  * DC/RS pin: LOW = command byte, HIGH = data bytes.
  */
 const ili9341Simulation = {
-  attachEvents: (element, avrSimulator, getArduinoPinHelper) => {
+  attachEvents: (element, simulator, getArduinoPinHelper) => {
     const el = element as any;
-    const pinManager = (avrSimulator as any).pinManager;
-    const spi = (avrSimulator as any).spi;
+    const pinManager = (simulator as any).pinManager;
+    // Generic .spi accessor — every simulator (AVR, RP2040, ESP32 family)
+    // exposes a SpiBusLike object via this name (see frontend/src/simulation/
+    // SpiBus.ts). Single-listener channel: assign to spi.onByte and
+    // chain any prior handler in our cleanup.
+    const spi = (simulator as any).spi as
+      | { onByte: ((mosi: number) => void) | null;
+          completeTransfer?: (miso: number) => void }
+      | undefined;
 
     if (!pinManager || !spi) return () => {};
 
@@ -950,16 +957,20 @@ const ili9341Simulation = {
       }
     };
 
-    // ── Intercept SPI ─────────────────────────────────────────────────
-    const prevOnByte = spi.onByte.bind(spi);
-
+    // ── Intercept SPI (board-agnostic) ────────────────────────────────
+    // Single hook regardless of board kind: every simulator's `.spi`
+    // exposes the same shape — settable onByte handler + optional
+    // completeTransfer to drive MISO. AVR and RP2040 actually use
+    // completeTransfer; ESP32 ignores it (worker drives MISO via
+    // its own _spi_response global).
+    const prevOnByte = spi.onByte;
     spi.onByte = (value: number) => {
-      if (!dcState) {
-        processCommand(value);
-      } else {
-        processData(value);
-      }
-      spi.completeTransfer(0xff); // Unblock CPU immediately
+      if (!dcState) processCommand(value);
+      else          processData(value);
+      // Idle-byte response — the typical ILI9341 driver writes only,
+      // so any value works. 0xff matches what the prior AVR path
+      // returned to keep behaviour stable.
+      spi.completeTransfer?.(0xff);
     };
 
     // ── Cleanup ───────────────────────────────────────────────────────

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "author": "Velxio",
+  "editor": "velxio",
+  "parts": [
+    {
+      "type": "velxio-esp32-cam",
+      "id": "esp32-cam",
+      "top": 50,
+      "left": 50,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-ili9341",
+      "id": "tft",
+      "top": 50,
+      "left": 280,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [ "tft:VCC",  "esp32-cam:3V3",   "red",   ["v0"] ],
+    [ "tft:GND",  "esp32-cam:GND.2", "black", ["v0"] ],
+    [ "tft:LED",  "esp32-cam:3V3",   "red",   ["v0"] ],
+
+    [ "tft:CS",   "esp32-cam:15",    "orange", ["v0"] ],
+    [ "tft:RST",  "esp32-cam:2",     "white",  ["v0"] ],
+    [ "tft:D/C",  "esp32-cam:14",    "yellow", ["v0"] ],
+    [ "tft:MOSI", "esp32-cam:13",    "blue",   ["v0"] ],
+    [ "tft:SCK",  "esp32-cam:12",    "green",  ["v0"] ]
+  ]
+}

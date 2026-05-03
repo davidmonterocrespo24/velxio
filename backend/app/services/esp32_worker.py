@@ -54,10 +54,13 @@ try:
     )
 except ImportError:
     # Fallback: direct import when running from backend/ directory as subprocess
-    import importlib.util, pathlib
+    import importlib.util, pathlib, sys as _sys
     _here = pathlib.Path(__file__).parent
     _spec = importlib.util.spec_from_file_location('esp32_i2c_slaves', _here / 'esp32_i2c_slaves.py')
     _mod  = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+    # Register in sys.modules BEFORE exec — @dataclass looks up cls.__module__
+    # there, and crashes with AttributeError on None when missing.
+    _sys.modules['esp32_i2c_slaves'] = _mod
     _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
     _MPU6050Slave = _mod.MPU6050Slave  # type: ignore[assignment]
     _BMP280Slave  = _mod.BMP280Slave   # type: ignore[assignment]
@@ -73,10 +76,12 @@ try:
         Uc8159cEpaperSlave as _Uc8159cEpaperSlave,
     )
 except ImportError:
-    import importlib.util, pathlib
+    import importlib.util, pathlib, sys as _sys
     _here = pathlib.Path(__file__).parent
     _spec = importlib.util.spec_from_file_location('esp32_spi_slaves', _here / 'esp32_spi_slaves.py')
     _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+    # Same dataclass-needs-sys.modules fix as the i2c fallback above.
+    _sys.modules['esp32_spi_slaves'] = _mod
     _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
     _Ssd168xEpaperSlave = _mod.Ssd168xEpaperSlave  # type: ignore[assignment]
     _Uc8159cEpaperSlave = _mod.Uc8159cEpaperSlave  # type: ignore[assignment]
@@ -277,6 +282,36 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     except AttributeError:
         _shutdown_request = None
 
+    # ── ESP32-CAM frame injection ─────────────────────────────────────────
+    # Exported by hw/misc/esp32_i2s_cam.c (the OV2640+I²S patch). When the
+    # symbol is absent (= stock library, no camera patch yet), we keep a
+    # no-op so the worker stays compatible with un-patched libraries.
+    try:
+        _push_camera_frame_c = lib.velxio_push_camera_frame
+        _push_camera_frame_c.restype  = None
+        _push_camera_frame_c.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+        def _push_camera_frame(payload: bytes) -> None:
+            buf = ctypes.c_char_p(payload) if payload else None
+            n = len(payload) if payload else 0
+            if _lock_iothread:
+                _lock_iothread(b'esp32_worker.py:camera', 0)
+            try:
+                _push_camera_frame_c(buf, n)
+            finally:
+                if _unlock_iothread:
+                    _unlock_iothread()
+    except AttributeError:
+        def _push_camera_frame(payload: bytes) -> None:
+            # Stock library — no camera support compiled in. The first
+            # time we hit this path we emit a warning so the user
+            # understands why fb_get returns nothing; subsequent calls
+            # are silent.
+            if not getattr(_push_camera_frame, '_warned', False):
+                _log('camera_frame: velxio_push_camera_frame symbol '
+                     'missing — rebuild libqemu-xtensa with the '
+                     'OV2640+I²S patch (test/test-esp32-cam/autosearch).')
+                _push_camera_frame._warned = True  # type: ignore[attr-defined]
+
     # ── 3. Write firmware to a temp file ──────────────────────────────────────
     try:
         fw_bytes = base64.b64decode(firmware_b64)
@@ -349,6 +384,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     _uart0_buf      = bytearray()           # accumulate UART0 for crash detection
     _reboot_count   = [0]
     _crashed        = [False]
+    _camera_frame_count = [0]               # ESP32-CAM frame trace counter
     _CRASH_STR      = b'Cache disabled but cached memory region accessed'
     _REBOOT_STR     = b'Rebooting...'
     # LEDC channel → GPIO pin (populated from GPIO out_sel sync events)
@@ -814,6 +850,19 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         if not _stopped.is_set():
             _emit({'type': 'i2c_event', 'bus': bus_id, 'addr': addr,
                    'event': event, 'response': resp})
+
+        # NACK on START_SEND / START_RECV when no slave responds. Real
+        # I²C hardware NACKs by leaving SDA high during the ack slot;
+        # the picsimlab_i2c bridge has been claiming every address and
+        # returning ACK by default, which fooled drivers (notably the
+        # esp32-camera SCCB auto-probe — it kept thinking 0x21 was a
+        # valid OV7725 sensor and never advanced to 0x30 / OV2640).
+        # Returning non-zero from the I2CSlave.event callback is the
+        # QEMU convention for "I don't recognise this address".
+        # An explicit override via _i2c_responses still wins so test
+        # harnesses that register a fake response keep working.
+        if op in (0x00, 0x01) and resp == 0 and addr not in _i2c_responses:
+            return 1
         return resp
 
     def _on_spi_event(bus_id: int, event: int) -> int:
@@ -1467,6 +1516,32 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     _epaper_slaves.pop(cid, None)
                     _epaper_state.pop(cid, None)
             _log(f'Sensor detached from GPIO {gpio}')
+
+        # ── ESP32-CAM frame injection ────────────────────────────────────
+        # Pushes a JPEG (or other format) into the QEMU OV2640 device's
+        # frame buffer via the velxio_push_camera_frame() symbol exported
+        # by the rebuilt libqemu-xtensa. Feature-detected at runtime so
+        # this branch is a no-op on a stock library.
+        elif c == 'camera_attach':
+            _log('camera_attach received (frame source ready)')
+
+        elif c == 'camera_frame':
+            try:
+                payload = base64.b64decode(cmd.get('b64', ''))
+            except Exception as exc:
+                _log(f'camera_frame: bad base64: {exc}')
+                payload = b''
+            # Throttled trace — log every 30th frame so noisy streaming
+            # leaves a footprint in the lib_manager log without spamming.
+            _camera_frame_count[0] += 1
+            n = _camera_frame_count[0]
+            if n == 1 or n % 30 == 0:
+                _log(f'camera_frame #{n} received ({len(payload)} bytes payload)')
+            if payload:
+                _push_camera_frame(payload)
+
+        elif c == 'camera_detach':
+            _push_camera_frame(b'')   # NULL/0 detaches in the C side
 
         elif c == 'stop':
             _stopped.set()

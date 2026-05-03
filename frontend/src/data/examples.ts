@@ -36,7 +36,8 @@ export interface ExampleProject {
     | 'raspberry-pi-pico'
     | 'pi-pico-w'
     | 'esp32'
-    | 'esp32-c3';
+    | 'esp32-c3'
+    | 'esp32-cam';
   /** Board filter key used in the gallery board selector. Derived from boardType if omitted. */
   boardFilter?: string;
   /**
@@ -6867,6 +6868,341 @@ void loop() {
         start: { componentId: 'attiny85', pinName: 'GND' },
         end: { componentId: 'tiny-ntc-led', pinName: 'C' },
         color: '#000000',
+      },
+    ],
+  },
+
+  // ── ESP32-CAM examples ─────────────────────────────────────────────────────
+  // Demos the QEMU-emulated OV2640 + I²S camera path. The user's webcam
+  // (browser getUserMedia) feeds the firmware's esp_camera_fb_get() through
+  // the simulator's velxio_push_camera_frame ctypes binding. See
+  // test/test-esp32-cam/autosearch/14_complete_emulation.md for the
+  // forensic trace of the 9 silent bugs that had to be fixed to make this
+  // work. Both examples assume the user clicks the "Camera" button in the
+  // canvas header and grants webcam permission.
+
+  {
+    id: 'esp32cam-webcam-demo',
+    title: 'ESP32-CAM: Webcam Demo',
+    description:
+      'Init the OV2640 camera, verify chip-id over SCCB, then loop on esp_camera_fb_get() and print frame metadata to Serial. The simplest "is the emulation alive" sketch — click Camera in the canvas header to start streaming your webcam.',
+    category: 'sensors',
+    difficulty: 'beginner',
+    boardType: 'esp32-cam',
+    boardFilter: 'esp32-cam',
+    code: `// Velxio ESP32-CAM webcam demo — minimal
+// Click the "Camera" button in the canvas header to start streaming
+// your webcam frames into the emulated OV2640.
+
+#include "esp_camera.h"
+
+// AI-Thinker ESP32-CAM pinout
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("=== Velxio ESP32-CAM webcam demo ===");
+
+  camera_config_t cfg = {};
+  cfg.ledc_channel = LEDC_CHANNEL_0;
+  cfg.ledc_timer   = LEDC_TIMER_0;
+  cfg.pin_d0 = Y2_GPIO_NUM; cfg.pin_d1 = Y3_GPIO_NUM;
+  cfg.pin_d2 = Y4_GPIO_NUM; cfg.pin_d3 = Y5_GPIO_NUM;
+  cfg.pin_d4 = Y6_GPIO_NUM; cfg.pin_d5 = Y7_GPIO_NUM;
+  cfg.pin_d6 = Y8_GPIO_NUM; cfg.pin_d7 = Y9_GPIO_NUM;
+  cfg.pin_xclk     = XCLK_GPIO_NUM;
+  cfg.pin_pclk     = PCLK_GPIO_NUM;
+  cfg.pin_vsync    = VSYNC_GPIO_NUM;
+  cfg.pin_href     = HREF_GPIO_NUM;
+  cfg.pin_sccb_sda = SIOD_GPIO_NUM;
+  cfg.pin_sccb_scl = SIOC_GPIO_NUM;
+  cfg.pin_pwdn     = PWDN_GPIO_NUM;
+  cfg.pin_reset    = RESET_GPIO_NUM;
+  cfg.xclk_freq_hz = 20000000;
+  cfg.pixel_format = PIXFORMAT_JPEG;
+  cfg.frame_size   = FRAMESIZE_QVGA;
+  cfg.jpeg_quality = 12;
+  cfg.fb_count     = 1;
+  cfg.fb_location  = CAMERA_FB_IN_DRAM;
+
+  esp_err_t err = esp_camera_init(&cfg);
+  if (err != ESP_OK) {
+    Serial.printf("camera_init FAIL: 0x%x\\n", err);
+    while (1) delay(1000);
+  }
+  Serial.println("camera_init OK");
+
+  sensor_t* s = esp_camera_sensor_get();
+  if (s) {
+    Serial.printf("OV2640 PID=0x%02X VER=0x%02X MIDH=0x%02X MIDL=0x%02X\\n",
+                  s->id.PID, s->id.VER, s->id.MIDH, s->id.MIDL);
+  }
+  Serial.println("Click 'Camera' in the canvas header to start streaming.");
+}
+
+void loop() {
+  static uint32_t n = 0;
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    static uint32_t nulls = 0;
+    if (++nulls % 20 == 0) Serial.printf("waiting... (%u nulls)\\n", nulls);
+    delay(200);
+    return;
+  }
+  n++;
+  Serial.printf("frame %u: %u bytes %ux%u fmt=%d  head=%02X %02X %02X %02X\\n",
+                n, fb->len, fb->width, fb->height, fb->format,
+                fb->buf[0], fb->buf[1], fb->buf[2], fb->buf[3]);
+  esp_camera_fb_return(fb);
+  delay(100);
+}
+`,
+    components: [],
+    wires: [],
+  },
+
+  {
+    id: 'esp32cam-lcd-preview',
+    title: 'ESP32-CAM + ILI9341 Live Preview',
+    description:
+      'Webcam frames decoded in-place with jpg2rgb565() and rendered to a 320×240 SPI TFT (160×120 centered, 1/2 scale). Status bar shows fps, frame counter, decode-fail counter and a live pulse. Requires Adafruit GFX + Adafruit ILI9341 libraries.',
+    category: 'displays',
+    difficulty: 'intermediate',
+    boardType: 'esp32-cam',
+    boardFilter: 'esp32-cam',
+    code: `// ESP32-CAM live webcam preview on ILI9341 320×240 TFT
+// Click "Camera" in the canvas header → grant permission → see your
+// face on the TFT.
+//
+// Wiring (already done by this example's diagram):
+//   ILI9341 ↔ ESP32-CAM
+//   CS  → 15   RST → 2    D/C → 14
+//   MOSI→ 13   SCK → 12   MISO unused
+
+#include "esp_camera.h"
+#include "img_converters.h"   // jpg2rgb565 — built into esp32-camera
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
+
+// Camera pins (AI-Thinker)
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+// TFT pins
+#define TFT_CS    15
+#define TFT_DC    14
+#define TFT_RST    2
+#define TFT_MOSI  13
+#define TFT_SCK   12
+
+SPIClass tftSPI(VSPI);
+Adafruit_ILI9341 tft = Adafruit_ILI9341(&tftSPI, TFT_DC, TFT_CS, TFT_RST);
+
+#define PREVIEW_W 160
+#define PREVIEW_H 120
+#define PREVIEW_X  80
+#define PREVIEW_Y  60
+static uint8_t rgbBuf[PREVIEW_W * PREVIEW_H * 2];
+
+uint32_t frame_count = 0, decode_fails = 0, null_fb = 0;
+unsigned long start_ms = 0;
+
+void draw_status_bar(uint32_t bytes_in, bool decoded) {
+  tft.fillRect(0, 0, 320, PREVIEW_Y, ILI9341_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ILI9341_WHITE, ILI9341_BLACK);
+  tft.setCursor(8, 6);
+  tft.print("VELXIO ESP32-CAM live preview");
+  tft.setCursor(8, 22);
+  tft.printf("frame %4u   %4u B   %s",
+             (unsigned)frame_count, (unsigned)bytes_in,
+             decoded ? "decode OK   " : "decode FAIL ");
+  unsigned long elapsed = millis() - start_ms;
+  float fps = elapsed > 0 ? (1000.0f * frame_count) / (float)elapsed : 0.0f;
+  tft.setCursor(8, 38);
+  tft.printf("fps %4.1f   fails %u   nulls %u",
+             fps, (unsigned)decode_fails, (unsigned)null_fb);
+  tft.fillCircle(308, 14, 6,
+    (frame_count & 1) ? ILI9341_GREEN : ILI9341_DARKGREEN);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println("=== ESP32-CAM + ILI9341 live preview ===");
+
+  tftSPI.begin(TFT_SCK, -1, TFT_MOSI, TFT_CS);
+  tft.begin();
+  tft.setRotation(1);
+  tft.fillScreen(ILI9341_NAVY);
+  tft.setTextSize(3);
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setCursor(20, 10); tft.print("VELXIO");
+  tft.setTextSize(1);
+  tft.setCursor(20, 38);
+  tft.setTextColor(ILI9341_CYAN);
+  tft.print("ESP32-CAM live preview");
+
+  camera_config_t cfg = {};
+  cfg.ledc_channel = LEDC_CHANNEL_0;
+  cfg.ledc_timer   = LEDC_TIMER_0;
+  cfg.pin_d0 = Y2_GPIO_NUM; cfg.pin_d1 = Y3_GPIO_NUM;
+  cfg.pin_d2 = Y4_GPIO_NUM; cfg.pin_d3 = Y5_GPIO_NUM;
+  cfg.pin_d4 = Y6_GPIO_NUM; cfg.pin_d5 = Y7_GPIO_NUM;
+  cfg.pin_d6 = Y8_GPIO_NUM; cfg.pin_d7 = Y9_GPIO_NUM;
+  cfg.pin_xclk = XCLK_GPIO_NUM;  cfg.pin_pclk = PCLK_GPIO_NUM;
+  cfg.pin_vsync = VSYNC_GPIO_NUM; cfg.pin_href = HREF_GPIO_NUM;
+  cfg.pin_sccb_sda = SIOD_GPIO_NUM;
+  cfg.pin_sccb_scl = SIOC_GPIO_NUM;
+  cfg.pin_pwdn = PWDN_GPIO_NUM;
+  cfg.pin_reset = RESET_GPIO_NUM;
+  cfg.xclk_freq_hz = 20000000;
+  cfg.pixel_format = PIXFORMAT_JPEG;
+  cfg.frame_size   = FRAMESIZE_QVGA;
+  cfg.jpeg_quality = 12;
+  cfg.fb_count     = 1;
+  cfg.fb_location  = CAMERA_FB_IN_DRAM;
+
+  esp_err_t err = esp_camera_init(&cfg);
+  if (err != ESP_OK) {
+    tft.setCursor(20, 100);
+    tft.setTextColor(ILI9341_RED);
+    tft.setTextSize(2);
+    tft.printf("camera_init FAIL 0x%x", err);
+    while (1) delay(1000);
+  }
+
+  tft.setCursor(20, 100);
+  tft.setTextColor(ILI9341_GREEN);
+  tft.print("camera_init OK");
+  tft.setCursor(20, 130);
+  tft.setTextColor(ILI9341_YELLOW);
+  tft.print("Waiting for webcam frames...");
+  tft.setCursor(20, 150);
+  tft.print("Click 'Camera' in the toolbar.");
+
+  start_ms = millis();
+  delay(800);
+  tft.fillScreen(ILI9341_BLACK);
+}
+
+void loop() {
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    null_fb++;
+    delay(50);
+    return;
+  }
+  frame_count++;
+  size_t fb_len = fb->len;
+  bool ok = jpg2rgb565(fb->buf, fb->len, rgbBuf, JPG_SCALE_2X);
+  esp_camera_fb_return(fb);
+  if (ok) {
+    tft.drawRGBBitmap(PREVIEW_X, PREVIEW_Y,
+                      (uint16_t*)rgbBuf, PREVIEW_W, PREVIEW_H);
+  } else {
+    decode_fails++;
+    tft.fillRect(PREVIEW_X, PREVIEW_Y,
+                 PREVIEW_W, PREVIEW_H, ILI9341_DARKGREY);
+    tft.drawLine(PREVIEW_X, PREVIEW_Y,
+                 PREVIEW_X + PREVIEW_W, PREVIEW_Y + PREVIEW_H, ILI9341_RED);
+    tft.drawLine(PREVIEW_X + PREVIEW_W, PREVIEW_Y,
+                 PREVIEW_X, PREVIEW_Y + PREVIEW_H, ILI9341_RED);
+  }
+  draw_status_bar((uint32_t)fb_len, ok);
+  delay(20);
+}
+`,
+    components: [
+      {
+        type: 'wokwi-ili9341',
+        id: 'tft1',
+        x: 320,
+        y: 60,
+        properties: {},
+      },
+    ],
+    wires: [
+      // SPI bus
+      {
+        id: 'cam-w-mosi',
+        start: { componentId: 'esp32-cam', pinName: '13' },
+        end: { componentId: 'tft1', pinName: 'MOSI' },
+        color: '#3498db',
+      },
+      {
+        id: 'cam-w-sck',
+        start: { componentId: 'esp32-cam', pinName: '12' },
+        end: { componentId: 'tft1', pinName: 'SCK' },
+        color: '#27ae60',
+      },
+      {
+        id: 'cam-w-cs',
+        start: { componentId: 'esp32-cam', pinName: '15' },
+        end: { componentId: 'tft1', pinName: 'CS' },
+        color: '#e67e22',
+      },
+      {
+        id: 'cam-w-dc',
+        start: { componentId: 'esp32-cam', pinName: '14' },
+        end: { componentId: 'tft1', pinName: 'D/C' },
+        color: '#f1c40f',
+      },
+      {
+        id: 'cam-w-rst',
+        start: { componentId: 'esp32-cam', pinName: '2' },
+        end: { componentId: 'tft1', pinName: 'RST' },
+        color: '#ecf0f1',
+      },
+      // Power
+      {
+        id: 'cam-w-vcc',
+        start: { componentId: 'esp32-cam', pinName: '3V3' },
+        end: { componentId: 'tft1', pinName: 'VCC' },
+        color: '#e74c3c',
+      },
+      {
+        id: 'cam-w-led',
+        start: { componentId: 'esp32-cam', pinName: '3V3' },
+        end: { componentId: 'tft1', pinName: 'LED' },
+        color: '#e74c3c',
+      },
+      {
+        id: 'cam-w-gnd',
+        start: { componentId: 'esp32-cam', pinName: 'GND.2' },
+        end: { componentId: 'tft1', pinName: 'GND' },
+        color: '#2c3e50',
       },
     ],
   },

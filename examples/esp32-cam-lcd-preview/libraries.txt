@@ -1,0 +1,8 @@
+# Velxio Library List for esp32-cam-lcd-preview
+# Install via Library Manager (book icon in the toolbar) — search by name.
+#
+# These two are the only external deps. esp_camera.h and img_converters.h
+# (jpg2rgb565) ship with arduino-esp32 and don't need installing.
+
+Adafruit GFX Library
+Adafruit ILI9341
