@@ -868,21 +868,48 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     # SPI byte batching — emitting one WS message per byte saturates the
     # uvicorn → frontend pipe and caps tft.drawRGBBitmap at < 1 fps even
     # for tiny previews. Buffer the MOSI bytes here and flush as a single
-    # base64-encoded `spi_batch` message when CS goes HIGH (transaction
-    # ended) or the buffer crosses a soft cap. The MISO response is still
-    # returned synchronously per byte from `_spi_response[0]` because the
-    # QEMU master writes can't wait. Frontend Esp32Bridge unpacks the batch
-    # and replays each byte through onSpiByte. ~9600 events/frame → ~3
-    # batched messages/frame, ~50× faster TFT throughput in the emulator.
-    _spi_byte_buf      = bytearray()
-    _spi_buf_lock      = threading.Lock()
-    _SPI_BATCH_FLUSH_AT = 4096   # flush early if a single transaction is huge
+    # base64-encoded `spi_batch` message when:
+    #   1. CS goes HIGH (transaction ended) — only fires when the firmware
+    #      uses the SPI peripheral's hardware CS line. If CS is bit-banged
+    #      via digitalWrite (the default for many Adafruit-style drivers
+    #      on ESP32), this trigger never fires and we fall back to (2)+(3).
+    #   2. Buffer crosses _SPI_BATCH_FLUSH_AT bytes (safety cap for big
+    #      transactions).
+    #   3. _spi_flush_timer fires every _SPI_BATCH_PERIOD_MS regardless —
+    #      catches the GPIO-CS case so partial batches don't sit in the
+    #      buffer forever between transactions. Without this, after a few
+    #      drawRGBBitmap calls the firmware advances faster than the
+    #      buffer fills, and frames stop appearing on the screen.
+    # MISO is still returned synchronously per byte from _spi_response[0]
+    # because the QEMU master writes can't wait. Frontend Esp32Bridge
+    # unpacks the batch and replays each byte through onSpiByte.
+    _spi_byte_buf       = bytearray()
+    _spi_buf_lock       = threading.Lock()
+    _SPI_BATCH_FLUSH_AT = 4096
+    _SPI_BATCH_PERIOD_S = 0.05   # 50 ms → 20 fps cadence ceiling
 
     def _flush_spi_batch_locked():
         if _spi_byte_buf and not _stopped.is_set():
             b64 = base64.b64encode(bytes(_spi_byte_buf)).decode('ascii')
             _emit({'type': 'spi_batch', 'b64': b64})
             _spi_byte_buf.clear()
+
+    def _spi_flush_timer_loop():
+        """Background thread: flushes any pending SPI bytes every
+        _SPI_BATCH_PERIOD_S so partial transactions reach the frontend
+        even when the firmware drives CS via GPIO and we never see a
+        SPI peripheral CS-high event."""
+        while not _stopped.is_set():
+            _stopped.wait(_SPI_BATCH_PERIOD_S)
+            if _stopped.is_set():
+                break
+            with _spi_buf_lock:
+                _flush_spi_batch_locked()
+
+    threading.Thread(
+        target=_spi_flush_timer_loop, daemon=True,
+        name='esp32-spi-batch-flush',
+    ).start()
 
     def _on_spi_event(bus_id: int, event: int) -> int:
         """Synchronous — must return immediately; called from QEMU thread.
