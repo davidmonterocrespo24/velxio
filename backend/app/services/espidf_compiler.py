@@ -492,7 +492,10 @@ class ESPIDFCompiler:
                         cpp_files.append(file_key)
 
                 # Scan newly copied headers for transitive includes.
-                for lib_file in comp_dir.glob('*.h'):
+                # Use rglob so libs with `src/` layout (e.g. GxEPD2, ArduinoJson)
+                # are scanned recursively — otherwise their headers live under
+                # `src/`/subdirs and we'd miss every transitive include.
+                for lib_file in comp_dir.rglob('*.h'):
                     try:
                         lib_content = lib_file.read_text(encoding='utf-8', errors='ignore')
                         for th in self._detect_external_includes(lib_content):
