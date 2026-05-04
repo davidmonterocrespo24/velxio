@@ -158,7 +158,7 @@ const weatherEsp29: ExampleProject = {
     'back to the browser as an `epaper_update` WebSocket event.',
   category: 'displays',
   difficulty: 'intermediate',
-  boardType: 'esp32',
+  boardType: 'esp32-devkit-c-v4',
   boardFilter: 'esp32',
   libraries: EPAPER_LIBS,
   tags: ['epaper', 'e-ink', 'gxepd2', 'ssd1680', 'esp32', 'weather'],
@@ -207,7 +207,7 @@ void loop() { delay(1000); }
     { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'epd-290', pinName: 'SDI' }, color: '#22aaff' },
     { id: 'w-sck', start: { componentId: 'esp32', pinName: '18' }, end: { componentId: 'epd-290', pinName: 'SCK' }, color: '#ffdd33' },
     { id: 'w-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'epd-290', pinName: 'VCC' }, color: '#ff4444' },
-    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'epd-290', pinName: 'GND' }, color: '#000000' },
+    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND.1' }, end: { componentId: 'epd-290', pinName: 'GND' }, color: '#000000' },
   ],
 };
 
@@ -295,7 +295,7 @@ const dashboardEsp750: ExampleProject = {
     'is too big for AVR/Pico flash with paged GxEPD2.',
   category: 'displays',
   difficulty: 'advanced',
-  boardType: 'esp32',
+  boardType: 'esp32-devkit-c-v4',
   boardFilter: 'esp32',
   libraries: EPAPER_LIBS,
   tags: ['epaper', 'e-ink', 'gxepd2', 'uc8179', 'gd7965', 'esp32', 'dashboard', '7.5'],
@@ -359,7 +359,7 @@ void loop() {}
     { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'epd-750', pinName: 'SDI' }, color: '#22aaff' },
     { id: 'w-sck', start: { componentId: 'esp32', pinName: '18' }, end: { componentId: 'epd-750', pinName: 'SCK' }, color: '#ffdd33' },
     { id: 'w-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'epd-750', pinName: 'VCC' }, color: '#ff4444' },
-    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'epd-750', pinName: 'GND' }, color: '#000000' },
+    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND.1' }, end: { componentId: 'epd-750', pinName: 'GND' }, color: '#000000' },
   ],
 };
 
@@ -373,7 +373,7 @@ const tricolorEsp29: ExampleProject = {
     'and 0x26 (Red) RAM commands.',
   category: 'displays',
   difficulty: 'intermediate',
-  boardType: 'esp32',
+  boardType: 'esp32-devkit-c-v4',
   boardFilter: 'esp32',
   libraries: EPAPER_LIBS,
   tags: ['epaper', 'e-ink', 'gxepd2', 'ssd1680', '3c', 'tri-color', 'red', 'esp32'],
@@ -443,7 +443,7 @@ void loop() { delay(1000); }
     { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'epd-290-bwr', pinName: 'SDI' }, color: '#22aaff' },
     { id: 'w-sck', start: { componentId: 'esp32', pinName: '18' }, end: { componentId: 'epd-290-bwr', pinName: 'SCK' }, color: '#ffdd33' },
     { id: 'w-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'epd-290-bwr', pinName: 'VCC' }, color: '#ff4444' },
-    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'epd-290-bwr', pinName: 'GND' }, color: '#000000' },
+    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND.1' }, end: { componentId: 'epd-290-bwr', pinName: 'GND' }, color: '#000000' },
   ],
 };
 
@@ -458,7 +458,7 @@ const acepEsp565: ExampleProject = {
     'pulses BUSY for 150 ms.',
   category: 'displays',
   difficulty: 'advanced',
-  boardType: 'esp32',
+  boardType: 'esp32-devkit-c-v4',
   boardFilter: 'esp32',
   libraries: EPAPER_LIBS,
   tags: ['epaper', 'e-ink', 'gxepd2', 'uc8159c', 'acep', '7-color', 'esp32', '5.65'],
@@ -520,7 +520,7 @@ void loop() { delay(1000); }
     { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'epd-565', pinName: 'SDI' }, color: '#22aaff' },
     { id: 'w-sck', start: { componentId: 'esp32', pinName: '18' }, end: { componentId: 'epd-565', pinName: 'SCK' }, color: '#ffdd33' },
     { id: 'w-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'epd-565', pinName: 'VCC' }, color: '#ff4444' },
-    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'epd-565', pinName: 'GND' }, color: '#000000' },
+    { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND.1' }, end: { componentId: 'epd-565', pinName: 'GND' }, color: '#000000' },
   ],
 };
 
