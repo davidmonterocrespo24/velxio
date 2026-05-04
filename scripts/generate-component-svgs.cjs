@@ -23,7 +23,25 @@ const Module = require('module');
 const path   = require('path');
 const fs     = require('fs');
 
-const CJS_DIR    = path.resolve(__dirname, '../third-party/wokwi-elements/dist/cjs');
+// Resolve @wokwi/elements from frontend/node_modules (preferred — installed
+// from npm) with a fallback to the third-party/ clone if someone built the
+// dist locally for development. Either way we want the CJS dist.
+function findCjsDir() {
+  const candidates = [
+    path.resolve(__dirname, '../frontend/node_modules/@wokwi/elements/dist/cjs'),
+    path.resolve(__dirname, '../node_modules/@wokwi/elements/dist/cjs'),
+    path.resolve(__dirname, '../third-party/wokwi-elements/dist/cjs'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  console.error('[generate-component-svgs] Could not find @wokwi/elements/dist/cjs.');
+  console.error('Tried:\n  ' + candidates.join('\n  '));
+  console.error('Run `npm install` in frontend/ first.');
+  process.exit(1);
+}
+
+const CJS_DIR    = findCjsDir();
 const OUT_DIR    = path.resolve(__dirname, '../frontend/public/component-svgs');
 const BOARDS_DIR = path.resolve(__dirname, '../frontend/public/boards');
 

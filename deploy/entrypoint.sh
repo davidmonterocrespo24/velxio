@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# Auto-generate SECRET_KEY if not provided so the app boots out-of-the-box
+# without requiring the user to create backend/.env first. Persists in the
+# data volume so JWTs survive container restarts.
+if [ -z "$SECRET_KEY" ]; then
+    SECRET_FILE="${DATA_DIR:-/app/data}/.secret_key"
+    mkdir -p "$(dirname "$SECRET_FILE")"
+    if [ ! -f "$SECRET_FILE" ]; then
+        echo "🔑 No SECRET_KEY provided — generating one (saved to $SECRET_FILE)"
+        head -c 48 /dev/urandom | base64 | tr -d '\n' > "$SECRET_FILE"
+    fi
+    export SECRET_KEY="$(cat "$SECRET_FILE")"
+fi
+
 # Ensure arduino-cli config and board manager URLs are set up
 if [ ! -f /root/.arduino15/arduino-cli.yaml ]; then
     echo "📦 Initializing arduino-cli config..."

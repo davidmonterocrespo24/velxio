@@ -1,17 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
 
 // https://vite.dev/config/
+// avr8js / rp2040js / @wokwi/elements are resolved from npm via package.json.
+// (The third-party/ clones are reference-only — keep them updated for credits.)
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      'avr8js': path.resolve(__dirname, '../third-party/avr8js/dist/esm'),
-      'rp2040js': path.resolve(__dirname, '../third-party/rp2040js/dist/esm'),
-      '@wokwi/elements': path.resolve(__dirname, '../third-party/wokwi-elements/dist/esm'),
-    },
-  },
   server: {
     proxy: {
       '/api': {
@@ -23,8 +17,6 @@ export default defineConfig({
   assetsInclude: ['**/*.wasm'],
   optimizeDeps: {
     include: ['avr8js', 'rp2040js', '@wokwi/elements', 'littlefs'],
-    // Force Vite to re-bundle local wokwi-elements after adding new components
-    force: true,
   },
   test: {
     globals: true,

@@ -109,11 +109,19 @@ class MetadataGenerator {
   async generate(): Promise<void> {
     console.log('🔍 Scanning wokwi-elements directory...');
 
+    // Source-only step: needs the wokwi-elements TypeScript src/ to scan
+    // @property decorators. The npm package ships dist/ only, so this only
+    // works when the upstream repo has been cloned into third-party/. If it
+    // isn't there, fall back to the committed JSON — adding new components
+    // requires the clone, but day-to-day dev does not.
     if (!fs.existsSync(this.wokwiElementsPath)) {
-      console.error(`❌ wokwi-elements not found at: ${this.wokwiElementsPath}`);
-      console.log('💡 Make sure to initialize the git submodule:');
-      console.log('   git submodule update --init --recursive');
-      process.exit(1);
+      console.log(`ℹ️  wokwi-elements src/ not found at: ${this.wokwiElementsPath}`);
+      console.log('   Skipping metadata regeneration — using the committed');
+      console.log('   frontend/public/components-metadata.json as-is.');
+      console.log('   To regenerate (only needed when adding new components):');
+      console.log('     git clone https://github.com/wokwi/wokwi-elements.git \\');
+      console.log('       third-party/wokwi-elements');
+      return;
     }
 
     const components: ComponentMetadata[] = [];

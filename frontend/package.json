@@ -27,10 +27,10 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@types/react-syntax-highlighter": "^15.5.13",
-    "@wokwi/elements": "file:../third-party/wokwi-elements",
+    "@wokwi/elements": "1.9.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "avr8js": "file:../third-party/avr8js",
+    "avr8js": "0.21.0",
     "axios": "^1.13.6",
     "eecircuit-engine": "^1.7.0",
     "idb-keyval": "^6.2.2",
@@ -39,6 +39,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
+    "rp2040js": "1.3.2",
     "react-syntax-highlighter": "^16.1.1",
     "recharts": "^3.8.1",
     "zustand": "^5.0.11"

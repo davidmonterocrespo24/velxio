@@ -42,7 +42,7 @@ Complete documentation of the Docker build system, CI/CD pipelines, multi-archit
    - [Security Headers](#security-headers)
 9. [Docker Compose](#docker-compose)
    - [Development (docker-compose.yml)](#development-docker-composeyml)
-   - [Production (docker-compose.prod.yml)](#production-docker-composeprodyml)
+   - [Production deployment](#production-deployment)
    - [Environment Variables](#environment-variables)
    - [Volumes](#volumes)
    - [Health Checks](#health-checks)
@@ -705,11 +705,14 @@ docker compose logs -f velxio   # Follow logs
 
 **Access:** `http://localhost:3080`
 
-### Production (docker-compose.prod.yml)
+### Production deployment
 
-**Location:** `docker-compose.prod.yml`
+Production-only configuration (host nginx with HTTPS, deploy/backup scripts,
+pinned upstream commit) lives in a separate repo:
+**[github.com/velxio/velxio-prod](https://github.com/velxio/velxio-prod)**.
 
-Nearly identical to the dev compose file, with `container_name: velxio-app` instead of `velxio-dev`. In production, the image is typically pulled from a registry rather than built locally:
+For self-hosters who don't need the velxio.dev-specific bits, the easiest
+approach is the prebuilt image from the registry:
 
 ```bash
 # Pull and run the pre-built image
@@ -993,7 +996,6 @@ For ESP32 first-time compilation (cold build cache), this may still not be enoug
 | `third-party/qemu-lcgamboa/.github/workflows/build-libqemu.yml` | CI/CD: builds QEMU .so for amd64 + arm64 |
 | `deploy/entrypoint.sh` | Container startup script |
 | `deploy/nginx.conf` | Nginx reverse proxy configuration |
-| `docker-compose.yml` | Development compose file |
-| `docker-compose.prod.yml` | Production compose file |
+| `docker-compose.yml` | Self-hosting compose file (production at github.com/velxio/velxio-prod) |
 | `prebuilt/qemu/` | Local QEMU prebuilt files (optional, for dev) |
 | `backend/.env` | Backend environment variables (not committed) |

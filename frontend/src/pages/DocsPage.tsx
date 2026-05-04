@@ -1112,11 +1112,11 @@ const WokwiLibsSection: React.FC = () => (
               target="_blank"
               rel="noopener noreferrer"
             >
-              wokwi-elements
+              @wokwi/elements
             </a>
           </td>
           <td>
-            <code>third-party/wokwi-elements/</code>
+            <code>npm</code>
           </td>
           <td>48+ Lit Web Components (LEDs, LCDs, sensors, buttons…)</td>
         </tr>
@@ -1127,7 +1127,7 @@ const WokwiLibsSection: React.FC = () => (
             </a>
           </td>
           <td>
-            <code>third-party/avr8js/</code>
+            <code>npm</code>
           </td>
           <td>ATmega328p / ATmega2560 CPU emulator at 16 MHz</td>
         </tr>
@@ -1138,46 +1138,36 @@ const WokwiLibsSection: React.FC = () => (
             </a>
           </td>
           <td>
-            <code>third-party/rp2040js/</code>
+            <code>npm</code>
           </td>
           <td>Raspberry Pi Pico (RP2040) emulator</td>
         </tr>
       </tbody>
     </table>
 
-    <h2>Vite Configuration</h2>
     <p>
-      <code>frontend/vite.config.ts</code> uses path aliases so imports resolve to the local builds:
+      All three libraries are pulled directly from the npm registry by{' '}
+      <code>frontend/package.json</code>. Reference clones may live under{' '}
+      <code>third-party/</code> for credits and offline hacking, but the build
+      does not require them.
     </p>
-    <CodeBlock language="typescript">{`resolve: {
-  alias: {
-    'avr8js':          '../third-party/avr8js/dist/esm',
-    '@wokwi/elements': '../third-party/wokwi-elements/dist/esm',
-  },
-}`}</CodeBlock>
 
     <h2>Updating the Libraries</h2>
-    <h3>All at once (recommended)</h3>
-    <CodeBlock language="bash">{`# Windows
-update-third-party.bat`}</CodeBlock>
+    <p>
+      Edit the version pins in <code>frontend/package.json</code>{' '}
+      (<code>@wokwi/elements</code>, <code>avr8js</code>, <code>rp2040js</code>)
+      and run <code>npm install</code> in <code>frontend/</code>.
+    </p>
 
-    <h3>Manually</h3>
-    <CodeBlock language="bash">{`cd third-party/wokwi-elements
-git pull origin main
-npm install && npm run build
-
-cd ../avr8js
-git pull origin main
-npm install && npm run build
-
-cd ../rp2040js
-git pull origin main
-npm install && npm run build`}</CodeBlock>
-
-    <h3>After updating wokwi-elements</h3>
-    <p>Regenerate component metadata so new components appear in the picker:</p>
-    <CodeBlock language="bash">{`cd frontend
-npx tsx ../scripts/generate-component-metadata.ts`}</CodeBlock>
+    <h3>After bumping wokwi-elements (only when adding new components)</h3>
+    <p>
+      The metadata generator scans the upstream <code>src/</code>, which the
+      npm package doesn&apos;t ship. Clone wokwi-elements once into{' '}
+      <code>third-party/</code> and regenerate:
+    </p>
+    <CodeBlock language="bash">{`git clone --depth=1 https://github.com/wokwi/wokwi-elements.git \\
+  third-party/wokwi-elements
+cd frontend && npm run generate:metadata`}</CodeBlock>
 
     <h2>Available Wokwi Components (48)</h2>
     <table>
@@ -1776,25 +1766,18 @@ const SetupSection: React.FC = () => (
       </thead>
       <tbody>
         <tr>
-          <td>Components not displayed</td>
+          <td>
+            <code>Cannot find module &apos;@wokwi/elements&apos;</code> /{' '}
+            <code>&apos;avr8js&apos;</code>
+          </td>
           <td>
             <pre style={{ margin: 0 }}>
-              <code>cd third-party/wokwi-elements{'\n'}npm run build</code>
+              <code>cd frontend{'\n'}npm install</code>
             </pre>
           </td>
         </tr>
         <tr>
-          <td>
-            <code>Cannot find module 'avr8js'</code>
-          </td>
-          <td>
-            <pre style={{ margin: 0 }}>
-              <code>cd third-party/avr8js{'\n'}npm install && npm run build</code>
-            </pre>
-          </td>
-        </tr>
-        <tr>
-          <td>LED doesn't blink</td>
+          <td>LED doesn&apos;t blink</td>
           <td>
             Compile first, then click Run. Check pin assignment in the component property dialog.
           </td>
@@ -1802,9 +1785,9 @@ const SetupSection: React.FC = () => (
         <tr>
           <td>New component not in picker</td>
           <td>
-            <pre style={{ margin: 0 }}>
-              <code>cd frontend{'\n'}npx tsx ../scripts/generate-component-metadata.ts</code>
-            </pre>
+            See &quot;After bumping wokwi-elements&quot; above — clone
+            wokwi-elements into <code>third-party/</code> then run{' '}
+            <code>npm run generate:metadata</code>.
           </td>
         </tr>
       </tbody>

@@ -2,6 +2,10 @@ fastapi==0.115.0
 uvicorn[standard]==0.32.0
 websockets>=12.0
 sqlalchemy==2.0.36
+# greenlet is needed by SQLAlchemy async on some Python builds (notably Windows
+# Python 3.12+ wheels). Without it, app startup fails with
+# "ValueError: the greenlet library is required". See issue #120.
+greenlet>=3.0.0
 aiosqlite==0.20.0
 pydantic>=2.11.0
 pydantic-settings>=2.6.0

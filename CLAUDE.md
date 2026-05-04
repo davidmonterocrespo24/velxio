@@ -72,25 +72,25 @@ npm run lint
 **Access:**
 - App: http://localhost:5173
 
-### Wokwi Libraries (Local Repositories)
+### Wokwi Libraries (npm)
 
-The project uses local clones of Wokwi repositories in `third-party/`:
-- `wokwi-elements/` - Web Components for electronic parts
-- `avr8js/` - AVR8 CPU emulator
-- `rp2040js/` - RP2040 emulator
+`@wokwi/elements`, `avr8js` and `rp2040js` are pulled directly from the npm
+registry — see version pins in `frontend/package.json`. No clone or local
+build is required for the Docker image, manual install, or CI.
 
-**Update libraries:**
-```bash
-update-third-party.bat
-```
+The folders under `third-party/` are reference-only (credits / offline
+hacking). The one exception is `qemu-lcgamboa` (real source dependency for
+ESP32 emulation when rebuilding QEMU).
 
-Or manually:
-```bash
-cd third-party/wokwi-elements
-git pull origin main
-npm install
-npm run build
-```
+**Bump a wokwi lib version:** edit the version string in
+`frontend/package.json` and run `npm install` in `frontend/`.
+
+**Adding new components to wokwi-elements:** the metadata generator
+(`scripts/generate-component-metadata.ts`) scans the upstream `src/`,
+which the npm package doesn't ship. Clone wokwi-elements once into
+`third-party/wokwi-elements/` and run `npm run generate:metadata`. The
+script gracefully skips when the clone is absent — `components-metadata.json`
+is committed.
 
 ### External Dependencies
 
@@ -116,17 +116,11 @@ arduino-cli core install arduino:avr
 
 ### Critical Architecture Patterns
 
-**1. Vite Aliases for Local Wokwi Libs**
+**1. Wokwi libs come from npm**
 
-The `frontend/vite.config.ts` uses path aliases to import from local repositories:
-```typescript
-resolve: {
-  alias: {
-    'avr8js': path.resolve(__dirname, '../third-party/avr8js/dist/esm'),
-    '@wokwi/elements': path.resolve(__dirname, '../third-party/wokwi-elements/dist/esm'),
-  },
-}
-```
+`@wokwi/elements`, `avr8js` and `rp2040js` are listed as regular
+dependencies in `frontend/package.json`. Vite resolves them from
+`node_modules` like any other package — no aliases, no `file:` references.
 
 **2. Multi-File Workspace (useEditorStore)**
 
@@ -404,15 +398,14 @@ There are known pre-existing TS errors that do NOT block the app from running:
 
 ### 8. Docker Build — third-party
 
-The git submodule pointers for `rp2040js` and `wokwi-elements` in this repo are stale (point to very old commits that predate `package.json`). The `Dockerfile.standalone` works around this by **cloning the libs fresh from GitHub** at build time instead of COPYing from the build context:
+`Dockerfile.standalone` does NOT clone any wokwi-* repos. The frontend stage
+just does `COPY frontend/ scripts/` then `npm install && npm run build:docker`,
+which pulls `@wokwi/elements`, `avr8js`, `rp2040js` from npm. Board SVGs live
+in `frontend/public/boards/`, component SVGs in `frontend/public/component-svgs/`,
+and `components-metadata.json` is committed.
 
-```dockerfile
-RUN git clone --depth=1 https://github.com/wokwi/avr8js.git third-party/avr8js \
- && git clone --depth=1 https://github.com/wokwi/rp2040js.git third-party/rp2040js \
- && git clone --depth=1 https://github.com/wokwi/wokwi-elements.git third-party/wokwi-elements
-```
-
-The GitHub Actions workflow does NOT use `submodules: recursive` for this reason.
+The frontend-tests CI workflow only clones `wokwi-elements` (for the
+metadata staleness check), not the other two.
 
 ### 9. Backend Gotchas
 
@@ -445,7 +438,9 @@ npm test
 
 ### Adding a New Electronic Component
 
-1. Check if wokwi-elements has the component (see `third-party/wokwi-elements/src/`)
+1. Check if wokwi-elements has the component — either browse
+   https://github.com/wokwi/wokwi-elements or `ls third-party/wokwi-elements/src/`
+   if the optional clone is present
 2. Create React wrapper in `frontend/src/components/components-wokwi/`
 3. Add component type to `useSimulatorStore` interface
 4. Update SimulatorCanvas to render the component

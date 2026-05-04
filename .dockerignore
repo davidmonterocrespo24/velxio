@@ -12,8 +12,13 @@ env/
 # Build outputs (will be built inside Docker)
 frontend/dist/
 frontend/.vite/
-third-party/avr8js/dist/
-third-party/wokwi-elements/dist/
+
+# Reference-only third-party clones — Velxio resolves these from npm at
+# build time, so the Docker image doesn't need the upstream sources.
+third-party/avr8js/
+third-party/rp2040js/
+third-party/wokwi-elements/
+third-party/wokwi-boards/
 
 # QEMU source & Windows builds (only prebuilt/qemu/ .so files are needed)
 third-party/qemu-lcgamboa/

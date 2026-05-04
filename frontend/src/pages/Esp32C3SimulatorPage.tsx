@@ -9,7 +9,7 @@ import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
 import { getSeoMeta } from '../seoRoutes';
 import { trackClickCTA } from '../utils/analytics';
-import esp32C3SvgUrl from '../../../third-party/wokwi-boards/boards/esp32-c3-devkitm-1/board.svg?url';
+const esp32C3SvgUrl = '/boards/esp32-c3.svg';
 import './SEOPage.css';
 
 const META = getSeoMeta('/esp32-c3-simulator')!;

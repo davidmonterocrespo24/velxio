@@ -69,29 +69,10 @@ FROM node:20 AS frontend-builder
 
 WORKDIR /app
 
-# Clone third-party fresh from upstream to avoid stale submodule pointers.
-# git is pre-installed in the node:20 Debian image.
-RUN git clone --depth=1 https://github.com/wokwi/avr8js.git third-party/avr8js \
- && git clone --depth=1 https://github.com/wokwi/rp2040js.git third-party/rp2040js \
- && git clone --depth=1 https://github.com/wokwi/wokwi-elements.git third-party/wokwi-elements \
- && git clone --depth=1 https://github.com/wokwi/wokwi-boards.git third-party/wokwi-boards
-
-# Build avr8js
-WORKDIR /app/third-party/avr8js
-RUN npm install && npm run build --if-present
-
-# Build rp2040js (may have no build script on some commits)
-WORKDIR /app/third-party/rp2040js
-RUN npm install && npm run build --if-present
-
-# Build wokwi-elements
-WORKDIR /app/third-party/wokwi-elements
-RUN npm install && npm run build --if-present
-
-# Build frontend
-# components-metadata.json is already committed; skip generate:metadata
-# (it requires wokwi-elements/src which isn't needed at runtime)
-WORKDIR /app
+# avr8js, rp2040js and @wokwi/elements are pulled directly from the npm
+# registry (see frontend/package.json) — no upstream git clones needed.
+# Board SVGs live in frontend/public/boards/, component SVGs in
+# frontend/public/component-svgs/, and components-metadata.json is committed.
 COPY frontend/ frontend/
 COPY scripts/ scripts/
 WORKDIR /app/frontend
@@ -144,7 +125,10 @@ COPY backend/app/ ./app/
 # run with: docker exec velxio-app python /app/scripts/<script> --apply
 COPY backend/scripts/ ./scripts/
 
-# Setup Nginx configuration
+# Setup Nginx configuration. Remove Debian's stock site so it doesn't shadow
+# ours as the default_server (was Issue #108: users behind reverse proxies got
+# the "Welcome to nginx" page because the stock site claimed default_server).
+RUN rm -f /etc/nginx/sites-enabled/default
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built frontend assets from builder stage

@@ -1,33 +1,15 @@
-# ---- Stage 1: Build third-party and frontend ----
+# ---- Stage 1: Build frontend ----
+# avr8js / rp2040js / @wokwi/elements are resolved from npm by frontend's
+# package.json — no upstream clones needed.
 FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Copy root package.json (needed for metadata generation via tsx)
-COPY package.json .
-RUN npm install
-
-# Copy metadata generation script
 COPY scripts/ scripts/
-
-# Copy and build avr8js
-COPY third-party/avr8js/ third-party/avr8js/
-WORKDIR /app/third-party/avr8js
-RUN npm install && npm run build
-
-# Copy and build wokwi-elements
-COPY third-party/wokwi-elements/ third-party/wokwi-elements/
-WORKDIR /app/third-party/wokwi-elements
-RUN npm install && npm run build
-
-# Copy frontend source and install dependencies
-WORKDIR /app
 COPY frontend/ frontend/
-WORKDIR /app/frontend
-RUN npm install
 
-# Generate component metadata and build frontend for production
-RUN npm run build
+WORKDIR /app/frontend
+RUN npm install && npm run build:docker
 
 # ---- Stage 2: Serve with nginx ----
 FROM nginx:alpine

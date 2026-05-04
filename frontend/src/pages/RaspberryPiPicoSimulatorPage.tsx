@@ -9,7 +9,7 @@ import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
 import { getSeoMeta } from '../seoRoutes';
 import { trackClickCTA } from '../utils/analytics';
-import piPicoSvgUrl from '../../../third-party/wokwi-boards/boards/pi-pico/board.svg?url';
+const piPicoSvgUrl = '/boards/pi-pico.svg';
 import './SEOPage.css';
 
 const META = getSeoMeta('/raspberry-pi-pico-simulator')!;

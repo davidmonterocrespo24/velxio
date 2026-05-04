@@ -1,11 +1,10 @@
 /**
  * Raspberry Pi Pico W Web Component
  *
- * Uses the official wokwi-boards SVG for the Pi Pico W.
  * Dimensions: 20.9 mm × 52.75 mm → 105 × 264 px (× 5 px/mm)
  */
 
-import piPicoWSvgUrl from '../../../../third-party/wokwi-boards/boards/pi-pico-w/board.svg?url';
+const piPicoWSvgUrl = '/boards/pi-pico-w.svg';
 
 // Pi Pico W pins: 1.6 mm → x=8 (left), 19.3 mm → x=97 (right)
 const PINS_PI_PICO_W = [

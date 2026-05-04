@@ -13,55 +13,26 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        # Do NOT use submodules: recursive — the submodule pointers in this repo
-        # are stale and predate package.json. We clone the libs fresh below.
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # Clone third-party fresh (stale submodule pointers can't be used)
-      - name: Clone third-party
-        run: |
-          git clone --depth=1 https://github.com/wokwi/avr8js.git third-party/avr8js
-          git clone --depth=1 https://github.com/wokwi/rp2040js.git third-party/rp2040js
-          git clone --depth=1 https://github.com/wokwi/wokwi-elements.git third-party/wokwi-elements
+      # The metadata generator scans wokwi-elements/src/, which only ships in
+      # the upstream repo (not on npm). Clone it once for the freshness check.
+      - name: Clone wokwi-elements (for metadata regeneration only)
+        run: git clone --depth=1 https://github.com/wokwi/wokwi-elements.git third-party/wokwi-elements
 
-      # Cache third-party node_modules to speed up repeated runs
-      - name: Cache third-party node_modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            third-party/avr8js/node_modules
-            third-party/rp2040js/node_modules
-            third-party/wokwi-elements/node_modules
-          key: third-party-${{ hashFiles('third-party/avr8js/package-lock.json', 'third-party/rp2040js/package-lock.json', 'third-party/wokwi-elements/package-lock.json') }}
-
-      # Cache frontend node_modules
       - name: Cache frontend node_modules
         uses: actions/cache@v4
         with:
           path: frontend/node_modules
           key: frontend-${{ hashFiles('frontend/package-lock.json') }}
 
-      # Build avr8js (referenced as file: dep in frontend/package.json)
-      - name: Build avr8js
-        run: cd third-party/avr8js && npm install && npm run build
-
-      # Build rp2040js (referenced via vite alias to dist/esm)
-      - name: Build rp2040js
-        run: cd third-party/rp2040js && npm install && npm run build
-
-      # Build wokwi-elements (referenced as file: dep in frontend/package.json)
-      - name: Build wokwi-elements
-        run: cd third-party/wokwi-elements && npm install && npm run build
-
-      # Install frontend deps (picks up file: references to avr8js and wokwi-elements)
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
-      # Install root deps (typescript, tsx) so the metadata generator runs
       - name: Install root dev dependencies
         run: npm ci
 
@@ -78,6 +49,5 @@ jobs:
             exit 1
           fi
 
-      # Run all vitest tests
       - name: Run tests
         run: cd frontend && npm test

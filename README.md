@@ -267,15 +267,22 @@ The `/app/data` volume contains:
 ```bash
 git clone https://github.com/davidmonterocrespo24/velxio.git
 cd velxio
-cp backend/.env.example backend/.env   # edit as needed
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d --build
 ```
 
-#### Environment variables (`backend/.env`)
+That's it — open <http://localhost:3080>. The container generates a random
+`SECRET_KEY` on first boot and persists it in `./data/`, so no `.env` is
+required to get going.
+
+#### Optional: customize environment
+
+Create `backend/.env` (copy from `backend/.env.example`) only when you need
+OAuth, a fixed `SECRET_KEY`, or HTTPS-only cookies. The compose file picks it
+up automatically if it exists.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SECRET_KEY` | *(required)* | JWT signing secret |
+| `SECRET_KEY` | *(auto-generated)* | JWT signing secret. If unset the entrypoint creates one and saves it under `data/.secret_key`. |
 | `DATABASE_URL` | `sqlite+aiosqlite:////app/data/velxio.db` | SQLite path |
 | `DATA_DIR` | `/app/data` | Directory for project files |
 | `FRONTEND_URL` | `http://localhost:5173` | Used for OAuth redirect |
@@ -283,6 +290,15 @@ docker compose -f docker-compose.prod.yml up -d
 | `GOOGLE_CLIENT_SECRET` | — | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:8001/api/auth/google/callback` | Must match Google Console |
 | `COOKIE_SECURE` | `false` | Set `true` when serving over HTTPS |
+
+> **Deploying behind a reverse proxy?** The container listens on plain HTTP
+> on port 80 and accepts any `Host` header. If you used to get the
+> "Welcome to nginx" page through your proxy, that bug was fixed in the
+> master image.
+
+> **Running velxio.dev itself?** Production-only configuration (host nginx
+> + HTTPS, backups, pinned upstream commit) lives in its own repo:
+> [github.com/velxio/velxio-prod](https://github.com/velxio/velxio-prod).
 
 ### Option C: Manual Setup
 
@@ -293,31 +309,24 @@ git clone --recurse-submodules https://github.com/davidmonterocrespo24/velxio.gi
 cd velxio
 ```
 
-> **Already cloned without `--recurse-submodules`?** The `third-party/` directories will be empty. Run:
-> ```bash
-> git submodule update --init --recursive
-> ```
-> If that fails because the submodule pointers are stale, clone the libs fresh:
-> ```bash
-> cd third-party
-> git clone --depth=1 https://github.com/wokwi/avr8js.git avr8js
-> git clone --depth=1 https://github.com/wokwi/wokwi-elements.git wokwi-elements
-> git clone --depth=1 https://github.com/wokwi/rp2040js.git rp2040js
-> git clone --depth=1 https://github.com/wokwi/wokwi-boards.git wokwi-boards
-> cd ..
-> ```
-> `wokwi-boards` ships static SVG assets imported by the ESP32 / Pi Pico W
-> board components — without it the frontend build fails on missing
-> `board.svg` imports.
-
-**Build the Wokwi libraries** (required before running the frontend):
-
-```bash
-cd third-party/avr8js && npm install && npm run build && cd ../..
-cd third-party/wokwi-elements && npm install && npm run build && cd ../..
-cd third-party/rp2040js && npm install && npm run build && cd ../..
-# wokwi-boards is asset-only (SVGs) — no install or build needed.
-```
+> **Heads-up about `third-party/`:** `avr8js`, `rp2040js` and
+> `@wokwi/elements` are now resolved from the npm registry — `npm install`
+> in `frontend/` pulls them automatically, no clone or build of upstream
+> repos is required. The folders under `third-party/` are kept as
+> reference-only credits for the upstream projects; you only need to clone
+> them if you are *adding new components to wokwi-elements* (the metadata
+> generator scans its `src/`).
+>
+> Board SVGs live directly in `frontend/public/boards/`, so `wokwi-boards`
+> is also not required to clone.
+>
+> The one third-party folder that DOES need to be present for ESP32
+> emulation is `qemu-lcgamboa` — but only if you're rebuilding QEMU from
+> source. Otherwise the prebuilt `.so` files come from the
+> [qemu-prebuilt release](https://github.com/davidmonterocrespo24/velxio/releases/tag/qemu-prebuilt).
+>
+> Older guides may mention a `wokwi-libs/` directory; that was renamed to
+> `third-party/` long ago, so any path containing `wokwi-libs/` is stale.
 
 ```bash
 # Backend
@@ -371,17 +380,19 @@ velxio/
 │       ├── models/              # User, Project (SQLAlchemy)
 │       ├── services/            # arduino_cli, esp32_worker, qemu_manager, gpio_shim
 │       └── core/                # config, security, dependencies
-├── third-party/                  # Local clones of Wokwi repos
+├── third-party/                  # Local clones of upstream repos
 │   ├── wokwi-elements/          # Web Components for electronic parts
 │   ├── avr8js/                  # AVR8 CPU emulator
 │   ├── rp2040js/                # RP2040 emulator
 │   └── qemu-lcgamboa/           # QEMU fork for ESP32 Xtensa emulation
+│   # NB: board SVGs live directly in frontend/public/boards/
 ├── img/                         # Raspberry Pi 3 boot images (kernel8.img, dtb, OS image)
 ├── deploy/                      # nginx.conf, entrypoint.sh
 ├── docs/                        # Technical documentation
 ├── Dockerfile.standalone        # Single-container production image
-├── docker-compose.yml           # Development compose
-└── docker-compose.prod.yml      # Production compose
+└── docker-compose.yml           # Self-hosting compose
+                                 # (production deployment lives in
+                                 # https://github.com/velxio/velxio-prod)
 ```
 
 ---

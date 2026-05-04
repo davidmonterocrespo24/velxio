@@ -1,6 +1,10 @@
 # Development Docker Compose — same image as production for full parity.
 # Usage: docker compose up --build
 # Access: http://localhost:3080
+#
+# backend/.env is OPTIONAL. If missing, the entrypoint generates a random
+# SECRET_KEY so the app boots out-of-the-box. Create backend/.env (copy
+# backend/.env.example) only when you need OAuth or want a fixed SECRET_KEY.
 services:
   velxio:
     build:
@@ -11,7 +15,8 @@ services:
     ports:
       - "3080:80"
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/velxio.db
       - DATA_DIR=/app/data
