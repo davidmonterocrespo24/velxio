@@ -35,7 +35,7 @@ export async function compileCode(
     const response = await axios.post<CompileResult>(
       `${API_BASE}/compile/`,
       { files, board_fqbn: board, project_id: projectId ?? null },
-      { withCredentials: true, timeout: 180000 },
+      { withCredentials: true, timeout: 600000 },
     );
 
     console.log('Compilation response status:', response.status);
