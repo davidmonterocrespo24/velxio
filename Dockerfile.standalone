@@ -129,13 +129,13 @@ COPY backend/scripts/ ./scripts/
 # ours as the default_server (was Issue #108: users behind reverse proxies got
 # the "Welcome to nginx" page because the stock site claimed default_server).
 RUN rm -f /etc/nginx/sites-enabled/default
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built frontend assets from builder stage
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
 # Copy and configure entrypoint script (fix Windows CRLF → LF)
-COPY deploy/entrypoint.sh /app/entrypoint.sh
+COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # ── ESP32 emulation: pre-built QEMU .so + ROM binaries ──────────────────────

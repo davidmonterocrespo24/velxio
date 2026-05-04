@@ -485,7 +485,7 @@ The Docker Hub description is automatically updated from the repository's `READM
 
 ## Entrypoint Script
 
-**Location:** `deploy/entrypoint.sh`
+**Location:** `docker/entrypoint.sh`
 
 The entrypoint script runs when the container starts. It initializes development tools and launches the application services.
 
@@ -551,7 +551,7 @@ Using `exec nginx` replaces the shell process with Nginx, making it PID 1. This 
 
 ## Nginx Reverse Proxy
 
-**Location:** `deploy/nginx.conf`
+**Location:** `docker/nginx.conf`
 
 ### API Proxy Configuration
 
@@ -994,8 +994,8 @@ For ESP32 first-time compilation (cold build cache), this may still not be enoug
 | `Dockerfile.standalone` | Multi-stage Docker build (4 stages) |
 | `.github/workflows/docker-publish.yml` | CI/CD: builds + pushes multi-arch image |
 | `third-party/qemu-lcgamboa/.github/workflows/build-libqemu.yml` | CI/CD: builds QEMU .so for amd64 + arm64 |
-| `deploy/entrypoint.sh` | Container startup script |
-| `deploy/nginx.conf` | Nginx reverse proxy configuration |
+| `docker/entrypoint.sh` | Container startup script |
+| `docker/nginx.conf` | Nginx reverse proxy configuration |
 | `docker-compose.yml` | Self-hosting compose file (production at github.com/velxio/velxio-prod) |
 | `prebuilt/qemu/` | Local QEMU prebuilt files (optional, for dev) |
 | `backend/.env` | Backend environment variables (not committed) |
