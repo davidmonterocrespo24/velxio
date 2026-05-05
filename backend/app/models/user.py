@@ -31,4 +31,12 @@ class User(Base):
     signup_country: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
     last_country: Mapped[str | None] = mapped_column(String(2), nullable=True, index=True)
 
+    # Subscription state. Self-hosters never set these — defaults are safe
+    # (no paid features unlock). Production velxio.dev syncs them from an
+    # external billing system (Odoo) via webhook + periodic resync.
+    is_paid_subscriber: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    subscription_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    subscription_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    odoo_partner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
     projects: Mapped[list["Project"]] = relationship("Project", back_populates="owner", lazy="select")  # noqa: F821

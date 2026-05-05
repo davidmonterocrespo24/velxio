@@ -74,6 +74,13 @@ async def lifespan(_app: FastAPI):
             "ALTER TABLE usage_events ADD COLUMN country VARCHAR(2)",
             # Multi-board persistence (replaces single board_type as the source of truth)
             "ALTER TABLE projects ADD COLUMN boards_json TEXT NOT NULL DEFAULT '[]'",
+            # Subscription state. Self-hosters never write these; deployments
+            # that wire an external billing system (e.g. velxio.dev → Odoo)
+            # populate them via webhooks + periodic resync.
+            "ALTER TABLE users ADD COLUMN is_paid_subscriber BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN subscription_status VARCHAR(20)",
+            "ALTER TABLE users ADD COLUMN subscription_period_end DATETIME",
+            "ALTER TABLE users ADD COLUMN odoo_partner_id INTEGER",
         ]
         for stmt in legacy_migrations:
             try:
