@@ -264,6 +264,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ autoSave }) => {
 
               {dropdownOpen && (
                 <div
+                  data-velxio-slot="user-menu"
                   style={{
                     position: 'absolute',
                     right: 0,

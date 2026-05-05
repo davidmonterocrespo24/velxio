@@ -625,7 +625,7 @@ function AdminDashboard() {
         </div>
       </div>
 
-      <div style={s.tabs}>
+      <div data-velxio-slot="admin-tabs" style={s.tabs}>
         <button
           style={tab === 'dashboard' ? s.tabActive : s.tabBtn}
           onClick={() => setTab('dashboard')}
@@ -648,6 +648,7 @@ function AdminDashboard() {
           Boards
         </button>
       </div>
+      <div data-velxio-slot="admin-tab-content" />
 
       {tab === 'dashboard' && (
         <div style={s.tabContent}>
