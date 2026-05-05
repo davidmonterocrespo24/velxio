@@ -41,6 +41,12 @@ export interface ComponentMetadata {
   defaultValues: Record<string, any>;
   pinCount: number;
   tags: string[]; // For search functionality
+  // Optional flag set by private overlays (e.g. velxio.dev) to mark a
+  // component as gated behind a paid subscription. The OSS image never
+  // sets this — self-hosters have everything unlocked. The picker can
+  // delegate the click on a pro_only component to a window-level gate
+  // (see ComponentPickerModal) which the overlay implements.
+  pro_only?: boolean;
 }
 
 export interface ComponentMetadataCollection {

@@ -259,7 +259,18 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                     <ComponentCard
                       key={component.id}
                       component={component}
-                      onSelect={() => onSelectComponent(component)}
+                      onSelect={() => {
+                        // Pro overlays can intercept clicks on pro_only
+                        // components by setting window.__velxio_pro_gate__.
+                        // Returning true means "handled — do not pass through".
+                        if (component.pro_only) {
+                          const gate = (window as unknown as {
+                            __velxio_pro_gate__?: (c: typeof component) => boolean;
+                          }).__velxio_pro_gate__;
+                          if (gate && gate(component)) return;
+                        }
+                        onSelectComponent(component);
+                      }}
                     />
                   ))
                 )}
