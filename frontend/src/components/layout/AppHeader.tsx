@@ -182,6 +182,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
             <Link to={localize('/editor/')} className={'header-nav-link' + isActive('/editor')}>
               {t('header.nav.editor')}
             </Link>
+            {/* Standalone tools (image to C array). Ungated: the OSS build
+                ships them, so they link from every variant of the header. */}
+            <Link
+              to={localize('/tools/image-to-code')}
+              className={'header-nav-link' + isActive('/tools/image-to-code')}
+            >
+              {t('header.nav.tools', 'Tools')}
+            </Link>
             {import.meta.env.VITE_PRO_BUILD && (
               <>
                 <Link to={localize('/about')} className={'header-nav-link' + isActive('/about')}>
