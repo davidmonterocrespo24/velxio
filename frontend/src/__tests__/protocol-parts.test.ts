@@ -21,6 +21,7 @@ import type { LineHostPort } from '../simulation/line/LineHost';
 import { INITIAL_PAD, type PadEvent, type PadState } from '../simulation/line/padEvent';
 import { clearLineGaps, lineGaps } from '../simulation/line/requestLine';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
+import { DHT22_RESPONSE_START_US } from '../simulation/line/models/dht22';
 import {
   emitIr,
   irAirStats,
@@ -423,7 +424,8 @@ describe('dht22 — single-wire sensor (the line contract)', () => {
     );
     sim.guest(7, ['high', 'low', 'z']);
     expect(port.edges).toHaveLength(84);
-    expect(port.edges[0]).toEqual([7, false, 10_000 + 16 * 20]);
+    // 16 cycles per us at this rig's 16 MHz, times the sensor's response gap.
+    expect(port.edges[0]).toEqual([7, false, 10_000 + 16 * DHT22_RESPONSE_START_US]);
   });
 
   it('forwards slider changes to the host', () => {

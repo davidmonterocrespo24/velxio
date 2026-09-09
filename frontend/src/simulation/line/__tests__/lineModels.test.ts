@@ -12,7 +12,7 @@ import {
   type LineClock,
 } from '../lineModels';
 import { INITIAL_PAD, type PadEvent, type PadState } from '../padEvent';
-import { dht22Payload, dht22Frame } from '../models/dht22';
+import { dht22Payload, dht22Frame, DHT22_RESPONSE_START_US } from '../models/dht22';
 import { hcsr04Frame, clampDistanceCm } from '../models/hc-sr04';
 import '../index';
 
@@ -73,12 +73,12 @@ describe('dht22 model', () => {
     expect([...dht22Payload(-10.5, 33.3)]).toEqual([0x01, 0x4d, 0x80, 0x69, 0x37]);
   });
 
-  it('answers with 84 edges: 20 us in, 80/80 preamble, 40 bits of 50 + 26|70, and a release', () => {
+  it('answers with 84 edges: the response gap, 80/80 preamble, 40 bits of 50 + 26|70, and a release', () => {
     const us = clockAt(0).us;
     const f = dht22Frame(4, 1000, dht22Payload(25, 50), us);
     expect(f.edges).toHaveLength(84);
-    expect(f.edges[0]).toEqual({ level: false, atCycle: 1000 + us(20) });
-    expect(f.edges[1]).toEqual({ level: true, atCycle: 1000 + us(20) + us(80) });
+    expect(f.edges[0]).toEqual({ level: false, atCycle: 1000 + us(DHT22_RESPONSE_START_US) });
+    expect(f.edges[1]).toEqual({ level: true, atCycle: 1000 + us(DHT22_RESPONSE_START_US) + us(80) });
     expect(f.edges[2].atCycle - f.edges[1].atCycle).toBe(us(80));
     // First data bit of 0x01 is a '0': 50 us low then 26 us high.
     expect(f.edges[3].atCycle - f.edges[2].atCycle).toBe(us(50));
