@@ -4056,14 +4056,47 @@
       "name": "IR Receiver",
       "category": "passive",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/>\n      <text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"10\" fill=\"#666\">\n        IR-RECEIVER\n      </text>\n    </svg>",
-      "properties": [],
-      "defaultValues": {},
-      "pinCount": 0,
+      "properties": [
+        {
+          "name": "irAddress",
+          "type": "string",
+          "defaultValue": "0x00",
+          "control": "text",
+          "description": "NEC address this receiver transmits when clicked"
+        },
+        {
+          "name": "irCommand",
+          "type": "string",
+          "defaultValue": "0x45",
+          "control": "text",
+          "description": "NEC command this receiver transmits when clicked"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "defaultValue": "",
+          "control": "text",
+          "description": "Leave empty to hear every IR emitter. Set a name to hear only emitters carrying the same one."
+        }
+      ],
+      "defaultValues": {
+        "irAddress": "0x00",
+        "irCommand": "0x45",
+        "channel": ""
+      },
+      "pinCount": 3,
       "tags": [
         "ir-receiver",
         "ir receiver",
         "ir",
-        "receiver"
+        "receiver",
+        "infrared",
+        "nec",
+        "remote",
+        "demodulator",
+        "vs1838b",
+        "tsop",
+        "38khz"
       ]
     },
     {
@@ -4072,14 +4105,37 @@
       "name": "IR Remote",
       "category": "passive",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/>\n      <text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"10\" fill=\"#666\">\n        IR-REMOTE\n      </text>\n    </svg>",
-      "properties": [],
-      "defaultValues": {},
+      "properties": [
+        {
+          "name": "irAddress",
+          "type": "string",
+          "defaultValue": "0x00",
+          "control": "text",
+          "description": "NEC address of this handset"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "defaultValue": "",
+          "control": "text",
+          "description": "Leave empty to transmit into the room. Set a name to reach only receivers carrying the same one."
+        }
+      ],
+      "defaultValues": {
+        "irAddress": "0x00",
+        "channel": ""
+      },
       "pinCount": 0,
       "tags": [
         "ir-remote",
         "ir remote",
         "ir",
-        "remote"
+        "remote",
+        "infrared",
+        "nec",
+        "remote control",
+        "handset",
+        "transmitter"
       ]
     },
     {

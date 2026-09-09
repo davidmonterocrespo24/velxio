@@ -9,8 +9,8 @@
  *   mpu6050       — I2C IMU  (VirtualMPU6050)
  *   dht22         — single-wire temp/humidity
  *   hx711         — 2-wire load-cell ADC
- *   ir-receiver   — click → NEC pulse on OUT pin
- *   ir-remote     — button-press → ir-signal event
+ *   ir-receiver   — the air → a real NEC envelope on its DAT pin
+ *   ir-remote     — a button press → the air
  *   microsd-card  — SPI SD init handshake
  */
 
@@ -21,6 +21,14 @@ import type { LineHostPort } from '../simulation/line/LineHost';
 import { INITIAL_PAD, type PadEvent, type PadState } from '../simulation/line/padEvent';
 import { clearLineGaps, lineGaps } from '../simulation/line/requestLine';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
+import {
+  emitIr,
+  irAirStats,
+  necDecode,
+  necEncode,
+  resetIrAir,
+  NEC_REPEAT_PERIOD_MS,
+} from '../simulation/ir';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import '../simulation/parts/ProtocolParts';
 
@@ -348,41 +356,53 @@ describe('mpu6050 — I2C IMU', () => {
 
 // ─── dht22 ───────────────────────────────────────────────────────────────────
 
-describe('dht22 — single-wire sensor (the line contract)', () => {
-  /** A board that hosts line models itself, over a fake port. */
-  function makeLineSim() {
-    const listeners = new Map<number, Set<(e: PadEvent) => void>>();
-    const port: LineHostPort & { edges: Array<[number, boolean, number]>; rests: Array<[number, boolean, boolean]> } = {
-      edges: [],
-      rests: [],
-      now: () => 10_000,
-      clockHz: () => 16e6,
-      scheduleEdge: (pin, level, at) => port.edges.push([pin, level, at]),
-      onPad: (pin, cb) => {
-        if (!listeners.has(pin)) listeners.set(pin, new Set());
-        listeners.get(pin)!.add(cb);
-        return () => listeners.get(pin)!.delete(cb);
-      },
-      restPad: (pin, level, driven) => port.rests.push([pin, level, driven]),
-    };
-    const hub = new LineSensorHub(port);
-    const sim = {
-      ...makePinSim(),
-      lineSupport: () => ({ mode: 'local' as const }),
-      lineHub: () => hub,
-      /** Emit the guest's drive changes the way a simulator would. */
-      guest(pin: number, drives: Array<PadState['drive']>) {
-        let prev: PadState = INITIAL_PAD;
-        for (const drive of drives) {
-          const next: PadState = { drive, pull: drive === 'z' ? 1 : 0, level: drive !== 'low', cycle: 10_000 };
-          listeners.get(pin)?.forEach((cb) => cb({ pin, ...next, prev }));
-          prev = next;
-        }
-      },
-    };
-    return { sim, hub, port };
-  }
+/**
+ * A board that hosts line models itself, over a fake port. At module scope
+ * because the dht22 section and the infrared one both need it — the two
+ * devices differ only in which model they attach.
+ */
+function makeLineSim() {
+  const listeners = new Map<number, Set<(e: PadEvent) => void>>();
+  const port: LineHostPort & {
+    edges: Array<[number, boolean, number]>;
+    rests: Array<[number, boolean, boolean]>;
+  } = {
+    edges: [],
+    rests: [],
+    now: () => 10_000,
+    clockHz: () => 16e6,
+    scheduleEdge: (pin, level, at) => port.edges.push([pin, level, at]),
+    onPad: (pin, cb) => {
+      if (!listeners.has(pin)) listeners.set(pin, new Set());
+      listeners.get(pin)!.add(cb);
+      return () => listeners.get(pin)!.delete(cb);
+    },
+    restPad: (pin, level, driven) => port.rests.push([pin, level, driven]),
+  };
+  const hub = new LineSensorHub(port);
+  const sim = {
+    ...makePinSim(),
+    lineSupport: () => ({ mode: 'local' as const }),
+    lineHub: () => hub,
+    /** Emit the guest's drive changes the way a simulator would. */
+    guest(pin: number, drives: Array<PadState['drive']>) {
+      let prev: PadState = INITIAL_PAD;
+      for (const drive of drives) {
+        const next: PadState = {
+          drive,
+          pull: drive === 'z' ? 1 : 0,
+          level: drive !== 'low',
+          cycle: 10_000,
+        };
+        listeners.get(pin)?.forEach((cb) => cb({ pin, ...next, prev }));
+        prev = next;
+      }
+    },
+  };
+  return { sim, hub, port };
+}
 
+describe('dht22 — single-wire sensor (the line contract)', () => {
   it('asks the board to host it and rests DATA released on its pull-up', () => {
     const { sim, hub, port } = makeLineSim();
     const logic = PartSimulationRegistry.get('dht22')!;
@@ -395,7 +415,12 @@ describe('dht22 — single-wire sensor (the line contract)', () => {
   it('answers the start signal (LOW, then release) with the 84-edge frame', () => {
     const { sim, port } = makeLineSim();
     const logic = PartSimulationRegistry.get('dht22')!;
-    logic.attachEvents!(makeElement({ temperature: 25.0, humidity: 50.0 }), sim as any, pinMap({ DATA: 7 }), 'dht-2');
+    logic.attachEvents!(
+      makeElement({ temperature: 25.0, humidity: 50.0 }),
+      sim as any,
+      pinMap({ DATA: 7 }),
+      'dht-2',
+    );
     sim.guest(7, ['high', 'low', 'z']);
     expect(port.edges).toHaveLength(84);
     expect(port.edges[0]).toEqual([7, false, 10_000 + 16 * 20]);
@@ -439,7 +464,12 @@ describe('dht22 — single-wire sensor (the line contract)', () => {
     const cleanup = logic.attachEvents!(makeElement(), sim as any, pinMap({ DATA: 7 }), 'dht-6');
     expect(sim.setPinState).not.toHaveBeenCalled();
     expect(sim.pinManager.onPinChange).not.toHaveBeenCalled();
-    expect(lineGaps()).toContainEqual({ sensorType: 'dht22', pin: 7, why: expect.any(String), componentId: 'dht-6' });
+    expect(lineGaps()).toContainEqual({
+      sensorType: 'dht22',
+      pin: 7,
+      why: expect.any(String),
+      componentId: 'dht-6',
+    });
     expect(warn).toHaveBeenCalled();
     expect(() => cleanup()).not.toThrow();
     warn.mockRestore();
@@ -524,138 +554,274 @@ describe('hx711 — load cell amplifier', () => {
   });
 });
 
-// ─── ir-receiver ─────────────────────────────────────────────────────────────
+// ─── Infrared ────────────────────────────────────────────────────────────────
 
-describe('ir-receiver — NEC click simulation', () => {
-  it('sets OUT pin HIGH (idle) on attach', () => {
-    const sim = makePinSim();
+/**
+ * These two parts were both dead, and every test in this file's previous IR
+ * section passed anyway — they asserted that a click made `setPinState` calls
+ * and that a listener got registered, which is true of code that transmits
+ * nothing anybody can decode on a pin nobody is watching. So the assertions
+ * here are about the LINK: a press on one part reaches another part's pin, and
+ * what lands there decodes back to the button that was pressed.
+ */
+
+/** The pin levels an edge frame produces, as mark/space microseconds. */
+function edgesToPulses(
+  edges: Array<[number, boolean, number]>,
+  clockHz: number,
+): Array<{ level: 0 | 1; us: number }> {
+  const out: Array<{ level: 0 | 1; us: number }> = [];
+  for (let i = 0; i + 1 < edges.length; i++) {
+    const us = ((edges[i + 1][2] - edges[i][2]) / clockHz) * 1e6;
+    // The pin is active LOW: it is low for a mark.
+    out.push({ level: edges[i][1] ? 0 : 1, us });
+  }
+  return out;
+}
+
+describe('ir-receiver — the demodulator', () => {
+  beforeEach(() => resetIrAir());
+
+  it('resolves DAT, the pin the element actually declares', () => {
+    const { sim, hub } = makeLineSim();
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    logic.attachEvents!(makeElement(), sim as any, pinMap({ OUT: 5 }));
-    expect(sim.setPinState).toHaveBeenCalledWith(5, true);
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-1');
+    expect(hub.size).toBe(1);
+    expect(hub.ownsPin(5)).toBe(true);
   });
 
-  it('registers a click listener on the element', () => {
-    const sim = makePinSim();
-    const el = makeElement();
+  it('rests its output HIGH, driven — a demodulator idles high and owns the line', () => {
+    const { sim, port } = makeLineSim();
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    logic.attachEvents!(el, sim as any, pinMap({ OUT: 5 }));
-    expect(el.addEventListener).toHaveBeenCalledWith('click', expect.any(Function));
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-2');
+    expect(port.rests).toEqual([[5, true, true]]);
   });
 
-  it('click drives OUT LOW (IR burst start) and later HIGH via setTimeout', () => {
-    const sim = makePinSim();
-    const el = makeElement();
+  it('puts a frame from the air on its pin, active low and back to idle', () => {
+    const { sim, port } = makeLineSim();
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    logic.attachEvents!(el, sim as any, pinMap({ OUT: 5 }));
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-3');
+    port.edges.length = 0;
 
-    const clickCb = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([event]) => event === 'click',
-    )?.[1] as (() => void) | undefined;
-    expect(clickCb).toBeDefined();
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'somebody-else' });
 
-    sim.setPinState.mockClear();
-    clickCb!();
-
-    // First call should drive pin LOW (beginning of 9 ms preamble burst)
-    const firstLow = (sim.setPinState as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(firstLow).toEqual([5, false]);
+    expect(port.edges.length).toBeGreaterThan(60); // 32 bits, two edges each
+    expect(port.edges[0][1]).toBe(false); // the 9 ms header mark pulls it LOW
+    expect(port.edges[port.edges.length - 1][1]).toBe(true); // and it ends idle
   });
 
-  it('NEC sequence produces more than 60 setPinState calls (35+ transitions)', () => {
-    const sim = makePinSim();
+  it('what lands on the pin decodes back to the address and command sent', () => {
+    const { sim, port } = makeLineSim();
+    const logic = PartSimulationRegistry.get('ir-receiver')!;
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-4');
+    port.edges.length = 0;
+
+    emitIr({ pulses: necEncode(0x04, 0x1c), sourceId: 'remote-x' });
+
+    const decoded = necDecode(edgesToPulses(port.edges, 16e6));
+    expect(decoded.protocol).toBe('NEC');
+    expect(decoded.address).toBe(0x04);
+    expect(decoded.command).toBe(0x1c);
+    expect(decoded.verified).toBe(true);
+  });
+
+  it('the timing is real: a NEC header mark is 9 ms on the guest clock', () => {
+    const { sim, port } = makeLineSim();
+    const logic = PartSimulationRegistry.get('ir-receiver')!;
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-5');
+    port.edges.length = 0;
+
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'remote-x' });
+
+    // 16 MHz: 9 ms is 144 000 cycles. The old setTimeout(0.562) could not
+    // express this at all, which is why no IR library ever decoded it.
+    const headerCycles = port.edges[1][2] - port.edges[0][2];
+    expect(headerCycles).toBe(Math.round(9000 * 16));
+  });
+
+  it('does not hear its own transmission', () => {
+    const { sim, port } = makeLineSim();
     const el = makeElement();
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    logic.attachEvents!(el, sim as any, pinMap({ OUT: 5 }));
+    logic.attachEvents!(el, sim as any, pinMap({ DAT: 5 }), 'rx-6');
+    port.edges.length = 0;
 
-    const clickCb = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+    const click = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
       ([ev]) => ev === 'click',
     )?.[1] as () => void;
+    click();
 
-    sim.setPinState.mockClear();
-    clickCb();
-    // Run all queued timeouts to exhaust the chain
-    vi.runAllTimers();
-
-    expect((sim.setPinState as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(60);
+    expect(irAirStats.emitted).toBe(1);
+    expect(port.edges).toHaveLength(0);
   });
 
-  it('cleanup removes click listener and sets pin HIGH', () => {
-    const sim = makePinSim();
-    const el = makeElement();
+  it('two receivers both hear one transmission', () => {
+    const a = makeLineSim();
+    const b = makeLineSim();
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    const cleanup = logic.attachEvents!(el, sim as any, pinMap({ OUT: 5 }));
-    sim.setPinState.mockClear();
+    logic.attachEvents!(makeElement(), a.sim as any, pinMap({ DAT: 5 }), 'rx-a');
+    logic.attachEvents!(makeElement(), b.sim as any, pinMap({ DAT: 9 }), 'rx-b');
+    a.port.edges.length = 0;
+    b.port.edges.length = 0;
+
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'remote-x' });
+
+    expect(a.port.edges.length).toBeGreaterThan(60);
+    expect(b.port.edges.length).toBeGreaterThan(60);
+    expect(b.port.edges[0][0]).toBe(9); // on its own pin, not the other's
+  });
+
+  it('a channel isolates a pair; an unset channel still hears everything', () => {
+    const tuned = makeLineSim();
+    const open = makeLineSim();
+    const logic = PartSimulationRegistry.get('ir-receiver')!;
+    logic.attachEvents!(
+      makeElement({ channel: 'left' }),
+      tuned.sim as any,
+      pinMap({ DAT: 5 }),
+      'rx-l',
+    );
+    logic.attachEvents!(makeElement(), open.sim as any, pinMap({ DAT: 6 }), 'rx-open');
+    tuned.port.edges.length = 0;
+    open.port.edges.length = 0;
+
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'remote-r', channel: 'right' });
+    expect(tuned.port.edges).toHaveLength(0);
+    expect(open.port.edges.length).toBeGreaterThan(60);
+
+    tuned.port.edges.length = 0;
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'remote-l', channel: 'LEFT' });
+    expect(tuned.port.edges.length).toBeGreaterThan(60); // matched case-insensitively
+  });
+
+  it('stops listening after cleanup', () => {
+    const { sim, port } = makeLineSim();
+    const logic = PartSimulationRegistry.get('ir-receiver')!;
+    const cleanup = logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-7');
     cleanup();
-    expect(el.removeEventListener).toHaveBeenCalledWith('click', expect.any(Function));
-    expect(sim.setPinState).toHaveBeenCalledWith(5, true);
+    port.edges.length = 0;
+    emitIr({ pulses: necEncode(0x00, 0x45), sourceId: 'remote-x' });
+    expect(port.edges).toHaveLength(0);
   });
 
-  it('no-op when no pin connected (no throw)', () => {
-    const sim = makePinSim();
+  it('records a gap, and takes no frame, on a board that cannot host it', () => {
+    clearLineGaps();
+    const sim = {
+      ...makePinSim(),
+      lineSupport: () => ({ mode: 'none' as const, why: 'no timed edges' }),
+    };
     const logic = PartSimulationRegistry.get('ir-receiver')!;
-    expect(() => {
-      const c = logic.attachEvents!(makeElement(), sim as any, noPins);
-      c();
-    }).not.toThrow();
+    logic.attachEvents!(makeElement(), sim as any, pinMap({ DAT: 5 }), 'rx-8');
+    expect(lineGaps().map((g) => g.sensorType)).toContain('ir-nec');
+    // The user gets a reason in the circuit check rather than a silent pad.
+    expect(() => emitIr({ pulses: necEncode(0, 0x45), sourceId: 'remote-x' })).not.toThrow();
+  });
+
+  it('no-op when nothing is wired to it (no throw)', () => {
+    const { sim } = makeLineSim();
+    const logic = PartSimulationRegistry.get('ir-receiver')!;
+    expect(() => logic.attachEvents!(makeElement(), sim as any, noPins, 'rx-9')()).not.toThrow();
   });
 });
 
-// ─── ir-remote ───────────────────────────────────────────────────────────────
+describe('ir-remote — the handset', () => {
+  beforeEach(() => resetIrAir());
 
-describe('ir-remote — button dispatch', () => {
-  it('registers button-press listener on element', () => {
-    const sim = makePinSim();
-    const el = makeElement();
-    const logic = PartSimulationRegistry.get('ir-remote')!;
-    logic.attachEvents!(el, sim as any, noPins);
-    const events = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.map(([e]) => e);
-    expect(events).toContain('button-press');
-  });
-
-  it('button-press fires ir-signal CustomEvent with address and command', () => {
-    const sim = makePinSim();
-    const el = makeElement();
-    const logic = PartSimulationRegistry.get('ir-remote')!;
-    logic.attachEvents!(el, sim as any, noPins);
-
-    const onButtonPress = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([ev]) => ev === 'button-press',
-    )?.[1] as ((e: Event) => void) | undefined;
-    expect(onButtonPress).toBeDefined();
-
-    const fakeEvent = new CustomEvent('button-press', { detail: { key: 'power' } });
-    onButtonPress!(fakeEvent);
-
-    expect(el.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'ir-signal' }));
-    const dispatched = (el.dispatchEvent as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as CustomEvent;
-    expect(dispatched.detail.command).toBe(0x45); // POWER key
-  });
-
-  it('drives IR pin if connected', () => {
-    const sim = makePinSim();
-    const el = makeElement();
-    const logic = PartSimulationRegistry.get('ir-remote')!;
-    logic.attachEvents!(el, sim as any, pinMap({ IR: 4 }));
-
-    const onButtonPress = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+  /** The element's own listener, as the part registered it. */
+  function pressOn(el: HTMLElement, irCode: number, key = 'k'): void {
+    const cb = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
       ([ev]) => ev === 'button-press',
     )?.[1] as (e: Event) => void;
+    cb({ detail: { key, irCode } } as unknown as Event);
+  }
 
-    sim.setPinState.mockClear();
-    onButtonPress(new CustomEvent('button-press', { detail: { key: 'power' } }));
-
-    // Should start the NEC pulse sequence (first edge LOW)
-    expect(sim.setPinState).toHaveBeenCalledWith(4, false);
+  it('asks for no pin at all — it is a remote control', () => {
+    const logic = PartSimulationRegistry.get('ir-remote')!;
+    const getPin = vi.fn(() => null);
+    logic.attachEvents!(makeElement(), makePinSim() as any, getPin, 'tx-1');
+    expect(getPin).not.toHaveBeenCalled();
   });
 
-  it('cleanup removes all listeners', () => {
-    const sim = makePinSim();
+  it('a press transmits the code the ELEMENT reports, not a table of our own', () => {
     const el = makeElement();
     const logic = PartSimulationRegistry.get('ir-remote')!;
-    const cleanup = logic.attachEvents!(el, sim as any, noPins);
+    logic.attachEvents!(el, makePinSim() as any, noPins, 'tx-2');
+
+    // 0x30 is what wokwi's element sends for "1". The old table said 0x0c.
+    pressOn(el, 0x30, '1');
+    expect(irAirStats.last?.command).toBe(0x30);
+    expect(irAirStats.last?.protocol).toBe('NEC');
+    expect(irAirStats.last?.verified).toBe(true);
+  });
+
+  it('reaches a receiver on another board, with no wire between them', () => {
+    const rx = makeLineSim();
+    PartSimulationRegistry.get('ir-receiver')!.attachEvents!(
+      makeElement(),
+      rx.sim as any,
+      pinMap({ DAT: 5 }),
+      'rx-far',
+    );
+    rx.port.edges.length = 0;
+
+    const el = makeElement({ irAddress: 0x04 });
+    PartSimulationRegistry.get('ir-remote')!.attachEvents!(el, makePinSim() as any, noPins, 'tx-3');
+    pressOn(el, 0x1c, '5');
+
+    const decoded = necDecode(edgesToPulses(rx.port.edges, 16e6));
+    expect(decoded.address).toBe(0x04);
+    expect(decoded.command).toBe(0x1c);
+  });
+
+  it('a held key repeats, and releasing stops it', () => {
+    const el = makeElement();
+    PartSimulationRegistry.get('ir-remote')!.attachEvents!(el, makePinSim() as any, noPins, 'tx-4');
+
+    pressOn(el, 0x30);
+    expect(irAirStats.emitted).toBe(1);
+    vi.advanceTimersByTime(NEC_REPEAT_PERIOD_MS * 3 + 10);
+    expect(irAirStats.emitted).toBe(4);
+    expect(irAirStats.last?.protocol).toBe('NEC-repeat');
+
+    const release = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([ev]) => ev === 'button-release',
+    )?.[1] as () => void;
+    release();
+    vi.advanceTimersByTime(NEC_REPEAT_PERIOD_MS * 5);
+    expect(irAirStats.emitted).toBe(4);
+  });
+
+  it('cleanup stops a repeat that is still running', () => {
+    const el = makeElement();
+    const cleanup = PartSimulationRegistry.get('ir-remote')!.attachEvents!(
+      el,
+      makePinSim() as any,
+      noPins,
+      'tx-5',
+    );
+    pressOn(el, 0x30);
     cleanup();
-    expect(el.removeEventListener).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(NEC_REPEAT_PERIOD_MS * 5);
+    expect(irAirStats.emitted).toBe(1);
+  });
+
+  it('says so when it transmitted and nothing was listening', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = makeElement();
+    PartSimulationRegistry.get('ir-remote')!.attachEvents!(el, makePinSim() as any, noPins, 'tx-6');
+    pressOn(el, 0x30);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no receiver took it'));
+    warn.mockRestore();
+  });
+
+  it('ignores a press with no code on it', () => {
+    const el = makeElement();
+    PartSimulationRegistry.get('ir-remote')!.attachEvents!(el, makePinSim() as any, noPins, 'tx-7');
+    const cb = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([ev]) => ev === 'button-press',
+    )?.[1] as (e: Event) => void;
+    cb({ detail: {} } as unknown as Event);
+    expect(irAirStats.emitted).toBe(0);
   });
 });
 
@@ -1041,11 +1207,7 @@ describe('microsd-card — SD-over-SPI storage', () => {
   const at = (block: number): number => block * 512;
 
   /** Read a 512-byte block via CMD17 and return its data bytes. */
-  function readSdBlock(
-    send: (b: number[]) => void,
-    replies: number[],
-    block: number,
-  ): number[] {
+  function readSdBlock(send: (b: number[]) => void, replies: number[], block: number): number[] {
     replies.length = 0;
     send(cmd(17, at(block)));
     send(FF(520));

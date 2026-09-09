@@ -34,6 +34,15 @@ export interface SensorModelSpec {
   /** Component properties forwarded to the model (temperature, distance, …). */
   propertyKeys: string[];
   /**
+   * Which of `propertyKeys` carry TEXT. Everything a sensor reports has been a
+   * number until now, so the pre-registration walk parsed every property as
+   * one — and an IR receiver's `channel` (a name the user types, matched as a
+   * string by the air) came out of that walk as NaN. Listed here rather than
+   * sniffed from the value, because an empty channel and a channel named "5"
+   * are both legitimate and neither looks like text.
+   */
+  textPropertyKeys?: string[];
+  /**
    * Extra pins the model also drives, as `record field -> component pin name`.
    * The field name is what reaches the backend (`echo_pin`), and the same
    * fields are what `ownsPin` walks — so a model that gains a second line only
@@ -54,6 +63,18 @@ export const SINGLE_WIRE_SENSOR_MODELS: Readonly<Record<string, SensorModelSpec>
     dataPinName: 'TRIG',
     propertyKeys: ['distance'],
     extraPins: { echo_pin: 'ECHO' },
+  },
+  // The demodulator can behind an IR receiver's lens. Not a sensor of anything
+  // physical: it listens to `simulation/ir/irAir` and puts the envelope of
+  // whatever crossed the room on its pin. It is here for the same two reasons
+  // the others are — the pad is the model's and no other layer may drive it,
+  // and the pre-registration walk has to resolve that pad through the wires
+  // before the firmware starts.
+  'ir-receiver': {
+    sensorType: 'ir-nec',
+    dataPinName: 'DAT',
+    propertyKeys: ['address', 'command', 'channel'],
+    textPropertyKeys: ['channel'],
   },
 };
 

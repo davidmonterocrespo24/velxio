@@ -71,6 +71,26 @@ except ImportError:
     _dht11_payload_bytes = _mod_dht.dht11_payload  # type: ignore[assignment]
     _dht22_phases = _mod_dht.dht22_phases        # type: ignore[assignment]
 
+# IR envelope model: the demodulator's output, paced in real guest time (the
+# DHT22 player's per-read cap is wrong for a 50 us sampling ISR — see
+# esp32_ir.py). Same fallback dance as above.
+try:
+    from app.services.esp32_ir import (
+        IrReply as _IrReply,
+        envelope_phases as _ir_envelope_phases,
+        nec_pulses as _ir_nec_pulses,
+    )
+except ImportError:
+    import importlib.util as _ilu_ir, pathlib as _pl_ir, sys as _sys_ir
+    _spec_ir = _ilu_ir.spec_from_file_location(
+        'esp32_ir', _pl_ir.Path(__file__).parent / 'esp32_ir.py')
+    _mod_ir = _ilu_ir.module_from_spec(_spec_ir)  # type: ignore[arg-type]
+    _sys_ir.modules['esp32_ir'] = _mod_ir
+    _spec_ir.loader.exec_module(_mod_ir)  # type: ignore[union-attr]
+    _IrReply = _mod_ir.IrReply                       # type: ignore[assignment]
+    _ir_envelope_phases = _mod_ir.envelope_phases    # type: ignore[assignment]
+    _ir_nec_pulses = _mod_ir.nec_pulses              # type: ignore[assignment]
+
 # I2C slave state machines — extracted to a standalone module for testability
 try:
     from app.services.esp32_i2c_slaves import (
@@ -405,7 +425,7 @@ class _RmtDecoder:
 # -icount off: the AP beacon timer runs on QEMU_CLOCK_REALTIME (issue #260).
 ICOUNT_SHIFT_C3 = 3
 ICOUNT_SHIFT_LINE_SENSORS = 4
-LINE_SENSOR_TYPES = ('dht22', 'dht11', 'hc-sr04')
+LINE_SENSOR_TYPES = ('dht22', 'dht11', 'hc-sr04', 'ir-nec')
 
 
 def icount_shift_for_run(machine: str, wifi_enabled: bool, sensors: list,
@@ -1039,6 +1059,126 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         _sync_handlers.append(_Dht22Handler(reply, gpio, sensor, how))
         _dht22_settle_later(reply, sensor, gpio)
         _log(f'DHT22 armed ({how}) gpio={gpio} temp={temp} hum={hum} payload={payload}')
+
+    # ── Infrared ─────────────────────────────────────────────────────────────
+    # The model is esp32_ir.py (the envelope, paced on the guest clock). This is
+    # the glue: the pad, the sync-handler shape, and the host ticker that covers
+    # a decoder using a pin-change interrupt instead of reading the pin.
+    class _IrHandler:
+        """Sync-handler shape over an IrReply: one advance per GPIO_IN read."""
+
+        def __init__(self, reply, gpio: int, how: str) -> None:
+            self.reply = reply
+            self._gpio = gpio
+            self._how = how
+
+        def step(self) -> bool:
+            if self.reply.done:
+                self._finish()
+                return True
+            if self.reply.advance():
+                self._finish()
+                return True
+            return False
+
+        def _finish(self) -> None:
+            with _sensors_lock:
+                sensor = _sensors.get(self._gpio)
+                if sensor is not None and sensor.get('_ir_reply') is self.reply:
+                    sensor['responding'] = False
+            d = self.reply.diag()
+            _log(f'IR frame done gpio={self._gpio} ({self._how}) {d}')
+            _emit({'type': 'system', 'event': 'ir_frame', 'gpio': self._gpio,
+                   'status': 'ok', 'source': self._how, **d})
+
+    def _ir_tick_later(reply, gpio: int) -> None:
+        """Advance the frame from a host thread, under the BQL.
+
+        A polling decoder is already covered by the GPIO_IN read path, and it
+        is the better one — a read is the only instant the guest can observe
+        the pad. This exists for the decoder that attaches a pin-change
+        interrupt and never reads the pin at all: nothing would advance its
+        frame, the pad would sit on its first phase, and the sketch would wait
+        for an edge that never came. The BQL keeps this off the QEMU thread's
+        toes; `advance()` is idempotent about being called from both.
+        """
+        if _lock_iothread is None or _unlock_iothread is None:
+            return
+
+        def _tick() -> None:
+            if _stopped.is_set() or reply.done:
+                return
+            _lock_iothread(b'esp32_worker.py:ir_tick', 0)
+            try:
+                finished = reply.advance()
+            finally:
+                _unlock_iothread()
+            if finished:
+                with _sensors_lock:
+                    sensor = _sensors.get(gpio)
+                    if sensor is not None and sensor.get('_ir_reply') is reply:
+                        sensor['responding'] = False
+                _log(f'IR frame done gpio={gpio} (host tick) {reply.diag()}')
+                return
+            _later()
+
+        def _later() -> None:
+            # 1 ms of host time. A NEC bit is 560 us of GUEST time, and the
+            # guest runs at or below real time, so this never under-samples the
+            # envelope; when the guest polls, the read path is finer anyway.
+            t = threading.Timer(0.001, _tick)
+            t.daemon = True
+            t.start()
+
+        _later()
+
+    def _ir_arm(gpio: int, sensor: dict, pulses, how: str) -> None:
+        """Put one envelope on `gpio`. A frame still going out is left alone:
+        two transmissions on top of each other garble both, which is what
+        happens in the room too."""
+        slot = gpio + 1
+        old = sensor.get('_ir_reply')
+        if old is not None and not old.done:
+            _log(f'IR frame ignored gpio={gpio}: one is still going out')
+            return
+        phases = _ir_envelope_phases(pulses)
+        if not phases:
+            return
+        reply = _IrReply(
+            phases,
+            lambda level: lib.qemu_picsimlab_set_pin(slot, level),
+            _guest_now_us,
+        )
+        with _sensors_lock:
+            sensor['_ir_reply'] = reply
+            sensor['responding'] = True
+        _sync_handlers.append(_IrHandler(reply, gpio, how))
+        _ir_tick_later(reply, gpio)
+        _log(f'IR armed ({how}) gpio={gpio} phases={len(phases)}')
+
+    def _ir_pulses_for(sensor: dict):
+        """What to transmit: the train the canvas carried, else the sensor's
+        own address and command. Read fresh each time — an air frame carries
+        its own train and the NEXT press must not replay the last one."""
+        raw = sensor.pop('pulses', None)
+        if isinstance(raw, list) and raw:
+            out = []
+            for i, item in enumerate(raw):
+                if isinstance(item, dict):
+                    us = float(item.get('us', 0) or 0)
+                    level = 1 if int(item.get('level', 0)) == 1 else 0
+                else:
+                    # A flat [markUs, spaceUs, ...] array, mark first.
+                    us = float(item or 0)
+                    level = 1 if i % 2 == 0 else 0
+                if us > 0:
+                    out.append((level, us))
+            if out:
+                return out
+        return _ir_nec_pulses(
+            int(_dht22_num(sensor.get('address'), 0.0)),
+            int(_dht22_num(sensor.get('command'), 0x45)),
+        )
 
     class HCSR04SyncHandler:
         """Drives HC-SR04 ECHO pin synchronously from the QEMU GPIO_IN read callback.
@@ -2221,6 +2361,16 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 }
                 if sensor_type == 'matrix-keypad':
                     _keypad_install(gpio, sensor_data)
+                elif sensor_type == 'ir-nec':
+                    # A demodulator's output idles HIGH and the host owns it:
+                    # nothing on the canvas or in the guest may drive this pad.
+                    # Seeded here rather than on the first frame, because a
+                    # decoder samples the line from the moment it starts and a
+                    # pad left at 0 reads as a transmission that never ends.
+                    try:
+                        lib.qemu_picsimlab_set_pin(gpio + 1, 1)
+                    except Exception:
+                        pass
                 elif sensor_type == 'mpu6050':
                     i2c_addr = int(cmd.get('addr', 0x68))
                     slave = _MPU6050Slave(i2c_addr)
@@ -2329,6 +2479,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
         elif c == 'sensor_update':
             gpio = int(cmd['pin'])
+            # Frames to arm once the lock is back off. `_sensors_lock` is a
+            # plain Lock and `_ir_arm` takes it itself, so arming from inside
+            # the block below would deadlock the command thread on the first
+            # button press.
+            _ir_pending: list = []
             with _sensors_lock:
                 sensor = _sensors.get(gpio)
                 if sensor:
@@ -2337,7 +2492,23 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                             sensor[k] = v
                     stype = sensor.get('type')
                     slave = sensor.get('slave')
-                    if stype == 'matrix-keypad':
+                    if stype == 'ir-nec':
+                        # A trigger key's VALUE CHANGING is the transmission,
+                        # whatever the new value is. It has to be a change and
+                        # not a presence: the frontend's hosted path merges the
+                        # whole record into every update, so the key is present
+                        # on every slider tick and a model that fired on
+                        # presence would transmit once per tick.
+                        fired = False
+                        for _k in ('seq', 'send'):
+                            if _k not in cmd:
+                                continue
+                            if cmd[_k] != sensor.get('_ir_seen_' + _k):
+                                fired = True
+                            sensor['_ir_seen_' + _k] = cmd[_k]
+                        if fired:
+                            _ir_pending.append((gpio, _ir_pulses_for(sensor)))
+                    elif stype == 'matrix-keypad':
                         kp = sensor.get('keypad')
                         if kp is not None and 'pressed' in cmd:
                             kp['pressed'] = {
@@ -2389,6 +2560,12 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                                 })
                             except Exception as e:
                                 _log(f'[custom-chip] attr update failed: {e!r}')
+
+            for _g, _p in _ir_pending:
+                with _sensors_lock:
+                    _s = _sensors.get(_g)
+                if _s is not None:
+                    _ir_arm(_g, _s, _p, 'canvas')
 
         elif c == 'sensor_detach':
             gpio = int(cmd['pin'])
