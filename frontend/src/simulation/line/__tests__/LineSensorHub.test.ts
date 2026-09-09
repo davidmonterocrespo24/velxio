@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { LineSensorHub } from '../LineSensorHub';
 import type { LineHostPort } from '../LineHost';
 import { INITIAL_PAD, type PadEvent, type PadState } from '../padEvent';
+import { DHT22_RESPONSE_START_US } from '../models/dht22';
 import '../index';
 
 function makePort(hz = 16_000_000) {
@@ -37,7 +38,12 @@ function makePort(hz = 16_000_000) {
     },
     guest: (pin, drive) => {
       const prev = pads.get(pin) ?? INITIAL_PAD;
-      const next: PadState = { drive, pull: drive === 'z' ? 1 : 0, level: drive !== 'low', cycle: now };
+      const next: PadState = {
+        drive,
+        pull: drive === 'z' ? 1 : 0,
+        level: drive !== 'low',
+        cycle: now,
+      };
       pads.set(pin, next);
       listeners.get(pin)?.forEach((cb) => cb({ pin, ...next, prev }));
     },
@@ -68,7 +74,7 @@ describe('LineSensorHub', () => {
     port.advance(16 * 1100);
     port.guest(4, 'z');
     expect(port.edges).toHaveLength(84);
-    expect(port.edges[0][2]).toBe(10_000 + 16 * 1100 + 16 * 20);
+    expect(port.edges[0][2]).toBe(10_000 + 16 * 1100 + 16 * DHT22_RESPONSE_START_US);
     expect(port.releases).toHaveLength(1);
     expect(hub.timeline.busy).toBe(true);
     expect(hub.maySkip(port.now() + 100)).toBe(false); // 84 edges: self-timed

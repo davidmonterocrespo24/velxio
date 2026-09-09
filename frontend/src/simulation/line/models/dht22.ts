@@ -20,6 +20,38 @@ import { assertedLow, releasedLow } from '../padEvent';
 import type { HostEdge, HostEdgeFrame } from '../LineTimeline';
 import { numberField, registerLineModel, type LineClock, type LineModel } from '../lineModels';
 
+/**
+ * How long after the master releases the line the sensor starts answering.
+ *
+ * The AM2302 datasheet gives this as 20-40 us and the model used to take the
+ * bottom of that range, which is the worst end for an EMULATED master. The
+ * driver's whole read hinges on arriving inside the 80 us response LOW, and
+ * what it spends getting there is not the wire's problem but the guest's:
+ * arduino-esp32's `pinMode` costs 6 us of guest time on a classic ESP32 and
+ * 58 us on an ESP32-P4, nearly all of it inside the peripheral manager
+ * (`perimanGetPinBus`, ~11 000 instructions a call). Adafruit's DHT.h then
+ * waits its own `pullTime` of 55 us on top before it first looks. At 20 us the
+ * P4 arrives about 10 us before the LOW ends and its first `expectPulse(LOW)`
+ * returns instantly, which puts every one of the 80 pulses that follow one
+ * phase out and ends the read in 80 timeouts and a NaN.
+ *
+ * 40 us is the other end of the same datasheet range, so this is not a widened
+ * window -- it is the same sensor, specified. It strictly helps every host: a
+ * master that arrives EARLY finds more of the LOW left than before, and one
+ * that arrives late finds some at all.
+ *
+ * Measured on the P4 with a sketch timing the pad itself: the response the
+ * guest sees goes from `low starts +5 us, lasts 67 us` to `+11 us, lasts
+ * 80 us` -- the full width the datasheet specifies, where before the guest
+ * was arriving too late to see a sixth of it. On a classic ESP32, where the
+ * read already worked, it keeps working (28.0 C / 65.0 % on the gallery
+ * example, unchanged).
+ *
+ * It does NOT make Adafruit's DHT.h read on the P4: that still returns NaN,
+ * and the reason is somewhere past the preamble, not in this constant.
+ */
+export const DHT22_RESPONSE_START_US = 40;
+
 export const DHT22_DEFAULT_TEMPERATURE_C = 25.0;
 export const DHT22_DEFAULT_HUMIDITY_PCT = 50.0;
 
@@ -36,14 +68,17 @@ export function dht22Payload(temperatureC: number, humidityPct: number): Uint8Ar
   return new Uint8Array([h_H, h_L, t_H, t_L, chk]);
 }
 
-/** The response waveform on DATA, starting ~20 us after the MCU's release. */
+/**
+ * The response waveform on DATA, starting {@link DHT22_RESPONSE_START_US} after the
+ * MCU's release.
+ */
 export function dht22Frame(
   pin: number,
   releaseCycle: number,
   payload: Uint8Array,
   us: (n: number) => number,
 ): HostEdgeFrame {
-  const RESPONSE_START = us(20);
+  const RESPONSE_START = us(DHT22_RESPONSE_START_US);
   const LOW80 = us(80);
   const HIGH80 = us(80);
   const LOW50 = us(50);
