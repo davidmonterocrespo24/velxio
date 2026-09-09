@@ -788,8 +788,12 @@ function onRunEpoch(next: (epoch: number) => void): () => void {
  * a unit test with no live store gets "never fires" rather than a throw. Only
  * the transition is reported: parts also live on a canvas that never runs
  * (boardless mode), and a level-triggered version would blank those on mount.
+ *
+ * Exported because the overlay has its own latched visuals to blank — a
+ * board's on-board RGB LED, an LED ring painted over I2C — and they are the
+ * same power cut, not a second concept.
  */
-function onPowerCut(next: () => void): () => void {
+export function onPowerCut(next: () => void): () => void {
   try {
     const store = useSimulatorStore as unknown as {
       subscribe?: (fn: (s: { running?: boolean }) => void) => () => void;
