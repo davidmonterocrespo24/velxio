@@ -728,7 +728,7 @@ export class Esp32Bridge {
    * bridge that runs the models in the browser overrides this with the
    * registry's own list.
    */
-  static readonly WORKER_LINE_MODELS: readonly string[] = ['dht22', 'hc-sr04'];
+  static readonly WORKER_LINE_MODELS: readonly string[] = ['dht22', 'hc-sr04', 'ir-nec'];
 
   /** What this board can host under the line contract (simulation/line). */
   lineSupport(): LineSupport {

@@ -18,6 +18,7 @@ import { epaperExamples } from './examples-displays-epaper';
 import { retroIntelExamples } from './examples-retro-intel';
 import { robotDesktopExamples } from './examples-robot-desktop';
 import { microsdExamples } from './examples-storage-microsd';
+import { infraredExamples } from './examples-infrared';
 import { esp32MqttExamples } from './examples-esp32-mqtt';
 import { esp32s3TftExamples } from './examples-esp32s3-tft';
 import { jsemuChipExamples } from './examples-jsemu-chips';
@@ -11719,6 +11720,7 @@ export const exampleProjects: ExampleProject[] = [
   ...retroIntelExamples,
   ...robotDesktopExamples,
   ...microsdExamples,
+  ...infraredExamples,
   ...esp32MqttExamples,
   ...esp32s3TftExamples,
   ...jsemuChipExamples,

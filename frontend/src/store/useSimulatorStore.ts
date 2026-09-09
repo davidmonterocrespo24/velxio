@@ -2633,9 +2633,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               sensor_type: sensorDef.sensorType,
               pin: gpioPin,
             };
+            const textKeys = new Set(sensorDef.textPropertyKeys ?? []);
             for (const key of sensorDef.propertyKeys) {
               const val = comp.properties[key];
-              if (val !== undefined) props[key] = typeof val === 'string' ? parseFloat(val) : val;
+              if (val === undefined) continue;
+              // A text property goes over as it was typed. Everything else is
+              // a number the dialog stored as a string.
+              props[key] =
+                textKeys.has(key) || typeof val !== 'string' ? val : parseFloat(val);
             }
             // Extra pins (e.g. echo_pin for HC-SR04) resolve the same way
             if (sensorDef.extraPins) {

@@ -6,3 +6,5 @@
  */
 import './dht22';
 import './hc-sr04';
+import './ir-nec';
+import './ir-tx';

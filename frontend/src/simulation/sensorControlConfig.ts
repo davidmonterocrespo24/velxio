@@ -42,6 +42,9 @@ export interface SensorControlDef {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const oneDecimal = (v: number) => v.toFixed(1);
+/** NEC address/command as every decoder prints them: 0x and two hex digits. */
+const hex8 = (v: number) =>
+  `0x${(Math.round(v) & 0xff).toString(16).toUpperCase().padStart(2, '0')}`;
 const twoDecimal = (v: number) => v.toFixed(2);
 
 /** Resolution of the position axis for log-scale sliders. */
@@ -348,6 +351,41 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
     defaultValues: {},
   },
 
+  // ── IR receiver ───────────────────────────────────────────────────────────
+  // The panel IS the remote, for a canvas with no handset on it. Send
+  // transmits into simulation/ir/irAir rather than straight onto this part's
+  // pin, so a second receiver in the project hears it too — which is the whole
+  // point of there being an air at all.
+  'ir-receiver': {
+    title: 'IR remote',
+    controls: [
+      {
+        type: 'slider',
+        key: 'address',
+        label: 'Address',
+        min: 0,
+        max: 255,
+        step: 1,
+        unit: '',
+        defaultValue: 0,
+        formatValue: hex8,
+      },
+      {
+        type: 'slider',
+        key: 'command',
+        label: 'Command',
+        min: 0,
+        max: 255,
+        step: 1,
+        unit: '',
+        defaultValue: 0x45,
+        formatValue: hex8,
+      },
+      { type: 'button', key: 'send', label: 'Send' },
+    ],
+    defaultValues: { address: 0, command: 0x45 },
+  },
+
   // ── NTC Temperature Sensor ────────────────────────────────────────────────
   'ntc-temperature-sensor': {
     title: 'NTC Temperature Sensor',
@@ -515,9 +553,7 @@ export type InstanceSensorControlResolver = (component: {
 
 let instanceResolver: InstanceSensorControlResolver | null = null;
 
-export function registerInstanceSensorControlResolver(
-  fn: InstanceSensorControlResolver,
-): void {
+export function registerInstanceSensorControlResolver(fn: InstanceSensorControlResolver): void {
   instanceResolver = fn;
 }
 

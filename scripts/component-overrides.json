@@ -27,7 +27,7 @@
       "tagName": "velxio-logic-and",
       "name": "AND Gate",
       "category": "logic",
-      "description": "2-input AND logic gate. Output Y = A · B.",
+      "description": "2-input AND logic gate. Output Y = A \u00b7 B.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -43,7 +43,7 @@
       "tagName": "velxio-logic-nand",
       "name": "NAND Gate",
       "category": "logic",
-      "description": "2-input NAND logic gate. Output Y = NOT(A · B).",
+      "description": "2-input NAND logic gate. Output Y = NOT(A \u00b7 B).",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -91,7 +91,7 @@
       "tagName": "velxio-logic-xor",
       "name": "XOR Gate",
       "category": "logic",
-      "description": "2-input XOR logic gate. Output Y = A ⊕ B.",
+      "description": "2-input XOR logic gate. Output Y = A \u2295 B.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -107,7 +107,7 @@
       "tagName": "velxio-logic-xnor",
       "name": "XNOR Gate",
       "category": "logic",
-      "description": "2-input XNOR logic gate. Output Y = NOT(A ⊕ B).",
+      "description": "2-input XNOR logic gate. Output Y = NOT(A \u2295 B).",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -226,7 +226,7 @@
       "tagName": "wokwi-mosfet-2n7000",
       "name": "2N7000 (N-MOSFET)",
       "category": "analog",
-      "description": "Logic-level N-channel MOSFET. Vth ≈ 1.6 V, fully enhanced at 3.3 V — perfect for GPIO-driven load switching.",
+      "description": "Logic-level N-channel MOSFET. Vth \u2248 1.6 V, fully enhanced at 3.3 V \u2014 perfect for GPIO-driven load switching.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -245,7 +245,7 @@
       "tagName": "wokwi-mosfet-irf540",
       "name": "IRF540 (N-MOSFET Power)",
       "category": "analog",
-      "description": "Power N-channel MOSFET. Vth ≈ 3 V (needs 10 V for full enhancement), 33 A / 100 V, R_DS(on) ≈ 77 mΩ. Classic motor / solenoid driver.",
+      "description": "Power N-channel MOSFET. Vth \u2248 3 V (needs 10 V for full enhancement), 33 A / 100 V, R_DS(on) \u2248 77 m\u03a9. Classic motor / solenoid driver.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -352,7 +352,7 @@
       "tagName": "wokwi-opamp-tl072",
       "name": "TL072 (JFET Op-Amp)",
       "category": "analog",
-      "description": "JFET-input dual op-amp. Very high input impedance, low noise — audio and instrumentation.",
+      "description": "JFET-input dual op-amp. Very high input impedance, low noise \u2014 audio and instrumentation.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -388,7 +388,7 @@
       "tagName": "wokwi-reg-7805",
       "name": "7805 (+5V Linear Regulator)",
       "category": "analog",
-      "description": "Fixed +5V linear regulator, 1A, TO-220. Dropout ≈ 2V. Classic MCU power supply.",
+      "description": "Fixed +5V linear regulator, 1A, TO-220. Dropout \u2248 2V. Classic MCU power supply.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -406,7 +406,7 @@
       "tagName": "wokwi-reg-7812",
       "name": "7812 (+12V Linear Regulator)",
       "category": "analog",
-      "description": "Fixed +12V linear regulator, 1A, TO-220. Dropout ≈ 2V. Motor drivers, fan supplies.",
+      "description": "Fixed +12V linear regulator, 1A, TO-220. Dropout \u2248 2V. Motor drivers, fan supplies.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -422,9 +422,9 @@
     {
       "id": "reg-7905",
       "tagName": "wokwi-reg-7905",
-      "name": "7905 (−5V Linear Regulator)",
+      "name": "7905 (\u22125V Linear Regulator)",
       "category": "analog",
-      "description": "Fixed −5V linear regulator, 1A, TO-220. Negative-rail complement of the 7805.",
+      "description": "Fixed \u22125V linear regulator, 1A, TO-220. Negative-rail complement of the 7805.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -443,7 +443,7 @@
       "tagName": "wokwi-reg-lm317",
       "name": "LM317 (Adjustable Linear Regulator)",
       "category": "analog",
-      "description": "Adjustable +1.25V to +37V linear regulator. V_out = 1.25·(1 + R2/R1). Versatile workhorse.",
+      "description": "Adjustable +1.25V to +37V linear regulator. V_out = 1.25\u00b7(1 + R2/R1). Versatile workhorse.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 3,
@@ -460,7 +460,7 @@
       "tagName": "wokwi-battery-9v",
       "name": "9V Battery",
       "category": "analog",
-      "description": "PP3 / 6LR61 9V alkaline battery. Modelled as 9V DC with ~1.5Ω internal resistance.",
+      "description": "PP3 / 6LR61 9V alkaline battery. Modelled as 9V DC with ~1.5\u03a9 internal resistance.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,
@@ -477,7 +477,7 @@
       "tagName": "wokwi-battery-aa",
       "name": "AA Battery (1.5V)",
       "category": "analog",
-      "description": "AA alkaline cell. 1.5V, low ESR (~0.15Ω). Pair up for 3V/4.5V/6V packs.",
+      "description": "AA alkaline cell. 1.5V, low ESR (~0.15\u03a9). Pair up for 3V/4.5V/6V packs.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,
@@ -494,7 +494,7 @@
       "tagName": "wokwi-battery-coin-cell",
       "name": "Coin Cell (CR2032, 3V)",
       "category": "analog",
-      "description": "Lithium coin cell. 3V, high ESR (~10Ω) — limits peak current.",
+      "description": "Lithium coin cell. 3V, high ESR (~10\u03a9) \u2014 limits peak current.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,
@@ -512,7 +512,7 @@
       "tagName": "velxio-logic-and-3",
       "name": "AND Gate (3-input)",
       "category": "logic",
-      "description": "3-input AND gate. Output Y = A · B · C.",
+      "description": "3-input AND gate. Output Y = A \u00b7 B \u00b7 C.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 4,
@@ -648,7 +648,7 @@
       "tagName": "wokwi-diode",
       "name": "Diode (generic)",
       "category": "analog",
-      "description": "Generic silicon diode. Vf ≈ 0.7 V. Use for textbook rectification examples.",
+      "description": "Generic silicon diode. Vf \u2248 0.7 V. Use for textbook rectification examples.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,
@@ -714,7 +714,7 @@
       "tagName": "wokwi-diode-1n5817",
       "name": "1N5817 (Schottky 20V)",
       "category": "analog",
-      "description": "Schottky diode, 1 A / 20 V. Vf ≈ 0.32 V at 1 A. Used in low-drop rectification and reverse-polarity protection.",
+      "description": "Schottky diode, 1 A / 20 V. Vf \u2248 0.32 V at 1 A. Used in low-drop rectification and reverse-polarity protection.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,
@@ -767,7 +767,7 @@
       "tagName": "velxio-flip-flop-d",
       "name": "D Flip-Flop",
       "category": "logic",
-      "description": "Edge-triggered D-type flip-flop. On rising edge of CLK, Q ← D. Digital simulation only (SPICE cannot do edge detection in .op analysis).",
+      "description": "Edge-triggered D-type flip-flop. On rising edge of CLK, Q \u2190 D. Digital simulation only (SPICE cannot do edge detection in .op analysis).",
       "properties": [],
       "defaultValues": {},
       "pinCount": 4,
@@ -786,7 +786,7 @@
       "tagName": "velxio-flip-flop-t",
       "name": "T Flip-Flop",
       "category": "logic",
-      "description": "Toggle flip-flop. On rising CLK, Q ← Q ⊕ T (toggles when T=1). Useful for frequency dividers and counters.",
+      "description": "Toggle flip-flop. On rising CLK, Q \u2190 Q \u2295 T (toggles when T=1). Useful for frequency dividers and counters.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 4,
@@ -899,7 +899,7 @@
       "tagName": "wokwi-ic-74hc14",
       "name": "74HC14 (Hex Schmitt Inverter)",
       "category": "logic",
-      "description": "Six Schmitt-trigger inverters in one 14-pin DIP package. Provides input hysteresis — essential for debouncing noisy signals.",
+      "description": "Six Schmitt-trigger inverters in one 14-pin DIP package. Provides input hysteresis \u2014 essential for debouncing noisy signals.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 14,
@@ -958,7 +958,7 @@
       "tagName": "velxio-opto-4n25",
       "name": "4N25 (Optocoupler)",
       "category": "analog",
-      "description": "Single-channel optocoupler with IR LED + phototransistor. CTR ≈ 50%. Provides galvanic isolation between two circuits.",
+      "description": "Single-channel optocoupler with IR LED + phototransistor. CTR \u2248 50%. Provides galvanic isolation between two circuits.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 4,
@@ -975,7 +975,7 @@
       "tagName": "velxio-opto-pc817",
       "name": "PC817 (Optocoupler)",
       "category": "analog",
-      "description": "Single-channel optocoupler. CTR 80–600% (typ. 100%). Higher drive than 4N25, commonly used for MCU-to-mains isolation.",
+      "description": "Single-channel optocoupler. CTR 80\u2013600% (typ. 100%). Higher drive than 4N25, commonly used for MCU-to-mains isolation.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 4,
@@ -1011,7 +1011,7 @@
           "type": "number",
           "defaultValue": 70,
           "control": "text",
-          "description": "Coil resistance (Ω)"
+          "description": "Coil resistance (\u03a9)"
         },
         {
           "name": "include_flyback",
@@ -1071,7 +1071,7 @@
       "name": "Regulated Power Supply",
       "category": "analog",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n      <rect x=\"10\" y=\"14\" width=\"44\" height=\"30\" fill=\"#2a3548\" rx=\"3\" stroke=\"#4a5878\"/>\n      <text x=\"32\" y=\"30\" text-anchor=\"middle\" font-size=\"9\" font-family=\"monospace\" fill=\"#4ade80\" font-weight=\"bold\">5.00V</text>\n      <text x=\"32\" y=\"40\" text-anchor=\"middle\" font-size=\"7\" font-family=\"monospace\" fill=\"#fbbf24\">1.00A</text>\n      <circle cx=\"18\" cy=\"52\" r=\"3\" fill=\"#dc2626\"/>\n      <circle cx=\"46\" cy=\"52\" r=\"3\" fill=\"#0f172a\" stroke=\"#64748b\"/>\n      <text x=\"32\" y=\"60\" text-anchor=\"middle\" font-size=\"6\" fill=\"#9d9d9d\">PSU</text>\n    </svg>",
-      "description": "Bench DC/AC power supply with optional current limit. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The current limit is enforced by the circuit verifier — if any load pulls more than the configured amperage, Run is blocked with a 'source-overload' warning, mimicking a real bench supply's foldback behavior.",
+      "description": "Bench DC/AC power supply with optional current limit. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The current limit is enforced by the circuit verifier \u2014 if any load pulls more than the configured amperage, Run is blocked with a 'source-overload' warning, mimicking a real bench supply's foldback behavior.",
       "properties": [
         {
           "name": "mode",
@@ -1186,7 +1186,7 @@
       "tagName": "wokwi-capacitor",
       "name": "Cap. ceramic (custom)",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1231,9 +1231,9 @@
     {
       "id": "resistor-220",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 220 Ω",
+      "name": "Resistor 220 \u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">220 Ω</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">220 \u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1249,15 +1249,15 @@
       "tags": [
         "resistor",
         "preset",
-        "220ω"
+        "220\u03c9"
       ]
     },
     {
       "id": "resistor-330",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 330 Ω",
+      "name": "Resistor 330 \u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">330 Ω</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">330 \u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1273,15 +1273,15 @@
       "tags": [
         "resistor",
         "preset",
-        "330ω"
+        "330\u03c9"
       ]
     },
     {
       "id": "resistor-470",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 470 Ω",
+      "name": "Resistor 470 \u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">470 Ω</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">470 \u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1297,15 +1297,15 @@
       "tags": [
         "resistor",
         "preset",
-        "470ω"
+        "470\u03c9"
       ]
     },
     {
       "id": "resistor-1k",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 1 kΩ",
+      "name": "Resistor 1 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1321,15 +1321,15 @@
       "tags": [
         "resistor",
         "preset",
-        "1kω"
+        "1k\u03c9"
       ]
     },
     {
       "id": "resistor-2k2",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 2.2 kΩ",
+      "name": "Resistor 2.2 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">2.2 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">2.2 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1345,15 +1345,15 @@
       "tags": [
         "resistor",
         "preset",
-        "2.2kω"
+        "2.2k\u03c9"
       ]
     },
     {
       "id": "resistor-4k7",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 4.7 kΩ",
+      "name": "Resistor 4.7 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">4.7 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">4.7 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1369,15 +1369,15 @@
       "tags": [
         "resistor",
         "preset",
-        "4.7kω"
+        "4.7k\u03c9"
       ]
     },
     {
       "id": "resistor-10k",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 10 kΩ",
+      "name": "Resistor 10 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">10 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">10 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1393,15 +1393,15 @@
       "tags": [
         "resistor",
         "preset",
-        "10kω"
+        "10k\u03c9"
       ]
     },
     {
       "id": "resistor-22k",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 22 kΩ",
+      "name": "Resistor 22 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">22 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">22 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1417,15 +1417,15 @@
       "tags": [
         "resistor",
         "preset",
-        "22kω"
+        "22k\u03c9"
       ]
     },
     {
       "id": "resistor-47k",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 47 kΩ",
+      "name": "Resistor 47 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">47 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#A803D6\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FC9700\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">47 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1441,15 +1441,15 @@
       "tags": [
         "resistor",
         "preset",
-        "47kω"
+        "47k\u03c9"
       ]
     },
     {
       "id": "resistor-100k",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 100 kΩ",
+      "name": "Resistor 100 k\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 kΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FCF800\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 k\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1465,15 +1465,15 @@
       "tags": [
         "resistor",
         "preset",
-        "100kω"
+        "100k\u03c9"
       ]
     },
     {
       "id": "resistor-1m",
       "tagName": "wokwi-resistor",
-      "name": "Resistor 1 MΩ",
+      "name": "Resistor 1 M\u03a9",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#00B800\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 MΩ</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#00B800\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 M\u03a9</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1489,7 +1489,7 @@
       "tags": [
         "resistor",
         "preset",
-        "1mω"
+        "1m\u03c9"
       ]
     },
     {
@@ -1645,9 +1645,9 @@
     {
       "id": "cap-1u",
       "tagName": "wokwi-capacitor",
-      "name": "Cap. 1 µF",
+      "name": "Cap. 1 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1664,7 +1664,7 @@
         "capacitor",
         "ceramic",
         "preset",
-        "1µf"
+        "1\u00b5f"
       ]
     },
     {
@@ -1672,7 +1672,7 @@
       "tagName": "velxio-capacitor-electrolytic",
       "name": "Electrolytic Cap. (custom)",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1714,9 +1714,9 @@
     {
       "id": "cap-elec-1u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 1 µF",
+      "name": "Electrolytic 1 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1753,15 +1753,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "1µf"
+        "1\u00b5f"
       ]
     },
     {
       "id": "cap-elec-10u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 10 µF",
+      "name": "Electrolytic 10 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">10 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">10 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1798,15 +1798,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "10µf"
+        "10\u00b5f"
       ]
     },
     {
       "id": "cap-elec-47u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 47 µF",
+      "name": "Electrolytic 47 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">47 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">47 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1843,15 +1843,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "47µf"
+        "47\u00b5f"
       ]
     },
     {
       "id": "cap-elec-100u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 100 µF",
+      "name": "Electrolytic 100 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1888,15 +1888,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "100µf"
+        "100\u00b5f"
       ]
     },
     {
       "id": "cap-elec-470u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 470 µF",
+      "name": "Electrolytic 470 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">470 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">470 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1933,15 +1933,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "470µf"
+        "470\u00b5f"
       ]
     },
     {
       "id": "cap-elec-1000u",
       "tagName": "velxio-capacitor-electrolytic",
-      "name": "Electrolytic 1000 µF",
+      "name": "Electrolytic 1000 \u00b5F",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">−</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1000 µF</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"20\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"40\" y=\"40\" width=\"2.5\" height=\"9\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"10\" width=\"36\" height=\"32\" rx=\"2\" fill=\"#1f3b6b\"/>\n    <ellipse cx=\"32\" cy=\"10\" rx=\"18\" ry=\"3\" fill=\"#2a4d8a\"/>\n    <rect x=\"38\" y=\"10\" width=\"12\" height=\"32\" rx=\"2\" fill=\"#dfe3ec\"/>\n    <text x=\"44\" y=\"22\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"44\" y=\"34\" text-anchor=\"middle\" font-size=\"10\" font-weight=\"bold\" fill=\"#1f3b6b\">\u2212</text>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">1000 \u00b5F</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -1978,15 +1978,15 @@
         "electrolytic",
         "polarized",
         "preset",
-        "1000µf"
+        "1000\u00b5f"
       ]
     },
     {
       "id": "ind-100u",
       "tagName": "wokwi-inductor",
-      "name": "Inductor 100 µH",
+      "name": "Inductor 100 \u00b5H",
       "category": "passive",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <path d=\"M 12 30 Q 16 18 20 30 Q 24 18 28 30 Q 32 18 36 30 Q 40 18 44 30 Q 48 18 52 30\"\n          fill=\"none\" stroke=\"#B23820\" stroke-width=\"2.5\" stroke-linecap=\"round\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 µH</text></svg>",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <path d=\"M 12 30 Q 16 18 20 30 Q 24 18 28 30 Q 32 18 36 30 Q 40 18 44 30 Q 48 18 52 30\"\n          fill=\"none\" stroke=\"#B23820\" stroke-width=\"2.5\" stroke-linecap=\"round\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">100 \u00b5H</text></svg>",
       "properties": [
         {
           "name": "value",
@@ -2002,7 +2002,7 @@
       "tags": [
         "inductor",
         "preset",
-        "100µh"
+        "100\u00b5h"
       ]
     },
     {
@@ -2054,10 +2054,10 @@
       ]
     },
     {
-      "$comment": "ePaper / e-Ink panels — Velxio-native components. The Web Component is `velxio-epaper`; the panel size + palette is selected via the `panelKind` property. See docs/wiki/epaper-emulation.md.",
+      "$comment": "ePaper / e-Ink panels \u2014 Velxio-native components. The Web Component is `velxio-epaper`; the panel size + palette is selected via the `panelKind` property. See docs/wiki/epaper-emulation.md.",
       "id": "epaper-1in54-bw",
       "tagName": "velxio-epaper",
-      "name": "ePaper 1.54\" (200×200, B/W)",
+      "name": "ePaper 1.54\" (200\u00d7200, B/W)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"4\" y=\"6\" width=\"56\" height=\"48\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"10\" y=\"12\" width=\"44\" height=\"36\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"34\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">e-Paper</text><rect x=\"22\" y=\"54\" width=\"20\" height=\"6\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2093,7 +2093,7 @@
     {
       "id": "epaper-2in13-bw",
       "tagName": "velxio-epaper",
-      "name": "ePaper 2.13\" (250×122, B/W)",
+      "name": "ePaper 2.13\" (250\u00d7122, B/W)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"18\" width=\"60\" height=\"30\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"22\" width=\"52\" height=\"22\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.13\"</text><rect x=\"24\" y=\"48\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2130,7 +2130,7 @@
     {
       "id": "epaper-2in13-bwr",
       "tagName": "velxio-epaper",
-      "name": "ePaper 2.13\" (250×122, B/W/Red)",
+      "name": "ePaper 2.13\" (250\u00d7122, B/W/Red)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"18\" width=\"60\" height=\"30\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"22\" width=\"52\" height=\"22\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"15\" cy=\"32\" r=\"3\" fill=\"#c01818\"/><text x=\"38\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">B/W/R</text><rect x=\"24\" y=\"48\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2168,7 +2168,7 @@
     {
       "id": "epaper-2in9-bw",
       "tagName": "velxio-epaper",
-      "name": "ePaper 2.9\" (296×128, B/W)",
+      "name": "ePaper 2.9\" (296\u00d7128, B/W)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"16\" width=\"60\" height=\"34\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"20\" width=\"52\" height=\"26\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">2.9\"</text><rect x=\"24\" y=\"50\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2204,7 +2204,7 @@
     {
       "id": "epaper-2in9-bwr",
       "tagName": "velxio-epaper",
-      "name": "ePaper 2.9\" (296×128, B/W/Red)",
+      "name": "ePaper 2.9\" (296\u00d7128, B/W/Red)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"16\" width=\"60\" height=\"34\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"20\" width=\"52\" height=\"26\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"15\" cy=\"32\" r=\"3\" fill=\"#c01818\"/><text x=\"38\" y=\"36\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">B/W/R</text><rect x=\"24\" y=\"50\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2242,7 +2242,7 @@
     {
       "id": "epaper-4in2-bw",
       "tagName": "velxio-epaper",
-      "name": "ePaper 4.2\" (400×300, B/W)",
+      "name": "ePaper 4.2\" (400\u00d7300, B/W)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"6\" width=\"60\" height=\"50\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"10\" width=\"52\" height=\"38\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"7\" fill=\"#5a5040\" font-family=\"monospace\">4.2\"</text><rect x=\"24\" y=\"56\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2279,7 +2279,7 @@
     {
       "id": "epaper-7in5-bw",
       "tagName": "velxio-epaper",
-      "name": "ePaper 7.5\" (800×480, B/W)",
+      "name": "ePaper 7.5\" (800\u00d7480, B/W)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"1\" y=\"4\" width=\"62\" height=\"54\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"5\" y=\"8\" width=\"54\" height=\"42\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><text x=\"32\" y=\"32\" text-anchor=\"middle\" font-size=\"8\" fill=\"#5a5040\" font-family=\"monospace\">7.5\"</text><rect x=\"24\" y=\"58\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2316,7 +2316,7 @@
     {
       "id": "epaper-5in65-7c",
       "tagName": "velxio-epaper",
-      "name": "ePaper 5.65\" (600×448, ACeP 7-colour)",
+      "name": "ePaper 5.65\" (600\u00d7448, ACeP 7-colour)",
       "category": "displays",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"2\" y=\"6\" width=\"60\" height=\"50\" rx=\"3\" fill=\"#e8e2d4\" stroke=\"#b8aa90\"/><rect x=\"6\" y=\"10\" width=\"52\" height=\"38\" fill=\"#f4f1e8\" stroke=\"#a89a80\"/><circle cx=\"14\" cy=\"19\" r=\"3\" fill=\"#202020\"/><circle cx=\"22\" cy=\"19\" r=\"3\" fill=\"#c01010\"/><circle cx=\"30\" cy=\"19\" r=\"3\" fill=\"#20a040\"/><circle cx=\"38\" cy=\"19\" r=\"3\" fill=\"#3060c0\"/><circle cx=\"46\" cy=\"19\" r=\"3\" fill=\"#e0c830\"/><circle cx=\"54\" cy=\"19\" r=\"3\" fill=\"#e08020\"/><text x=\"32\" y=\"38\" text-anchor=\"middle\" font-size=\"6\" fill=\"#5a5040\" font-family=\"monospace\">ACeP 7</text><rect x=\"24\" y=\"56\" width=\"16\" height=\"5\" fill=\"#d49a3c\"/></svg>",
       "properties": [
@@ -2457,7 +2457,7 @@
       ]
     },
     {
-      "$comment": "4-pin I2C-only SSD1306 module (GND/VCC/SCL/SDA) — the cheap 0.96\" OLED most beginners have; velxio-ssd1306-i2c native element. Counterpart to the 8-pin wokwi-ssd1306. Issue #215.",
+      "$comment": "4-pin I2C-only SSD1306 module (GND/VCC/SCL/SDA) \u2014 the cheap 0.96\" OLED most beginners have; velxio-ssd1306-i2c native element. Counterpart to the 8-pin wokwi-ssd1306. Issue #215.",
       "id": "ssd1306-i2c-4pin",
       "tagName": "velxio-ssd1306-i2c-4pin",
       "name": "SSD1306 OLED (I2C, 4-pin)",
@@ -2537,7 +2537,7 @@
           "type": "number",
           "defaultValue": 25,
           "control": "number",
-          "description": "On-chip temperature sensor (°C), readable at registers 0x11/0x12"
+          "description": "On-chip temperature sensor (\u00b0C), readable at registers 0x11/0x12"
         }
       ],
       "defaultValues": {
@@ -2671,11 +2671,11 @@
   },
   "resistor": {
     "name": "Resistor (custom)",
-    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?Ω</text></svg>"
+    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u03a9</text></svg>"
   },
   "capacitor": {
     "name": "Cap. ceramic (custom)",
-    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?µF</text></svg>"
+    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <ellipse cx=\"32\" cy=\"30\" rx=\"14\" ry=\"9\" fill=\"#165696\"/>\n    <ellipse cx=\"28\" cy=\"26\" rx=\"5\" ry=\"3\" fill=\"#3a7cc8\" opacity=\"0.5\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u00b5F</text></svg>"
   },
   "inductor": {
     "name": "Inductor (custom)",
@@ -2730,5 +2730,84 @@
       "sensor"
     ],
     "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"4\" fill=\"#101820\"/><rect x=\"8\" y=\"12\" width=\"48\" height=\"40\" rx=\"3\" fill=\"#1c5aa8\" stroke=\"#2f7fd6\" stroke-width=\"0.8\"/><circle cx=\"21\" cy=\"26\" r=\"6\" fill=\"#0d2b52\" stroke=\"#6fa8dc\" stroke-width=\"0.8\"/><circle cx=\"21\" cy=\"26\" r=\"2.6\" fill=\"#e04b5a\"/><rect x=\"33\" y=\"20\" width=\"9\" height=\"12\" rx=\"1.5\" fill=\"#0b1c33\" stroke=\"#6fa8dc\" stroke-width=\"0.7\"/><path d=\"M11 43h7l3-7 4 13 4-9 3 3h21\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><g fill=\"#d4af37\"><rect x=\"46\" y=\"14\" width=\"4\" height=\"1.8\"/><rect x=\"46\" y=\"18\" width=\"4\" height=\"1.8\"/><rect x=\"46\" y=\"22\" width=\"4\" height=\"1.8\"/></g></svg>"
+  },
+  "ir-receiver": {
+    "$comment": "IR demodulator (VS1838B / TSOP38238 class). Its pin is DAT, which is what the element declares; the part used to look for OUT/DATA, find neither, and attach nothing at all. address/command are what a CLICK on the part transmits, and what the sensor panel's sliders edit; `channel` isolates a link when a project has several (empty = hears every emitter, which is what a room does).",
+    "pinCount": 3,
+    "tags": [
+      "ir-receiver",
+      "ir receiver",
+      "ir",
+      "receiver",
+      "infrared",
+      "nec",
+      "remote",
+      "demodulator",
+      "vs1838b",
+      "tsop",
+      "38khz"
+    ],
+    "properties": {
+      "irAddress": {
+        "name": "irAddress",
+        "type": "string",
+        "defaultValue": "0x00",
+        "control": "text",
+        "description": "NEC address this receiver transmits when clicked"
+      },
+      "irCommand": {
+        "name": "irCommand",
+        "type": "string",
+        "defaultValue": "0x45",
+        "control": "text",
+        "description": "NEC command this receiver transmits when clicked"
+      },
+      "channel": {
+        "name": "channel",
+        "type": "string",
+        "defaultValue": "",
+        "control": "text",
+        "description": "Leave empty to hear every IR emitter. Set a name to hear only emitters carrying the same one."
+      }
+    },
+    "defaultValues": {
+      "irAddress": "0x00",
+      "irCommand": "0x45",
+      "channel": ""
+    }
+  },
+  "ir-remote": {
+    "$comment": "IR handset. It has no pins and connects to nothing: it transmits into simulation/ir/irAir and every listening receiver hears it, wherever either one sits on the canvas. The button's NEC command comes from the element itself (detail.irCode); only the remote's ADDRESS is a property, because that is what distinguishes two physical handsets.",
+    "tags": [
+      "ir-remote",
+      "ir remote",
+      "ir",
+      "remote",
+      "infrared",
+      "nec",
+      "remote control",
+      "handset",
+      "transmitter"
+    ],
+    "properties": {
+      "irAddress": {
+        "name": "irAddress",
+        "type": "string",
+        "defaultValue": "0x00",
+        "control": "text",
+        "description": "NEC address of this handset"
+      },
+      "channel": {
+        "name": "channel",
+        "type": "string",
+        "defaultValue": "",
+        "control": "text",
+        "description": "Leave empty to transmit into the room. Set a name to reach only receivers carrying the same one."
+      }
+    },
+    "defaultValues": {
+      "irAddress": "0x00",
+      "channel": ""
+    }
   }
 }

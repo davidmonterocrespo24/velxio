@@ -8,14 +8,16 @@
  *  mpu6050      — I2C 6-axis IMU (0x68/0x69). Full register map simulation.
  *  dht22        — Single-wire temp/humidity. Drives DATA pin after start signal.
  *  hx711        — 2-wire load cell amplifier. Clocks out 24-bit ADC value.
- *  ir-receiver  — NEC IR receiver. Click generates active-low pulse train.
- *  ir-remote    — NEC IR remote. Button click dispatches ir-signal event.
+ *  ir-receiver  — IR demodulator. Owns its pin through the line contract and
+ *                 puts what crosses simulation/ir/irAir on it, at real timing.
+ *  ir-remote    — IR handset. No pins: it transmits into the air.
  *  microsd-card — SPI SD card. Responds to CMD0/CMD8/ACMD41/CMD58 init.
  *
- * NOTE — timing-sensitive protocols (dht22, ir-receiver, ir-remote):
- *   Full µs-accuracy requires CPU-loop integration. These simulate protocol
- *   intent and work with polling-based Arduino code; hardware-interrupt-based
- *   libraries (e.g. IRremote) need the exact cycle counts not available here.
+ * NOTE — the timing-sensitive parts (dht22, ir-receiver) do NOT live here any
+ *   more. They are line-owning models under simulation/line/models, which place
+ *   edges on the guest's own cycle counter, so a µs-accurate protocol is exact
+ *   and an interrupt-driven library (IRremote, Adafruit DHT) decodes it. What
+ *   is left in this file drives pins from host time and is fine with that.
  */
 
 import { PartSimulationRegistry } from './PartSimulationRegistry';
@@ -24,6 +26,15 @@ import { VirtualDS1307, VirtualBMP280, VirtualDS3231, VirtualPCF8574 } from '../
 import type { I2CDevice } from '../I2CBusManager';
 import { HD44780Decoder } from '../HD44780Decoder';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
+import {
+  emitIr,
+  listenIr,
+  necEncode,
+  necEncodeRepeat,
+  NEC_REPEAT_PERIOD_MS,
+  type IrAirFrame,
+  type IrPulse,
+} from '../ir';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -615,12 +626,16 @@ PartSimulationRegistry.register('dht22', {
     if (pin === null) return () => {};
 
     const el = element as { temperature?: number; humidity?: number };
-    const answer = requestLine(simulator, {
-      sensor_type: 'dht22',
-      pin,
-      temperature: el.temperature ?? 25.0,
-      humidity: el.humidity ?? 50.0,
-    }, { componentId });
+    const answer = requestLine(
+      simulator,
+      {
+        sensor_type: 'dht22',
+        pin,
+        temperature: el.temperature ?? 25.0,
+        humidity: el.humidity ?? 50.0,
+      },
+      { componentId },
+    );
 
     // SensorControlPanel: update temperature / humidity on the element, and
     // tell the host when there is one.
@@ -713,178 +728,198 @@ PartSimulationRegistry.register('hx711', {
   },
 });
 
-// ─── IR Receiver ─────────────────────────────────────────────────────────────
+// ─── Infrared ────────────────────────────────────────────────────────────────
 
 /**
- * IR receiver (e.g. VS1838B) — responds to clicks by generating an NEC
- * protocol pulse train on the DATA/OUT pin (active-low: LOW = IR burst).
+ * The two IR parts, and the air between them.
  *
- * NEC frame on the demodulated output:
- *   9 ms LOW  + 4.5 ms HIGH  (preamble)
- *   8-bit address (MSB first) + 8-bit ~address
- *   8-bit command (MSB first) + 8-bit ~command
- *   Final 562 µs LOW  ("end burst")
+ * WHAT WAS WRONG. Both were dead, each in its own way, and neither failure
+ * looked like a failure on the canvas:
  *
- * Default: address 0x00, command 0x45 (NEC remote "POWER" button equivalent).
- * Change by setting `element.irAddress` and `element.irCommand`.
+ *  - the receiver asked for a pin named `OUT` or `DATA`. `wokwi-ir-receiver`
+ *    calls it `DAT`, so the lookup returned null and `attachEvents` returned
+ *    an empty cleanup on its second line. Wired or not, the part did nothing.
+ *  - the remote asked for a pin too. It is a remote control: it has no pins
+ *    and never had. All it did was dispatch an `ir-signal` DOM event that
+ *    nothing in the codebase listened for, with a command from a hand-written
+ *    key table whose names the element never emits — while the element itself
+ *    was already carrying the correct NEC code in `detail.irCode`.
+ *  - and the pulse train was built out of `setTimeout(next, 0.562)`. A NEC
+ *    mark is 560 us; setTimeout's floor is a millisecond and its nested clamp
+ *    is four. No IR library could ever have decoded it.
  *
- * TIMING: Each ms-level delay is implemented via setTimeout. This chains
- * ~70 callbacks (35 bits × 2 edges each). Because the simulation runs in
- * requestAnimationFrame batches (~16 ms), the timing will be stretched but
- * the logical transitions are correct for polling-based IR decoders.
+ * WHAT THEY ARE NOW. The remote transmits into `simulation/ir/irAir` — the
+ * medium, with no wire and no geometry — and the receiver is a line-owning
+ * model (`simulation/line/models/ir-nec`) that puts the envelope of whatever
+ * it hears on its pin, on the guest's own cycle counter, at real NEC timing.
+ * Several remotes and several receivers work at once, on any mix of boards,
+ * because the air carries microseconds and each receiver converts them to its
+ * own board's clock.
  */
 
-function necBitSequence(address: number, command: number): number[] {
-  /* Returns interleaved [duration_ms, level, ...] pairs for NEC frame.
-     level: 1 = LINE HIGH (no IR / space), 0 = LINE LOW (IR burst / mark) */
-  const frames: number[] = [];
-
-  function push(duration: number, level: number) {
-    frames.push(duration, level);
-  }
-
-  // Preamble
-  push(9, 0); // 9 ms mark
-  push(4.5, 1); // 4.5 ms space
-
-  // Build 32 bits: addr, ~addr, cmd, ~cmd
-  const bytes = [address & 0xff, ~address & 0xff, command & 0xff, ~command & 0xff];
-  for (const byte of bytes) {
-    for (let b = 0; b < 8; b++) {
-      // LSB first for NEC
-      const bit = (byte >> b) & 1;
-      push(0.562, 0); // 562 µs mark (same for 0 and 1)
-      push(bit ? 1.687 : 0.562, 1); // space: 1687 µs=1, 562 µs=0
+/** A component property that may arrive as a number or as a typed string. */
+function numProp(el: Record<string, unknown>, keys: string[], dflt: number): number {
+  for (const k of keys) {
+    const v = el[k];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = v.trim().toLowerCase().startsWith('0x') ? parseInt(v, 16) : parseFloat(v);
+      if (Number.isFinite(n)) return n;
     }
   }
-
-  // Final burst
-  push(0.562, 0);
-
-  return frames;
+  return dflt;
 }
 
-function driveNECSequence(simulator: any, pin: number, address: number, command: number): void {
-  const frames = necBitSequence(address, command);
-  let i = 0;
-
-  function next(): void {
-    if (i >= frames.length) {
-      simulator.setPinState(pin, true); // idle HIGH
-      return;
-    }
-    const duration = frames[i++];
-    const level = frames[i++];
-    simulator.setPinState(pin, level === 1); // active-low: LOW=burst, HIGH=space
-    setTimeout(next, duration);
-  }
-
-  next();
+function textProp(el: Record<string, unknown>, key: string): string {
+  const v = el[key];
+  return typeof v === 'string' ? v : '';
 }
 
+/**
+ * IR receiver — the demodulator can (a VS1838B, a TSOP38238) behind the lens.
+ *
+ * It owns its output pin through the line contract, so the board that hosts it
+ * answers honestly: the model runs in the browser (AVR, RP2040, RP2350, the
+ * esp32*js engines), it runs in the backend worker, or this board cannot host
+ * it and the circuit check says why. A click on the part still transmits, as a
+ * convenience for a canvas with no remote on it — the part IS the remote then,
+ * sending its configured address and command.
+ */
 PartSimulationRegistry.register('ir-receiver', {
-  attachEvents: (element, simulator, getPin) => {
-    const pin = getPin('OUT') ?? getPin('DATA');
+  attachEvents: (element, simulator, getPin, componentId) => {
+    // `DAT` is what the element declares. The other two are accepted because
+    // modules in the wild silk-screen them, and a saved project may carry
+    // either spelling.
+    const pin = getPin('DAT') ?? getPin('OUT') ?? getPin('DATA');
     if (pin === null) return () => {};
 
-    // Idle: pin HIGH (no IR)
-    simulator.setPinState(pin, true);
+    const el = element as unknown as Record<string, unknown>;
+    const channel = () => textProp(el, 'channel');
+    /** Bumped on every transmission: the model fires on the CHANGE, so two
+     *  identical presses in a row are still two frames. */
+    let seq = 0;
 
-    const onClick = () => {
-      const el = element as any;
-      const address = (el.irAddress ?? 0x00) & 0xff;
-      const command = (el.irCommand ?? 0x45) & 0xff;
-      driveNECSequence(simulator, pin, address, command);
+    const answer = requestLine(
+      simulator,
+      {
+        sensor_type: 'ir-nec',
+        pin,
+        address: numProp(el, ['irAddress', 'address'], 0x00),
+        command: numProp(el, ['irCommand', 'command'], 0x45),
+        channel: channel(),
+      },
+      { componentId },
+    );
+
+    /** Put a train on the pin. The air already decoded it; this only has to
+     *  reproduce the envelope, so the raw pulses go over untouched — a remote
+     *  speaking a protocol nothing here parses still reaches the sketch. */
+    const deliver = (pulses: readonly IrPulse[]): boolean => {
+      if (answer.mode === 'none') return false;
+      answer.update({ pulses, seq: ++seq });
+      return true;
     };
 
+    const unlisten = listenIr(componentId, channel, (f: IrAirFrame) => deliver(f.pulses));
+
+    // Clicking the receiver transmits its own configured code, so a canvas
+    // with no remote on it is still testable. It goes through the air like
+    // anything else, which is also what makes a second receiver hear it.
+    const onClick = () => {
+      emitIr({
+        pulses: necEncode(
+          numProp(el, ['irAddress', 'address'], 0x00),
+          numProp(el, ['irCommand', 'command'], 0x45),
+        ),
+        sourceId: componentId,
+        channel: channel(),
+      });
+    };
     element.addEventListener('click', onClick);
+
+    // The sensor panel edits the SAME two values the element carries, so a
+    // slider and the hex property in the inspector cannot drift apart and the
+    // click path below reads whatever was set last.
+    registerSensorUpdate(componentId, (values) => {
+      if ('address' in values) el.irAddress = values.address;
+      if ('command' in values) el.irCommand = values.command;
+      // The panel's Send button transmits into the room rather than straight
+      // onto the pin, so every OTHER receiver on this channel hears it too.
+      if ('send' in values) onClick();
+    });
+
     return () => {
+      unlisten();
       element.removeEventListener('click', onClick);
-      simulator.setPinState(pin, true);
+      if (answer.mode !== 'none') answer.release();
+      else releaseLineGap(componentId);
+      unregisterSensorUpdate(componentId);
     };
   },
 });
 
-// ─── IR Remote ───────────────────────────────────────────────────────────────
-
 /**
- * IR remote control — each button click:
- *  1. Fires an `ir-signal` CustomEvent on the element with {address, command}
- *  2. Drives the IR output pin (if connected) with the NEC pulse sequence
+ * IR remote control — a handset. It has no pins and connects to nothing; it
+ * transmits into the room and whatever is listening hears it.
  *
- * Button → command mapping (NEC standard SHARP-style remote):
- *   0–9 → commands 0x16, 0x0C, 0x18, 0x5E, 0x08, 0x1C, 0x5A, 0x42, 0x52, 0x4A
- *   VOL+→0x40, VOL-→0x00, CH+→0x48, CH-→0x0D, POWER→0x45, MUTE→0x09
+ * The element already computes the NEC code for the button that was pressed
+ * (`detail.irCode`) and it is the authority: the codes belong to the artwork
+ * printed on its keys. The old hand-written table here disagreed with it on
+ * every single key and was keyed on button names the element never emits.
  *
- * The element should dispatch `button-press` events with `detail.key` naming
- * the button (matches typical wokwi IR remote element events). We listen for
- * both 'button-press' from the element model and 'click' as fallback.
+ * Holding a button repeats, exactly as a real remote does — a NEC repeat frame
+ * every 108 ms, which is what makes a volume key ramp instead of stepping once.
  */
-const IR_REMOTE_COMMANDS: Record<string, number> = {
-  '0': 0x16,
-  '1': 0x0c,
-  '2': 0x18,
-  '3': 0x5e,
-  '4': 0x08,
-  '5': 0x1c,
-  '6': 0x5a,
-  '7': 0x42,
-  '8': 0x52,
-  '9': 0x4a,
-  'vol+': 0x40,
-  'vol-': 0x00,
-  'ch+': 0x48,
-  'ch-': 0x0d,
-  power: 0x45,
-  mute: 0x09,
-  ok: 0x1b,
-  up: 0x46,
-  down: 0x15,
-  left: 0x44,
-  right: 0x43,
-};
-
 PartSimulationRegistry.register('ir-remote', {
-  attachEvents: (element, simulator, getPin) => {
-    const pin = getPin('IR') ?? getPin('OUT');
+  attachEvents: (element, _simulator, _getPin, componentId) => {
+    const el = element as unknown as Record<string, unknown>;
+    const channel = () => textProp(el, 'channel');
+    /** The address the handset sends. NEC remotes each have their own; the
+     *  element models one physical remote, so the property is on the part. */
+    const address = () => numProp(el, ['irAddress', 'address'], 0x00);
 
-    // Idle HIGH if pin connected
-    if (pin !== null) simulator.setPinState(pin, true);
+    let repeatTimer: ReturnType<typeof setInterval> | null = null;
+    const stopRepeat = () => {
+      if (repeatTimer !== null) {
+        clearInterval(repeatTimer);
+        repeatTimer = null;
+      }
+    };
 
-    const el = element as any;
-    const address = (el.irAddress ?? 0x00) & 0xff;
+    const send = (pulses: readonly IrPulse[]) => {
+      const taken = emitIr({ pulses, sourceId: componentId, channel: channel() });
+      if (taken === 0) {
+        // "The button does nothing" and "nothing was listening" look the same
+        // on a canvas, and only one of them is the user's mistake.
+        console.warn(
+          `[ir] ${componentId} transmitted and no receiver took it` +
+            (channel() ? ` on channel '${channel()}'` : ''),
+        );
+      }
+    };
 
     const onButtonPress = (e: Event) => {
-      const key = ((e as CustomEvent).detail?.key ?? '').toLowerCase();
-      const command = (IR_REMOTE_COMMANDS[key] ?? 0x45) & 0xff;
-      element.dispatchEvent(
-        new CustomEvent('ir-signal', {
-          bubbles: true,
-          detail: { address, command, key },
-        }),
-      );
-      if (pin !== null) driveNECSequence(simulator, pin, address, command);
+      const detail = (e as CustomEvent).detail ?? {};
+      const irCode = Number(detail.irCode);
+      if (!Number.isFinite(irCode)) return;
+      stopRepeat();
+      send(necEncode(address(), irCode & 0xff));
+      // A held key sends repeat frames, carrying no data, every 108 ms.
+      repeatTimer = setInterval(() => send(necEncodeRepeat()), NEC_REPEAT_PERIOD_MS);
     };
-
-    const onClick = () => {
-      // Fallback for plain click — send POWER code
-      const command = 0x45;
-      element.dispatchEvent(
-        new CustomEvent('ir-signal', {
-          bubbles: true,
-          detail: { address, command, key: 'power' },
-        }),
-      );
-      if (pin !== null) driveNECSequence(simulator, pin, address, command);
-    };
+    const onButtonRelease = () => stopRepeat();
 
     element.addEventListener('button-press', onButtonPress);
-    element.addEventListener('click', onClick);
+    element.addEventListener('button-release', onButtonRelease);
+    // A button-press with no release (the element focuses and blurs, a pointer
+    // leaves the SVG) must not repeat forever.
+    element.addEventListener('mouseleave', onButtonRelease);
 
     return () => {
+      stopRepeat();
       element.removeEventListener('button-press', onButtonPress);
-      element.removeEventListener('click', onClick);
-      if (pin !== null) simulator.setPinState(pin, true);
+      element.removeEventListener('button-release', onButtonRelease);
+      element.removeEventListener('mouseleave', onButtonRelease);
     };
   },
 });
@@ -927,8 +962,7 @@ PartSimulationRegistry.register('microsd-card', {
 
     // ── Backing store: sparse map of blockIndex -> 512-byte sector ──────────
     const store = new Map<number, Uint8Array>();
-    const readBlock = (idx: number): Uint8Array =>
-      store.get(idx) ?? new Uint8Array(SD_BLOCK_SIZE); // unwritten = zeros
+    const readBlock = (idx: number): Uint8Array => store.get(idx) ?? new Uint8Array(SD_BLOCK_SIZE); // unwritten = zeros
     const writeBlock = (idx: number, data: ArrayLike<number>): void => {
       const blk = new Uint8Array(SD_BLOCK_SIZE);
       blk.set(Array.from(data).slice(0, SD_BLOCK_SIZE));
@@ -941,10 +975,13 @@ PartSimulationRegistry.register('microsd-card', {
       const raw = el.sdImageData;
       if (!raw) return;
       const bytes: Uint8Array | null =
-        raw instanceof Uint8Array ? raw
-        : raw instanceof ArrayBuffer ? new Uint8Array(raw)
-        : Array.isArray(raw) ? Uint8Array.from(raw)
-        : null;
+        raw instanceof Uint8Array
+          ? raw
+          : raw instanceof ArrayBuffer
+            ? new Uint8Array(raw)
+            : Array.isArray(raw)
+              ? Uint8Array.from(raw)
+              : null;
       if (!bytes) return;
       for (let i = 0; i * SD_BLOCK_SIZE < bytes.length; i++) {
         const slice = bytes.subarray(i * SD_BLOCK_SIZE, (i + 1) * SD_BLOCK_SIZE);
@@ -956,14 +993,41 @@ PartSimulationRegistry.register('microsd-card', {
 
     // ── 16-byte CSD (v2.0, high-capacity) reflecting SD_CARD_BYTES ──────────
     const buildCSD = (): number[] => [
-      0x40, 0x0e, 0x00, 0x32, 0x5b, 0x59, 0x00,
-      (SD_C_SIZE >> 16) & 0x3f, (SD_C_SIZE >> 8) & 0xff, SD_C_SIZE & 0xff,
-      0x7f, 0x80, 0x0a, 0x40, 0x00, 0x01,
+      0x40,
+      0x0e,
+      0x00,
+      0x32,
+      0x5b,
+      0x59,
+      0x00,
+      (SD_C_SIZE >> 16) & 0x3f,
+      (SD_C_SIZE >> 8) & 0xff,
+      SD_C_SIZE & 0xff,
+      0x7f,
+      0x80,
+      0x0a,
+      0x40,
+      0x00,
+      0x01,
     ];
     // ── 16-byte CID (manufacturer info; values are cosmetic) ────────────────
     const buildCID = (): number[] => [
-      0x01, 0x56, 0x58, 0x56, 0x45, 0x4c, 0x58, 0x53, // mfr, "VX", "VELXS"
-      0x10, 0x00, 0x00, 0x00, 0x01, 0x01, 0x60, 0x01,
+      0x01,
+      0x56,
+      0x58,
+      0x56,
+      0x45,
+      0x4c,
+      0x58,
+      0x53, // mfr, "VX", "VELXS"
+      0x10,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x01,
+      0x60,
+      0x01,
     ];
 
     // ── SD SPI protocol state machine ───────────────────────────────────────
@@ -998,39 +1062,77 @@ PartSimulationRegistry.register('microsd-card', {
       expectingAcmd = false;
 
       if (isAcmd) {
-        if (cmd === 41) { respQueue.push(0x00); return; } // ACMD41 — ready
-        if (cmd === 13) { respQueue.push(0x00, 0x00); return; } // ACMD13 SD status (R2)
+        if (cmd === 41) {
+          respQueue.push(0x00);
+          return;
+        } // ACMD41 — ready
+        if (cmd === 13) {
+          respQueue.push(0x00, 0x00);
+          return;
+        } // ACMD13 SD status (R2)
         // fall through for other ACMDs
       }
 
       switch (cmd) {
-        case 0: respQueue.push(0x01); break; // GO_IDLE -> idle
-        case 8: respQueue.push(0x01, 0x00, 0x00, 0x01, 0xaa); break; // SEND_IF_COND (R7)
-        case 9: pushShortData(buildCSD()); break; // SEND_CSD
-        case 10: pushShortData(buildCID()); break; // SEND_CID
-        case 12: multiRead = false; respQueue.push(0x00, 0x00, 0xff); break; // STOP_TRANSMISSION
-        case 13: respQueue.push(0x00, 0x00); break; // SEND_STATUS (R2)
-        case 16: respQueue.push(0x00); break; // SET_BLOCKLEN (fixed 512)
+        case 0:
+          respQueue.push(0x01);
+          break; // GO_IDLE -> idle
+        case 8:
+          respQueue.push(0x01, 0x00, 0x00, 0x01, 0xaa);
+          break; // SEND_IF_COND (R7)
+        case 9:
+          pushShortData(buildCSD());
+          break; // SEND_CSD
+        case 10:
+          pushShortData(buildCID());
+          break; // SEND_CID
+        case 12:
+          multiRead = false;
+          respQueue.push(0x00, 0x00, 0xff);
+          break; // STOP_TRANSMISSION
+        case 13:
+          respQueue.push(0x00, 0x00);
+          break; // SEND_STATUS (R2)
+        case 16:
+          respQueue.push(0x00);
+          break; // SET_BLOCKLEN (fixed 512)
         // Standard-capacity (SDSC) byte addressing: CMD17/18/24/25 args are BYTE
         // offsets (block*512), not block indices. The Arduino SD library uses
         // this even when the card advertises SDHC, so we present SDSC (CMD58
         // CCS=0) and translate `arg >> 9` -> block. SDSC covers up to 2 GB,
         // plenty for our small card; every SD library supports it.
-        case 17: respQueue.push(0x00); pushDataBlock(readBlock(arg >> 9)); break; // READ_SINGLE
+        case 17:
+          respQueue.push(0x00);
+          pushDataBlock(readBlock(arg >> 9));
+          break; // READ_SINGLE
         case 18: // READ_MULTIPLE — stream until CMD12
           respQueue.push(0x00);
-          readAddr = arg >> 9; multiRead = true;
-          pushDataBlock(readBlock(readAddr)); readAddr++;
+          readAddr = arg >> 9;
+          multiRead = true;
+          pushDataBlock(readBlock(readAddr));
+          readAddr++;
           break;
         case 24: // WRITE_SINGLE — data block follows
-          respQueue.push(0x00); writeAddr = arg >> 9; multiWrite = false; phase = 'wait-token';
+          respQueue.push(0x00);
+          writeAddr = arg >> 9;
+          multiWrite = false;
+          phase = 'wait-token';
           break;
         case 25: // WRITE_MULTIPLE — data blocks follow until stop token
-          respQueue.push(0x00); writeAddr = arg >> 9; multiWrite = true; phase = 'wait-token';
+          respQueue.push(0x00);
+          writeAddr = arg >> 9;
+          multiWrite = true;
+          phase = 'wait-token';
           break;
-        case 55: respQueue.push(0x01); expectingAcmd = true; break; // APP_CMD prefix
-        case 58: respQueue.push(0x00, 0x80, 0xff, 0x80, 0x00); break; // READ_OCR (powered, CCS=0 SDSC)
-        default: respQueue.push(0x00); // accept unhandled commands
+        case 55:
+          respQueue.push(0x01);
+          expectingAcmd = true;
+          break; // APP_CMD prefix
+        case 58:
+          respQueue.push(0x00, 0x80, 0xff, 0x80, 0x00);
+          break; // READ_OCR (powered, CCS=0 SDSC)
+        default:
+          respQueue.push(0x00); // accept unhandled commands
       }
     };
 
@@ -1051,20 +1153,33 @@ PartSimulationRegistry.register('microsd-card', {
             cmdBuf = [byte]; // command start (bit7=0, bit6=1)
           } else if (cmdBuf.length > 0) {
             cmdBuf.push(byte);
-            if (cmdBuf.length === 6) { processCmd(cmdBuf); cmdBuf = []; }
+            if (cmdBuf.length === 6) {
+              processCmd(cmdBuf);
+              cmdBuf = [];
+            }
           } else if (multiRead && respQueue.length === 0) {
             // Continuous read: refill the next block while the host clocks 0xFF.
-            pushDataBlock(readBlock(readAddr)); readAddr++;
+            pushDataBlock(readBlock(readAddr));
+            readAddr++;
           }
           break;
         case 'wait-token':
-          if (byte === 0xfe || byte === 0xfc) { phase = 'recv-data'; dataBuf = []; }
-          else if (byte === 0xfd) { multiWrite = false; phase = 'cmd'; respQueue.push(0x00); }
+          if (byte === 0xfe || byte === 0xfc) {
+            phase = 'recv-data';
+            dataBuf = [];
+          } else if (byte === 0xfd) {
+            multiWrite = false;
+            phase = 'cmd';
+            respQueue.push(0x00);
+          }
           // else 0xFF gap — keep waiting
           break;
         case 'recv-data':
           dataBuf.push(byte);
-          if (dataBuf.length === SD_BLOCK_SIZE) { phase = 'recv-crc'; crcLeft = 2; }
+          if (dataBuf.length === SD_BLOCK_SIZE) {
+            phase = 'recv-crc';
+            crcLeft = 2;
+          }
           break;
         case 'recv-crc':
           if (--crcLeft === 0) {
@@ -1117,7 +1232,11 @@ PartSimulationRegistry.register('bmp280', {
       const dev = new VirtualBMP280(addr);
       dev.temperatureC = initTemp;
       dev.pressureHPa = initPressure;
-      sim.registerSensor('bmp280', virtualPin, { addr, temperature: initTemp, pressure: initPressure });
+      sim.registerSensor('bmp280', virtualPin, {
+        addr,
+        temperature: initTemp,
+        pressure: initPressure,
+      });
       sim.addI2CDevice?.(dev);
 
       registerSensorUpdate(componentId, (values) => {
