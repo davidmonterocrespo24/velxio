@@ -44,6 +44,12 @@ function pressRun(epoch: number): void {
   for (const fn of [...listeners]) fn(state);
 }
 
+/** Press Stop: the run ends, the epoch stays where it was. */
+function pressStop(): void {
+  state = { ...state, running: false };
+  for (const fn of [...listeners]) fn(state);
+}
+
 /** A board whose engine hands whole decoded frames to the part (ESP32 RMT). */
 function makeRmtSimulator() {
   const sinks = new Map<number, (px: Array<{ r: number; g: number; b: number }>) => void>();
@@ -145,5 +151,77 @@ describe('WS2812 liveness report', () => {
     for (let i = 0; i < 5; i++) sim.emitFrame(6, [{ r: i, g: 0, b: 0 }]);
 
     expect(faults.filter((f) => f.kind === 'pixel-data-late')).toHaveLength(1);
+  });
+});
+
+/**
+ * A WS2812 latches its frame in the pixel itself, and both of the sources the
+ * part listens to are edge-triggered — so Stop, which is a power cut, used to
+ * leave the strip glowing on the canvas until the next Run overwrote it.
+ */
+describe('WS2812 on Stop', () => {
+  beforeEach(() => {
+    listeners.length = 0;
+    state = { hexEpoch: 0, running: false };
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function attachPart(type: string, el: Record<string, unknown>, pins: Record<string, number>) {
+    await import('../simulation/parts/SensorParts');
+    const { PartSimulationRegistry } = await import('../simulation/parts/PartSimulationRegistry');
+    const logic = PartSimulationRegistry.get(type)!;
+    const sim = makeRmtSimulator();
+    const detach = logic.attachEvents!(el as never, sim as never, pinMap(pins) as never, `${type}-1`);
+    return { sim, detach };
+  }
+
+  it('blanks the pixel when the run stops', async () => {
+    const el = makeElement();
+    const { sim } = await attachPart('neopixel', el, { DIN: 6 });
+    pressRun(1);
+    sim.emitFrame(6, [{ r: 200, g: 0, b: 120 }]);
+    expect(el.r).toBeGreaterThan(0);
+
+    pressStop();
+
+    expect(el).toMatchObject({ r: 0, g: 0, b: 0 });
+  });
+
+  it('blanks every pixel a strip lit, not just the first', async () => {
+    const painted: Array<{ r: number; g: number; b: number }> = [];
+    const el = {
+      setPixel: (index: number, px: { r: number; g: number; b: number }) => {
+        painted[index] = px;
+      },
+    } as unknown as Record<string, unknown>;
+    const { sim } = await attachPart('led-ring', el, { DIN: 6 });
+    pressRun(1);
+    sim.emitFrame(6, [
+      { r: 255, g: 0, b: 0 },
+      { r: 0, g: 255, b: 0 },
+      { r: 0, g: 0, b: 255 },
+    ]);
+
+    pressStop();
+
+    expect(painted).toHaveLength(3);
+    for (const px of painted) expect(px).toEqual({ r: 0, g: 0, b: 0 });
+  });
+
+  it('leaves a detached part alone — no writes after unmount', async () => {
+    const el = makeElement();
+    const { sim, detach } = await attachPart('neopixel', el, { DIN: 6 });
+    pressRun(1);
+    sim.emitFrame(6, [{ r: 200, g: 0, b: 120 }]);
+    detach();
+    el.r = 0.5; // whatever the canvas holds after the part is gone
+
+    pressStop();
+
+    expect(el.r).toBe(0.5);
   });
 });

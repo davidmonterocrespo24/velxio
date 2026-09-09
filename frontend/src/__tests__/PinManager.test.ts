@@ -183,6 +183,33 @@ describe('PinManager — PWM duty cycle', () => {
     expect(threeArgCount).toBe(3);
     expect(threeArgTime).toBe(123); // 3-arg listener (the buzzer) gets the precise time
   });
+
+  // Cutting power stops the PWM peripheral too. This is the channel that
+  // keeps a hardware-PWM board (ESP32 LEDC reports a duty and never toggles
+  // the pad) alight after Stop: nothing there was ever cached HIGH, so the
+  // digital notify below reaches nobody and the RGB LED holds its colour.
+  it('drops the duty to 0 on a hard reset, and tells the listeners', () => {
+    const cb = vi.fn();
+    pm.onPwmChange(9, cb);
+    pm.updatePwm(9, 0.7);
+    cb.mockClear();
+
+    pm.hardResetPinStates();
+
+    expect(cb).toHaveBeenCalledWith(9, 0);
+    expect(pm.getPwmValue(9)).toBe(0);
+  });
+
+  it('does not announce a reset on a pin that was already at 0', () => {
+    const cb = vi.fn();
+    pm.onPwmChange(9, cb);
+    pm.updatePwm(9, 0);
+    cb.mockClear();
+
+    pm.hardResetPinStates();
+
+    expect(cb).not.toHaveBeenCalled();
+  });
 });
 
 // ─── Analog voltage API ──────────────────────────────────────────────────────

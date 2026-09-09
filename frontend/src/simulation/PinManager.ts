@@ -276,9 +276,24 @@ export class PinManager {
     for (const [pin, state] of this.pinStates) {
       if (state) wereHigh.push(pin);
     }
+    // Cutting power also stops the PWM peripherals. Their duty is a
+    // SEPARATE channel from pinStates and used to survive the reset: on a
+    // board whose PWM lives in hardware (ESP32 LEDC reports `ledc_duty`
+    // and never toggles the pad at bit rate) nothing here was ever HIGH,
+    // so the notify below reached no one and an RGB LED left the run
+    // still glowing at its last colour. Notify duty 0 for every pin that
+    // was driving, which is what the parts read as "off" — the servo
+    // ignores out-of-range duties and holds its angle, as a real one does
+    // when the supply drops.
+    const wereDriven: number[] = [];
+    for (const [pin, duty] of this.pwmValues) {
+      if (duty > 0) wereDriven.push(pin);
+    }
     this.pinStates.clear();
     this.outputPins.clear();
     this.pinPulls.clear();
+    this.pwmValues.clear();
+    this.pwmFreqs.clear();
     // A cold boot releases every pad; the firmware re-configures each one from
     // setup(), and the next `reportPad` must see that as a change.
     this.pads.clear();
@@ -286,6 +301,12 @@ export class PinManager {
       const callbacks = this.listeners.get(pin);
       if (callbacks) {
         callbacks.forEach((cb) => cb(pin, false));
+      }
+    }
+    for (const pin of wereDriven) {
+      const callbacks = this.pwmListeners.get(pin);
+      if (callbacks) {
+        callbacks.forEach((cb) => (cb.length >= 3 ? cb(pin, 0, undefined) : cb(pin, 0)));
       }
     }
   }

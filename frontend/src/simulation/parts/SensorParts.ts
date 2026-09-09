@@ -782,6 +782,32 @@ function onRunEpoch(next: (epoch: number) => void): () => void {
 }
 
 /**
+ * Call `next` when the simulation goes from running to stopped.
+ *
+ * The mirror of `onRunEpoch`, and subscribed through the same store module, so
+ * a unit test with no live store gets "never fires" rather than a throw. Only
+ * the transition is reported: parts also live on a canvas that never runs
+ * (boardless mode), and a level-triggered version would blank those on mount.
+ */
+function onPowerCut(next: () => void): () => void {
+  try {
+    const store = useSimulatorStore as unknown as {
+      subscribe?: (fn: (s: { running?: boolean }) => void) => () => void;
+      getState?: () => { running?: boolean };
+    };
+    if (typeof store?.subscribe !== 'function') return () => {};
+    let wasRunning = !!store.getState?.().running;
+    return store.subscribe((st) => {
+      const isRunning = !!st.running;
+      if (wasRunning && !isRunning) next();
+      wasRunning = isRunning;
+    });
+  } catch (_) {
+    return () => {};
+  }
+}
+
+/**
  * Report, once, that a WS2812 part received nothing for a whole run.
  *
  * Goes to `velxio-circuit-fault`, the channel the dead-solve reporter and the
@@ -891,14 +917,28 @@ function attachWs2812Part(
   // Set when the no-pixel warning has gone out for this run, so the first
   // frame that turns up afterwards can correct it (see below).
   let warnedAt: number | null = null;
+  // Highest pixel index this part has ever been given a colour for, so the
+  // power cut below can blank exactly the pixels that are lit.
+  let litUpTo = -1;
   const paint = (index: number, r: number, g: number, b: number) => {
     if (!gotPixel && warnedAt !== null) {
       reportPixelDataArrivedLate(pinDIN, Date.now() - warnedAt + NO_PIXEL_GRACE_MS);
       warnedAt = null;
     }
     gotPixel = true;
+    if (index > litUpTo) litUpTo = index;
     onPixel(index, r, g, b);
   };
+
+  // Stop is "cut power": a WS2812 holds its last frame in its own latch, and
+  // both sources below are edge-triggered, so nothing tells the part the run
+  // ended. The strip stayed lit on the canvas after Stop until the next Run
+  // overwrote it. Blank it here, the same way stopBoard clears the pin states
+  // that the non-addressable LEDs are drawn from.
+  const unarmCut = onPowerCut(() => {
+    for (let i = 0; i <= litUpTo; i++) onPixel(i, 0, 0, 0);
+    litUpTo = -1;
+  });
 
   const unsubDecoder = createNeopixelDecoder(simulator as any, pinDIN, paint);
 
@@ -951,6 +991,7 @@ function attachWs2812Part(
   return () => {
     if (timer !== null) clearTimeout(timer);
     armed();
+    unarmCut();
     unsubDecoder();
     unsubHardware();
   };
