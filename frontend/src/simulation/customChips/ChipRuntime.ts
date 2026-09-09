@@ -191,6 +191,11 @@ export class ChipInstance {
    *  CustomChipPart forwards it into the wired board's ADC channel. */
   private _onDacWrite: ((pinName: string, voltage: number) => void) | null = null;
 
+  /** Host hook: the chip reported a PWM duty on a pin (vx_pin_pwm_write).
+   *  A driver model that chops its output speaks here; the part host forwards
+   *  it to whatever load sits on the other end of the wire. */
+  private _onPwmWrite: ((pinName: string, duty: number) => void) | null = null;
+
   /** Host hook: the chip drove a DIGITAL level on a pin wired to a real
    *  board pin. triggerPinChange only notifies canvas parts — the board's
    *  own digitalRead never saw chip outputs (live NOT-gate audit: OUT wired
@@ -348,6 +353,7 @@ export class ChipInstance {
       vx_pin_write:       (handle: number, value: number) => this._pin_write(handle, value),
       vx_pin_read_analog: (handle: number) => this._pin_read_analog(handle),
       vx_pin_dac_write:   (handle: number, voltage: number) => this._pin_dac_write(handle, voltage),
+      vx_pin_pwm_write:   (handle: number, duty: number) => this._pin_pwm_write(handle, duty),
       vx_pin_set_mode:    (handle: number, mode: number) => this._pin_set_mode(handle, mode),
       vx_pin_watch:       (handle: number, edge: number, cbIdx: number, ud: number) =>
         this._pin_watch(handle, edge, cbIdx, ud),
@@ -515,9 +521,25 @@ export class ChipInstance {
     this._onDacWrite?.(p.name, voltage);
   }
 
+  /** Report a PWM duty on the pin's net. Deliberately NOT a drive: the duty
+   *  says how hard the output is being chopped, while the digital level (and
+   *  with it the SPICE drive) stays wherever vx_pin_write left it. */
+  private _pin_pwm_write(handle: number, duty: number): void {
+    const p = this.pins[handle];
+    if (!p || p.arduinoPin == null) return;
+    const clamped = duty < 0 ? 0 : duty > 1 ? 1 : duty;
+    this.pinManager.updatePwm(p.arduinoPin, clamped);
+    this._onPwmWrite?.(p.name, clamped);
+  }
+
   /** Register the host-side DAC forwarding hook. */
   onDacWrite(cb: (pinName: string, voltage: number) => void): void {
     this._onDacWrite = cb;
+  }
+
+  /** Register the host-side PWM forwarding hook. */
+  onPwmWrite(cb: (pinName: string, duty: number) => void): void {
+    this._onPwmWrite = cb;
   }
 
   /** Register the host-side digital-output forwarding hook. */

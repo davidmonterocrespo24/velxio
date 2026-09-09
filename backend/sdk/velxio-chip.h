@@ -61,6 +61,16 @@ extern double vx_pin_read_analog(vx_pin p);
 /** Drive an analog voltage (volts) on an OUTPUT/ANALOG pin (DAC). */
 extern void   vx_pin_dac_write(vx_pin p, double voltage);
 
+/**
+ * Report a PWM duty cycle (0.0 .. 1.0, clamped by the host) on a pin.
+ * A driver stage that chops its output has to say "half", not "high": the
+ * load on the other end of the wire reads the duty, and a bare digital level
+ * would make every speed look like full throttle. The pin's digital level is
+ * left exactly as it was — use vx_pin_write to move that. On a pin the
+ * diagram wires to nothing, this does nothing.
+ */
+extern void   vx_pin_pwm_write(vx_pin p, double duty);
+
 /** Change a pin's mode after registration. Useful for bidirectional I/O. */
 extern void   vx_pin_set_mode(vx_pin p, vx_pin_mode mode);
 

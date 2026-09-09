@@ -406,6 +406,12 @@ class WasmChipRuntime:
         def vx_pin_dac_write(_handle: int, _voltage: float) -> None:
             return
 
+        def vx_pin_pwm_write(_handle: int, _duty: float) -> None:
+            # The QEMU-hosted boards have no duty-cycle channel to report on,
+            # but the import has to exist: a chip that calls it would fail to
+            # instantiate here, taking the whole board down with it.
+            return
+
         def vx_pin_set_mode(handle: int, mode: int) -> None:
             if 0 <= handle < len(self._pins):
                 self._pins[handle]["mode"] = mode
@@ -602,6 +608,7 @@ class WasmChipRuntime:
             "vx_pin_write":        (wasmtime.FuncType([i32, i32], []),    vx_pin_write),
             "vx_pin_read_analog":  (wasmtime.FuncType([i32], [f64]),      vx_pin_read_analog),
             "vx_pin_dac_write":    (wasmtime.FuncType([i32, f64], []),    vx_pin_dac_write),
+            "vx_pin_pwm_write":    (wasmtime.FuncType([i32, f64], []),    vx_pin_pwm_write),
             "vx_pin_set_mode":     (wasmtime.FuncType([i32, i32], []),    vx_pin_set_mode),
             "vx_pin_watch":        (wasmtime.FuncType([i32, i32, i32, i32], []), vx_pin_watch),
             "vx_pin_watch_stop":   (wasmtime.FuncType([i32], []),         vx_pin_watch_stop),
