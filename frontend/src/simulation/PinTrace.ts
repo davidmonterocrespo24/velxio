@@ -24,6 +24,7 @@ import { isActiveDevice } from './PinResolver';
 import { breadboardGroupKey } from '../utils/breadboardNets';
 import { syntheticChipPin, SYNTHETIC_CHIP_PIN_BASE } from './customChips/syntheticPins';
 import { resolveChipNetKey } from './customChips/chipNets';
+import { isChipLikePad } from './customChips/chipLikePads';
 
 // Map metadataId → [pinA, pinB] for 2-terminal passives.
 // "Tracing through" means: if the caller arrived on pinA, continue from pinB
@@ -148,6 +149,16 @@ function componentById(
 }
 
 /**
+ * True when (metadataId, pinName) may act as rule 5's pin source: every pin of
+ * a custom chip, plus a pad a part registered as chip-like. The two are the
+ * same case — a pin the part drives that no wire joins to a board GPIO — so
+ * the walk mints one synthetic number for either.
+ */
+function isChipPinSource(metadataId: string | undefined, pinName: string): boolean {
+  return metadataId === 'custom-chip' || isChipLikePad(metadataId, pinName);
+}
+
+/**
  * Wired holes per breadboard group, so continuing along a strip does not
  * re-scan every wire on the canvas for every hole it passes through.
  * Keyed by the wires array and invalidated when the components array changes
@@ -261,7 +272,11 @@ function traceThroughSocket(
  *   4. a rail one or more hops away (a pull-up, the divider's low leg) — real,
  *      but weaker than any driven pin anywhere;
  *   5. a custom-chip pin: the net-canonical key when several chips share the
- *      net (the chip bus), else the neighbour's own synthetic pin.
+ *      net (the chip bus), else the neighbour's own synthetic pin. A pad a
+ *      part registered as CHIP-LIKE (a relay contact, a driver's screw
+ *      terminal — see customChips/chipLikePads) counts as one of these: the
+ *      part drives it without any wire joining it to a board pin, so it is a
+ *      pin source in the same sense a chip's output pin is.
  *
  * `crossedActiveDevice` reports whether a hop went through a BJT / MOSFET /
  * op-amp / diode, which is what makes the resolver pick its SPICE-resolved
@@ -351,7 +366,7 @@ function walk(
     };
   }
   if (chipHit) return chipHit;
-  if (isRoot && componentById(state.components, fromId)?.metadataId === 'custom-chip') {
+  if (isRoot && isChipPinSource(componentById(state.components, fromId)?.metadataId, fromPin)) {
     return { arduinoPin: syntheticChipPin(fromId, fromPin), crossedActiveDevice: activeSeen };
   }
   return { arduinoPin: null, crossedActiveDevice: activeSeen };
@@ -366,7 +381,8 @@ interface NodeInfo {
   drivenHit: TraceResult | null;
   /** Board pads the node lands on, driven or rail, in no particular order. */
   boardHits: TraceResult[];
-  /** A custom-chip pin on the node, if any (rule 5's per-endpoint fallback). */
+  /** A custom-chip pin (or a registered chip-like pad) on the node, if any —
+   *  rule 5's per-endpoint fallback. */
   chipPin: { id: string; pin: string } | null;
 }
 
@@ -477,7 +493,7 @@ function collectNode(
         continue;
       }
       const otherComp = componentById(state.components, otherEp.componentId);
-      if (!chipPin && otherComp?.metadataId === 'custom-chip') {
+      if (!chipPin && isChipPinSource(otherComp?.metadataId, otherEp.pinName)) {
         chipPin = { id: otherEp.componentId, pin: otherEp.pinName };
       }
       if (!local.has(pinKey(otherEp.componentId, otherEp.pinName))) {
