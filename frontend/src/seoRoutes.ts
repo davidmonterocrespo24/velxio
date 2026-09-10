@@ -73,6 +73,17 @@ export const SEO_ROUTES: SeoRoute[] = [
       url: `${DOMAIN}/examples`,
     },
   },
+  {
+    path: '/tools/image-to-code',
+    priority: 0.7,
+    changefreq: 'monthly',
+    seoMeta: {
+      title: 'Image to C Array Converter for OLED Displays (SSD1306) | Velxio',
+      description:
+        'Free image2cpp-style converter: drop a picture and get a monochrome C byte array for SSD1306 and other 1-bit OLEDs. Threshold, dithering, invert, flip, Adafruit GFX or page-buffer layout, previewed live on a simulated 128x64 panel.',
+      url: `${DOMAIN}/tools/image-to-code`,
+    },
+  },
 
   // ── Documentation
 

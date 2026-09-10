@@ -20,6 +20,7 @@ import { SEO_ROUTES } from './seoRoutes';
 import { exampleProjects } from './data/examples';
 import { ExamplesPage } from './pages/ExamplesPage';
 import { ExampleDetailPage } from './pages/ExampleDetailPage';
+import { ImageToCodePage } from './pages/ImageToCodePage';
 
 // Map route paths to their React component. The OSS build prerenders only
 // what it ships (the examples gallery); the marketing surface lives in the
@@ -46,6 +47,7 @@ const EditorSeoSummary: React.FC = () => (
 const OSS_ROUTE_COMPONENTS: Record<string, React.FC> = {
   '/editor': EditorSeoSummary,
   '/examples': ExamplesPage,
+  '/tools/image-to-code': ImageToCodePage,
 };
 
 let routeComponents: Record<string, React.FC> = OSS_ROUTE_COMPONENTS;

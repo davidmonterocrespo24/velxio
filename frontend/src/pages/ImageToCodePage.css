@@ -1,0 +1,321 @@
+/* ImageToCodePage - the /tools/image-to-code bitmap converter.
+ * Everything here is token-driven so the page follows the dark default and
+ * the light theme without a second palette. */
+
+.i2c-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--color-bg-canvas);
+  color: var(--color-fg-default);
+}
+
+.i2c-main {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: var(--space-8, 24px) var(--space-6, 16px) var(--space-10, 40px);
+  box-sizing: border-box;
+}
+
+.i2c-intro h1 {
+  margin: 0 0 var(--space-3, 6px);
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.i2c-intro p {
+  margin: 0 0 var(--space-8, 24px);
+  max-width: 70ch;
+  color: var(--color-fg-muted);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.i2c-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-8, 24px);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .i2c-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.i2c-card {
+  background: var(--color-bg-surface-1);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md, 12px);
+  padding: var(--space-6, 16px);
+  margin-bottom: var(--space-6, 16px);
+}
+
+.i2c-card h2 {
+  margin: 0 0 var(--space-5, 12px);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+/* ── Drop zone ─────────────────────────────────────────────────────────── */
+
+.i2c-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3, 6px);
+  width: 100%;
+  min-height: 148px;
+  padding: var(--space-7, 20px);
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--color-bg-surface-2);
+  color: var(--color-fg-muted);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: center;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.i2c-drop:hover,
+.i2c-drop:focus-visible {
+  border-color: var(--color-action-primary);
+  background: var(--color-bg-surface-3);
+  outline: none;
+}
+
+.i2c-drop.i2c-drop-over {
+  border-color: var(--color-action-primary);
+  background: var(--color-bg-surface-3);
+  color: var(--color-fg-default);
+}
+
+.i2c-drop-title {
+  color: var(--color-fg-default);
+  font-weight: 600;
+}
+
+.i2c-drop-hint {
+  font-size: 0.8rem;
+}
+
+.i2c-file {
+  margin-top: var(--space-4, 8px);
+  font-size: 0.82rem;
+  color: var(--color-fg-muted);
+  word-break: break-all;
+}
+
+.i2c-error {
+  margin-top: var(--space-4, 8px);
+  font-size: 0.82rem;
+  color: var(--red-500, #ff453a);
+}
+
+/* ── Options ───────────────────────────────────────────────────────────── */
+
+.i2c-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5, 12px);
+}
+
+@media (max-width: 520px) {
+  .i2c-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.i2c-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 4px);
+  min-width: 0;
+}
+
+.i2c-field.i2c-span {
+  grid-column: 1 / -1;
+}
+
+.i2c-field label,
+.i2c-legend {
+  font-size: 0.78rem;
+  color: var(--color-fg-muted);
+}
+
+.i2c-field input[type='text'],
+.i2c-field input[type='number'],
+.i2c-field select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-bg-input);
+  color: var(--color-fg-default);
+  font: inherit;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.i2c-field input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-action-primary);
+}
+
+.i2c-field select:focus,
+.i2c-field input:focus {
+  outline: none;
+  box-shadow: var(--color-focus-ring, 0 0 0 2px #0071e3);
+}
+
+.i2c-hint {
+  font-size: 0.74rem;
+  color: var(--color-fg-subtle);
+  line-height: 1.4;
+}
+
+.i2c-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5, 12px);
+}
+
+.i2c-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--color-fg-default);
+  cursor: pointer;
+}
+
+.i2c-check input {
+  accent-color: var(--color-action-primary);
+}
+
+.i2c-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-action-secondary);
+  color: var(--color-fg-default);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.i2c-btn:hover {
+  background: var(--color-action-secondary-hover);
+}
+
+.i2c-btn-primary {
+  background: var(--color-action-primary);
+  border-color: transparent;
+  color: var(--color-action-primary-fg);
+}
+
+.i2c-btn-primary:hover {
+  background: var(--color-action-primary-hover);
+}
+
+.i2c-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Previews and output ───────────────────────────────────────────────── */
+
+.i2c-preview-bed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5, 12px);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm, 8px);
+  background: #05070a;
+  overflow: auto;
+}
+
+.i2c-preview-canvas {
+  image-rendering: pixelated;
+  display: block;
+}
+
+.i2c-oled {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-5, 12px);
+}
+
+.i2c-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4, 8px);
+  margin-bottom: var(--space-4, 8px);
+}
+
+.i2c-output-head h2 {
+  margin: 0;
+}
+
+.i2c-output-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 8px);
+}
+
+.i2c-bytes {
+  font-size: 0.78rem;
+  color: var(--color-fg-muted);
+}
+
+.i2c-code {
+  width: 100%;
+  min-height: 260px;
+  padding: var(--space-4, 8px);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-bg-input);
+  color: var(--color-fg-default);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.i2c-usage {
+  margin: var(--space-5, 12px) 0 0;
+  padding: var(--space-4, 8px);
+  border-radius: var(--radius-xs, 4px);
+  background: var(--color-bg-surface-2);
+  color: var(--color-fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  overflow-x: auto;
+}
+
+.i2c-credit {
+  margin-top: var(--space-8, 24px);
+  padding-top: var(--space-5, 12px);
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 0.78rem;
+  color: var(--color-fg-subtle);
+}
+
+.i2c-credit a {
+  color: var(--color-action-primary);
+}
