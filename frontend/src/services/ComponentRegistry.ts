@@ -5,6 +5,8 @@
  * Loads from components-metadata.json generated at build time.
  */
 
+import { prepareSearchFields, rankBySearch, type PreparedSearchFields } from '../utils/searchMatch';
+import { componentSearchKeywords } from '../data/componentSearchKeywords';
 import type {
   ComponentMetadata,
   ComponentCategory,
@@ -334,22 +336,41 @@ export class ComponentRegistry {
   }
 
   /**
-   * Search components by query (name, description, tags)
+   * Search components by query, best match first.
+   *
+   * Every word of the query must land somewhere in the part's name, id,
+   * tags, search keywords, category or description; words can be partial
+   * ("temp"), misspelled ("potenciometer"), in another language
+   * ("temperatura") or spaced differently ("hc sr04"). See utils/searchMatch.
+   * A blank query returns the catalogue in browsing order.
    */
   search(query: string): ComponentMetadata[] {
-    if (!query.trim()) {
-      return this.getAllComponents();
-    }
+    return rankBySearch(this.allComponents, query, (c) => this.searchFieldsOf(c));
+  }
 
-    const lowerQuery = query.toLowerCase();
-    return this.allComponents.filter((component) => {
-      return (
-        component.name.toLowerCase().includes(lowerQuery) ||
-        component.id.toLowerCase().includes(lowerQuery) ||
-        component.description?.toLowerCase().includes(lowerQuery) ||
-        component.tags.some((tag) => tag.toLowerCase().includes(lowerQuery))
-      );
-    });
+  /** Normalised once per metadata object; mergeComponents() replaces the
+   *  objects it touches, so a stale entry can never be served. */
+  private _searchFields = new WeakMap<ComponentMetadata, PreparedSearchFields>();
+
+  private searchFieldsOf(component: ComponentMetadata): PreparedSearchFields {
+    const hit = this._searchFields.get(component);
+    if (hit) return hit;
+    const prepared = prepareSearchFields([
+      { text: component.name, weight: 3 },
+      { text: component.id, weight: 2.5 },
+      { text: component.tags.join(' '), weight: 2.5 },
+      {
+        text: [componentSearchKeywords(component.id), ...(component.keywords ?? [])].join(' '),
+        weight: 2,
+      },
+      {
+        text: `${component.category} ${ComponentRegistry.getCategoryDisplayName(component.category)}`,
+        weight: 1,
+      },
+      { text: component.description ?? '', weight: 1 },
+    ]);
+    this._searchFields.set(component, prepared);
+    return prepared;
   }
 
   /**

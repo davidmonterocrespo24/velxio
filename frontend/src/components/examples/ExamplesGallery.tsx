@@ -14,6 +14,8 @@ import {
 } from '../../data/examples';
 import { subscribeProBoards, getProBoardsVersion } from '../../lib/proBoardRegistry';
 import { BOARD_KIND_LABELS } from '../../types/board';
+import { parseSearchQuery, scoreSearch } from '../../utils/searchMatch';
+import { exampleSearchFields } from '../../utils/exampleSearch';
 import { ExampleThumbnail } from './ExampleThumbnail';
 import './ExamplesGallery.css';
 
@@ -116,44 +118,22 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
     });
   }, []);
 
-  // Pre-tokenise the search string once per keystroke. Each token must match
-  // somewhere in the example's haystack, so users can type "esp32 oled dht"
-  // and find every project that hits all three.
-  const searchTokens = search
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
+  // Parsed once per keystroke. Every word must land somewhere in the
+  // example (title, tags, parts, board, category, description); words can
+  // be partial ("ultra"), misspelled ("potenciometer"), in the user's own
+  // language ("temperatura") or spaced differently ("hc sr04"), and the
+  // matches come back best-first. See utils/searchMatch.
+  const searchQuery = parseSearchQuery(search);
 
-  const exampleHaystack = (example: ExampleProject): string =>
-    [
-      example.title,
-      example.description,
-      example.category,
-      example.difficulty,
-      getBoardFilter(example),
-      ...(example.tags ?? []),
-      // Defensive. `components` is required by ExampleProject, but overlay
-      // example sets are built by factories that cast their result, so the
-      // compiler is not actually guarding this. One entry that omitted it took
-      // the entire gallery down with a TypeError the first time anyone typed in
-      // the search box — a whole page lost to one malformed example.
-      ...(example.components ?? []).map((c) => c.type),
-    ]
-      .join(' ')
-      .toLowerCase();
-
-  const filteredExamples = exampleProjects.filter((example) => {
-    const boardMatch =
-      selectedBoard === 'all' ||
-      (selectedBoard === 'retro' ? isRetro(example) : getBoardFilter(example) === selectedBoard);
-    const catMatch = selectedCategory === 'all' || example.category === selectedCategory;
-    const diffMatch = selectedDifficulty === 'all' || example.difficulty === selectedDifficulty;
-    if (!boardMatch || !catMatch || !diffMatch) return false;
-    if (searchTokens.length === 0) return true;
-    const hay = exampleHaystack(example);
-    return searchTokens.every((tok) => hay.includes(tok));
-  })
+  const browseOrder = exampleProjects
+    .filter((example) => {
+      const boardMatch =
+        selectedBoard === 'all' ||
+        (selectedBoard === 'retro' ? isRetro(example) : getBoardFilter(example) === selectedBoard);
+      const catMatch = selectedCategory === 'all' || example.category === selectedCategory;
+      const diffMatch = selectedDifficulty === 'all' || example.difficulty === selectedDifficulty;
+      return boardMatch && catMatch && diffMatch;
+    })
     .sort((a, b) => {
       // Order by board following the boardTabs order (so Arduino Uno comes
       // first), then alphabetically by title within each board.
@@ -162,6 +142,18 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
       if (ra !== rb) return (ra < 0 ? 999 : ra) - (rb < 0 ? 999 : rb);
       return (a.title ?? '').localeCompare(b.title ?? '');
     });
+
+  const filteredExamples = searchQuery
+    ? browseOrder
+        .map((example) => ({
+          example,
+          score: scoreSearch(searchQuery, exampleSearchFields(example, getBoardFilter(example))),
+        }))
+        .filter((s) => s.score > 0)
+        // Stable sort: equal scores keep the board/title order from above.
+        .sort((a, b) => b.score - a.score)
+        .map((s) => s.example)
+    : browseOrder;
 
   // Count per board for tab badges
   const boardCounts: Record<string, number> = {
@@ -518,11 +510,11 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
       {filteredExamples.length === 0 && (
         <div className="examples-empty">
           <p>
-            {searchTokens.length > 0
+            {searchQuery !== null
               ? t('examples.emptyForQuery', { query: search.trim() })
               : t('examples.empty')}
           </p>
-          {(searchTokens.length > 0 ||
+          {(searchQuery !== null ||
             selectedBoard !== 'all' ||
             selectedCategory !== 'all' ||
             selectedDifficulty !== 'all') && (

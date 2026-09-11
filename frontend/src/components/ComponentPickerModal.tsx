@@ -33,6 +33,8 @@ interface CardHoverApi {
 import type { BoardKind } from '../types/board';
 import { BOARD_KIND_LABELS } from '../types/board';
 import { isProBoardKind } from '../lib/proBoardGate';
+import { matchesSearch } from '../utils/searchMatch';
+import { boardSearchKeywords } from '../data/componentSearchKeywords';
 import {
   getProBoard,
   listProBoards,
@@ -298,9 +300,14 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
     // display far more often than a bare transistor or a 74HC gate, so
     // passives / analog / logic sink to the end. Array.sort is stable —
     // the registry's own order is preserved within each category.
-    components = [...components].sort(
-      (a, b) => categoryRank(a.category) - categoryRank(b.category),
-    );
+    // While a query is typed the registry already returns best-match
+    // first; re-sorting by category would bury "LED" under every sensor
+    // whose description mentions one.
+    if (!searchQuery.trim()) {
+      components = [...components].sort(
+        (a, b) => categoryRank(a.category) - categoryRank(b.category),
+      );
+    }
 
     return components;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,13 +325,12 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   // (the hosted overlay merges it in) — same contract as VISIBLE_BOARD_ADS.
   const visibleComponentAds = useMemo(() => {
     if (isLoading) return [];
-    const q = searchQuery.toLowerCase();
     return ONLINE_ONLY_COMPONENT_ADS.filter(
       (ad) =>
         !registry.getById(ad.id) &&
         !isOnlineOnlyAdSuppressed(ad.id) &&
         (selectedCategory === 'all' || ad.category === selectedCategory) &&
-        (!q || ad.label.toLowerCase().includes(q)),
+        matchesSearch(searchQuery, [ad.label]),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, isLoading, searchQuery, selectedCategory, registryVersion, proBoardsVersion]);
@@ -455,27 +461,26 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                   className="components-grid components-grid--inline"
                   style={{ borderBottom: '1px solid var(--wb-6)', paddingBottom: 8, marginBottom: 4 }}
                 >
-                  {allBoards.filter(
-                    (k) =>
-                      !searchQuery ||
-                      BOARD_KIND_LABELS[k].toLowerCase().includes(searchQuery.toLowerCase()),
-                  ).map((kind) => (
-                    <BoardCard
-                      key={kind}
-                      kind={kind}
-                      onSelect={() => {
-                        onSelectBoard(kind);
-                        onClose();
-                      }}
-                      hoverApi={hoverApi}
-                    />
-                  ))}
-                  {visibleBoardAds().filter(
-                    (ad) =>
-                      !searchQuery || ad.label.toLowerCase().includes(searchQuery.toLowerCase()),
-                  ).map((ad) => (
-                    <OnlineOnlyBoardCard key={ad.id} ad={ad} />
-                  ))}
+                  {allBoards
+                    .filter((k) =>
+                      matchesSearch(searchQuery, [BOARD_KIND_LABELS[k], k, boardSearchKeywords(k)]),
+                    )
+                    .map((kind) => (
+                      <BoardCard
+                        key={kind}
+                        kind={kind}
+                        onSelect={() => {
+                          onSelectBoard(kind);
+                          onClose();
+                        }}
+                        hoverApi={hoverApi}
+                      />
+                    ))}
+                  {visibleBoardAds()
+                    .filter((ad) => matchesSearch(searchQuery, [ad.label]))
+                    .map((ad) => (
+                      <OnlineOnlyBoardCard key={ad.id} ad={ad} />
+                    ))}
                 </div>
               )}
 
