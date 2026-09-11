@@ -175,8 +175,11 @@ def health_check():
     probe = health_probe()
     if probe is None:
         return {"status": "healthy"}
-    status = int(probe.pop("http_status", 200) or 200)
-    return JSONResponse(status_code=status, content=probe)
+    # Copy: a probe may hand back a shared or cached dict, and popping the
+    # status off it would report 200 from the second request on.
+    payload = {k: v for k, v in probe.items() if k != "http_status"}
+    status = int(probe.get("http_status") or 200)
+    return JSONResponse(status_code=status, content=payload)
 
 
 @app.get("/health/libcache")

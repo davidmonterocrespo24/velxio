@@ -206,3 +206,80 @@ def test_artifact_store_stamps_built_at(tmp_path, monkeypatch):
     compile_route._artifact_store_sync("k", {"success": True, "stdout": "log", "hex_content": "x"})
     data = json.loads((tmp_path / "k.json").read_text())
     assert abs(data["built_at"] - time.time()) < 5
+
+
+# ── review follow-ups (2026-09-12): each one a finding the seams review raised ─
+
+def test_wokwi_specs_resolve_by_base_name_and_pins_are_kept():
+    specs = compile_route._manifest_specs(["Servo@wokwi:abc123", "ArduinoJson@6.21.5", "  "])
+    assert specs == {"Servo", "ArduinoJson@6.21.5"}
+
+
+def test_a_refusal_never_comes_back_as_2xx(monkeypatch):
+    async def _rec(**kw):
+        pass
+
+    monkeypatch.setattr(hooks, "_record_compile_hook", _rec)
+    monkeypatch.setattr(hooks, "_compile_admission_hook", lambda **kw: {"refuse": {"error": "no"}, "http_status": 200})
+    req = compile_route.CompileRequest(files=None, code="x", board_fqbn="arduino:avr:uno")
+    _, _, _, refusal = asyncio.run(compile_route._admit_compile(req, FILES, None, None, None))
+    assert refusal.status_code == 422
+
+
+def test_scope_retry_means_the_retry_ran_not_a_scan_all_merge():
+    # A plain scan-all build reports manifest_incomplete so the client can
+    # suggest a manifest; that is not a retry.
+    assert compile_route._scope_of({"manifest_incomplete": True}) is None
+    assert compile_route._scope_of({"scope_retry_failed": True})["scope_retry"] is True
+    assert compile_route._scope_of({"scope_kind": "lock", "lock_sha": "abc"}) == {"scope_kind": "lock", "lock_sha": "abc"}
+
+
+def test_health_does_not_mutate_a_shared_probe_dict(monkeypatch):
+    shared = {"status": "degraded", "overlay": "pro", "http_status": 503}
+    monkeypatch.setattr(hooks, "_health_probe_hook", lambda: shared)
+    assert app_main.health_check().status_code == 503
+    assert app_main.health_check().status_code == 503, "the second request must see the same status"
+    assert shared["http_status"] == 503
+
+
+def test_effective_scope_rules():
+    from app.services.espidf_compiler import effective_scope
+
+    assert effective_scope(None, None) is None, "no manifest: scan-all"
+    assert effective_scope(set(), None) is None, "empty manifest, nothing materialised: scan-all as before"
+    assert effective_scope({"A"}, None) == {"A"}, "manifest, nothing materialised: the names filter"
+    assert effective_scope({"A"}, (Path("/tmp/x"), "tok")) == {"A"}, "2-tuple overlay: names only"
+    assert effective_scope({"A"}, (Path("/tmp/x"), "tok", {"closure_names": ["A", "BusIO"]})) == {"A", "BusIO"}, "the closure is admitted"
+    assert effective_scope(set(), (Path("/tmp/x"), "closed", {"closure_names": []})) == set(), "an overlay-closed empty scope stays closed"
+
+
+def test_arduino_cli_closed_scope_reports_the_missing_headers(monkeypatch, tmp_path):
+    import subprocess
+    from app.services.arduino_cli import ArduinoCLIService
+
+    scope = tmp_path / "sketchbook" / "libraries"
+    scope.mkdir(parents=True)
+    monkeypatch.setattr(hooks, "_materialize_library_scope_hook", lambda allowed, owner: (scope, "tok"))
+    calls = []
+
+    def _run(cmd, *a, **kw):
+        calls.append(cmd)
+
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "sketch.ino:1:10: fatal error: Adafruit_GFX.h: No such file or directory\n"
+
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", _run)
+    svc = ArduinoCLIService()
+    monkeypatch.setattr(svc, "ensure_core_for_board", lambda *a, **k: asyncio.sleep(0, result={"needed": False}))
+    token = hooks.scope_retry_allowed.set(False)
+    try:
+        result = asyncio.run(svc.compile([{"name": "sketch.ino", "content": "#include <Adafruit_GFX.h>"}], "arduino:avr:uno", allowed_libraries={"X"}, owner_id=None))
+    finally:
+        hooks.scope_retry_allowed.reset(token)
+    assert result["success"] is False
+    assert result["gallery_scope_miss"] == ["Adafruit_GFX.h"]
+    assert len([c for c in calls if "compile" in c]) == 1, "no scan-all retry under a closed scope"

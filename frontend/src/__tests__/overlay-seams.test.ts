@@ -116,10 +116,41 @@ describe('the gallery libraries gate', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
     expect(await serverProvidesGalleryLibraries()).toBe(false);
   });
-  it('asks once per session', async () => {
+  it('asks once per session, at the health path beside the API base', async () => {
     const f = health({ libraries: { ok: true } });
     await serverProvidesGalleryLibraries();
     await serverProvidesGalleryLibraries();
     expect(f).toHaveBeenCalledTimes(1);
+    // The default API base is '/api'; /health is served at the root.
+    expect(String(f.mock.calls[0]![0])).toBe('/health');
+  });
+  it('strips /api from an absolute API base too', async () => {
+    (window as { __VELXIO_API_BASE__?: string }).__VELXIO_API_BASE__ = 'https://x.example/api';
+    try {
+      const f = health({ libraries: { ok: true } });
+      await serverProvidesGalleryLibraries();
+      expect(String(f.mock.calls[0]![0])).toBe('https://x.example/health');
+    } finally {
+      delete (window as { __VELXIO_API_BASE__?: string }).__VELXIO_API_BASE__;
+    }
+  });
+  it('clamps an absurd Retry-After', async () => {
+    vi.useFakeTimers();
+    try {
+      const starting = Object.assign(new Error('503'), {
+        isAxiosError: true,
+        response: { status: 503, data: {}, headers: { 'retry-after': '99999' } },
+      });
+      vi.spyOn(axios, 'post').mockRejectedValueOnce(starting).mockResolvedValueOnce({ data: { job_id: 'j' } } as never);
+      vi.spyOn(axios, 'isAxiosError').mockReturnValue(true);
+      vi.spyOn(axios, 'get').mockResolvedValue({ data: { state: 'done', result: { success: true, stdout: '', stderr: '' } } } as never);
+      const p = compileCode([{ name: 'a.ino', content: '' }], 'arduino:avr:uno');
+      // 30 s is the clamp; well under 99999 s.
+      for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(1000);
+      expect((await p).success).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
   });
 });

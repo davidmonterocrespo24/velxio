@@ -141,7 +141,7 @@ describe('pre-flight demotion: a pin a component already sources is an input', (
     expect(res.errors.map((e) => e.code)).toContain('led-overcurrent');
   });
 
-  it('invents ONE source for two GPIOs that share a net (a board-to-board link)', () => {
+  it('invents ONE source for two GPIOs that share a net: the first board in canvas order', () => {
     const state = {
       components: [],
       wires: [wire('w1', ['uno', '5'], ['uno-2', '6']), wire('w2', ['uno', 'GND.1'], ['uno-2', 'GND.1'])],
@@ -149,8 +149,26 @@ describe('pre-flight demotion: a pin a component already sources is an input', (
     };
     const { snap, synthesizedPins } = buildPreflightSnapshot(state);
     const stamped = snap.boards.flatMap((b) => Object.keys(b.pinStates).map((p) => `${b.id}:${p}`));
-    expect(stamped).toHaveLength(1);
-    expect(synthesizedPins.size).toBe(1);
+    expect(stamped).toEqual(['uno:5']);
+    expect([...synthesizedPins]).toEqual(['uno:5']);
+  });
+
+  it('knows a GPIO by its silk name, and leaves an analog-named pad alone', () => {
+    // An Uno's A0 probing a rail (the 9 V-behind-a-Schottky case): an input.
+    const uno = buildPreflightSnapshot({
+      components: [comp('r1', 'resistor', { value: '1000' })],
+      wires: [wire('w1', ['uno', 'A0'], ['r1', '1']), wire('w2', ['r1', '2'], ['uno', 'GND.1']), wire('w3', ['uno', '7'], ['r1', '1'])],
+      boards: [board('uno')],
+    });
+    expect(uno.snap.boards[0]!.pinStates['A0']).toBeUndefined();
+    expect(uno.snap.boards[0]!.pinStates['7']).toEqual({ type: 'digital', v: 5 });
+    // An STM32's PA1 is a GPIO by name, not by parseInt.
+    const stm = buildPreflightSnapshot({
+      components: [comp('r1', 'resistor', { value: '1000' })],
+      wires: [wire('w1', ['stm', 'PA1'], ['r1', '1']), wire('w2', ['r1', '2'], ['stm', 'GND'])],
+      boards: [board('stm', 'stm32-bluepill')],
+    });
+    expect(stm.snap.boards[0]!.pinStates['PA1']).toEqual({ type: 'digital', v: 3.3 });
   });
 
   it('names an invented source honestly when a conflict remains', () => {

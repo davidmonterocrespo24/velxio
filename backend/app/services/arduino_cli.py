@@ -763,7 +763,9 @@ class ArduinoCLIService:
                             "error": "Compilation failed",
                             "stdout": result.stdout,
                             "stderr": result.stderr,
-                            "gallery_scope_miss": True,
+                            "gallery_scope_miss": sorted(set(
+                                re.findall(r"fatal error:\s*(\S+\.h(?:pp)?):", result.stderr or "")
+                            )),
                         }
                     if scope_dir is not None and _looks_like_missing_header(result.stderr):
                         print("=== Incomplete manifest — retrying scan-all ===\n")

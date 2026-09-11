@@ -643,7 +643,11 @@ _SCOPE_RESULT_KEYS = (
 
 def _scope_of(result: dict) -> dict | None:
     out = {k: result[k] for k in _SCOPE_RESULT_KEYS if k in result}
-    if result.get("manifest_incomplete"):
+    # manifest_incomplete is ALSO set on a plain scan-all build that merged
+    # libraries (the client uses it to suggest a manifest), so it cannot mean
+    # "the scoped attempt failed and the retry ran". The compilers say that
+    # explicitly with scope_retry_failed / a retry that succeeded.
+    if result.get("scope_retry_failed"):
         out.setdefault("scope_retry", True)
     return out or None
 
@@ -688,7 +692,19 @@ def _manifest_specs(names) -> set[str] | None:
     what made a manifest fix the SET of libraries but never their BYTES."""
     if names is None:
         return None
-    return {n.strip() for n in names if n and n.strip()}
+    out: set[str] = set()
+    for n in names:
+        n = (n or "").strip()
+        if not n:
+            continue
+        # A Wokwi-hosted custom library is "Lib@wokwi:<hash>": that suffix is
+        # its install spec, not a pin, and the cache publishes the entry under
+        # the bare name (P2.2b). Keep the name, drop the spec.
+        if "@wokwi:" in n:
+            n = n.split("@wokwi:", 1)[0].strip()
+        if n:
+            out.add(n)
+    return out
 
 
 async def _admit_compile(
@@ -715,6 +731,10 @@ async def _admit_compile(
     if refuse:
         body = {"success": False, "stderr": "", **refuse}
         status = int(decision.get("http_status") or 422)
+        # /compile/start answers a job id on 2xx; a refusal carries none, so it
+        # must be an error status or the client polls a job that never existed.
+        if status < 400:
+            status = 422
         await record_compile(
             user_id=requester_id,
             project_id=request.project_id,

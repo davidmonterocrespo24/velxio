@@ -826,6 +826,31 @@ _QEMU_WIFI_SSID = 'Espressif'
 _QEMU_WIFI_CHANNEL = 5
 
 
+def effective_scope(allowed: set[str] | None, scope: tuple | None) -> set[str] | None:
+    """The allow-list the merge filters by, given the manifest and what the
+    overlay materialised for it.
+
+    - No manifest (None): scan-all, as always.
+    - A manifest with a materialised scope dir: the dir IS the allow-list, so
+      the manifest names plus the transitive closure the overlay reported
+      (third tuple element, `closure_names`) are all admitted. Before
+      2026-09-11 only the bare names were, every depends= entry was "not
+      found", and only the scan-all retry rescued the build.
+    - An EMPTY manifest with no scope dir (the overlay did not materialise
+      one): scan-all, exactly as an empty manifest behaved before it could
+      be told apart from a missing one. Closing the scope for `[]` is the
+      overlay's decision, expressed by materialising an empty dir.
+    """
+    if allowed is None:
+        return None
+    scope_dir = scope[0] if scope else None
+    if scope_dir is None:
+        return allowed if allowed else None
+    stats = scope[2] if len(scope) > 2 and isinstance(scope[2], dict) else None
+    closure = set(stats.get('closure_names') or []) if stats else set()
+    return allowed | closure
+
+
 class ESPIDFCompiler:
     """Compile Arduino sketches using ESP-IDF for QEMU-compatible output."""
 
@@ -4762,9 +4787,7 @@ class ESPIDFCompiler:
             # IS the allow-list (what the arduino-cli lane already does by
             # pointing the sketchbook at it); the build-variant token keeps
             # hashing the manifest so no variant moves.
-            scope_stats = scope[2] if scope and len(scope) > 2 and isinstance(scope[2], dict) else None
-            closure = set(scope_stats.get('closure_names') or []) if scope_stats else set()
-            effective_allowed = (allowed | closure) if (scope_dir is not None and allowed is not None) else allowed
+            effective_allowed = effective_scope(allowed, scope)
             # Fold the effective library set + resolved content into the build-dir
             # hash. A different manifest, the scan-all fallback (allowed=None), or
             # changed lib CONTENT gets its own clean build dir — resetting at

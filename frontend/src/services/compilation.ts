@@ -303,8 +303,11 @@ export async function compileCode(
     if (axios.isAxiosError(error) && error.response) {
       const status = error.response.status;
       if (isServerStarting(status) && Date.now() - startingSince < SERVER_STARTING_MAX_MS) {
+        // Retry-After is advice from a server that is, by its own account,
+        // not ready: clamp it, and never let the wait run past the bound.
         const retryAfter = Number(error.response.headers?.['retry-after']);
-        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : SERVER_STARTING_RETRY_MS;
+        const advised = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 30) * 1000 : SERVER_STARTING_RETRY_MS;
+        const waitMs = Math.max(250, Math.min(advised, SERVER_STARTING_MAX_MS - (Date.now() - startingSince)));
         console.warn(`[compile] server starting (${status}), retrying in ${waitMs} ms (attempt ${startAttempt})`);
         onProgress?.({
           state: 'pending',
