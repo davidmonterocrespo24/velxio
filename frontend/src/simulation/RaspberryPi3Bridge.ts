@@ -224,8 +224,10 @@ export class RaspberryPi3Bridge {
             reply = this.onBusRequest?.(rid, line) ?? null;
           } catch (e) {
             // A model that throws must not hang the guest on its timeout:
-            // answer nothing, say why here.
-            console.warn(`[${this.boardId}] bus request failed: ${line}`, e);
+            // answer nothing, say why here. The line comes from the guest,
+            // so it goes in as an argument, never as the format string, and
+            // quoted: a newline in it cannot forge a second log entry.
+            console.warn('[%s] bus request failed: %s', this.boardId, JSON.stringify(line.slice(0, 200)), e);
           }
           // A write the guest did not wait for (a display frame, a config
           // register) is applied and not answered: the backend holds no
