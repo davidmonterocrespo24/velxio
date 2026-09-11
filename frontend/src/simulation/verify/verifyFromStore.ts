@@ -10,6 +10,8 @@
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { buildInputFromStore } from '../spice/storeAdapter';
 import { boardPinGroupFor } from '../spice/boardPinGroups';
+import { pinNameToArduinoPin } from '../spice/collectPinStates';
+import type { BoardKind } from '../../store/useSimulatorStore';
 import type { PinSourceState } from '../spice/types';
 import { buildNetlist } from '../spice/NetlistBuilder';
 import { verifyCircuit, occupiedSourcePairs, sourcePairKey, type VerificationResult } from './circuitVerifier';
@@ -85,16 +87,20 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
       if (w.end.componentId === b.id) wiredPinNames.add(w.end.pinName);
     }
     for (const pinName of wiredPinNames) {
-      // Skip GND / power-rail pin names: they belong to the rail groups and
-      // do not need to be re-asserted as digital sources. Aux pins included:
-      // without this, "5V" would parseInt to pin 5 and get driven as a GPIO.
-      if (group.gnd.includes(pinName)) continue;
-      if (group.vcc_pins.includes(pinName)) continue;
-      if (group.aux?.pins.includes(pinName)) continue;
-      const arduinoPin = Number.parseInt(pinName, 10);
-      // Skip pins we cannot identify as a digital GPIO ('AREF', 'RESET',
-      // 'TX', 'RX' on some boards): rail-ish or not driven by the sketch.
-      if (Number.isNaN(arduinoPin)) continue;
+      // The runtime's own name -> GPIO rule (collectPinStates), so the
+      // check and the live netlist agree on what a GPIO is: rails and aux
+      // pins answer -1, and so do 'AREF' / 'RESET' / 'TX'. It used to be
+      // Number.parseInt here, which knew '0' but not the Uno's 'A0', the
+      // STM32's 'PA1' or the Pico's 'GP0': every example on those names was
+      // silently never checked (project/gallery-libraries-2026-09, D17).
+      if (pinNameToArduinoPin(pinName, b.boardKind as BoardKind) < 0) continue;
+      // A pad picked by its ANALOG name (the Uno's A0..A5, a Nano's A6/A7) is
+      // wired to read: the worst case that justifies forcing an LED pin HIGH
+      // ("why else is it wired?") points the other way for an ADC pad. Forced,
+      // it shorts a 5 V source into whatever the probe measures (a 9 V rail
+      // behind a Schottky read 2.3 A the day this rule widened, D17). These
+      // names were never checked before the widening, so this is no loss.
+      if (/^A\d+$/.test(pinName)) continue;
       const net = pinNet.get(`${b.id}:${pinName}`);
       if (net !== undefined) {
         // A board GPIO source is stamped as `V_<board>_<pin> <net> 0`, so the

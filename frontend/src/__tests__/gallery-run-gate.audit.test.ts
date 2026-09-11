@@ -80,18 +80,13 @@ async function runGate(example: Example) {
 
 /**
  * Examples the gate knows are refused, with the defect that refuses them and
- * where it is tracked. This is NOT a place to park a red example: an entry
- * needs a cause the pre-flight cannot be blamed for and a phase that owns
- * the fix. Today's one is a model limit: two cross-coupled NAND gates whose
- * B-sources are ideal steps (`u(V(a)-T)`) form a bistable loop with no
- * unique .op solution, so ngspice returns no voltages at all. The pre-flight
- * is right to stamp nothing on the pin that reads Q (demoted, cause G) and
- * still cannot solve the latch. Tracked as project/gallery-libraries-2026-09
- * cause H / phase P2.H (a finite-slope gate model, or .nodeset hints).
+ * the phase that owns the fix. This is NOT a place to park a red example: an
+ * entry needs a cause the pre-flight cannot be blamed for, and the staleness
+ * check below deletes it the day the defect is gone. Empty since the logic
+ * gates got a finite-slope edge (cause H): the one entry it ever held,
+ * nand-sr-latch, a bistable loop of ideal steps, now solves.
  */
-const KNOWN_REFUSED: Record<string, string> = {
-  'nand-sr-latch': 'bistable loop of ideal-step B-sources has no unique .op solution (cause H, P2.H)',
-};
+const KNOWN_REFUSED: Record<string, string> = {};
 
 describe('gallery: no example is blocked by its own circuit', () => {
   const candidates = examples.filter(

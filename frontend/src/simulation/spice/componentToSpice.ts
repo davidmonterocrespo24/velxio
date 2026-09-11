@@ -87,6 +87,12 @@ function emitInductor(
 }
 
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
+const LOGIC_EDGE_VOLTS = 0.05;
+/** `0..1` step of `V(net)` around `threshold`, with a finite slope (see the gates note). */
+function logicStep(net: string, threshold: number): string {
+  return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
+}
+
 const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
   red: { name: 'LED_RED', Is: '1e-20', n: '1.7' },
   green: { name: 'LED_GREEN', Is: '1e-22', n: '1.9' },
@@ -794,6 +800,18 @@ const MAPPERS: Record<string, Mapper> = {
   },
 
   // ── Digital logic gates (behavioral, via ngspice B-sources) ────────────
+  // A logic transition with a FINITE slope. The ideal step u(x) has none,
+  // and two gates wired into each other (an SR latch of two NANDs) then form
+  // a loop ngspice cannot solve: no operating point, no voltages anywhere on
+  // the canvas, and the pre-flight refuses the example before it compiles
+  // (project/gallery-libraries-2026-09, cause H). A 50 mV tanh edge keeps
+  // every truth table exact at 0 V / vcc (the gate examples solve to the
+  // same numbers to two decimals) and gives the loop a solution: the
+  // symmetric midpoint at power-up, which is what a real latch does until an
+  // input breaks the tie. The Schmitt inverter (hysteresis by design) and
+  // the L293D enable logic keep the ideal step: neither is cross-coupled.
+  // Written as one helper so the edge width is a single number.
+
   // Convention: inputs at 2-input gates are 'A','B'; output is 'Y'. Threshold
   // is ctx.vcc/2. A 1 MΩ load keeps the output node DC-connected so ngspice
   // doesn't see it as floating (otherwise .op returns matrix singular).
@@ -805,7 +823,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * u(V(${a})-${T}) * u(V(${b})-${T})`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -819,7 +837,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (1-u(V(${a})-${T})) * (1-u(V(${b})-${T})))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -833,7 +851,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - u(V(${a})-${T}) * u(V(${b})-${T}))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -847,7 +865,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1-u(V(${a})-${T})) * (1-u(V(${b})-${T}))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -861,7 +879,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (u(V(${a})-${T}) + u(V(${b})-${T}) - 2*u(V(${a})-${T})*u(V(${b})-${T}))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -875,7 +893,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (u(V(${a})-${T}) + u(V(${b})-${T}) - 2*u(V(${a})-${T})*u(V(${b})-${T})))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)}))`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -888,7 +906,7 @@ const MAPPERS: Record<string, Mapper> = {
     const T = ctx.vcc / 2;
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - u(V(${a})-${T}))`,
+        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)})`,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -922,13 +940,13 @@ const MAPPERS: Record<string, Mapper> = {
       };
     }
     const andExpr = (inputs: string[], T: number, vcc: number) =>
-      `${vcc} * ${inputs.map((n) => `u(V(${n})-${T})`).join(' * ')}`;
+      `${vcc} * ${inputs.map((n) => `${logicStep(n, T)}`).join(' * ')}`;
     const orExpr = (inputs: string[], T: number, vcc: number) =>
-      `${vcc} * (1 - ${inputs.map((n) => `(1-u(V(${n})-${T}))`).join(' * ')})`;
+      `${vcc} * (1 - ${inputs.map((n) => `(1-${logicStep(n, T)})`).join(' * ')})`;
     const nandExpr = (inputs: string[], T: number, vcc: number) =>
-      `${vcc} * (1 - ${inputs.map((n) => `u(V(${n})-${T})`).join(' * ')})`;
+      `${vcc} * (1 - ${inputs.map((n) => `${logicStep(n, T)}`).join(' * ')})`;
     const norExpr = (inputs: string[], T: number, vcc: number) =>
-      `${vcc} * ${inputs.map((n) => `(1-u(V(${n})-${T}))`).join(' * ')}`;
+      `${vcc} * ${inputs.map((n) => `(1-${logicStep(n, T)})`).join(' * ')}`;
     return {
       'logic-gate-and-3': multiGate(['A', 'B', 'C'], andExpr),
       'logic-gate-or-3': multiGate(['A', 'B', 'C'], orExpr),
@@ -1036,25 +1054,25 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       // 74HC00 — quad 2-input NAND
       'ic-74hc00': ic2InputQuad(
-        (a, b, _y, T, vcc) => `${vcc} * (1 - u(V(${a})-${T}) * u(V(${b})-${T}))`,
+        (a, b, _y, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`,
       ),
       // 74HC08 — quad 2-input AND
-      'ic-74hc08': ic2InputQuad((a, b, _y, T, vcc) => `${vcc} * u(V(${a})-${T}) * u(V(${b})-${T})`),
+      'ic-74hc08': ic2InputQuad((a, b, _y, T, vcc) => `${vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`),
       // 74HC32 — quad 2-input OR
       'ic-74hc32': ic2InputQuad(
-        (a, b, _y, T, vcc) => `${vcc} * (1 - (1-u(V(${a})-${T})) * (1-u(V(${b})-${T})))`,
+        (a, b, _y, T, vcc) => `${vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
       ),
       // 74HC02 — quad 2-input NOR
       'ic-74hc02': ic2InputQuad(
-        (a, b, _y, T, vcc) => `${vcc} * (1-u(V(${a})-${T})) * (1-u(V(${b})-${T}))`,
+        (a, b, _y, T, vcc) => `${vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`,
       ),
       // 74HC86 — quad 2-input XOR
       'ic-74hc86': ic2InputQuad(
         (a, b, _y, T, vcc) =>
-          `${vcc} * (u(V(${a})-${T}) + u(V(${b})-${T}) - 2*u(V(${a})-${T})*u(V(${b})-${T}))`,
+          `${vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
       ),
       // 74HC04 — hex inverter
-      'ic-74hc04': ic1InputHex((a, _y, T, vcc) => `${vcc} * (1 - u(V(${a})-${T}))`),
+      'ic-74hc04': ic1InputHex((a, _y, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)})`),
       // 74HC14 — hex Schmitt-trigger inverter. Threshold moves based on
       // current output state: high output → lower trip (0.4·Vcc), low output
       // → higher trip (0.6·Vcc). This is the hysteresis band.

@@ -1437,7 +1437,7 @@ R_sw1_3 n2 n1 1000000000
 R_sw2_3 n3 n1 1000000000
 R_rpd1 n2 0 10000
 R_rpd2 n3 0 10000
-B_u1 n4 0 V = 5 * u(V(n2)-2.5) * u(V(n3)-2.5)
+B_u1 n4 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led1_sense n0 led1_sense_mid DC 0
@@ -1727,7 +1727,7 @@ R_autopull_n16 n16 0 100Meg
 
 exports[`netlist snapshot — circuits (41 examples) > mixed-and-transistor-driver 1`] = `
 "* Velxio circuit
-B_u1 n7 0 V = 5 * u(V(n0)-2.5) * u(V(n2)-2.5)
+B_u1 n7 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05)))
 R_u1_load n7 0 1Meg
 R_rb n7 n5 1000
 Q_q1 n3 n5 n4 Q2N2222
@@ -1807,9 +1807,9 @@ R_setBtn_sw n5 n6 1000000000
 R_rstBtn_sw n4 n6 1000000000
 R_rpuS n0 n5 10000
 R_rpuR n0 n4 10000
-B_g1 n1 0 V = 5 * (1 - u(V(n5)-2.5) * u(V(n2)-2.5))
+B_g1 n1 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_g1_load n1 0 1Meg
-B_g2 n2 0 V = 5 * (1 - u(V(n4)-2.5) * u(V(n1)-2.5))
+B_g2 n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_g2_load n2 0 1Meg
 R_rl n1 n3 220
 V_qled_sense n3 qled_sense_mid DC 0
@@ -2317,7 +2317,7 @@ exports[`netlist snapshot — circuits (41 examples) > xor-toggle-detector 1`] =
 "* Velxio circuit
 R_sw1_sw n0 n5 1000000000
 R_sw2_sw n1 n5 1000000000
-B_u1 n6 0 V = 5 * (u(V(n2)-2.5) + u(V(n3)-2.5) - 2*u(V(n2)-2.5)*u(V(n3)-2.5))
+B_u1 n6 0 V = 5 * ((0.5*(1+tanh((V(n2)-2.5)/0.05))) + (0.5*(1+tanh((V(n3)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n2)-2.5)/0.05)))*(0.5*(1+tanh((V(n3)-2.5)/0.05))))
 R_u1_load n6 0 1Meg
 R_rl n6 n4 220
 V_led1_sense n4 led1_sense_mid DC 0
@@ -2367,62 +2367,62 @@ R_asA3_3 n11 n38 1000000000
 R_asRA3 n11 0 10000
 R_asB3_3 n15 n38 1000000000
 R_asRB3 n15 0 10000
-B_asXm0 n34 0 V = 5 * (u(V(n12)-2.5) + u(V(n16)-2.5) - 2*u(V(n12)-2.5)*u(V(n16)-2.5))
+B_asXm0 n34 0 V = 5 * ((0.5*(1+tanh((V(n12)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n12)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_asXm0_load n34 0 1Meg
-B_asX1_0 n26 0 V = 5 * (u(V(n0)-2.5) + u(V(n34)-2.5) - 2*u(V(n0)-2.5)*u(V(n34)-2.5))
+B_asX1_0 n26 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n34)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n34)-2.5)/0.05))))
 R_asX1_0_load n26 0 1Meg
-B_asA1_0 n2 0 V = 5 * u(V(n0)-2.5) * u(V(n34)-2.5)
+B_asA1_0 n2 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n34)-2.5)/0.05)))
 R_asA1_0_load n2 0 1Meg
-B_asX2_0 n30 0 V = 5 * (u(V(n26)-2.5) + u(V(n16)-2.5) - 2*u(V(n26)-2.5)*u(V(n16)-2.5))
+B_asX2_0 n30 0 V = 5 * ((0.5*(1+tanh((V(n26)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n26)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_asX2_0_load n30 0 1Meg
-B_asA2_0 n7 0 V = 5 * u(V(n26)-2.5) * u(V(n16)-2.5)
+B_asA2_0 n7 0 V = 5 * (0.5*(1+tanh((V(n26)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_asA2_0_load n7 0 1Meg
-B_asOrC_0 n17 0 V = 5 * (1 - (1-u(V(n2)-2.5)) * (1-u(V(n7)-2.5)))
+B_asOrC_0 n17 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_asOrC_0_load n17 0 1Meg
 R_asRS0 n30 n22 220
 V_asLS0_sense n22 asLS0_sense_mid DC 0
 D_asLS0 asLS0_sense_mid 0 LED_RED
-B_asXm1 n35 0 V = 5 * (u(V(n13)-2.5) + u(V(n16)-2.5) - 2*u(V(n13)-2.5)*u(V(n16)-2.5))
+B_asXm1 n35 0 V = 5 * ((0.5*(1+tanh((V(n13)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n13)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_asXm1_load n35 0 1Meg
-B_asX1_1 n27 0 V = 5 * (u(V(n1)-2.5) + u(V(n35)-2.5) - 2*u(V(n1)-2.5)*u(V(n35)-2.5))
+B_asX1_1 n27 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n35)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n35)-2.5)/0.05))))
 R_asX1_1_load n27 0 1Meg
-B_asA1_1 n3 0 V = 5 * u(V(n1)-2.5) * u(V(n35)-2.5)
+B_asA1_1 n3 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n35)-2.5)/0.05)))
 R_asA1_1_load n3 0 1Meg
-B_asX2_1 n31 0 V = 5 * (u(V(n27)-2.5) + u(V(n17)-2.5) - 2*u(V(n27)-2.5)*u(V(n17)-2.5))
+B_asX2_1 n31 0 V = 5 * ((0.5*(1+tanh((V(n27)-2.5)/0.05))) + (0.5*(1+tanh((V(n17)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n27)-2.5)/0.05)))*(0.5*(1+tanh((V(n17)-2.5)/0.05))))
 R_asX2_1_load n31 0 1Meg
-B_asA2_1 n8 0 V = 5 * u(V(n27)-2.5) * u(V(n17)-2.5)
+B_asA2_1 n8 0 V = 5 * (0.5*(1+tanh((V(n27)-2.5)/0.05))) * (0.5*(1+tanh((V(n17)-2.5)/0.05)))
 R_asA2_1_load n8 0 1Meg
-B_asOrC_1 n18 0 V = 5 * (1 - (1-u(V(n3)-2.5)) * (1-u(V(n8)-2.5)))
+B_asOrC_1 n18 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n8)-2.5)/0.05)))))
 R_asOrC_1_load n18 0 1Meg
 R_asRS1 n31 n23 220
 V_asLS1_sense n23 asLS1_sense_mid DC 0
 D_asLS1 asLS1_sense_mid 0 LED_YELLOW
-B_asXm2 n36 0 V = 5 * (u(V(n14)-2.5) + u(V(n16)-2.5) - 2*u(V(n14)-2.5)*u(V(n16)-2.5))
+B_asXm2 n36 0 V = 5 * ((0.5*(1+tanh((V(n14)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n14)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_asXm2_load n36 0 1Meg
-B_asX1_2 n28 0 V = 5 * (u(V(n6)-2.5) + u(V(n36)-2.5) - 2*u(V(n6)-2.5)*u(V(n36)-2.5))
+B_asX1_2 n28 0 V = 5 * ((0.5*(1+tanh((V(n6)-2.5)/0.05))) + (0.5*(1+tanh((V(n36)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n6)-2.5)/0.05)))*(0.5*(1+tanh((V(n36)-2.5)/0.05))))
 R_asX1_2_load n28 0 1Meg
-B_asA1_2 n4 0 V = 5 * u(V(n6)-2.5) * u(V(n36)-2.5)
+B_asA1_2 n4 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n36)-2.5)/0.05)))
 R_asA1_2_load n4 0 1Meg
-B_asX2_2 n32 0 V = 5 * (u(V(n28)-2.5) + u(V(n18)-2.5) - 2*u(V(n28)-2.5)*u(V(n18)-2.5))
+B_asX2_2 n32 0 V = 5 * ((0.5*(1+tanh((V(n28)-2.5)/0.05))) + (0.5*(1+tanh((V(n18)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n28)-2.5)/0.05)))*(0.5*(1+tanh((V(n18)-2.5)/0.05))))
 R_asX2_2_load n32 0 1Meg
-B_asA2_2 n9 0 V = 5 * u(V(n28)-2.5) * u(V(n18)-2.5)
+B_asA2_2 n9 0 V = 5 * (0.5*(1+tanh((V(n28)-2.5)/0.05))) * (0.5*(1+tanh((V(n18)-2.5)/0.05)))
 R_asA2_2_load n9 0 1Meg
-B_asOrC_2 n19 0 V = 5 * (1 - (1-u(V(n4)-2.5)) * (1-u(V(n9)-2.5)))
+B_asOrC_2 n19 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n9)-2.5)/0.05)))))
 R_asOrC_2_load n19 0 1Meg
 R_asRS2 n32 n24 220
 V_asLS2_sense n24 asLS2_sense_mid DC 0
 D_asLS2 asLS2_sense_mid 0 LED_GREEN
-B_asXm3 n37 0 V = 5 * (u(V(n15)-2.5) + u(V(n16)-2.5) - 2*u(V(n15)-2.5)*u(V(n16)-2.5))
+B_asXm3 n37 0 V = 5 * ((0.5*(1+tanh((V(n15)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n15)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_asXm3_load n37 0 1Meg
-B_asX1_3 n29 0 V = 5 * (u(V(n11)-2.5) + u(V(n37)-2.5) - 2*u(V(n11)-2.5)*u(V(n37)-2.5))
+B_asX1_3 n29 0 V = 5 * ((0.5*(1+tanh((V(n11)-2.5)/0.05))) + (0.5*(1+tanh((V(n37)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n11)-2.5)/0.05)))*(0.5*(1+tanh((V(n37)-2.5)/0.05))))
 R_asX1_3_load n29 0 1Meg
-B_asA1_3 n5 0 V = 5 * u(V(n11)-2.5) * u(V(n37)-2.5)
+B_asA1_3 n5 0 V = 5 * (0.5*(1+tanh((V(n11)-2.5)/0.05))) * (0.5*(1+tanh((V(n37)-2.5)/0.05)))
 R_asA1_3_load n5 0 1Meg
-B_asX2_3 n33 0 V = 5 * (u(V(n29)-2.5) + u(V(n19)-2.5) - 2*u(V(n29)-2.5)*u(V(n19)-2.5))
+B_asX2_3 n33 0 V = 5 * ((0.5*(1+tanh((V(n29)-2.5)/0.05))) + (0.5*(1+tanh((V(n19)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n29)-2.5)/0.05)))*(0.5*(1+tanh((V(n19)-2.5)/0.05))))
 R_asX2_3_load n33 0 1Meg
-B_asA2_3 n10 0 V = 5 * u(V(n29)-2.5) * u(V(n19)-2.5)
+B_asA2_3 n10 0 V = 5 * (0.5*(1+tanh((V(n29)-2.5)/0.05))) * (0.5*(1+tanh((V(n19)-2.5)/0.05)))
 R_asA2_3_load n10 0 1Meg
-B_asOrC_3 n20 0 V = 5 * (1 - (1-u(V(n5)-2.5)) * (1-u(V(n10)-2.5)))
+B_asOrC_3 n20 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n10)-2.5)/0.05)))))
 R_asOrC_3_load n20 0 1Meg
 R_asRS3 n33 n25 220
 V_asLS3_sense n25 asLS3_sense_mid DC 0
@@ -2451,35 +2451,35 @@ R_aluM0_3 n11 n22 1000000000
 R_aluRM0 n11 0 10000
 R_aluM1_3 n12 n22 1000000000
 R_aluRM1 n12 0 10000
-B_aluAnd n1 0 V = 5 * u(V(n0)-2.5) * u(V(n2)-2.5)
+B_aluAnd n1 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05)))
 R_aluAnd_load n1 0 1Meg
-B_aluOr n15 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n2)-2.5)))
+B_aluOr n15 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))))
 R_aluOr_load n15 0 1Meg
-B_aluXor n20 0 V = 5 * (u(V(n0)-2.5) + u(V(n2)-2.5) - 2*u(V(n0)-2.5)*u(V(n2)-2.5))
+B_aluXor n20 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_aluXor_load n20 0 1Meg
-B_aluSum1 n18 0 V = 5 * (u(V(n0)-2.5) + u(V(n2)-2.5) - 2*u(V(n0)-2.5)*u(V(n2)-2.5))
+B_aluSum1 n18 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_aluSum1_load n18 0 1Meg
-B_aluSum2 n19 0 V = 5 * (u(V(n18)-2.5) + u(V(n5)-2.5) - 2*u(V(n18)-2.5)*u(V(n5)-2.5))
+B_aluSum2 n19 0 V = 5 * ((0.5*(1+tanh((V(n18)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n18)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_aluSum2_load n19 0 1Meg
-B_aluCar1 n3 0 V = 5 * u(V(n0)-2.5) * u(V(n2)-2.5)
+B_aluCar1 n3 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05)))
 R_aluCar1_load n3 0 1Meg
-B_aluCar2 n4 0 V = 5 * u(V(n18)-2.5) * u(V(n5)-2.5)
+B_aluCar2 n4 0 V = 5 * (0.5*(1+tanh((V(n18)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_aluCar2_load n4 0 1Meg
-B_aluCout n6 0 V = 5 * (1 - (1-u(V(n3)-2.5)) * (1-u(V(n4)-2.5)))
+B_aluCout n6 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))))
 R_aluCout_load n6 0 1Meg
-B_aluNM0 n13 0 V = 5 * (1 - u(V(n11)-2.5))
+B_aluNM0 n13 0 V = 5 * (1 - (0.5*(1+tanh((V(n11)-2.5)/0.05))))
 R_aluNM0_load n13 0 1Meg
-B_aluNM1 n14 0 V = 5 * (1 - u(V(n12)-2.5))
+B_aluNM1 n14 0 V = 5 * (1 - (0.5*(1+tanh((V(n12)-2.5)/0.05))))
 R_aluNM1_load n14 0 1Meg
-B_aluE00 n7 0 V = 5 * u(V(n1)-2.5) * u(V(n14)-2.5) * u(V(n13)-2.5)
+B_aluE00 n7 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05)))
 R_aluE00_load n7 0 1Meg
-B_aluE01 n8 0 V = 5 * u(V(n15)-2.5) * u(V(n14)-2.5) * u(V(n11)-2.5)
+B_aluE01 n8 0 V = 5 * (0.5*(1+tanh((V(n15)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_aluE01_load n8 0 1Meg
-B_aluE10 n9 0 V = 5 * u(V(n20)-2.5) * u(V(n12)-2.5) * u(V(n13)-2.5)
+B_aluE10 n9 0 V = 5 * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05)))
 R_aluE10_load n9 0 1Meg
-B_aluE11 n10 0 V = 5 * u(V(n19)-2.5) * u(V(n12)-2.5) * u(V(n11)-2.5)
+B_aluE11 n10 0 V = 5 * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_aluE11_load n10 0 1Meg
-B_aluY n21 0 V = 5 * (1 - (1-u(V(n7)-2.5)) * (1-u(V(n8)-2.5)) * (1-u(V(n9)-2.5)) * (1-u(V(n10)-2.5)))
+B_aluY n21 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n8)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n9)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n10)-2.5)/0.05)))))
 R_aluY_load n21 0 1Meg
 R_aluRY n21 n17 220
 V_aluLY_sense n17 aluLY_sense_mid DC 0
@@ -2500,7 +2500,7 @@ R_s1_3 n1 n3 1000000000
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 1000000000
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * u(V(n1)-2.5) * u(V(n2)-2.5)
+B_u1 n4 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05)))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -2519,7 +2519,7 @@ R_s2_3 n2 n4 1000000000
 R_rpd2 n2 0 10000
 R_s3_3 n3 n4 1000000000
 R_rpd3 n3 0 10000
-B_u1 n5 0 V = 5 * u(V(n1)-2.5) * u(V(n2)-2.5) * u(V(n3)-2.5)
+B_u1 n5 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_u1_load n5 0 1Meg
 R_rl n5 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -2540,7 +2540,7 @@ R_s3_3 n3 n5 1000000000
 R_r3 n3 0 10000
 R_s4_3 n4 n5 1000000000
 R_r4 n4 0 10000
-B_u1 n6 0 V = 5 * u(V(n1)-2.5) * u(V(n2)-2.5) * u(V(n3)-2.5) * u(V(n4)-2.5)
+B_u1 n6 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05)))
 R_u1_load n6 0 1Meg
 R_rl n6 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -2561,11 +2561,11 @@ R_sC_3 n6 n8 1000000000
 R_rC n6 0 10000
 R_sD_3 n7 n8 1000000000
 R_rD n7 0 10000
-B_aAB n0 0 V = 5 * u(V(n4)-2.5) * u(V(n5)-2.5)
+B_aAB n0 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_aAB_load n0 0 1Meg
-B_aCD n1 0 V = 5 * u(V(n6)-2.5) * u(V(n7)-2.5)
+B_aCD n1 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_aCD_load n1 0 1Meg
-B_norY n2 0 V = 5 * (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5))
+B_norY n2 0 V = 5 * (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_norY_load n2 0 1Meg
 R_rl n2 n3 220
 V_led_sense n3 led_sense_mid DC 0
@@ -2586,15 +2586,15 @@ R_saB2_3 n3 n10 1000000000
 R_saR2 n3 0 10000
 R_saB3_3 n5 n10 1000000000
 R_saR3 n5 0 10000
-B_saNB0 n6 0 V = 5 * (1 - u(V(n1)-2.5))
+B_saNB0 n6 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_saNB0_load n6 0 1Meg
-B_saNB2 n7 0 V = 5 * (1 - u(V(n3)-2.5))
+B_saNB2 n7 0 V = 5 * (1 - (0.5*(1+tanh((V(n3)-2.5)/0.05))))
 R_saNB2_load n7 0 1Meg
-B_saB2B0 n4 0 V = 5 * u(V(n3)-2.5) * u(V(n1)-2.5)
+B_saB2B0 n4 0 V = 5 * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05)))
 R_saB2B0_load n4 0 1Meg
-B_saNB2NB0 n8 0 V = 5 * u(V(n7)-2.5) * u(V(n6)-2.5)
+B_saNB2NB0 n8 0 V = 5 * (0.5*(1+tanh((V(n7)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05)))
 R_saNB2NB0_load n8 0 1Meg
-B_saA n0 0 V = 5 * (1 - (1-u(V(n5)-2.5)) * (1-u(V(n2)-2.5)) * (1-u(V(n4)-2.5)) * (1-u(V(n8)-2.5)))
+B_saA n0 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n8)-2.5)/0.05)))))
 R_saA_load n0 0 1Meg
 R_saRl n0 n9 220
 V_saLed_sense n9 saLed_sense_mid DC 0
@@ -2615,13 +2615,13 @@ R_bcdB2_3 n4 n9 1000000000
 R_bcdR2 n4 0 10000
 R_bcdB3_3 n5 n9 1000000000
 R_bcdR3 n5 0 10000
-B_bcdA32 n1 0 V = 5 * u(V(n5)-2.5) * u(V(n4)-2.5)
+B_bcdA32 n1 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05)))
 R_bcdA32_load n1 0 1Meg
-B_bcdA31 n0 0 V = 5 * u(V(n5)-2.5) * u(V(n3)-2.5)
+B_bcdA31 n0 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_bcdA31_load n0 0 1Meg
-B_bcdOrInv n6 0 V = 5 * (1 - (1-u(V(n1)-2.5)) * (1-u(V(n0)-2.5)))
+B_bcdOrInv n6 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))))
 R_bcdOrInv_load n6 0 1Meg
-B_bcdValid n8 0 V = 5 * (1 - u(V(n6)-2.5))
+B_bcdValid n8 0 V = 5 * (1 - (0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_bcdValid_load n8 0 1Meg
 R_bcdRl n8 n7 220
 V_bcdLed_sense n7 bcdLed_sense_mid DC 0
@@ -2640,9 +2640,9 @@ R_grB1_3 n1 n8 1000000000
 R_grRB1 n1 0 10000
 R_grB2_3 n2 n8 1000000000
 R_grRB2 n2 0 10000
-B_grX10 n6 0 V = 5 * (u(V(n1)-2.5) + u(V(n0)-2.5) - 2*u(V(n1)-2.5)*u(V(n0)-2.5))
+B_grX10 n6 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n0)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_grX10_load n6 0 1Meg
-B_grX21 n7 0 V = 5 * (u(V(n2)-2.5) + u(V(n1)-2.5) - 2*u(V(n2)-2.5)*u(V(n1)-2.5))
+B_grX21 n7 0 V = 5 * ((0.5*(1+tanh((V(n2)-2.5)/0.05))) + (0.5*(1+tanh((V(n1)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n2)-2.5)/0.05)))*(0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_grX21_load n7 0 1Meg
 R_grRG0 n6 n3 220
 V_grLG0_sense n3 grLG0_sense_mid DC 0
@@ -2665,11 +2665,11 @@ exports[`netlist snapshot — digital (39 examples) > digital-buffer-three-inver
 V_src n5 0 DC 5
 R_s1_3 n4 n5 1000000000
 R_rpd n4 0 10000
-B_n1 n0 0 V = 5 * (1 - u(V(n4)-2.5))
+B_n1 n0 0 V = 5 * (1 - (0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_n1_load n0 0 1Meg
-B_n2 n1 0 V = 5 * (1 - u(V(n0)-2.5))
+B_n2 n1 0 V = 5 * (1 - (0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_n2_load n1 0 1Meg
-B_n3 n2 0 V = 5 * (1 - u(V(n1)-2.5))
+B_n3 n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_n3_load n2 0 1Meg
 R_rl n2 n3 220
 V_led_sense n3 led_sense_mid DC 0
@@ -2700,70 +2700,70 @@ R_claB3_3 n7 n42 1000000000
 R_claRB3 n7 0 10000
 R_claC0_3 n8 n42 1000000000
 R_claRC0 n8 0 10000
-B_claG0 n14 0 V = 5 * u(V(n0)-2.5) * u(V(n4)-2.5)
+B_claG0 n14 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05)))
 R_claG0_load n14 0 1Meg
-B_claP0 n18 0 V = 5 * (u(V(n0)-2.5) + u(V(n4)-2.5) - 2*u(V(n0)-2.5)*u(V(n4)-2.5))
+B_claP0 n18 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n4)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_claP0_load n18 0 1Meg
-B_claG1 n15 0 V = 5 * u(V(n1)-2.5) * u(V(n5)-2.5)
+B_claG1 n15 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_claG1_load n15 0 1Meg
-B_claP1 n19 0 V = 5 * (u(V(n1)-2.5) + u(V(n5)-2.5) - 2*u(V(n1)-2.5)*u(V(n5)-2.5))
+B_claP1 n19 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_claP1_load n19 0 1Meg
-B_claG2 n16 0 V = 5 * u(V(n2)-2.5) * u(V(n6)-2.5)
+B_claG2 n16 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05)))
 R_claG2_load n16 0 1Meg
-B_claP2 n20 0 V = 5 * (u(V(n2)-2.5) + u(V(n6)-2.5) - 2*u(V(n2)-2.5)*u(V(n6)-2.5))
+B_claP2 n20 0 V = 5 * ((0.5*(1+tanh((V(n2)-2.5)/0.05))) + (0.5*(1+tanh((V(n6)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n2)-2.5)/0.05)))*(0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_claP2_load n20 0 1Meg
-B_claG3 n17 0 V = 5 * u(V(n3)-2.5) * u(V(n7)-2.5)
+B_claG3 n17 0 V = 5 * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_claG3_load n17 0 1Meg
-B_claP3 n21 0 V = 5 * (u(V(n3)-2.5) + u(V(n7)-2.5) - 2*u(V(n3)-2.5)*u(V(n7)-2.5))
+B_claP3 n21 0 V = 5 * ((0.5*(1+tanh((V(n3)-2.5)/0.05))) + (0.5*(1+tanh((V(n7)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n3)-2.5)/0.05)))*(0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_claP3_load n21 0 1Meg
-B_claT_p0c0 n31 0 V = 5 * u(V(n18)-2.5) * u(V(n8)-2.5)
+B_claT_p0c0 n31 0 V = 5 * (0.5*(1+tanh((V(n18)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_claT_p0c0_load n31 0 1Meg
-B_claC1 n9 0 V = 5 * (1 - (1-u(V(n14)-2.5)) * (1-u(V(n31)-2.5)))
+B_claC1 n9 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n14)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n31)-2.5)/0.05)))))
 R_claC1_load n9 0 1Meg
-B_claT_p1g0 n32 0 V = 5 * u(V(n19)-2.5) * u(V(n14)-2.5)
+B_claT_p1g0 n32 0 V = 5 * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_claT_p1g0_load n32 0 1Meg
-B_claT_p1p0c0 n33 0 V = 5 * u(V(n19)-2.5) * u(V(n18)-2.5) * u(V(n8)-2.5)
+B_claT_p1p0c0 n33 0 V = 5 * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n18)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_claT_p1p0c0_load n33 0 1Meg
-B_claC2 n10 0 V = 5 * (1 - (1-u(V(n15)-2.5)) * (1-u(V(n32)-2.5)) * (1-u(V(n33)-2.5)))
+B_claC2 n10 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n15)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n32)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n33)-2.5)/0.05)))))
 R_claC2_load n10 0 1Meg
-B_claT_p2g1 n34 0 V = 5 * u(V(n20)-2.5) * u(V(n15)-2.5)
+B_claT_p2g1 n34 0 V = 5 * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_claT_p2g1_load n34 0 1Meg
-B_claT_p2p1g0 n35 0 V = 5 * u(V(n20)-2.5) * u(V(n19)-2.5) * u(V(n14)-2.5)
+B_claT_p2p1g0 n35 0 V = 5 * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_claT_p2p1g0_load n35 0 1Meg
-B_claT_p2p1p0c0 n36 0 V = 5 * u(V(n20)-2.5) * u(V(n19)-2.5) * u(V(n18)-2.5) * u(V(n8)-2.5)
+B_claT_p2p1p0c0 n36 0 V = 5 * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n18)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_claT_p2p1p0c0_load n36 0 1Meg
-B_claC3 n11 0 V = 5 * (1 - (1-u(V(n16)-2.5)) * (1-u(V(n34)-2.5)) * (1-u(V(n35)-2.5)) * (1-u(V(n36)-2.5)))
+B_claC3 n11 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n16)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n34)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n35)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n36)-2.5)/0.05)))))
 R_claC3_load n11 0 1Meg
-B_claT_p3g2 n37 0 V = 5 * u(V(n21)-2.5) * u(V(n16)-2.5)
+B_claT_p3g2 n37 0 V = 5 * (0.5*(1+tanh((V(n21)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_claT_p3g2_load n37 0 1Meg
-B_claT_p3p2g1 n38 0 V = 5 * u(V(n21)-2.5) * u(V(n20)-2.5) * u(V(n15)-2.5)
+B_claT_p3p2g1 n38 0 V = 5 * (0.5*(1+tanh((V(n21)-2.5)/0.05))) * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_claT_p3p2g1_load n38 0 1Meg
-B_claT_p3p2p1g0 n39 0 V = 5 * u(V(n21)-2.5) * u(V(n20)-2.5) * u(V(n19)-2.5) * u(V(n14)-2.5)
+B_claT_p3p2p1g0 n39 0 V = 5 * (0.5*(1+tanh((V(n21)-2.5)/0.05))) * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_claT_p3p2p1g0_load n39 0 1Meg
-B_claT_pAll n40 0 V = 5 * u(V(n21)-2.5) * u(V(n20)-2.5) * u(V(n19)-2.5) * u(V(n18)-2.5)
+B_claT_pAll n40 0 V = 5 * (0.5*(1+tanh((V(n21)-2.5)/0.05))) * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n18)-2.5)/0.05)))
 R_claT_pAll_load n40 0 1Meg
-B_claT_pAllc0 n41 0 V = 5 * u(V(n40)-2.5) * u(V(n8)-2.5)
+B_claT_pAllc0 n41 0 V = 5 * (0.5*(1+tanh((V(n40)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_claT_pAllc0_load n41 0 1Meg
-B_claC4a n13 0 V = 5 * (1 - (1-u(V(n17)-2.5)) * (1-u(V(n37)-2.5)) * (1-u(V(n38)-2.5)) * (1-u(V(n39)-2.5)))
+B_claC4a n13 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n17)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n37)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n38)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n39)-2.5)/0.05)))))
 R_claC4a_load n13 0 1Meg
-B_claC4 n12 0 V = 5 * (1 - (1-u(V(n13)-2.5)) * (1-u(V(n41)-2.5)))
+B_claC4 n12 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n13)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n41)-2.5)/0.05)))))
 R_claC4_load n12 0 1Meg
-B_claS0 n27 0 V = 5 * (u(V(n18)-2.5) + u(V(n8)-2.5) - 2*u(V(n18)-2.5)*u(V(n8)-2.5))
+B_claS0 n27 0 V = 5 * ((0.5*(1+tanh((V(n18)-2.5)/0.05))) + (0.5*(1+tanh((V(n8)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n18)-2.5)/0.05)))*(0.5*(1+tanh((V(n8)-2.5)/0.05))))
 R_claS0_load n27 0 1Meg
 R_claRS0 n27 n23 220
 V_claLS0_sense n23 claLS0_sense_mid DC 0
 D_claLS0 claLS0_sense_mid 0 LED_RED
-B_claS1 n28 0 V = 5 * (u(V(n19)-2.5) + u(V(n9)-2.5) - 2*u(V(n19)-2.5)*u(V(n9)-2.5))
+B_claS1 n28 0 V = 5 * ((0.5*(1+tanh((V(n19)-2.5)/0.05))) + (0.5*(1+tanh((V(n9)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n19)-2.5)/0.05)))*(0.5*(1+tanh((V(n9)-2.5)/0.05))))
 R_claS1_load n28 0 1Meg
 R_claRS1 n28 n24 220
 V_claLS1_sense n24 claLS1_sense_mid DC 0
 D_claLS1 claLS1_sense_mid 0 LED_YELLOW
-B_claS2 n29 0 V = 5 * (u(V(n20)-2.5) + u(V(n10)-2.5) - 2*u(V(n20)-2.5)*u(V(n10)-2.5))
+B_claS2 n29 0 V = 5 * ((0.5*(1+tanh((V(n20)-2.5)/0.05))) + (0.5*(1+tanh((V(n10)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n20)-2.5)/0.05)))*(0.5*(1+tanh((V(n10)-2.5)/0.05))))
 R_claS2_load n29 0 1Meg
 R_claRS2 n29 n25 220
 V_claLS2_sense n25 claLS2_sense_mid DC 0
 D_claLS2 claLS2_sense_mid 0 LED_GREEN
-B_claS3 n30 0 V = 5 * (u(V(n21)-2.5) + u(V(n11)-2.5) - 2*u(V(n21)-2.5)*u(V(n11)-2.5))
+B_claS3 n30 0 V = 5 * ((0.5*(1+tanh((V(n21)-2.5)/0.05))) + (0.5*(1+tanh((V(n11)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n21)-2.5)/0.05)))*(0.5*(1+tanh((V(n11)-2.5)/0.05))))
 R_claS3_load n30 0 1Meg
 R_claRS3 n30 n26 220
 V_claLS3_sense n26 claLS3_sense_mid DC 0
@@ -2798,41 +2798,41 @@ R_cmpA3_3 n3 n29 1000000000
 R_cmpRA3 n3 0 10000
 R_cmpB3_3 n7 n29 1000000000
 R_cmpRB3 n7 0 10000
-B_cmpEq0 n11 0 V = 5 * (1 - (u(V(n0)-2.5) + u(V(n4)-2.5) - 2*u(V(n0)-2.5)*u(V(n4)-2.5)))
+B_cmpEq0 n11 0 V = 5 * (1 - ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n4)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n4)-2.5)/0.05)))))
 R_cmpEq0_load n11 0 1Meg
-B_cmpNotB0 n22 0 V = 5 * (1 - u(V(n4)-2.5))
+B_cmpNotB0 n22 0 V = 5 * (1 - (0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_cmpNotB0_load n22 0 1Meg
-B_cmpGt0 n16 0 V = 5 * u(V(n0)-2.5) * u(V(n22)-2.5)
+B_cmpGt0 n16 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n22)-2.5)/0.05)))
 R_cmpGt0_load n16 0 1Meg
-B_cmpEq1 n12 0 V = 5 * (1 - (u(V(n1)-2.5) + u(V(n5)-2.5) - 2*u(V(n1)-2.5)*u(V(n5)-2.5)))
+B_cmpEq1 n12 0 V = 5 * (1 - ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05)))))
 R_cmpEq1_load n12 0 1Meg
-B_cmpNotB1 n23 0 V = 5 * (1 - u(V(n5)-2.5))
+B_cmpNotB1 n23 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_cmpNotB1_load n23 0 1Meg
-B_cmpGt1 n17 0 V = 5 * u(V(n1)-2.5) * u(V(n23)-2.5)
+B_cmpGt1 n17 0 V = 5 * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n23)-2.5)/0.05)))
 R_cmpGt1_load n17 0 1Meg
-B_cmpEq2 n13 0 V = 5 * (1 - (u(V(n2)-2.5) + u(V(n6)-2.5) - 2*u(V(n2)-2.5)*u(V(n6)-2.5)))
+B_cmpEq2 n13 0 V = 5 * (1 - ((0.5*(1+tanh((V(n2)-2.5)/0.05))) + (0.5*(1+tanh((V(n6)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n2)-2.5)/0.05)))*(0.5*(1+tanh((V(n6)-2.5)/0.05)))))
 R_cmpEq2_load n13 0 1Meg
-B_cmpNotB2 n24 0 V = 5 * (1 - u(V(n6)-2.5))
+B_cmpNotB2 n24 0 V = 5 * (1 - (0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_cmpNotB2_load n24 0 1Meg
-B_cmpGt2 n18 0 V = 5 * u(V(n2)-2.5) * u(V(n24)-2.5)
+B_cmpGt2 n18 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n24)-2.5)/0.05)))
 R_cmpGt2_load n18 0 1Meg
-B_cmpEq3 n14 0 V = 5 * (1 - (u(V(n3)-2.5) + u(V(n7)-2.5) - 2*u(V(n3)-2.5)*u(V(n7)-2.5)))
+B_cmpEq3 n14 0 V = 5 * (1 - ((0.5*(1+tanh((V(n3)-2.5)/0.05))) + (0.5*(1+tanh((V(n7)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n3)-2.5)/0.05)))*(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_cmpEq3_load n14 0 1Meg
-B_cmpNotB3 n25 0 V = 5 * (1 - u(V(n7)-2.5))
+B_cmpNotB3 n25 0 V = 5 * (1 - (0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_cmpNotB3_load n25 0 1Meg
-B_cmpGt3 n19 0 V = 5 * u(V(n3)-2.5) * u(V(n25)-2.5)
+B_cmpGt3 n19 0 V = 5 * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n25)-2.5)/0.05)))
 R_cmpGt3_load n19 0 1Meg
-B_cmpEqAll n15 0 V = 5 * u(V(n11)-2.5) * u(V(n12)-2.5) * u(V(n13)-2.5) * u(V(n14)-2.5)
+B_cmpEqAll n15 0 V = 5 * (0.5*(1+tanh((V(n11)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_cmpEqAll_load n15 0 1Meg
-B_cmpE3G2 n10 0 V = 5 * u(V(n14)-2.5) * u(V(n18)-2.5)
+B_cmpE3G2 n10 0 V = 5 * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n18)-2.5)/0.05)))
 R_cmpE3G2_load n10 0 1Meg
-B_cmpE32G1F n9 0 V = 5 * u(V(n14)-2.5) * u(V(n13)-2.5) * u(V(n17)-2.5)
+B_cmpE32G1F n9 0 V = 5 * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n17)-2.5)/0.05)))
 R_cmpE32G1F_load n9 0 1Meg
-B_cmpE321G0 n8 0 V = 5 * u(V(n14)-2.5) * u(V(n13)-2.5) * u(V(n12)-2.5) * u(V(n16)-2.5)
+B_cmpE321G0 n8 0 V = 5 * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_cmpE321G0_load n8 0 1Meg
-B_cmpGtAll n20 0 V = 5 * (1 - (1-u(V(n19)-2.5)) * (1-u(V(n10)-2.5)) * (1-u(V(n9)-2.5)) * (1-u(V(n8)-2.5)))
+B_cmpGtAll n20 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n19)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n10)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n9)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n8)-2.5)/0.05)))))
 R_cmpGtAll_load n20 0 1Meg
-B_cmpLt n21 0 V = 5 * (1-u(V(n15)-2.5)) * (1-u(V(n20)-2.5))
+B_cmpLt n21 0 V = 5 * (1-(0.5*(1+tanh((V(n15)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n20)-2.5)/0.05))))
 R_cmpLt_load n21 0 1Meg
 R_cmpRGt n20 n27 220
 V_cmpLedGt_sense n27 cmpLedGt_sense_mid DC 0
@@ -2861,11 +2861,11 @@ R_sB0_3 n4 n6 1000000000
 R_rB0 n4 0 10000
 R_sB1_3 n5 n6 1000000000
 R_rB1 n5 0 10000
-B_xn0 n7 0 V = 5 * (1 - (u(V(n2)-2.5) + u(V(n4)-2.5) - 2*u(V(n2)-2.5)*u(V(n4)-2.5)))
+B_xn0 n7 0 V = 5 * (1 - ((0.5*(1+tanh((V(n2)-2.5)/0.05))) + (0.5*(1+tanh((V(n4)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n2)-2.5)/0.05)))*(0.5*(1+tanh((V(n4)-2.5)/0.05)))))
 R_xn0_load n7 0 1Meg
-B_xn1 n8 0 V = 5 * (1 - (u(V(n3)-2.5) + u(V(n5)-2.5) - 2*u(V(n3)-2.5)*u(V(n5)-2.5)))
+B_xn1 n8 0 V = 5 * (1 - ((0.5*(1+tanh((V(n3)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n3)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05)))))
 R_xn1_load n8 0 1Meg
-B_aEq n0 0 V = 5 * u(V(n7)-2.5) * u(V(n8)-2.5)
+B_aEq n0 0 V = 5 * (0.5*(1+tanh((V(n7)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_aEq_load n0 0 1Meg
 R_rl n0 n1 220
 V_led_sense n1 led_sense_mid DC 0
@@ -2882,15 +2882,15 @@ R_sA_3 n8 n10 1000000000
 R_rA n8 0 10000
 R_sB_3 n9 n10 1000000000
 R_rB n9 0 10000
-B_notA n3 0 V = 5 * (1 - u(V(n8)-2.5))
+B_notA n3 0 V = 5 * (1 - (0.5*(1+tanh((V(n8)-2.5)/0.05))))
 R_notA_load n3 0 1Meg
-B_notB n4 0 V = 5 * (1 - u(V(n9)-2.5))
+B_notB n4 0 V = 5 * (1 - (0.5*(1+tanh((V(n9)-2.5)/0.05))))
 R_notB_load n4 0 1Meg
-B_gGt n1 0 V = 5 * u(V(n8)-2.5) * u(V(n4)-2.5)
+B_gGt n1 0 V = 5 * (0.5*(1+tanh((V(n8)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05)))
 R_gGt_load n1 0 1Meg
-B_gEq n0 0 V = 5 * (1 - (u(V(n8)-2.5) + u(V(n9)-2.5) - 2*u(V(n8)-2.5)*u(V(n9)-2.5)))
+B_gEq n0 0 V = 5 * (1 - ((0.5*(1+tanh((V(n8)-2.5)/0.05))) + (0.5*(1+tanh((V(n9)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n8)-2.5)/0.05)))*(0.5*(1+tanh((V(n9)-2.5)/0.05)))))
 R_gEq_load n0 0 1Meg
-B_gLt n2 0 V = 5 * u(V(n3)-2.5) * u(V(n9)-2.5)
+B_gLt n2 0 V = 5 * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n9)-2.5)/0.05)))
 R_gLt_load n2 0 1Meg
 R_rGt n1 n6 220
 V_ledGt_sense n6 ledGt_sense_mid DC 0
@@ -2921,25 +2921,25 @@ R_cmpX4_3 n17 n18 1000000000
 R_cmpRX4 n17 0 10000
 R_cmpCin_3 n13 n18 1000000000
 R_cmpRCin n13 0 10000
-B_cmFA1_x1 n3 0 V = 5 * (u(V(n14)-2.5) + u(V(n15)-2.5) - 2*u(V(n14)-2.5)*u(V(n15)-2.5))
+B_cmFA1_x1 n3 0 V = 5 * ((0.5*(1+tanh((V(n14)-2.5)/0.05))) + (0.5*(1+tanh((V(n15)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n14)-2.5)/0.05)))*(0.5*(1+tanh((V(n15)-2.5)/0.05))))
 R_cmFA1_x1_load n3 0 1Meg
-B_cmFA1_x2 n4 0 V = 5 * (u(V(n3)-2.5) + u(V(n16)-2.5) - 2*u(V(n3)-2.5)*u(V(n16)-2.5))
+B_cmFA1_x2 n4 0 V = 5 * ((0.5*(1+tanh((V(n3)-2.5)/0.05))) + (0.5*(1+tanh((V(n16)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n3)-2.5)/0.05)))*(0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_cmFA1_x2_load n4 0 1Meg
-B_cmFA1_a1 n0 0 V = 5 * u(V(n14)-2.5) * u(V(n15)-2.5)
+B_cmFA1_a1 n0 0 V = 5 * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_cmFA1_a1_load n0 0 1Meg
-B_cmFA1_a2 n1 0 V = 5 * u(V(n3)-2.5) * u(V(n16)-2.5)
+B_cmFA1_a2 n1 0 V = 5 * (0.5*(1+tanh((V(n3)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_cmFA1_a2_load n1 0 1Meg
-B_cmFA1_or n2 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)))
+B_cmFA1_or n2 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))))
 R_cmFA1_or_load n2 0 1Meg
-B_cmFA2_x1 n8 0 V = 5 * (u(V(n4)-2.5) + u(V(n17)-2.5) - 2*u(V(n4)-2.5)*u(V(n17)-2.5))
+B_cmFA2_x1 n8 0 V = 5 * ((0.5*(1+tanh((V(n4)-2.5)/0.05))) + (0.5*(1+tanh((V(n17)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n4)-2.5)/0.05)))*(0.5*(1+tanh((V(n17)-2.5)/0.05))))
 R_cmFA2_x1_load n8 0 1Meg
-B_cmFA2_x2 n9 0 V = 5 * (u(V(n8)-2.5) + u(V(n13)-2.5) - 2*u(V(n8)-2.5)*u(V(n13)-2.5))
+B_cmFA2_x2 n9 0 V = 5 * ((0.5*(1+tanh((V(n8)-2.5)/0.05))) + (0.5*(1+tanh((V(n13)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n8)-2.5)/0.05)))*(0.5*(1+tanh((V(n13)-2.5)/0.05))))
 R_cmFA2_x2_load n9 0 1Meg
-B_cmFA2_a1 n5 0 V = 5 * u(V(n4)-2.5) * u(V(n17)-2.5)
+B_cmFA2_a1 n5 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n17)-2.5)/0.05)))
 R_cmFA2_a1_load n5 0 1Meg
-B_cmFA2_a2 n6 0 V = 5 * u(V(n8)-2.5) * u(V(n13)-2.5)
+B_cmFA2_a2 n6 0 V = 5 * (0.5*(1+tanh((V(n8)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05)))
 R_cmFA2_a2_load n6 0 1Meg
-B_cmFA2_or n7 0 V = 5 * (1 - (1-u(V(n5)-2.5)) * (1-u(V(n6)-2.5)))
+B_cmFA2_or n7 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n6)-2.5)/0.05)))))
 R_cmFA2_or_load n7 0 1Meg
 R_cmRS n9 n12 220
 V_cmLS_sense n12 cmLS_sense_mid DC 0
@@ -2964,17 +2964,17 @@ R_sA_3 n10 n12 1000000000
 R_rA n10 0 10000
 R_sB_3 n11 n12 1000000000
 R_rB n11 0 10000
-B_notA n4 0 V = 5 * (1 - u(V(n10)-2.5))
+B_notA n4 0 V = 5 * (1 - (0.5*(1+tanh((V(n10)-2.5)/0.05))))
 R_notA_load n4 0 1Meg
-B_notB n5 0 V = 5 * (1 - u(V(n11)-2.5))
+B_notB n5 0 V = 5 * (1 - (0.5*(1+tanh((V(n11)-2.5)/0.05))))
 R_notB_load n5 0 1Meg
-B_a0 n0 0 V = 5 * u(V(n4)-2.5) * u(V(n5)-2.5)
+B_a0 n0 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_a0_load n0 0 1Meg
-B_a1 n1 0 V = 5 * u(V(n10)-2.5) * u(V(n5)-2.5)
+B_a1 n1 0 V = 5 * (0.5*(1+tanh((V(n10)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_a1_load n1 0 1Meg
-B_a2 n2 0 V = 5 * u(V(n4)-2.5) * u(V(n11)-2.5)
+B_a2 n2 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_a2_load n2 0 1Meg
-B_a3 n3 0 V = 5 * u(V(n10)-2.5) * u(V(n11)-2.5)
+B_a3 n3 0 V = 5 * (0.5*(1+tanh((V(n10)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_a3_load n3 0 1Meg
 R_r0 n0 n6 220
 V_led0_sense n6 led0_sense_mid DC 0
@@ -3005,27 +3005,27 @@ R_dec3A1_3 n1 n22 1000000000
 R_dec3R1 n1 0 10000
 R_dec3A2_3 n2 n22 1000000000
 R_dec3R2 n2 0 10000
-B_dec3N0 n3 0 V = 5 * (1 - u(V(n0)-2.5))
+B_dec3N0 n3 0 V = 5 * (1 - (0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_dec3N0_load n3 0 1Meg
-B_dec3N1 n4 0 V = 5 * (1 - u(V(n1)-2.5))
+B_dec3N1 n4 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_dec3N1_load n4 0 1Meg
-B_dec3N2 n5 0 V = 5 * (1 - u(V(n2)-2.5))
+B_dec3N2 n5 0 V = 5 * (1 - (0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_dec3N2_load n5 0 1Meg
-B_dec3Y0 n6 0 V = 5 * u(V(n5)-2.5) * u(V(n4)-2.5) * u(V(n3)-2.5)
+B_dec3Y0 n6 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_dec3Y0_load n6 0 1Meg
-B_dec3Y1 n7 0 V = 5 * u(V(n5)-2.5) * u(V(n4)-2.5) * u(V(n0)-2.5)
+B_dec3Y1 n7 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05)))
 R_dec3Y1_load n7 0 1Meg
-B_dec3Y2 n8 0 V = 5 * u(V(n5)-2.5) * u(V(n1)-2.5) * u(V(n3)-2.5)
+B_dec3Y2 n8 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_dec3Y2_load n8 0 1Meg
-B_dec3Y3 n9 0 V = 5 * u(V(n5)-2.5) * u(V(n1)-2.5) * u(V(n0)-2.5)
+B_dec3Y3 n9 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05)))
 R_dec3Y3_load n9 0 1Meg
-B_dec3Y4 n10 0 V = 5 * u(V(n2)-2.5) * u(V(n4)-2.5) * u(V(n3)-2.5)
+B_dec3Y4 n10 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_dec3Y4_load n10 0 1Meg
-B_dec3Y5 n11 0 V = 5 * u(V(n2)-2.5) * u(V(n4)-2.5) * u(V(n0)-2.5)
+B_dec3Y5 n11 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05)))
 R_dec3Y5_load n11 0 1Meg
-B_dec3Y6 n12 0 V = 5 * u(V(n2)-2.5) * u(V(n1)-2.5) * u(V(n3)-2.5)
+B_dec3Y6 n12 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n3)-2.5)/0.05)))
 R_dec3Y6_load n12 0 1Meg
-B_dec3Y7 n13 0 V = 5 * u(V(n2)-2.5) * u(V(n1)-2.5) * u(V(n0)-2.5)
+B_dec3Y7 n13 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05)))
 R_dec3Y7_load n13 0 1Meg
 R_dec3rl0 n6 n14 220
 V_dec3l0_sense n14 dec3l0_sense_mid DC 0
@@ -3069,15 +3069,15 @@ R_sB_3 n6 n8 1000000000
 R_rpdB n6 0 10000
 R_sCi_3 n7 n8 1000000000
 R_rpdCi n7 0 10000
-B_x1 n9 0 V = 5 * (u(V(n5)-2.5) + u(V(n6)-2.5) - 2*u(V(n5)-2.5)*u(V(n6)-2.5))
+B_x1 n9 0 V = 5 * ((0.5*(1+tanh((V(n5)-2.5)/0.05))) + (0.5*(1+tanh((V(n6)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n5)-2.5)/0.05)))*(0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_x1_load n9 0 1Meg
-B_a1 n0 0 V = 5 * u(V(n5)-2.5) * u(V(n6)-2.5)
+B_a1 n0 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05)))
 R_a1_load n0 0 1Meg
-B_x2 n10 0 V = 5 * (u(V(n9)-2.5) + u(V(n7)-2.5) - 2*u(V(n9)-2.5)*u(V(n7)-2.5))
+B_x2 n10 0 V = 5 * ((0.5*(1+tanh((V(n9)-2.5)/0.05))) + (0.5*(1+tanh((V(n7)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n9)-2.5)/0.05)))*(0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_x2_load n10 0 1Meg
-B_a2 n1 0 V = 5 * u(V(n9)-2.5) * u(V(n7)-2.5)
+B_a2 n1 0 V = 5 * (0.5*(1+tanh((V(n9)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_a2_load n1 0 1Meg
-B_orC n2 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)))
+B_orC n2 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))))
 R_orC_load n2 0 1Meg
 R_rS n10 n4 220
 V_ledS_sense n4 ledS_sense_mid DC 0
@@ -3100,9 +3100,9 @@ R_gbG1_3 n1 n8 1000000000
 R_gbRG1 n1 0 10000
 R_gbG2_3 n2 n8 1000000000
 R_gbRG2 n2 0 10000
-B_gbX21 n7 0 V = 5 * (u(V(n1)-2.5) + u(V(n2)-2.5) - 2*u(V(n1)-2.5)*u(V(n2)-2.5))
+B_gbX21 n7 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_gbX21_load n7 0 1Meg
-B_gbX10 n6 0 V = 5 * (u(V(n0)-2.5) + u(V(n7)-2.5) - 2*u(V(n0)-2.5)*u(V(n7)-2.5))
+B_gbX10 n6 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n7)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_gbX10_load n6 0 1Meg
 R_gbRB0 n6 n3 220
 V_gbLB0_sense n3 gbLB0_sense_mid DC 0
@@ -3127,9 +3127,9 @@ R_sA_3 n4 n6 1000000000
 R_rpdA n4 0 10000
 R_sB_3 n5 n6 1000000000
 R_rpdB n5 0 10000
-B_gSum n1 0 V = 5 * (u(V(n4)-2.5) + u(V(n5)-2.5) - 2*u(V(n4)-2.5)*u(V(n5)-2.5))
+B_gSum n1 0 V = 5 * ((0.5*(1+tanh((V(n4)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n4)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_gSum_load n1 0 1Meg
-B_gC n0 0 V = 5 * u(V(n4)-2.5) * u(V(n5)-2.5)
+B_gC n0 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_gC_load n0 0 1Meg
 R_rS n1 n3 220
 V_ledS_sense n3 ledS_sense_mid DC 0
@@ -3150,17 +3150,17 @@ R_hnA_3 n0 n10 1000000000
 R_hnRA n0 0 10000
 R_hnB_3 n1 n10 1000000000
 R_hnRB n1 0 10000
-B_hnN1 n4 0 V = 5 * (1 - u(V(n0)-2.5) * u(V(n1)-2.5))
+B_hnN1 n4 0 V = 5 * (1 - (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_hnN1_load n4 0 1Meg
-B_hnN2 n5 0 V = 5 * (1 - u(V(n0)-2.5) * u(V(n4)-2.5))
+B_hnN2 n5 0 V = 5 * (1 - (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_hnN2_load n5 0 1Meg
-B_hnN3 n6 0 V = 5 * (1 - u(V(n1)-2.5) * u(V(n4)-2.5))
+B_hnN3 n6 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_hnN3_load n6 0 1Meg
-B_hnN4 n7 0 V = 5 * (1 - u(V(n5)-2.5) * u(V(n6)-2.5))
+B_hnN4 n7 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_hnN4_load n7 0 1Meg
-B_hnC1 n2 0 V = 5 * (1 - u(V(n0)-2.5) * u(V(n1)-2.5))
+B_hnC1 n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_hnC1_load n2 0 1Meg
-B_hnC2 n3 0 V = 5 * (1 - u(V(n2)-2.5) * u(V(n2)-2.5))
+B_hnC2 n3 0 V = 5 * (1 - (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_hnC2_load n3 0 1Meg
 R_hnRS n7 n9 220
 V_hnLS_sense n9 hnLS_sense_mid DC 0
@@ -3181,11 +3181,11 @@ R_sA_3 n5 n7 1000000000
 R_rA n5 0 10000
 R_sB_3 n6 n7 1000000000
 R_rB n6 0 10000
-B_gDiff n1 0 V = 5 * (u(V(n5)-2.5) + u(V(n6)-2.5) - 2*u(V(n5)-2.5)*u(V(n6)-2.5))
+B_gDiff n1 0 V = 5 * ((0.5*(1+tanh((V(n5)-2.5)/0.05))) + (0.5*(1+tanh((V(n6)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n5)-2.5)/0.05)))*(0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_gDiff_load n1 0 1Meg
-B_nA n2 0 V = 5 * (1 - u(V(n5)-2.5))
+B_nA n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_nA_load n2 0 1Meg
-B_gBor n0 0 V = 5 * u(V(n2)-2.5) * u(V(n6)-2.5)
+B_gBor n0 0 V = 5 * (0.5*(1+tanh((V(n2)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05)))
 R_gBor_load n0 0 1Meg
 R_rD n1 n4 220
 V_ledD_sense n4 ledD_sense_mid DC 0
@@ -3210,17 +3210,17 @@ R_hmD2_3 n2 n17 1000000000
 R_hmRD2 n2 0 10000
 R_hmD3_3 n3 n17 1000000000
 R_hmRD3 n3 0 10000
-B_hmP1a n4 0 V = 5 * (u(V(n0)-2.5) + u(V(n1)-2.5) - 2*u(V(n0)-2.5)*u(V(n1)-2.5))
+B_hmP1a n4 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n1)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_hmP1a_load n4 0 1Meg
-B_hmP1b n5 0 V = 5 * (u(V(n4)-2.5) + u(V(n3)-2.5) - 2*u(V(n4)-2.5)*u(V(n3)-2.5))
+B_hmP1b n5 0 V = 5 * ((0.5*(1+tanh((V(n4)-2.5)/0.05))) + (0.5*(1+tanh((V(n3)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n4)-2.5)/0.05)))*(0.5*(1+tanh((V(n3)-2.5)/0.05))))
 R_hmP1b_load n5 0 1Meg
-B_hmP2a n6 0 V = 5 * (u(V(n0)-2.5) + u(V(n2)-2.5) - 2*u(V(n0)-2.5)*u(V(n2)-2.5))
+B_hmP2a n6 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_hmP2a_load n6 0 1Meg
-B_hmP2b n7 0 V = 5 * (u(V(n6)-2.5) + u(V(n3)-2.5) - 2*u(V(n6)-2.5)*u(V(n3)-2.5))
+B_hmP2b n7 0 V = 5 * ((0.5*(1+tanh((V(n6)-2.5)/0.05))) + (0.5*(1+tanh((V(n3)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n6)-2.5)/0.05)))*(0.5*(1+tanh((V(n3)-2.5)/0.05))))
 R_hmP2b_load n7 0 1Meg
-B_hmP4a n8 0 V = 5 * (u(V(n1)-2.5) + u(V(n2)-2.5) - 2*u(V(n1)-2.5)*u(V(n2)-2.5))
+B_hmP4a n8 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_hmP4a_load n8 0 1Meg
-B_hmP4b n9 0 V = 5 * (u(V(n8)-2.5) + u(V(n3)-2.5) - 2*u(V(n8)-2.5)*u(V(n3)-2.5))
+B_hmP4b n9 0 V = 5 * ((0.5*(1+tanh((V(n8)-2.5)/0.05))) + (0.5*(1+tanh((V(n3)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n8)-2.5)/0.05)))*(0.5*(1+tanh((V(n3)-2.5)/0.05))))
 R_hmP4b_load n9 0 1Meg
 R_hmR1 n5 n10 220
 V_hmL1_sense n10 hmL1_sense_mid DC 0
@@ -3260,13 +3260,13 @@ R_sB_3 n6 n8 1000000000
 R_rB n6 0 10000
 R_sC_3 n7 n8 1000000000
 R_rC n7 0 10000
-B_aAB n0 0 V = 5 * u(V(n5)-2.5) * u(V(n6)-2.5)
+B_aAB n0 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05)))
 R_aAB_load n0 0 1Meg
-B_aAC n1 0 V = 5 * u(V(n5)-2.5) * u(V(n7)-2.5)
+B_aAC n1 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_aAC_load n1 0 1Meg
-B_aBC n2 0 V = 5 * u(V(n6)-2.5) * u(V(n7)-2.5)
+B_aBC n2 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_aBC_load n2 0 1Meg
-B_or3 n3 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)) * (1-u(V(n2)-2.5)))
+B_or3 n3 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))))
 R_or3_load n3 0 1Meg
 R_rl n3 n4 220
 V_led_sense n4 led_sense_mid DC 0
@@ -3287,21 +3287,21 @@ R_sB0_3 n14 n16 1000000000
 R_rB0 n14 0 10000
 R_sB1_3 n15 n16 1000000000
 R_rB1 n15 0 10000
-B_pA0B0 n4 0 V = 5 * u(V(n12)-2.5) * u(V(n14)-2.5)
+B_pA0B0 n4 0 V = 5 * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_pA0B0_load n4 0 1Meg
-B_pA1B0 n6 0 V = 5 * u(V(n13)-2.5) * u(V(n14)-2.5)
+B_pA1B0 n6 0 V = 5 * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n14)-2.5)/0.05)))
 R_pA1B0_load n6 0 1Meg
-B_pA0B1 n5 0 V = 5 * u(V(n12)-2.5) * u(V(n15)-2.5)
+B_pA0B1 n5 0 V = 5 * (0.5*(1+tanh((V(n12)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_pA0B1_load n5 0 1Meg
-B_pA1B1 n7 0 V = 5 * u(V(n13)-2.5) * u(V(n15)-2.5)
+B_pA1B1 n7 0 V = 5 * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_pA1B1_load n7 0 1Meg
-B_p1Sum n1 0 V = 5 * (u(V(n6)-2.5) + u(V(n5)-2.5) - 2*u(V(n6)-2.5)*u(V(n5)-2.5))
+B_p1Sum n1 0 V = 5 * ((0.5*(1+tanh((V(n6)-2.5)/0.05))) + (0.5*(1+tanh((V(n5)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n6)-2.5)/0.05)))*(0.5*(1+tanh((V(n5)-2.5)/0.05))))
 R_p1Sum_load n1 0 1Meg
-B_p1Car n0 0 V = 5 * u(V(n6)-2.5) * u(V(n5)-2.5)
+B_p1Car n0 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n5)-2.5)/0.05)))
 R_p1Car_load n0 0 1Meg
-B_p2Sum n2 0 V = 5 * (u(V(n7)-2.5) + u(V(n0)-2.5) - 2*u(V(n7)-2.5)*u(V(n0)-2.5))
+B_p2Sum n2 0 V = 5 * ((0.5*(1+tanh((V(n7)-2.5)/0.05))) + (0.5*(1+tanh((V(n0)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n7)-2.5)/0.05)))*(0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_p2Sum_load n2 0 1Meg
-B_p3Car n3 0 V = 5 * u(V(n7)-2.5) * u(V(n0)-2.5)
+B_p3Car n3 0 V = 5 * (0.5*(1+tanh((V(n7)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05)))
 R_p3Car_load n3 0 1Meg
 R_rP0 n4 n8 220
 V_ledP0_sense n8 ledP0_sense_mid DC 0
@@ -3332,13 +3332,13 @@ R_sD0_3 n5 n8 0.01
 R_rpdD0 n5 0 10000
 R_sD1_3 n6 n8 1000000000
 R_rpdD1 n6 0 10000
-B_nSel n2 0 V = 5 * (1 - u(V(n7)-2.5))
+B_nSel n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_nSel_load n2 0 1Meg
-B_a0 n0 0 V = 5 * u(V(n5)-2.5) * u(V(n2)-2.5)
+B_a0 n0 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05)))
 R_a0_load n0 0 1Meg
-B_a1 n1 0 V = 5 * u(V(n6)-2.5) * u(V(n7)-2.5)
+B_a1 n1 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n7)-2.5)/0.05)))
 R_a1_load n1 0 1Meg
-B_orY n3 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)))
+B_orY n3 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))))
 R_orY_load n3 0 1Meg
 R_rl n3 n4 220
 V_led_sense n4 led_sense_mid DC 0
@@ -3363,27 +3363,27 @@ R_s0_3 n16 n18 1000000000
 R_rs0 n16 0 10000
 R_s1_3 n17 n18 1000000000
 R_rs1 n17 0 10000
-B_ns0 n12 0 V = 5 * (1 - u(V(n16)-2.5))
+B_ns0 n12 0 V = 5 * (1 - (0.5*(1+tanh((V(n16)-2.5)/0.05))))
 R_ns0_load n12 0 1Meg
-B_ns1 n13 0 V = 5 * (1 - u(V(n17)-2.5))
+B_ns1 n13 0 V = 5 * (1 - (0.5*(1+tanh((V(n17)-2.5)/0.05))))
 R_ns1_load n13 0 1Meg
-B_a0 n0 0 V = 5 * u(V(n4)-2.5) * u(V(n8)-2.5)
+B_a0 n0 0 V = 5 * (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_a0_load n0 0 1Meg
-B_a1 n1 0 V = 5 * u(V(n5)-2.5) * u(V(n9)-2.5)
+B_a1 n1 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n9)-2.5)/0.05)))
 R_a1_load n1 0 1Meg
-B_a2 n2 0 V = 5 * u(V(n6)-2.5) * u(V(n10)-2.5)
+B_a2 n2 0 V = 5 * (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n10)-2.5)/0.05)))
 R_a2_load n2 0 1Meg
-B_a3 n3 0 V = 5 * u(V(n7)-2.5) * u(V(n11)-2.5)
+B_a3 n3 0 V = 5 * (0.5*(1+tanh((V(n7)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_a3_load n3 0 1Meg
-B_dec0 n8 0 V = 5 * u(V(n13)-2.5) * u(V(n12)-2.5)
+B_dec0 n8 0 V = 5 * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05)))
 R_dec0_load n8 0 1Meg
-B_dec1 n9 0 V = 5 * u(V(n13)-2.5) * u(V(n16)-2.5)
+B_dec1 n9 0 V = 5 * (0.5*(1+tanh((V(n13)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_dec1_load n9 0 1Meg
-B_dec2 n10 0 V = 5 * u(V(n17)-2.5) * u(V(n12)-2.5)
+B_dec2 n10 0 V = 5 * (0.5*(1+tanh((V(n17)-2.5)/0.05))) * (0.5*(1+tanh((V(n12)-2.5)/0.05)))
 R_dec2_load n10 0 1Meg
-B_dec3 n11 0 V = 5 * u(V(n17)-2.5) * u(V(n16)-2.5)
+B_dec3 n11 0 V = 5 * (0.5*(1+tanh((V(n17)-2.5)/0.05))) * (0.5*(1+tanh((V(n16)-2.5)/0.05)))
 R_dec3_load n11 0 1Meg
-B_orY n14 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)) * (1-u(V(n2)-2.5)) * (1-u(V(n3)-2.5)))
+B_orY n14 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))))
 R_orY_load n14 0 1Meg
 R_rl n14 n15 220
 V_led_sense n15 led_sense_mid DC 0
@@ -3400,7 +3400,7 @@ R_s1_3 n1 n3 1000000000
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 1000000000
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * (1 - u(V(n1)-2.5) * u(V(n2)-2.5))
+B_u1 n4 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3417,7 +3417,7 @@ R_s1_3 n1 n3 1000000000
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 1000000000
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * (1-u(V(n1)-2.5)) * (1-u(V(n2)-2.5))
+B_u1 n4 0 V = 5 * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3432,7 +3432,7 @@ exports[`netlist snapshot — digital (39 examples) > digital-not-inverter 1`] =
 V_src n2 0 DC 5
 R_s1_3 n1 n2 1000000000
 R_rpd n1 0 10000
-B_u1 n3 0 V = 5 * (1 - u(V(n1)-2.5))
+B_u1 n3 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_u1_load n3 0 1Meg
 R_rl n3 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3449,7 +3449,7 @@ R_s1_3 n1 n3 1000000000
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 1000000000
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * (1 - (1-u(V(n1)-2.5)) * (1-u(V(n2)-2.5)))
+B_u1 n4 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3470,11 +3470,11 @@ R_s2_3 n3 n5 1000000000
 R_r2 n3 0 10000
 R_s3_3 n4 n5 1000000000
 R_r3 n4 0 10000
-B_x01 n6 0 V = 5 * (u(V(n1)-2.5) + u(V(n2)-2.5) - 2*u(V(n1)-2.5)*u(V(n2)-2.5))
+B_x01 n6 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_x01_load n6 0 1Meg
-B_x23 n7 0 V = 5 * (u(V(n3)-2.5) + u(V(n4)-2.5) - 2*u(V(n3)-2.5)*u(V(n4)-2.5))
+B_x23 n7 0 V = 5 * ((0.5*(1+tanh((V(n3)-2.5)/0.05))) + (0.5*(1+tanh((V(n4)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n3)-2.5)/0.05)))*(0.5*(1+tanh((V(n4)-2.5)/0.05))))
 R_x23_load n7 0 1Meg
-B_xp n8 0 V = 5 * (u(V(n6)-2.5) + u(V(n7)-2.5) - 2*u(V(n6)-2.5)*u(V(n7)-2.5))
+B_xp n8 0 V = 5 * ((0.5*(1+tanh((V(n6)-2.5)/0.05))) + (0.5*(1+tanh((V(n7)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n6)-2.5)/0.05)))*(0.5*(1+tanh((V(n7)-2.5)/0.05))))
 R_xp_load n8 0 1Meg
 R_rl n8 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3495,27 +3495,27 @@ R_pcX2_3 n16 n18 1000000000
 R_pcR2 n16 0 10000
 R_pcX3_3 n17 n18 1000000000
 R_pcR3 n17 0 10000
-B_pcSA n10 0 V = 5 * (u(V(n14)-2.5) + u(V(n15)-2.5) - 2*u(V(n14)-2.5)*u(V(n15)-2.5))
+B_pcSA n10 0 V = 5 * ((0.5*(1+tanh((V(n14)-2.5)/0.05))) + (0.5*(1+tanh((V(n15)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n14)-2.5)/0.05)))*(0.5*(1+tanh((V(n15)-2.5)/0.05))))
 R_pcSA_load n10 0 1Meg
-B_pcCA n0 0 V = 5 * u(V(n14)-2.5) * u(V(n15)-2.5)
+B_pcCA n0 0 V = 5 * (0.5*(1+tanh((V(n14)-2.5)/0.05))) * (0.5*(1+tanh((V(n15)-2.5)/0.05)))
 R_pcCA_load n0 0 1Meg
-B_pcSB n11 0 V = 5 * (u(V(n16)-2.5) + u(V(n17)-2.5) - 2*u(V(n16)-2.5)*u(V(n17)-2.5))
+B_pcSB n11 0 V = 5 * ((0.5*(1+tanh((V(n16)-2.5)/0.05))) + (0.5*(1+tanh((V(n17)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n16)-2.5)/0.05)))*(0.5*(1+tanh((V(n17)-2.5)/0.05))))
 R_pcSB_load n11 0 1Meg
-B_pcCB n1 0 V = 5 * u(V(n16)-2.5) * u(V(n17)-2.5)
+B_pcCB n1 0 V = 5 * (0.5*(1+tanh((V(n16)-2.5)/0.05))) * (0.5*(1+tanh((V(n17)-2.5)/0.05)))
 R_pcCB_load n1 0 1Meg
-B_pcSC n12 0 V = 5 * (u(V(n10)-2.5) + u(V(n11)-2.5) - 2*u(V(n10)-2.5)*u(V(n11)-2.5))
+B_pcSC n12 0 V = 5 * ((0.5*(1+tanh((V(n10)-2.5)/0.05))) + (0.5*(1+tanh((V(n11)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n10)-2.5)/0.05)))*(0.5*(1+tanh((V(n11)-2.5)/0.05))))
 R_pcSC_load n12 0 1Meg
-B_pcSCcar n13 0 V = 5 * u(V(n10)-2.5) * u(V(n11)-2.5)
+B_pcSCcar n13 0 V = 5 * (0.5*(1+tanh((V(n10)-2.5)/0.05))) * (0.5*(1+tanh((V(n11)-2.5)/0.05)))
 R_pcSCcar_load n13 0 1Meg
-B_pcFA_x1 n5 0 V = 5 * (u(V(n0)-2.5) + u(V(n1)-2.5) - 2*u(V(n0)-2.5)*u(V(n1)-2.5))
+B_pcFA_x1 n5 0 V = 5 * ((0.5*(1+tanh((V(n0)-2.5)/0.05))) + (0.5*(1+tanh((V(n1)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n0)-2.5)/0.05)))*(0.5*(1+tanh((V(n1)-2.5)/0.05))))
 R_pcFA_x1_load n5 0 1Meg
-B_pcFA_x2 n6 0 V = 5 * (u(V(n5)-2.5) + u(V(n13)-2.5) - 2*u(V(n5)-2.5)*u(V(n13)-2.5))
+B_pcFA_x2 n6 0 V = 5 * ((0.5*(1+tanh((V(n5)-2.5)/0.05))) + (0.5*(1+tanh((V(n13)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n5)-2.5)/0.05)))*(0.5*(1+tanh((V(n13)-2.5)/0.05))))
 R_pcFA_x2_load n6 0 1Meg
-B_pcFA_a1 n2 0 V = 5 * u(V(n0)-2.5) * u(V(n1)-2.5)
+B_pcFA_a1 n2 0 V = 5 * (0.5*(1+tanh((V(n0)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05)))
 R_pcFA_a1_load n2 0 1Meg
-B_pcFA_a2 n3 0 V = 5 * u(V(n5)-2.5) * u(V(n13)-2.5)
+B_pcFA_a2 n3 0 V = 5 * (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n13)-2.5)/0.05)))
 R_pcFA_a2_load n3 0 1Meg
-B_pcFA_or n4 0 V = 5 * (1 - (1-u(V(n2)-2.5)) * (1-u(V(n3)-2.5)))
+B_pcFA_or n4 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))))
 R_pcFA_or_load n4 0 1Meg
 R_pcRl0 n12 n7 220
 V_pcLed0_sense n7 pcLed0_sense_mid DC 0
@@ -3552,25 +3552,25 @@ R_pe6_3 n6 n22 1000000000
 R_peR6 n6 0 10000
 R_pe7_3 n7 n22 1000000000
 R_peR7 n7 0 10000
-B_peY2 n17 0 V = 5 * (1 - (1-u(V(n4)-2.5)) * (1-u(V(n5)-2.5)) * (1-u(V(n6)-2.5)) * (1-u(V(n7)-2.5)))
+B_peY2 n17 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n6)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_peY2_load n17 0 1Meg
-B_peLow23 n8 0 V = 5 * (1 - (1-u(V(n2)-2.5)) * (1-u(V(n3)-2.5)))
+B_peLow23 n8 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))))
 R_peLow23_load n8 0 1Meg
-B_peNotY2 n10 0 V = 5 * (1 - u(V(n17)-2.5))
+B_peNotY2 n10 0 V = 5 * (1 - (0.5*(1+tanh((V(n17)-2.5)/0.05))))
 R_peNotY2_load n10 0 1Meg
-B_peLow23M n9 0 V = 5 * u(V(n8)-2.5) * u(V(n10)-2.5)
+B_peLow23M n9 0 V = 5 * (0.5*(1+tanh((V(n8)-2.5)/0.05))) * (0.5*(1+tanh((V(n10)-2.5)/0.05)))
 R_peLow23M_load n9 0 1Meg
-B_peTopGrp n11 0 V = 5 * (1 - (1-u(V(n6)-2.5)) * (1-u(V(n7)-2.5)))
+B_peTopGrp n11 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n6)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_peTopGrp_load n11 0 1Meg
-B_peY1 n16 0 V = 5 * (1 - (1-u(V(n11)-2.5)) * (1-u(V(n9)-2.5)))
+B_peY1 n16 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n11)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n9)-2.5)/0.05)))))
 R_peY1_load n16 0 1Meg
-B_peY0 n15 0 V = 5 * (1 - (1-u(V(n1)-2.5)) * (1-u(V(n3)-2.5)) * (1-u(V(n5)-2.5)) * (1-u(V(n7)-2.5)))
+B_peY0 n15 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_peY0_load n15 0 1Meg
-B_peVL n13 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n1)-2.5)) * (1-u(V(n2)-2.5)) * (1-u(V(n3)-2.5)))
+B_peVL n13 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))))
 R_peVL_load n13 0 1Meg
-B_peVH n12 0 V = 5 * (1 - (1-u(V(n4)-2.5)) * (1-u(V(n5)-2.5)) * (1-u(V(n6)-2.5)) * (1-u(V(n7)-2.5)))
+B_peVH n12 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n6)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_peVH_load n12 0 1Meg
-B_peValid n14 0 V = 5 * (1 - (1-u(V(n13)-2.5)) * (1-u(V(n12)-2.5)))
+B_peValid n14 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n13)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n12)-2.5)/0.05)))))
 R_peValid_load n14 0 1Meg
 R_rY2 n17 n21 220
 V_lY2_sense n21 lY2_sense_mid DC 0
@@ -3613,54 +3613,54 @@ R_sB3_3 n24 n26 1000000000
 R_rB3 n24 0 10000
 R_sCin_3 n25 n26 1000000000
 R_rCin n25 0 10000
-B_x1_0 n27 0 V = 5 * (u(V(n17)-2.5) + u(V(n21)-2.5) - 2*u(V(n17)-2.5)*u(V(n21)-2.5))
+B_x1_0 n27 0 V = 5 * ((0.5*(1+tanh((V(n17)-2.5)/0.05))) + (0.5*(1+tanh((V(n21)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n17)-2.5)/0.05)))*(0.5*(1+tanh((V(n21)-2.5)/0.05))))
 R_x1_0_load n27 0 1Meg
-B_a1_0 n0 0 V = 5 * u(V(n17)-2.5) * u(V(n21)-2.5)
+B_a1_0 n0 0 V = 5 * (0.5*(1+tanh((V(n17)-2.5)/0.05))) * (0.5*(1+tanh((V(n21)-2.5)/0.05)))
 R_a1_0_load n0 0 1Meg
-B_x2_0 n31 0 V = 5 * (u(V(n27)-2.5) + u(V(n25)-2.5) - 2*u(V(n27)-2.5)*u(V(n25)-2.5))
+B_x2_0 n31 0 V = 5 * ((0.5*(1+tanh((V(n27)-2.5)/0.05))) + (0.5*(1+tanh((V(n25)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n27)-2.5)/0.05)))*(0.5*(1+tanh((V(n25)-2.5)/0.05))))
 R_x2_0_load n31 0 1Meg
-B_a2_0 n4 0 V = 5 * u(V(n27)-2.5) * u(V(n25)-2.5)
+B_a2_0 n4 0 V = 5 * (0.5*(1+tanh((V(n27)-2.5)/0.05))) * (0.5*(1+tanh((V(n25)-2.5)/0.05)))
 R_a2_0_load n4 0 1Meg
-B_orC_0 n8 0 V = 5 * (1 - (1-u(V(n0)-2.5)) * (1-u(V(n4)-2.5)))
+B_orC_0 n8 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n4)-2.5)/0.05)))))
 R_orC_0_load n8 0 1Meg
 R_rS0 n31 n13 220
 V_ledS0_sense n13 ledS0_sense_mid DC 0
 D_ledS0 ledS0_sense_mid 0 LED_RED
-B_x1_1 n28 0 V = 5 * (u(V(n18)-2.5) + u(V(n22)-2.5) - 2*u(V(n18)-2.5)*u(V(n22)-2.5))
+B_x1_1 n28 0 V = 5 * ((0.5*(1+tanh((V(n18)-2.5)/0.05))) + (0.5*(1+tanh((V(n22)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n18)-2.5)/0.05)))*(0.5*(1+tanh((V(n22)-2.5)/0.05))))
 R_x1_1_load n28 0 1Meg
-B_a1_1 n1 0 V = 5 * u(V(n18)-2.5) * u(V(n22)-2.5)
+B_a1_1 n1 0 V = 5 * (0.5*(1+tanh((V(n18)-2.5)/0.05))) * (0.5*(1+tanh((V(n22)-2.5)/0.05)))
 R_a1_1_load n1 0 1Meg
-B_x2_1 n32 0 V = 5 * (u(V(n28)-2.5) + u(V(n8)-2.5) - 2*u(V(n28)-2.5)*u(V(n8)-2.5))
+B_x2_1 n32 0 V = 5 * ((0.5*(1+tanh((V(n28)-2.5)/0.05))) + (0.5*(1+tanh((V(n8)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n28)-2.5)/0.05)))*(0.5*(1+tanh((V(n8)-2.5)/0.05))))
 R_x2_1_load n32 0 1Meg
-B_a2_1 n5 0 V = 5 * u(V(n28)-2.5) * u(V(n8)-2.5)
+B_a2_1 n5 0 V = 5 * (0.5*(1+tanh((V(n28)-2.5)/0.05))) * (0.5*(1+tanh((V(n8)-2.5)/0.05)))
 R_a2_1_load n5 0 1Meg
-B_orC_1 n9 0 V = 5 * (1 - (1-u(V(n1)-2.5)) * (1-u(V(n5)-2.5)))
+B_orC_1 n9 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n1)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n5)-2.5)/0.05)))))
 R_orC_1_load n9 0 1Meg
 R_rS1 n32 n14 220
 V_ledS1_sense n14 ledS1_sense_mid DC 0
 D_ledS1 ledS1_sense_mid 0 LED_YELLOW
-B_x1_2 n29 0 V = 5 * (u(V(n19)-2.5) + u(V(n23)-2.5) - 2*u(V(n19)-2.5)*u(V(n23)-2.5))
+B_x1_2 n29 0 V = 5 * ((0.5*(1+tanh((V(n19)-2.5)/0.05))) + (0.5*(1+tanh((V(n23)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n19)-2.5)/0.05)))*(0.5*(1+tanh((V(n23)-2.5)/0.05))))
 R_x1_2_load n29 0 1Meg
-B_a1_2 n2 0 V = 5 * u(V(n19)-2.5) * u(V(n23)-2.5)
+B_a1_2 n2 0 V = 5 * (0.5*(1+tanh((V(n19)-2.5)/0.05))) * (0.5*(1+tanh((V(n23)-2.5)/0.05)))
 R_a1_2_load n2 0 1Meg
-B_x2_2 n33 0 V = 5 * (u(V(n29)-2.5) + u(V(n9)-2.5) - 2*u(V(n29)-2.5)*u(V(n9)-2.5))
+B_x2_2 n33 0 V = 5 * ((0.5*(1+tanh((V(n29)-2.5)/0.05))) + (0.5*(1+tanh((V(n9)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n29)-2.5)/0.05)))*(0.5*(1+tanh((V(n9)-2.5)/0.05))))
 R_x2_2_load n33 0 1Meg
-B_a2_2 n6 0 V = 5 * u(V(n29)-2.5) * u(V(n9)-2.5)
+B_a2_2 n6 0 V = 5 * (0.5*(1+tanh((V(n29)-2.5)/0.05))) * (0.5*(1+tanh((V(n9)-2.5)/0.05)))
 R_a2_2_load n6 0 1Meg
-B_orC_2 n10 0 V = 5 * (1 - (1-u(V(n2)-2.5)) * (1-u(V(n6)-2.5)))
+B_orC_2 n10 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n2)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n6)-2.5)/0.05)))))
 R_orC_2_load n10 0 1Meg
 R_rS2 n33 n15 220
 V_ledS2_sense n15 ledS2_sense_mid DC 0
 D_ledS2 ledS2_sense_mid 0 LED_GREEN
-B_x1_3 n30 0 V = 5 * (u(V(n20)-2.5) + u(V(n24)-2.5) - 2*u(V(n20)-2.5)*u(V(n24)-2.5))
+B_x1_3 n30 0 V = 5 * ((0.5*(1+tanh((V(n20)-2.5)/0.05))) + (0.5*(1+tanh((V(n24)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n20)-2.5)/0.05)))*(0.5*(1+tanh((V(n24)-2.5)/0.05))))
 R_x1_3_load n30 0 1Meg
-B_a1_3 n3 0 V = 5 * u(V(n20)-2.5) * u(V(n24)-2.5)
+B_a1_3 n3 0 V = 5 * (0.5*(1+tanh((V(n20)-2.5)/0.05))) * (0.5*(1+tanh((V(n24)-2.5)/0.05)))
 R_a1_3_load n3 0 1Meg
-B_x2_3 n34 0 V = 5 * (u(V(n30)-2.5) + u(V(n10)-2.5) - 2*u(V(n30)-2.5)*u(V(n10)-2.5))
+B_x2_3 n34 0 V = 5 * ((0.5*(1+tanh((V(n30)-2.5)/0.05))) + (0.5*(1+tanh((V(n10)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n30)-2.5)/0.05)))*(0.5*(1+tanh((V(n10)-2.5)/0.05))))
 R_x2_3_load n34 0 1Meg
-B_a2_3 n7 0 V = 5 * u(V(n30)-2.5) * u(V(n10)-2.5)
+B_a2_3 n7 0 V = 5 * (0.5*(1+tanh((V(n30)-2.5)/0.05))) * (0.5*(1+tanh((V(n10)-2.5)/0.05)))
 R_a2_3_load n7 0 1Meg
-B_orC_3 n11 0 V = 5 * (1 - (1-u(V(n3)-2.5)) * (1-u(V(n7)-2.5)))
+B_orC_3 n11 0 V = 5 * (1 - (1-(0.5*(1+tanh((V(n3)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n7)-2.5)/0.05)))))
 R_orC_3_load n11 0 1Meg
 R_rS3 n34 n16 220
 V_ledS3_sense n16 ledS3_sense_mid DC 0
@@ -3719,7 +3719,7 @@ R_s1_3 n1 n3 0.01
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 0.01
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * (1 - (u(V(n1)-2.5) + u(V(n2)-2.5) - 2*u(V(n1)-2.5)*u(V(n2)-2.5)))
+B_u1 n4 0 V = 5 * (1 - ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05)))))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3736,7 +3736,7 @@ R_s1_3 n1 n3 1000000000
 R_rpd1 n1 0 10000
 R_s2_3 n2 n3 1000000000
 R_rpd2 n2 0 10000
-B_u1 n4 0 V = 5 * (u(V(n1)-2.5) + u(V(n2)-2.5) - 2*u(V(n1)-2.5)*u(V(n2)-2.5))
+B_u1 n4 0 V = 5 * ((0.5*(1+tanh((V(n1)-2.5)/0.05))) + (0.5*(1+tanh((V(n2)-2.5)/0.05))) - 2*(0.5*(1+tanh((V(n1)-2.5)/0.05)))*(0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_u1_load n4 0 1Meg
 R_rl n4 n0 220
 V_led_sense n0 led_sense_mid DC 0
@@ -3753,13 +3753,13 @@ R_sA_3 n5 n7 1000000000
 R_rA n5 0 10000
 R_sB_3 n6 n7 1000000000
 R_rB n6 0 10000
-B_n1 n0 0 V = 5 * (1 - u(V(n5)-2.5) * u(V(n6)-2.5))
+B_n1 n0 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n6)-2.5)/0.05))))
 R_n1_load n0 0 1Meg
-B_n2 n1 0 V = 5 * (1 - u(V(n5)-2.5) * u(V(n0)-2.5))
+B_n2 n1 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_n2_load n1 0 1Meg
-B_n3 n2 0 V = 5 * (1 - u(V(n6)-2.5) * u(V(n0)-2.5))
+B_n3 n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n6)-2.5)/0.05))) * (0.5*(1+tanh((V(n0)-2.5)/0.05))))
 R_n3_load n2 0 1Meg
-B_n4 n3 0 V = 5 * (1 - u(V(n1)-2.5) * u(V(n2)-2.5))
+B_n4 n3 0 V = 5 * (1 - (0.5*(1+tanh((V(n1)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
 R_n4_load n3 0 1Meg
 R_rl n3 n4 220
 V_led_sense n4 led_sense_mid DC 0
