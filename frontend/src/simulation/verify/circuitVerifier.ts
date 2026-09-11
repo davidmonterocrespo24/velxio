@@ -48,7 +48,8 @@ export type WarningCode =
   | 'unsupported-sensor'
   | 'unpowered-net'
   | 'no-return-path'
-  | 'voltage-mismatch';
+  | 'voltage-mismatch'
+  | 'bus-off-pins';
 
 export interface CircuitWarning {
   severity: WarningSeverity;
@@ -139,6 +140,11 @@ export async function verifyCircuit(
           : `${gap.sensorType} on GPIO ${gap.pin} will not answer here: ${gap.why}`,
     });
   }
+
+  // ── Buses a Raspberry Pi has only on fixed pins (no solve) ────────────
+  // Same placement as the line gaps above, for the same reason: pure wiring,
+  // reported even when the netlist cannot be built.
+  warnings.push(...piBusPinWarnings(input));
 
   // Reported BEFORE the netlist is built, on purpose. This loop reads nothing
   // but input.components, and buildNetlist throws on a canvas the emitter
@@ -1153,6 +1159,119 @@ export function findSourceConflicts(
       componentId: parts.find((p) => p.componentId)?.componentId,
       message: `${names.join(', ')} and ${last} are both driving the same net, so the circuit has no solution: the simulator cannot solve any voltage on the canvas until one of them is removed. Typical cause: a regulator or battery output wired straight into a board supply pin.`,
     });
+  }
+  return out;
+}
+
+
+// ── Raspberry Pi header buses ─────────────────────────────────────────────
+
+/** Header boards of the Pi family; the Pico and the UNIHIKER are not. */
+const PI_HEADER_KIND = /^raspberry-pi-(zero|1|2|3|4|5)\b/;
+
+/** 40-pin header position -> BCM GPIO, for wires that name the pin by number. */
+const PI_HEADER_GPIO: Record<string, number> = {
+  '3': 2, '5': 3, '7': 4, '8': 14, '10': 15, '11': 17, '12': 18, '13': 27, '15': 22,
+  '16': 23, '18': 24, '19': 10, '21': 9, '22': 25, '23': 11, '24': 8, '26': 7, '27': 0,
+  '28': 1, '29': 5, '31': 6, '32': 12, '33': 13, '35': 19, '36': 16, '37': 26, '38': 20,
+  '40': 21,
+};
+const PI_ALIAS_GPIO: Record<string, number> = {
+  SDA: 2, SDA1: 2, SCL: 3, SCL1: 3, MOSI: 10, MISO: 9, SCLK: 11, SCK: 11, CE0: 8, CE1: 7,
+};
+
+/** The BCM number a Pi pin name refers to, or null for power / ground. */
+function piGpioOf(pinName: string): number | null {
+  const m = /^GPIO(\d+)$/i.exec(pinName);
+  if (m) return Number(m[1]);
+  return PI_HEADER_GPIO[pinName] ?? PI_ALIAS_GPIO[pinName.toUpperCase()] ?? null;
+}
+
+interface BusRole {
+  bus: 'I2C' | 'SPI';
+  signal: string;
+  gpio: number;
+  header: number;
+}
+
+const I2C_ROLES: Record<string, BusRole> = {
+  SDA: { bus: 'I2C', signal: 'SDA', gpio: 2, header: 3 },
+  SCL: { bus: 'I2C', signal: 'SCL', gpio: 3, header: 5 },
+};
+const SPI_CLOCK = new Set(['SCK', 'SCLK', 'CLK']);
+const SPI_MOSI = new Set(['MOSI', 'DIN', 'SDI']);
+const SPI_MISO = new Set(['MISO', 'DOUT', 'SDO', 'SO']);
+const SPI_ROLE: Record<'clock' | 'mosi' | 'miso', BusRole> = {
+  clock: { bus: 'SPI', signal: 'SCLK', gpio: 11, header: 23 },
+  mosi: { bus: 'SPI', signal: 'MOSI', gpio: 10, header: 19 },
+  miso: { bus: 'SPI', signal: 'MISO', gpio: 9, header: 21 },
+};
+
+/**
+ * A part on a Pi's I2C or SPI pins that is wired to the wrong GPIO looks
+ * connected and never answers: smbus2 opens /dev/i2c-1 and spidev
+ * /dev/spidev0.x, and those exist only on the header's hardware pins (I2C on
+ * GPIO2/GPIO3, SPI0 on GPIO11/GPIO10/GPIO9). This says which pin the part
+ * needs.
+ *
+ * Deliberately narrow, so it never cries wolf:
+ *   - only wires between a PART pin and a Pi header pin (a Pi wired to
+ *     another board goes through the Interconnect, not a bus);
+ *   - SPI only for a part that looks like SPI, a clock plus a data pin: an
+ *     HX711, a TM1637 or an encoder bit-banging CLK on any GPIO is legitimate;
+ *   - chip selects and the 1-Wire data line are never checked: any GPIO can
+ *     drive a CS by hand, and config.txt moves the w1 pin.
+ */
+export function piBusPinWarnings(input: Pick<BuildNetlistInput, 'boards' | 'components' | 'wires'>): CircuitWarning[] {
+  const piBoards = new Set(
+    input.boards.filter((b) => PI_HEADER_KIND.test(b.boardKind ?? '')).map((b) => b.id),
+  );
+  if (!piBoards.size) return [];
+  const partIds = new Set(input.components.map((c) => c.id));
+
+  // Every (part pin -> Pi GPIO) link, per part.
+  const links = new Map<string, Array<{ pin: string; gpio: number }>>();
+  for (const wire of input.wires) {
+    for (const [a, b] of [
+      [wire.start, wire.end],
+      [wire.end, wire.start],
+    ] as const) {
+      if (!piBoards.has(a.componentId) || !partIds.has(b.componentId)) continue;
+      const gpio = piGpioOf(a.pinName);
+      if (gpio === null) continue;
+      let list = links.get(b.componentId);
+      if (!list) links.set(b.componentId, (list = []));
+      list.push({ pin: b.pinName, gpio });
+    }
+  }
+
+  const out: CircuitWarning[] = [];
+  for (const [componentId, list] of links) {
+    const names = new Set(list.map((l) => l.pin.toUpperCase()));
+    const looksSpi =
+      [...names].some((n) => SPI_CLOCK.has(n)) &&
+      [...names].some((n) => SPI_MOSI.has(n) || SPI_MISO.has(n));
+    const seen = new Set<string>();
+    for (const { pin, gpio } of list) {
+      const n = pin.toUpperCase();
+      const role =
+        I2C_ROLES[n] ??
+        (looksSpi && SPI_CLOCK.has(n) ? SPI_ROLE.clock : undefined) ??
+        (looksSpi && SPI_MOSI.has(n) ? SPI_ROLE.mosi : undefined) ??
+        (looksSpi && SPI_MISO.has(n) ? SPI_ROLE.miso : undefined);
+      if (!role || gpio === role.gpio || seen.has(n)) continue;
+      seen.add(n);
+      const lib = role.bus === 'I2C' ? 'smbus2 on /dev/i2c-1' : 'spidev on /dev/spidev0.x';
+      out.push({
+        severity: 'warning',
+        code: 'bus-off-pins',
+        componentId,
+        message:
+          `${componentId} ${pin} is on GPIO${gpio}, but the Raspberry Pi's ${role.bus} ${role.signal} is ` +
+          `GPIO${role.gpio} (header pin ${role.header}). ${lib} only reaches that pin: move the wire there` +
+          (role.bus === 'SPI' ? ', unless your script bit-bangs the bus on its own pins.' : '.'),
+      });
+    }
   }
   return out;
 }
