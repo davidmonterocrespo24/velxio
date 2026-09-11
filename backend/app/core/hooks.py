@@ -180,10 +180,18 @@ def materialize_library_scope(
     if _materialize_library_scope_hook is None or allowed_libraries is None:
         return None
     try:
-        return _materialize_library_scope_hook(allowed_libraries, owner_id)
+        scope = _materialize_library_scope_hook(allowed_libraries, owner_id)
     except Exception:
         logger.exception("materialize_library_scope hook failed (using default libraries dir)")
         return None
+    # The overlay may report HOW the manifest resolved as a third element
+    # (locked_miss, pinned_miss, lock_sha, ...). The compilers only read the
+    # dir and the token, so the report travels to the compile route through
+    # a context variable set in the job's own task; the route copies the
+    # known keys into the compile row (compile._SCOPE_RESULT_KEYS).
+    if scope and len(scope) > 2 and isinstance(scope[2], dict):
+        scope_stats.set(scope[2])
+    return scope
 
 
 # ── resolve_compile_owner ─────────────────────────────────────────────────────
@@ -469,6 +477,13 @@ async def compile_priority(user_id: Optional[str], request: Any = None) -> Optio
 # context variable (set inside the job's task so it never leaks across
 # requests). Default True = today's behaviour for everyone.
 scope_retry_allowed: ContextVar[bool] = ContextVar("scope_retry_allowed", default=True)
+
+# What the overlay's materialiser reported for the LAST scoped attempt of the
+# current compile (see materialize_library_scope). The route resets it per
+# compile and reads it after the compilers return; the scan-all retry does
+# not call the hook, so a rescued build still carries the scoped attempt's
+# report beside `scope_retry`. None on OSS.
+scope_stats: ContextVar[Optional[dict]] = ContextVar("scope_stats", default=None)
 
 
 # ── health_probe ─────────────────────────────────────────────────────────────

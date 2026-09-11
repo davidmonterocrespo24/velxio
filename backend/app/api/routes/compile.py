@@ -17,6 +17,7 @@ from app.core.hooks import (
     compile_admission,
     scope_fingerprint,
     scope_retry_allowed,
+    scope_stats,
     compile_priority,
     get_current_user_id,
     get_project_libraries,
@@ -642,7 +643,11 @@ _SCOPE_RESULT_KEYS = (
 
 
 def _scope_of(result: dict) -> dict | None:
-    out = {k: result[k] for k in _SCOPE_RESULT_KEYS if k in result}
+    # What the overlay's materialiser reported for this compile (hooks
+    # scope_stats): the result's own keys win, the report fills the rest.
+    reported = scope_stats.get() or {}
+    out = {k: reported[k] for k in _SCOPE_RESULT_KEYS if k in reported and reported[k]}
+    out.update({k: result[k] for k in _SCOPE_RESULT_KEYS if k in result})
     # manifest_incomplete is ALSO set on a plain scan-all build that merged
     # libraries (the client uses it to suggest a manifest), so it cannot mean
     # "the scoped attempt failed and the retry ran". The compilers say that
@@ -853,6 +858,8 @@ async def _run_compile(
             error="ESP-IDF toolchain is not available on this server.",
         )
 
+    # One report per compile: never inherit the previous job's.
+    scope_stats.set(None)
     if request.board_fqbn.startswith("esp32:") and espidf_compiler.available:
         logger.info(
             f"[compile] Using ESP-IDF for {request.board_fqbn}"
