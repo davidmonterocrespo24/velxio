@@ -87,6 +87,9 @@ describe('the bus map goes to a relaying backend, and only then', () => {
   it('nothing is published before bus_relay; once announced, the map and the busRelay flag', () => {
     const { id, shim, bridge } = addPi();
     shim.addI2CDevice(new VirtualBMP280(0x76));
+    // A device that cannot export its registers (a command-driven sensor):
+    // the backend has to ask the tab for it every time.
+    shim.addI2CDevice({ address: 0x44, writeByte: () => true, readByte: () => 0 });
     const cleanup = PartSimulationRegistry.get('mpu6050')!.attachEvents!(
       document.createElement('div'),
       shim as never,
@@ -104,7 +107,10 @@ describe('the bus map goes to a relaying backend, and only then', () => {
     expect(byAddr.get(0x76)?.regs).toMatch(/^[0-9a-f]{512}$/);
     // 0xD0 is the BMP280 chip id register: its copy must say 0x58.
     expect(byAddr.get(0x76)?.regs?.slice(0xd0 * 2, 0xd0 * 2 + 2)).toBe('58');
-    expect(byAddr.get(0x68)?.regs).toBeNull(); // the MPU6050 is asked, not copied
+    // The MPU6050 is a register file too, so it travels with its registers
+    // (WHO_AM_I at 0x75 is its own address).
+    expect(byAddr.get(0x68)?.regs?.slice(0x75 * 2, 0x75 * 2 + 2)).toBe('68');
+    expect(byAddr.get(0x44)?.regs).toBeNull(); // no dumpRegisters: asked, not copied
     expect(topo.spi.attached).toBe(false);
     expect(useSimulatorStore.getState().boards.find((b) => b.id === id)?.busRelay).toBe(true);
     cleanup();

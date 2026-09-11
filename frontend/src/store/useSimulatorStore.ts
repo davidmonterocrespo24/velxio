@@ -750,20 +750,20 @@ export class Esp32BridgeShim {
   }
 
   /**
-   * Cheap XOR-stride hash over a 256-byte buffer.  Detects any byte
-   * difference; collisions are theoretically possible but we don't
-   * care — a missed update on a flaky hash just delays freshness by
-   * one cycle.
+   * FNV-1a over EVERY byte of a register dump. The previous hash sampled one
+   * byte in sixteen plus the first eight, so a change anywhere else — the
+   * BMP280 measurement registers at 0xF7-0xFC, an MPU-6050 axis the slider
+   * moved — left the hash equal and the proxy never refreshed: the ESP32 read
+   * a stale value for as long as the run lasted. 256 bytes every 250 ms per
+   * proxied device costs nothing.
    */
-  private static _hashRegs(regs: Uint8Array): number {
-    let h = regs.length & 0xff;
-    for (let i = 0; i < regs.length; i += 16) {
-      h = ((h << 5) - h + regs[i]) | 0;
+  static _hashRegs(regs: Uint8Array): number {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < regs.length; i++) {
+      h ^= regs[i];
+      h = Math.imul(h, 0x01000193);
     }
-    for (let i = 0; i < Math.min(regs.length, 8); i++) {
-      h = ((h << 5) - h + regs[i]) | 0;
-    }
-    return h;
+    return h >>> 0;
   }
 
   private _resyncTick(): void {
