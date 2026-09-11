@@ -1450,7 +1450,7 @@
       "defaultValues": {
         "i2cAddress": "0x3c"
       },
-      "pinCount": 0,
+      "pinCount": 8,
       "tags": [
         "ssd1306",
         "oled",
