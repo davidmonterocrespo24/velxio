@@ -159,7 +159,7 @@ describe('pre-flight demotion: a pin a component already sources is an input', (
       components: [dcSource('sg')],
       wires: [wire('w1', ['sg', 'SIG'], ['uno', '0']), wire('w2', ['sg', 'GND'], ['uno', 'GND.1'])],
       boards: [{ id: 'uno', boardKind: 'arduino-uno', pinStates: { '0': { type: 'digital', v: 5 } } }],
-    });
+    } as never);
     const { netlist } = buildNetlist({ ...input, analysis: { kind: 'op' } });
     const found = findSourceConflicts(netlist, input, new Set(['uno:0']));
     expect(found).toHaveLength(1);

@@ -8,7 +8,7 @@ import re
 import os
 from pathlib import Path
 
-from app.core.hooks import materialize_library_scope
+from app.core.hooks import materialize_library_scope, scope_retry_allowed
 
 
 # A preprocessor "fatal error: Foo.h: No such file or directory" — the signature
@@ -750,6 +750,21 @@ class ArduinoCLIService:
                     # the scope (global scan-all) and flag the manifest as
                     # incomplete. A genuine source error fails both attempts and
                     # returns the original scoped failure below.
+                    if (
+                        scope_dir is not None
+                        and _looks_like_missing_header(result.stderr)
+                        and not scope_retry_allowed.get()
+                    ):
+                        # Closed scope (an unmodified gallery compile): no
+                        # scan-all rescue, the miss is the finding.
+                        print("=== Closed scope: missing header, retry disabled ===\n")
+                        return {
+                            "success": False,
+                            "error": "Compilation failed",
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "gallery_scope_miss": True,
+                        }
                     if scope_dir is not None and _looks_like_missing_header(result.stderr):
                         print("=== Incomplete manifest — retrying scan-all ===\n")
                         retry = await self.compile(

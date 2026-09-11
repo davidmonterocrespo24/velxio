@@ -25,7 +25,9 @@ export function compileOptionsForBoard(
     exampleId: useProjectStore.getState().currentExampleId,
     // P2.4 — THIS board's declared manifest (compile scope). Per-board so
     // two boards can use different libraries without clashing.
-    libraries: board?.libraries?.length ? board.libraries : null,
+    // Three-state (see manifestFieldFor): undefined = never declared,
+    // [] = declared empty, else the list. Not coerced here.
+    libraries: board?.libraries,
     // Pure ESP-IDF mode (issue #139): compile the user's app_main() sources
     // without the arduino-esp32 component.
     language: board?.languageMode === 'espidf' ? 'espidf' : undefined,

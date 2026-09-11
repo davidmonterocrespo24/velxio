@@ -1,7 +1,8 @@
+from fastapi.responses import JSONResponse
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.api.routes.compile import arduino_cli
-from app.core.hooks import get_current_user_id, warm_library
+from app.core.hooks import uninstall_library as overlay_uninstall_library, get_current_user_id, warm_library
 
 router = APIRouter()
 
@@ -53,13 +54,20 @@ async def install_library(
         # P2.1 — prefer warming the content-addressed cache (no global write).
         warmed = await warm_library(request.name, request.version, requester_id)
         if warmed is not None:
-            return InstallResponse(
+            body = InstallResponse(
                 success=bool(warmed.get("success")),
                 error=warmed.get("error"),
                 stdout=warmed.get("stdout"),
                 fallback=warmed.get("fallback"),
                 requested_version=warmed.get("requested_version"),
             )
+            # The overlay may refuse with a status the client can tell apart
+            # (507: the shared cache is at its disk floor). Same body shape,
+            # so a client that reads res.json() without res.ok still works.
+            status = warmed.get("http_status")
+            if isinstance(status, int) and status != 200:
+                return JSONResponse(status_code=status, content=body.model_dump())
+            return body
         # OSS / no overlay: legacy global install (self-host parity).
         spec = f"{request.name}@{request.version}" if request.version else request.name
         result = await arduino_cli.install_library(spec)
@@ -111,6 +119,16 @@ async def uninstall_library(
             return UninstallResponse(
                 success=False,
                 error="Sign in to manage this project's libraries.",
+            )
+        # On a deployment whose libraries live in a shared cache plus per-user
+        # stores, uninstall is the overlay's call (a shared library is nobody's
+        # to remove; an upload is removed and refunded). None -> OSS sketchbook.
+        overlay = await overlay_uninstall_library(request.name, requester_id)
+        if overlay is not None:
+            return UninstallResponse(
+                success=bool(overlay.get("success")),
+                error=overlay.get("error"),
+                stdout=overlay.get("stdout"),
             )
         result = await arduino_cli.uninstall_library(request.name)
         if not result["success"]:

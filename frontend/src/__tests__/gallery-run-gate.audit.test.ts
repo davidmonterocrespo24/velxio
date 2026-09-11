@@ -4,7 +4,7 @@ import { buildInputFromStore } from '../simulation/spice/storeAdapter';
 import { verifyCircuit } from '../simulation/verify/circuitVerifier';
 import { buildPreflightSnapshot } from '../simulation/verify/verifyFromStore';
 import { stripBrandPrefix, isBoardComponentType } from '../utils/exampleToBuildNetlistInput';
-import type { BoardKind } from '../store/useSimulatorStore';
+import type { BoardKind } from '../types/board';
 
 /**
  * Gallery audit: which examples would the Run button REFUSE to start?

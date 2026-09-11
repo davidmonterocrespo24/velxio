@@ -9,10 +9,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from fastapi.responses import JSONResponse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.core.hooks import (
+    compile_admission,
+    scope_fingerprint,
+    scope_retry_allowed,
     compile_priority,
     get_current_user_id,
     get_project_libraries,
@@ -128,12 +132,19 @@ def _artifact_load(key: str) -> dict | None:
     try:
         if not path.is_file():
             return None
-        if time.time() - path.stat().st_mtime > ARTIFACT_CACHE_MAX_AGE_S:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            return None
+        # Age from when it was BUILT, not from the last read: touch-on-read
+        # (kept below, it is what the LRU prune orders on) made a popular
+        # artifact immortal and served bytes built against libraries that had
+        # since changed. Entries stored before built_at existed age by mtime.
+        built_at = data.get("built_at") or path.stat().st_mtime
+        if time.time() - float(built_at) > ARTIFACT_CACHE_MAX_AGE_S:
             path.unlink(missing_ok=True)
             return None
-        data = json.loads(path.read_text())
         os.utime(path, None)  # LRU: touch on read
-        return data if isinstance(data, dict) else None
+        return data
     except Exception:
         logger.warning("[compile] artifact cache read failed", exc_info=True)
         return None
@@ -155,6 +166,7 @@ def _artifact_store_sync(key: str, result: dict) -> None:
         # says so in its place rather than replaying someone else's ninja run.
         slim = dict(result)
         slim["stdout"] = "[served from the build cache - identical sources]"
+        slim["built_at"] = time.time()
         tmp = _artifact_path(key).with_suffix(".tmp")
         tmp.write_text(json.dumps(slim))
         tmp.replace(_artifact_path(key))
@@ -396,7 +408,9 @@ def _job_display_fields(job_id: str) -> dict[str, Any]:
     }
 
 
-async def _resolve_queue_priority(user_id: str | None) -> tuple[int, str, int | None]:
+async def _resolve_queue_priority(
+    user_id: str | None, http_request: Request | None = None
+) -> tuple[int, str, int | None]:
     """(priority, display tier, cpu_nice) for a compile. OSS default: everyone equal.
 
     The tier string only ever reaches the client as a label ('pro' shows a
@@ -407,7 +421,7 @@ async def _resolve_queue_priority(user_id: str | None) -> tuple[int, str, int | 
     inherit). It only ranks CPU time between builds that are ALREADY running;
     nobody is stopped or refused. Without an overlay every build inherits.
     """
-    info = await compile_priority(user_id)
+    info = await compile_priority(user_id, http_request)
     if not isinstance(info, dict):
         return build_queue.PRIORITY_STANDARD, "local", None
     try:
@@ -433,9 +447,16 @@ def _job_key(
     owner_id: str | None = None,
     language: str | None = None,
     custom_wifi_ssids: list[str] | None = None,
+    scope_fingerprint: str | None = None,
 ) -> str:
     """Stable content hash of (files, board, options, spiffs, libraries, owner)
     used as the deduplication key.
+
+    `scope_fingerprint`, when the overlay provides one, REPLACES the library
+    names and the owner in the key: it is a content-addressed digest of the
+    bytes the manifest resolves to, so a version bump, a re-upload or an
+    evicted sibling changes the key while two users with the same resolved
+    bytes share one build. Without it (OSS) the names are hashed as before.
 
     Excludes project_id (analytics-only — different projects with identical
     code should still dedup to one build). File order is normalised so the
@@ -482,13 +503,17 @@ def _job_key(
             h.update(b"\0")
             h.update(f["content_b64"].encode())
             h.update(b"\0")
-    if libraries:
+    if scope_fingerprint is not None:
+        h.update(b"\0scope-fp\0")
+        h.update(scope_fingerprint.encode())
+        h.update(b"\0")
+    elif libraries:
         # Manifest changes the resolved library set → different binary, so it
         # must not dedup to a job built with a different manifest.
         for name in sorted(libraries):
             h.update(name.encode())
             h.update(b"\0")
-    if owner_id:
+    if scope_fingerprint is None and owner_id:
         # Per-owner custom-lib disambiguation (see docstring). Only set when a
         # manifest is present, so it never perturbs the owner-independent
         # index-only case.
@@ -604,6 +629,23 @@ class CompileResponse(BaseModel):
     # can be auto-completed (P2.4) or the user prompted to add the lib.
     manifest_incomplete: bool = False
     manifest_suggested_libraries: dict | None = None
+    # How the libraries resolved (scope_kind, scope_src, locked_miss, lock_sha,
+    # ambiguous_headers, ...). Filled by the compilers from what the overlay's
+    # materialiser reported; None on OSS. Recorded with the compile event.
+    scope: dict | None = None
+
+
+_SCOPE_RESULT_KEYS = (
+    "scope_kind", "scope_src", "scope_retry", "gallery_scope_miss", "locked_miss",
+    "pinned_miss", "pin_fallback", "shadowed_by_upload", "ambiguous_headers", "lock_sha",
+)
+
+
+def _scope_of(result: dict) -> dict | None:
+    out = {k: result[k] for k in _SCOPE_RESULT_KEYS if k in result}
+    if result.get("manifest_incomplete"):
+        out.setdefault("scope_retry", True)
+    return out or None
 
 
 def _classify_compile_error(stderr: str, error: str | None) -> str:
@@ -634,11 +676,69 @@ def _resolve_files(request: CompileRequest) -> list[dict[str, str]]:
     )
 
 
-def _bare_lib_names(names) -> set[str] | None:
-    """Strip a trailing @version (or @wokwi:hash) from each manifest name and
-    drop empties. None if nothing remains. See _resolve_compile_scope (P2.1h)."""
-    out = {n.split("@", 1)[0].strip() for n in names if n and n.split("@", 1)[0].strip()}
-    return out or None
+def _manifest_specs(names) -> set[str] | None:
+    """The manifest as sent, three-state. None (no field) -> no manifest, the
+    compilers scan every installed library. [] -> a manifest that declares
+    nothing: an empty set, handed to the overlay as such (it decides whether
+    that is a closed scope). Otherwise the specs, trimmed, empties dropped.
+
+    Specs KEEP their pin ("Lib@1.2.3", "Lib@1.2.3-<sha12>", "Lib@wokwi:<hash>")
+    since 2026-09-11. The overlay's resolver reads the pin and the ESP-IDF
+    name filter splits the base name itself; stripping it here (P2.1h) is
+    what made a manifest fix the SET of libraries but never their BYTES."""
+    if names is None:
+        return None
+    return {n.strip() for n in names if n and n.strip()}
+
+
+async def _admit_compile(
+    request: CompileRequest,
+    files: list[dict[str, str]],
+    allowed_libraries: set[str] | None,
+    owner_id: str | None,
+    requester_id: str | None,
+) -> tuple[set[str] | None, bool, dict | None, JSONResponse | None]:
+    """One question to the overlay before a compile is queued or run: may it
+    proceed, and with which scope. Returns (allowed_libraries, retry_allowed,
+    gallery, refusal). `refusal` is a ready-to-return response shaped like a
+    CompileResult (the client casts any 4xx/5xx body to one) and the refusal
+    has already been recorded as a compile event, so 0 refusals and 400 do
+    not look alike. OSS: the overlay is absent, nothing changes."""
+    decision = compile_admission(
+        files=files, board_fqbn=request.board_fqbn, example_id=request.example_id,
+        client_manifest=request.libraries, allowed_libraries=allowed_libraries,
+        owner_id=owner_id, requester_id=requester_id,
+    )
+    if not decision:
+        return allowed_libraries, True, None, None
+    refuse = decision.get("refuse")
+    if refuse:
+        body = {"success": False, "stderr": "", **refuse}
+        status = int(decision.get("http_status") or 422)
+        await record_compile(
+            user_id=requester_id,
+            project_id=request.project_id,
+            board_fqbn=request.board_fqbn,
+            success=False,
+            duration_ms=0,
+            error_kind=str(decision.get("error_kind") or "refused"),
+            extra={
+                "file_count": len(files),
+                "refused": True,
+                "http_status": status,
+                "initiated_by": request.initiated_by,
+                "board_kind": request.board_kind,
+                "example_id": request.example_id,
+                **{k: v for k, v in refuse.items() if k not in ("success", "error", "stderr")},
+            },
+        )
+        return (
+            allowed_libraries, True, None,
+            JSONResponse(status_code=status, content=body, headers=decision.get("headers") or None),
+        )
+    if "allowed_libraries" in decision:
+        allowed_libraries = decision["allowed_libraries"]
+    return allowed_libraries, bool(decision.get("retry_allowed", True)), decision.get("gallery"), None
 
 
 async def _resolve_compile_scope(
@@ -680,12 +780,12 @@ async def _resolve_compile_scope(
     # which the client sends in request.libraries) is the path that still carries
     # @version. We don't version-pin today, so the bare name is what resolves.
     allowed_libraries: set[str] | None = None
-    if request.libraries:
-        allowed_libraries = _bare_lib_names(request.libraries)
+    if request.libraries is not None:
+        allowed_libraries = _manifest_specs(request.libraries)
     elif gated_owner is not None:
         project_libs = await get_project_libraries(request.project_id)
         if project_libs:
-            allowed_libraries = _bare_lib_names(project_libs)
+            allowed_libraries = _manifest_specs(project_libs)
 
     owner_id = gated_owner if gated_owner is not None else requester_id
     return allowed_libraries, owner_id
@@ -766,6 +866,7 @@ async def _run_compile(
             error=result.get("error"),
             manifest_incomplete=result.get("manifest_incomplete", False),
             manifest_suggested_libraries=result.get("manifest_suggested_libraries"),
+            scope=_scope_of(result),
         )
 
     # AVR, RP2040, and ESP32 fallback: use arduino-cli
@@ -803,6 +904,7 @@ async def _run_compile(
         # scan-all retry — signals the project's velxio.json manifest is
         # incomplete (a needed / transitive lib not declared).
         manifest_incomplete=result.get("manifest_incomplete", False),
+        scope=_scope_of(result),
     )
 
 
@@ -843,9 +945,15 @@ async def _compile_job(
     scope: tuple[set[str] | None, str | None] | None = None,
     priority: int = build_queue.PRIORITY_STANDARD,
     cpu_nice: int | None = None,
+    retry_allowed: bool = True,
+    gallery: dict | None = None,
 ) -> None:
     """Background worker: acquire a build slot, run the compile (which takes
     its own build-dir lock), store result in COMPILE_JOBS.
+
+    `retry_allowed` is the overlay's admission decision (an unmodified gallery
+    compile gets no scan-all retry); it is set on the context variable INSIDE
+    this task so it cannot leak into another request.
 
     `scope` is the (allowed_libraries, owner_id) already resolved by
     compile_start for the dedup key — threaded through so the build uses the
@@ -926,6 +1034,7 @@ async def _compile_job(
                 lane_name, request.board_fqbn
             )
             build_started = time.monotonic()
+            scope_retry_allowed.set(retry_allowed)
             response = await _run_compile(
                 request, files, progress_callback=on_progress_line,
                 requester_id=user_id, scope=scope, cpu_nice=cpu_nice,
@@ -968,6 +1077,10 @@ async def _compile_job(
                 "initiated_by": request.initiated_by,
                 "board_kind": request.board_kind,
                 "example_id": request.example_id,
+                "gallery": gallery,
+                # scope_kind / scope_src / locked_miss / lock_sha ... whatever
+                # the compilers learned about how the libraries resolved.
+                **(response.scope or {}),
                 "partition_scheme": (request.board_options or {}).get("partitionScheme"),
                 "spiffs_file_count": len(request.spiffs_files or []),
                 # duration_ms is queue + build, which it always was (the old
@@ -1033,8 +1146,15 @@ async def compile_sketch(
     files = _resolve_files(request)
     started = time.monotonic()
 
-    priority, _tier, cpu_nice = await _resolve_queue_priority(user_id)
+    priority, _tier, cpu_nice = await _resolve_queue_priority(user_id, http_request)
     lane = build_queue.lane_for(_is_heavy_compile(request.board_fqbn))
+
+    sync_allowed, sync_owner = await _resolve_compile_scope(request, user_id)
+    sync_allowed, sync_retry, _sync_gallery, sync_refusal = await _admit_compile(
+        request, files, sync_allowed, sync_owner, user_id,
+    )
+    if sync_refusal is not None:
+        return sync_refusal
 
     async def _gated_compile() -> CompileResponse:
         # This path used to call _run_compile directly with no build slot, so
@@ -1042,8 +1162,10 @@ async def compile_sketch(
         # editor waited. The build dir itself is protected inside the
         # compiler (per-variant lock), the same as for the async path.
         async with lane.slot(priority=priority):
+            scope_retry_allowed.set(sync_retry)
             return await _run_compile(
                 request, files, requester_id=user_id, cpu_nice=cpu_nice,
+                scope=(sync_allowed, sync_owner),
             )
 
     try:
@@ -1128,6 +1250,9 @@ class CompileStatusResponse(BaseModel):
     #   linking / packaging — the tail end of the build
     #   done       — finished, successfully or not
     stage: str = "preparing"
+    # The overlay's classification of a gallery compile ({example_id,
+    # unmodified, reason}), echoed so the nightly can assert it. None on OSS.
+    gallery: dict | None = None
     # 0..1, or null when there is nothing honest to draw (a queued job).
     # Measured from ninja's [done/total] where available, estimated from this
     # server's own recent build times otherwise.
@@ -1185,7 +1310,7 @@ async def compile_start(
     # Where this build sits in the queue. Resolved once, here, so a single
     # plan lookup covers the whole job and the tier the UI displays is the
     # same one the queue actually ordered on.
-    priority, tier, cpu_nice = await _resolve_queue_priority(user_id)
+    priority, tier, cpu_nice = await _resolve_queue_priority(user_id, http_request)
     heavy = _is_heavy_compile(request.board_fqbn)
     queue_fields = {
         "tier": tier,
@@ -1194,12 +1319,19 @@ async def compile_start(
     }
 
     allowed_libraries, owner_id = await _resolve_compile_scope(request, user_id)
+    allowed_libraries, retry_allowed, gallery, refusal = await _admit_compile(
+        request, files, allowed_libraries, owner_id, user_id,
+    )
+    if refusal is not None:
+        return refusal
+    fingerprint = scope_fingerprint(allowed_libraries, owner_id)
     key = _job_key(
         files, request.board_fqbn, request.board_options, spiffs_dicts,
         sorted(allowed_libraries) if allowed_libraries else None,
         owner_id if allowed_libraries else None,
         language=request.language,
         custom_wifi_ssids=request.custom_wifi_ssids,
+        scope_fingerprint=fingerprint,
     )
     existing_id = JOB_BY_KEY.get(key)
     if existing_id is not None:
@@ -1245,6 +1377,7 @@ async def compile_start(
             "run_started_at": now,
             "result": cached,
             "key": key,
+            "gallery": gallery,
             "stdout_buffer": cached.get("stdout", ""),
         }
         logger.info("[compile] artifact cache hit — skipping the build")
@@ -1262,6 +1395,10 @@ async def compile_start(
                 "initiated_by": request.initiated_by,
                 "board_kind": request.board_kind,
                 "example_id": request.example_id,
+                "gallery": gallery,
+                # The bytes this hit was built from, so a cached compile reads
+                # like a built one in the usage rows.
+                **(cached.get("scope") or {}),
             },
         )
         return CompileStartResponse(job_id=job_id)
@@ -1276,6 +1413,7 @@ async def compile_start(
         "stage": "queued",
         "started_at": time.time(),
         "key": key,
+        "gallery": gallery,
     }
     JOB_BY_KEY[key] = job_id
 
@@ -1288,6 +1426,8 @@ async def compile_start(
             scope=(allowed_libraries, owner_id),
             priority=priority,
             cpu_nice=cpu_nice,
+            retry_allowed=retry_allowed,
+            gallery=gallery,
         ),
     )
     return CompileStartResponse(job_id=job_id)
@@ -1327,6 +1467,7 @@ async def compile_status(job_id: str):
         tier=job.get("tier", "local"),
         priority=int(job.get("priority", build_queue.PRIORITY_STANDARD))
         < build_queue.STANDARD_THRESHOLD,
+        gallery=job.get("gallery"),
     )
 
 

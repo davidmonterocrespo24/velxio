@@ -20,6 +20,7 @@ present. Do NOT import from `app.database`, `app.models`, or `app.services` here
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import Request, Response
@@ -149,6 +150,11 @@ async def get_project_libraries(project_id: Optional[str]) -> Optional[list[str]
 # anonymous compile of someone else's project must resolve THAT user's custom
 # (per-user-store) libraries. The overlay treats it as an opaque key; the OSS
 # compiler only threads it through. None for unsaved/anon-no-project compiles.
+# Returns (libraries_dir, content_token) or, since 2026-09-11, optionally a
+# third element: a stats dict ({cache, user, legacy, unresolved,
+# unresolved_deps, keys, closure_names, ...}). Consumers index positionally
+# and must tolerate both lengths; `closure_names` is what lets the ESP-IDF
+# lane honour the transitive closure the overlay materialised.
 MaterializeLibraryScopeHook = Callable[[set, Optional[str]], Optional[tuple]]
 
 _materialize_library_scope_hook: Optional[MaterializeLibraryScopeHook] = None
@@ -166,7 +172,12 @@ def materialize_library_scope(
     """Return (libraries_dir, content_token) for the manifest, or None to use the
     compiler's default single libraries dir. Never raises (a failing materializer
     degrades to the default dir)."""
-    if _materialize_library_scope_hook is None or not allowed_libraries:
+    # `None` is "no manifest" (scan-all). An EMPTY set is a manifest that
+    # declares nothing and reaches the overlay as such: it decides whether
+    # that means a closed scope (project/gallery-libraries-2026-09, P2.7)
+    # or, as today, no scope at all. Before 2026-09-11 `not allowed_libraries`
+    # folded the two together and an empty manifest could never be closed.
+    if _materialize_library_scope_hook is None or allowed_libraries is None:
         return None
     try:
         return _materialize_library_scope_hook(allowed_libraries, owner_id)
@@ -417,7 +428,10 @@ async def dispatch_gateway_proxy(
 # running and never stops or refuses one; None/absent = inherit. Never return
 # queue depth or position from here: those stay server-side (see build_queue).
 
-CompilePriorityHook = Callable[[Optional[str]], Awaitable[Optional[dict]]]
+# Since 2026-09-11 the hook also receives the request (or None): a batch
+# caller (the nightly gallery sweep) identifies itself through a header the
+# overlay recognises and is queued behind real users. OSS ignores it.
+CompilePriorityHook = Callable[..., Awaitable[Optional[dict]]]
 
 _compile_priority_hook: Optional[CompilePriorityHook] = None
 
@@ -428,15 +442,198 @@ def register_compile_priority(hook: CompilePriorityHook) -> None:
     _compile_priority_hook = hook
 
 
-async def compile_priority(user_id: Optional[str]) -> Optional[dict]:
+async def compile_priority(user_id: Optional[str], request: Any = None) -> Optional[dict]:
     """Resolve queue priority for a compile. None (the OSS default) means
     'ordinary priority, no plan vocabulary' — the caller supplies it."""
     if _compile_priority_hook is None:
         return None
     try:
-        return await _compile_priority_hook(user_id)
+        try:
+            return await _compile_priority_hook(user_id, request)
+        except TypeError:
+            # An overlay written against the one-argument contract.
+            return await _compile_priority_hook(user_id)
     except Exception:
         # A priority lookup must never cost someone their build. Falling back
         # to ordinary priority just means they queue like everyone else.
         logger.exception("compile_priority hook failed (treating as standard)")
         return None
+
+
+# ── scope_retry_allowed ───────────────────────────────────────────────────────
+# Both compilers retry a failed manifest-scoped build once without the scope
+# (scan-all) when the failure is a missing header, so an incomplete manifest
+# never regresses a build (P2.3-safety). For an UNMODIFIED gallery compile the
+# static tests prove the manifest covers every include, so a retry there can
+# only hide a lock bug: the route turns it off per compile through this
+# context variable (set inside the job's task so it never leaks across
+# requests). Default True = today's behaviour for everyone.
+scope_retry_allowed: ContextVar[bool] = ContextVar("scope_retry_allowed", default=True)
+
+
+# ── health_probe ─────────────────────────────────────────────────────────────
+# `/health` is what the compose healthcheck and the deploy gate poll. The OSS
+# answer is `{"status": "healthy"}` and nothing else. An overlay that seeds a
+# library set at boot registers a probe that returns the PUBLIC payload:
+#   {"status": "healthy"|"degraded", "overlay": "pro"|"partial",
+#    "libraries": {"ok": bool, "since": <epoch>}, "http_status": 200|503}
+# `http_status` 503 while the seed is incomplete keeps the deploy red instead
+# of green-with-missing-libraries. `/health` is reachable from the internet,
+# so the probe must not put keys, paths or counts in it; those belong to the
+# detail probe below, served on an unproxied path only.
+HealthProbeHook = Callable[[], Optional[dict]]
+
+_health_probe_hook: Optional[HealthProbeHook] = None
+
+
+def register_health_probe(hook: HealthProbeHook) -> None:
+    """Install the public readiness probe. Called in register_pro."""
+    global _health_probe_hook
+    _health_probe_hook = hook
+
+
+def health_probe() -> Optional[dict]:
+    """The overlay's public health payload, or None for the OSS default."""
+    if _health_probe_hook is None:
+        return None
+    try:
+        return _health_probe_hook()
+    except Exception:
+        # A probe that throws must read as NOT ready, never as healthy.
+        logger.exception("health_probe hook failed (reporting degraded)")
+        return {"status": "degraded", "overlay": "partial", "http_status": 503}
+
+
+HealthDetailHook = Callable[[], Optional[dict]]
+
+_health_detail_hook: Optional[HealthDetailHook] = None
+
+
+def register_health_detail(hook: HealthDetailHook) -> None:
+    """Install the operator-facing health detail (missing keys, gauges)."""
+    global _health_detail_hook
+    _health_detail_hook = hook
+
+
+def health_detail() -> Optional[dict]:
+    """The full readiness block for `/health/libcache`, or None on OSS."""
+    if _health_detail_hook is None:
+        return None
+    try:
+        return _health_detail_hook()
+    except Exception:
+        logger.exception("health_detail hook failed")
+        return {"status": "degraded", "overlay": "partial", "error": "health_detail hook failed"}
+
+
+# ── scope_fingerprint ────────────────────────────────────────────────────────
+# The compile dedup / artifact key used to hash library NAMES, so two builds
+# that resolved different BYTES for one name (a re-upload, a version bump, an
+# eviction of a sibling) shared a key and the older binary was served. The
+# overlay answers with a content-addressed fingerprint of what the manifest
+# resolves to (a dry run of materialize_library_scope: cache keys and user
+# store tokens, no directory created), or the literal `closed` / `scan-all`.
+# None keeps the name-based key: the OSS default.
+ScopeFingerprintHook = Callable[[Optional[set], Optional[str]], Optional[str]]
+
+_scope_fingerprint_hook: Optional[ScopeFingerprintHook] = None
+
+
+def register_scope_fingerprint(hook: ScopeFingerprintHook) -> None:
+    """Install the content-addressed scope fingerprint. Called in register_pro."""
+    global _scope_fingerprint_hook
+    _scope_fingerprint_hook = hook
+
+
+def scope_fingerprint(allowed_libraries: Optional[set], owner_id: Optional[str]) -> Optional[str]:
+    """Fingerprint of the bytes this manifest resolves to, or None (hash names)."""
+    if _scope_fingerprint_hook is None:
+        return None
+    try:
+        return _scope_fingerprint_hook(allowed_libraries, owner_id)
+    except Exception:
+        logger.exception("scope_fingerprint hook failed (hashing names instead)")
+        return None
+
+
+# ── compile_admission ────────────────────────────────────────────────────────
+# ONE seam through which the overlay may reshape a compile before it is
+# queued: refuse it (server still seeding its libraries; two libraries in the
+# scope providing one header with different bytes), or rewrite its scope (an
+# unmodified gallery example gets the lock's manifest, a closed scope and no
+# scan-all retry). The OSS route only applies what comes back; every rule
+# lives in the overlay, which is where the deployment that needs them runs.
+#   returns None -> nothing to do (the OSS default)
+#   returns {
+#     "refuse": {"success": False, "error": str, "stderr": "", ...},  # optional
+#     "http_status": int,          # with "refuse"; 200 or 422 or 503
+#     "headers": {"Retry-After": "5"},  # optional, with "refuse"
+#     "error_kind": str,           # with "refuse"; recorded as the compile's error_kind
+#     "allowed_libraries": set,    # optional: replaces the resolved scope
+#     "retry_allowed": bool,       # optional: default True
+#     "gallery": dict,             # optional: echoed on the job status
+#   }
+CompileAdmissionHook = Callable[..., Optional[dict]]
+
+_compile_admission_hook: Optional[CompileAdmissionHook] = None
+
+
+def register_compile_admission(hook: CompileAdmissionHook) -> None:
+    """Install the pre-queue admission step. Called in register_pro."""
+    global _compile_admission_hook
+    _compile_admission_hook = hook
+
+
+def compile_admission(
+    *,
+    files: list,
+    board_fqbn: str,
+    example_id: Optional[str],
+    client_manifest: Optional[list],
+    allowed_libraries: Optional[set],
+    owner_id: Optional[str],
+    requester_id: Optional[str],
+) -> Optional[dict]:
+    """Ask the overlay whether, and how, this compile may proceed."""
+    if _compile_admission_hook is None:
+        return None
+    try:
+        return _compile_admission_hook(
+            files=files, board_fqbn=board_fqbn, example_id=example_id,
+            client_manifest=client_manifest, allowed_libraries=allowed_libraries,
+            owner_id=owner_id, requester_id=requester_id,
+        )
+    except Exception:
+        # A broken admission step must never cost anyone their build.
+        logger.exception("compile_admission hook failed (admitting as-is)")
+        return None
+
+
+# ── uninstall_library ────────────────────────────────────────────────────────
+# On a deployment whose libraries live in a shared content-addressed cache
+# plus per-user stores, "uninstall" means: a shared index library is nobody's
+# to remove (say so, success=False with a reason), a user's own upload is
+# removed and refunded. Without an overlay the route keeps the arduino-cli
+# sketchbook uninstall, which is what an OSS self-host wants.
+#   returns None -> no overlay, use the legacy path
+#   returns {"success": bool, "error": str | None, "stdout": str | None}
+UninstallLibraryHook = Callable[[str, Optional[str]], Awaitable[Optional[dict]]]
+
+_uninstall_library_hook: Optional[UninstallLibraryHook] = None
+
+
+def register_uninstall_library(hook: UninstallLibraryHook) -> None:
+    """Install the cache-aware uninstall. Called in register_pro."""
+    global _uninstall_library_hook
+    _uninstall_library_hook = hook
+
+
+async def uninstall_library(name: str, requester_id: Optional[str]) -> Optional[dict]:
+    """Overlay uninstall result, or None to fall back to arduino-cli."""
+    if _uninstall_library_hook is None:
+        return None
+    try:
+        return await _uninstall_library_hook(name, requester_id)
+    except Exception:
+        logger.exception("uninstall_library hook failed")
+        return {"success": False, "error": "Could not uninstall the library right now."}

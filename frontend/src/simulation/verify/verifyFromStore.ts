@@ -13,6 +13,8 @@ import { boardPinGroupFor } from '../spice/boardPinGroups';
 import { pinNameToArduinoPin } from '../spice/collectPinStates';
 import type { BoardKind } from '../../store/useSimulatorStore';
 import type { PinSourceState } from '../spice/types';
+import type { StoreSnapshot } from '../spice/storeAdapter';
+import type { Wire } from '../../types/wire';
 import { buildNetlist } from '../spice/NetlistBuilder';
 import { verifyCircuit, occupiedSourcePairs, sourcePairKey, type VerificationResult } from './circuitVerifier';
 
@@ -24,11 +26,9 @@ export interface PreflightState {
 }
 
 export interface PreflightSnapshot {
-  snap: {
-    components: PreflightState['components'];
-    wires: PreflightState['wires'];
-    boards: Array<{ id: string; boardKind: string; pinStates: Record<string, PinSourceState> }>;
-  };
+  /** Exactly what buildInputFromStore takes; wires are normalised to the
+   *  store's Wire shape (the netlist reads only id / start / end). */
+  snap: StoreSnapshot;
   /** `${boardId}:${pinName}` of every board source the pre-flight invented. */
   synthesizedPins: Set<string>;
 }
@@ -61,14 +61,21 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
   // If the bare canvas cannot even be built, fall back to the old rule: the
   // verify below will fail the same way and the caller treats that as
   // "don't block".
+  const bareWires: Wire[] = state.wires.map((w) => ({
+    id: w.id,
+    start: { componentId: w.start.componentId, pinName: w.start.pinName },
+    end: { componentId: w.end.componentId, pinName: w.end.pinName },
+    color: (w as { color?: string }).color ?? '#666',
+    waypoints: (w as { waypoints?: Wire['waypoints'] }).waypoints ?? [],
+  }));
   let occupied = new Set<string>();
   let pinNet = new Map<string, string>();
   try {
     const bare = buildNetlist({
       ...buildInputFromStore({
         components: state.components,
-        wires: state.wires,
-        boards: state.boards.map((b) => ({ id: b.id, boardKind: b.boardKind, pinStates: {} })),
+        wires: bareWires,
+        boards: state.boards.map((b) => ({ id: b.id, boardKind: b.boardKind as BoardKind, pinStates: {} })),
       }),
       analysis: { kind: 'op' },
     });
@@ -78,7 +85,8 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
     /* unbuildable: stamp as before */
   }
   const synthesizedNets = new Set<string>();
-  const boards = state.boards.map((b) => {
+  const wires = bareWires;
+  const boards: StoreSnapshot['boards'] = state.boards.map((b) => {
     const pinStates: Record<string, PinSourceState> = {};
     const group = boardPinGroupFor(b.boardKind as never);
     const wiredPinNames = new Set<string>();
@@ -115,9 +123,9 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
       pinStates[pinName] = { type: 'digital', v: group.vcc };
       synthesizedPins.add(`${b.id}:${pinName}`);
     }
-    return { id: b.id, boardKind: b.boardKind, pinStates };
+    return { id: b.id, boardKind: b.boardKind as BoardKind, pinStates };
   });
-  return { snap: { components: state.components, wires: state.wires, boards }, synthesizedPins };
+  return { snap: { components: state.components, wires, boards }, synthesizedPins };
 }
 
 export async function verifyCircuitFromStore(): Promise<VerificationResult | null> {

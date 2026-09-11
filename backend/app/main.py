@@ -10,12 +10,14 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(messag
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import compile, compile_chip, compile_rom, flash, intellisense, libraries, micropython_libs
 from app.core.config import settings
 from app.core.hooks import run_lifespan_startup
+from app.core.hooks import health_detail, health_probe
 
 logger = logging.getLogger(__name__)
 
@@ -166,5 +168,23 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    # The overlay may register a readiness probe (a library set seeded at
+    # boot, say). It returns the PUBLIC payload and the status it wants; 503
+    # keeps the compose healthcheck and the deploy gate red until the
+    # deployment can actually serve. OSS: the one-word answer, as always.
+    probe = health_probe()
+    if probe is None:
+        return {"status": "healthy"}
+    status = int(probe.pop("http_status", 200) or 200)
+    return JSONResponse(status_code=status, content=probe)
+
+
+@app.get("/health/libcache")
+def health_libcache():
+    """Operator detail for the overlay's library set: missing keys, gauges,
+    seed timings. Served by uvicorn only; the internal nginx does not proxy
+    this path, so from outside it falls through to the SPA. OSS: no overlay,
+    nothing to detail."""
+    detail = health_detail()
+    return detail if detail is not None else {"status": "healthy", "overlay": "oss"}
 

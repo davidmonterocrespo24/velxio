@@ -153,6 +153,51 @@ const MAX_TOTAL_DURATION_MS = 60 * 60 * 1000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The manifest field, three-state. `undefined` / `null`: the board never
+ * declared anything (a fresh board, a legacy project row without the field)
+ * -> the request omits it and the server scans every installed library, as
+ * it always did. `[]`: the board DECLARED an empty manifest (a gallery
+ * example that needs nothing, the Library Manager after the last entry was
+ * removed) -> sent as `[]`, which a deployment with a library lock may treat
+ * as a closed scope. Non-empty -> sent as-is, pins included. Until 2026-09-11
+ * `[]` was coerced to `null` here, so a declared-empty manifest could never
+ * be told from an undeclared one.
+ */
+export function manifestFieldFor(libraries: string[] | null | undefined): string[] | null {
+  return libraries == null ? null : libraries;
+}
+
+/**
+ * A refusal or a server error arrives as a 4xx/5xx body. The compilers'
+ * own refusals are already shaped like a CompileResult (`success: false`,
+ * `error`); a FastAPI validation error or a bare HTTPException is
+ * `{detail}`, which used to reach the editor as `success === undefined`
+ * and render as the literal "Compile failed". Map it to the same shape.
+ */
+export function compileResultFromErrorBody(data: unknown): CompileResult {
+  if (data && typeof data === 'object' && 'success' in (data as Record<string, unknown>)) {
+    return data as CompileResult;
+  }
+  const detail = data && typeof data === 'object' ? (data as { detail?: unknown }).detail : undefined;
+  const message =
+    typeof detail === 'string'
+      ? detail
+      : detail !== undefined
+        ? JSON.stringify(detail)
+        : 'The server refused the compile request.';
+  return { success: false, stdout: '', stderr: '', error: message } as CompileResult;
+}
+
+/** 502 (the host proxy while the backend is still in its lifespan) and 503
+ *  (the backend itself, seeding its library set) both mean "starting". */
+export function isServerStarting(status: number | undefined): boolean {
+  return status === 502 || status === 503;
+}
+
+const SERVER_STARTING_RETRY_MS = 5000;
+const SERVER_STARTING_MAX_MS = 90_000;
+
 /** Fill in the queue fields for a backend that predates them (self-hosted OSS
  *  running an older image behind a newer frontend). */
 function readQueueInfo(status: CompileStatusResponse): Omit<
@@ -212,8 +257,9 @@ export async function compileCode(
   const spiffs_files = extras?.spiffsFiles?.length
     ? extras.spiffsFiles.map((f) => ({ name: f.name, content_b64: f.contentB64 }))
     : null;
-  // P2.3 — library manifest (resolution scope). null = legacy scan-all.
-  const libraries = extras?.libraries && extras.libraries.length ? extras.libraries : null;
+  // P2.3 — library manifest (resolution scope), three-state (see
+  // manifestFieldFor): omitted = scan-all, [] = declared empty, else the list.
+  const libraries = manifestFieldFor(extras?.libraries);
   // Custom WiFi access points (overlay feature): when the project carries its
   // own AP parts, their SSIDs ride along and the backend's SSID rewriter
   // stands down — the sketch connects to the network the user actually wrote.
@@ -223,6 +269,15 @@ export async function compileCode(
       .__velxio_custom_wifi_ssids__?.() ?? null;
 
   let jobId: string;
+  // A deployment that seeds its libraries at boot answers 503 + Retry-After
+  // while it does, and the host proxy answers 502 while the backend is still
+  // in its lifespan. Neither is a failed compile: wait, say so, try again,
+  // for a bounded while.
+  const startingSince = Date.now();
+  let startAttempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+  startAttempt += 1;
   try {
     const startResp = await axios.post<CompileStartResponse>(
       `${getApiBase()}/compile/start`,
@@ -243,16 +298,39 @@ export async function compileCode(
     );
     jobId = startResp.data.job_id;
     console.log('[compile] queued job', jobId);
+    break;
   } catch (error) {
-    console.error('Compilation request failed:', error);
     if (axios.isAxiosError(error) && error.response) {
-      // Server returned a structured error (422, 500, etc.) — surface as a
+      const status = error.response.status;
+      if (isServerStarting(status) && Date.now() - startingSince < SERVER_STARTING_MAX_MS) {
+        const retryAfter = Number(error.response.headers?.['retry-after']);
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : SERVER_STARTING_RETRY_MS;
+        console.warn(`[compile] server starting (${status}), retrying in ${waitMs} ms (attempt ${startAttempt})`);
+        onProgress?.({
+          state: 'pending',
+          stage: 'queued',
+          stdout: `Server is starting, waiting for it (${Math.round((Date.now() - startingSince) / 1000)} s)...`,
+          elapsedSeconds: Math.round((Date.now() - startingSince) / 1000),
+          progress: null,
+          estimatedSeconds: null,
+          buildSeconds: 0,
+          serverLoad: 'low',
+          tier: 'local',
+          priority: false,
+        });
+        await sleep(waitMs);
+        continue;
+      }
+      console.error('Compilation request failed:', error);
+      // Server returned a structured error (422, 500, ...) — surface as a
       // failed CompileResult so the editor can show stderr/error.
-      return error.response.data as CompileResult;
+      return compileResultFromErrorBody(error.response.data);
     }
+    console.error('Compilation request failed:', error);
     throw error instanceof Error
       ? error
       : new Error('No response from server. Is the backend running?');
+  }
   }
 
   const startedAt = Date.now();

@@ -11,6 +11,7 @@ import { useSimulatorStore, DEFAULT_BOARD_POSITION } from '../store/useSimulator
 import { useElectricalStore } from '../store/useElectricalStore';
 import { useProjectStore } from '../store/useProjectStore';
 import { useVfsStore } from '../store/useVfsStore';
+import { serverProvidesGalleryLibraries } from '../services/galleryLibrariesGate';
 import { isBoardComponent } from './boardPinMapping';
 import { getInstalledLibraries, installLibrary } from '../services/libraryService';
 import { trackOpenExample } from './analytics';
@@ -124,9 +125,15 @@ export async function loadExample(
   // would open with every LED frozen at the previous example's state.
   useElectricalStore.getState().setPaused(false);
 
-  // Auto-install required libraries
+  // Auto-install required libraries. A deployment that seeds every gallery
+  // library at boot says so on /health and the round-trips are skipped; an
+  // OSS self-host (or a deployment whose seed failed) installs on load, as
+  // it always did. That call is the only thing that installs an example's
+  // libraries there, so it must never be removed outright.
   if (example.libraries && example.libraries.length > 0) {
-    await ensureLibraries(example.libraries, onLibraryProgress);
+    if (!(await serverProvidesGalleryLibraries())) {
+      await ensureLibraries(example.libraries, onLibraryProgress);
+    }
   }
 
   const {

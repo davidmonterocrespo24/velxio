@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
-from app.core.hooks import materialize_library_scope
+from app.core.hooks import materialize_library_scope, scope_retry_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -2255,8 +2255,10 @@ class ESPIDFCompiler:
         logger.info(f'[espidf] esp32_libs: {esp32_libs}')
 
         # P2 manifest scope: normalise the allowed set once (None = scan-all).
+        # A manifest entry may carry a pin ("Lib@1.2.3", "Lib@wokwi:<hash>");
+        # the name filter compares library names, so split the pin off here.
         allowed_norm: set[str] | None = (
-            {self._norm_lib_name(a) for a in allowed_libraries}
+            {self._norm_lib_name(a.split('@', 1)[0]) for a in allowed_libraries}
             if allowed_libraries is not None else None
         )
         if allowed_norm is not None:
@@ -4752,6 +4754,17 @@ class ESPIDFCompiler:
             scope = materialize_library_scope(allowed, owner_id)
             scope_dir = scope[0] if scope else None
             scope_token = scope[1] if scope else ''
+            # The materialiser walks depends= and symlinks the transitive
+            # closure into the scope dir, and reports it as a third element.
+            # Until 2026-09-11 the merge below still filtered by the bare
+            # manifest names, so every closure entry was "not found" and only
+            # the scan-all retry rescued the build. When a scope dir exists it
+            # IS the allow-list (what the arduino-cli lane already does by
+            # pointing the sketchbook at it); the build-variant token keeps
+            # hashing the manifest so no variant moves.
+            scope_stats = scope[2] if scope and len(scope) > 2 and isinstance(scope[2], dict) else None
+            closure = set(scope_stats.get('closure_names') or []) if scope_stats else set()
+            effective_allowed = (allowed | closure) if (scope_dir is not None and allowed is not None) else allowed
             # Fold the effective library set + resolved content into the build-dir
             # hash. A different manifest, the scan-all fallback (allowed=None), or
             # changed lib CONTENT gets its own clean build dir — resetting at
@@ -4820,7 +4833,7 @@ class ESPIDFCompiler:
                             return await self._compile_in_dir(
                                 project_dir, files, idf_target,
                                 progress_callback, normalized_opts, spiffs_files,
-                                allowed_libraries=allowed, libraries_dir=scope_dir,
+                                allowed_libraries=effective_allowed, libraries_dir=scope_dir,
                                 arduino_mode=arduino_mode, use_idf5=use_idf5,
                                 pure_idf=pure_idf, board_fqbn=board_fqbn,
                                 custom_wifi_ssids=custom_wifi_ssids,
@@ -4842,7 +4855,7 @@ class ESPIDFCompiler:
                     return await self._compile_in_dir(
                         project_dir, files, idf_target,
                         progress_callback, normalized_opts, spiffs_files,
-                        allowed_libraries=allowed, libraries_dir=scope_dir,
+                        allowed_libraries=effective_allowed, libraries_dir=scope_dir,
                         arduino_mode=arduino_mode, use_idf5=use_idf5,
                         pure_idf=pure_idf, board_fqbn=board_fqbn,
                         custom_wifi_ssids=custom_wifi_ssids,
@@ -4888,6 +4901,16 @@ class ESPIDFCompiler:
         # method, so the retry safely reuses the same build dir.
         if allowed_libraries is not None and not pure_idf and not result.get('success'):
             missing = self._missing_library_headers(result)
+            if missing and not scope_retry_allowed.get():
+                # The overlay closed this scope (an unmodified gallery compile
+                # whose manifest is proven complete): a retry could only hide
+                # a lock bug. Say what went missing instead.
+                result['gallery_scope_miss'] = sorted(missing)
+                logger.error(
+                    f'[espidf] scoped compile missing {missing} and the scan-all retry '
+                    f'is disabled for this compile (closed scope)'
+                )
+                missing = []
             if missing:
                 logger.warning(
                     f'[espidf] scoped compile missing {missing} (not in manifest) — '
