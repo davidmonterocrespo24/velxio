@@ -535,6 +535,17 @@ class VirtualMPU6050 implements I2CDevice {
   stop(): void {
     this.firstByte = true;
   }
+
+  /**
+   * The 256 registers as they stand. The MPU-6050 is a plain register file
+   * (pointer write, auto-incrementing reads, no clear-on-read), so a copy
+   * answers reads exactly like the chip: a board whose firmware runs
+   * elsewhere (the ESP32 QEMU proxy, the Raspberry Pi guest's bus relay)
+   * reads it from that copy instead of a round trip per transaction.
+   */
+  dumpRegisters(): Uint8Array {
+    return this.registers.slice();
+  }
 }
 
 PartSimulationRegistry.register('mpu6050', {

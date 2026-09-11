@@ -52,6 +52,13 @@ export interface LineGap {
   why: string;
   /** The canvas component that asked, when it said so — for the circuit check to point at it. */
   componentId?: string;
+  /**
+   * What kind of refusal this is, for the circuit check's wording. Absent for
+   * a line-owning sensor the board cannot host; `no-adc` for an analog part
+   * on a board with no analog input, where "will not answer" is the wrong
+   * sentence — the fix is a converter chip, not a different board.
+   */
+  code?: string;
 }
 
 export interface LineRequestOptions {

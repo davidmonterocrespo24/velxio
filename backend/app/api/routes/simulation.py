@@ -86,6 +86,7 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             if msg_type in (
                 'start_pi', 'stop_pi', 'serial_input', 'gpio_in', 'pin_change',
                 'pi_sensor_state', 'pi_uart_rx', 'pi_attach_slave', 'pi_detach_slave',
+                'pi_bus_reply', 'pi_bus_topology', 'pi_bus_regs',
                 'start_stm32', 'stop_stm32', 'stm32_load_firmware', 'stm32_gpio_in',
                 'stm32_serial_input', 'stm32_sensor_attach', 'stm32_sensor_update',
                 'stm32_sensor_detach',

@@ -19,15 +19,37 @@
  *         config?:  Record<string, unknown>,
  *     }}
  *     { type: 'pi_detach_slave', data: { bus_kind, bus_num, address?|cs? } }
+ *     { type: 'pi_bus_reply',  data: { rid: number, line: string | null } }
  *
  *   Backend → Frontend
  *     { type: 'serial_output', data: { data: string } }
  *     { type: 'gpio_change',   data: { pin: number, state: 0 | 1 } }
+ *     { type: 'gpio_setup',    data: { pin: number, direction: 'in'|'out', pull: 'pud_up'|'pud_down'|'pud_off' } }
+ *     { type: 'pi_bus_request', data: { rid: number, line: string } }
  *     { type: 'system',        data: { event: string, ... } }
  *     { type: 'error',         data: { message: string } }
+ *
+ * `pi_bus_request` / `pi_bus_reply` carry one bus operation each (an I2C
+ * transaction, an SPI transfer, a 1-Wire op) as a request line the guest's
+ * shim libraries wrote; the board's simulator shim answers it against the
+ * device models on the canvas (see simulation/PiBridgeShim). A request the
+ * frontend cannot answer is replied with `line: null` so the backend never
+ * waits on it.
  */
 
 import { getTabSessionId } from './Esp32Bridge';
+
+/**
+ * What the board publishes to the backend about its bus (`pi_bus_topology`).
+ * `regs` is the device's 256 registers as hex when it can export them (the
+ * backend then answers reads from that copy with no round trip), null when
+ * the device has to be asked each time.
+ */
+export interface PiBusTopology {
+  version: 1;
+  i2c: Array<{ bus: number; addr: number; regs: string | null }>;
+  spi: { attached: boolean };
+}
 
 const API_BASE = (): string => {
   // The desktop shell injects the sidecar URL at runtime (random port) via
@@ -54,6 +76,18 @@ export class RaspberryPi3Bridge {
   // Callbacks wired up by useSimulatorStore
   onSerialData: ((char: string) => void) | null = null;
   onPinChange: ((gpioPin: number, state: boolean) => void) | null = null;
+  /** The guest programmed a pin's internal pull (from its GPIO_SETUP):
+   * 0 = none, 1 = pull-up, 2 = pull-down. Wired to the store's pull handler
+   * so the netlist stamps the resistor and the pin rests at its level. */
+  onPinPull: ((gpioPin: number, pull: 0 | 1 | 2) => void) | null = null;
+  /** One bus operation the guest is waiting on (`pi_bus_request`). Return
+   * the reply line, or null when there is nothing to say; either way a
+   * `pi_bus_reply` with the same `rid` goes back. */
+  onBusRequest: ((rid: number, line: string) => string | null) | null = null;
+  /** The backend announced (`system` event `bus_relay`) that it answers the
+   * guest's bus from the canvas: publish the bus map now. Its own slot so it
+   * never competes with whoever owns onSystemEvent. */
+  onBusRelay: ((version: number) => void) | null = null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   /** Backend refused or lost the session. `code` is the server's
@@ -175,7 +209,36 @@ export class RaspberryPi3Bridge {
           this.onPinChange?.(pin, state);
           break;
         }
+        case 'gpio_setup': {
+          const pin = msg.data.pin as number;
+          const pull = msg.data.pull === 'pud_up' ? 1 : msg.data.pull === 'pud_down' ? 2 : 0;
+          if (typeof pin === 'number') this.onPinPull?.(pin, pull);
+          break;
+        }
+        case 'pi_bus_request': {
+          const rid = msg.data.rid as number;
+          const line = msg.data.line;
+          if (typeof rid !== 'number' || typeof line !== 'string') break;
+          let reply: string | null = null;
+          try {
+            reply = this.onBusRequest?.(rid, line) ?? null;
+          } catch (e) {
+            // A model that throws must not hang the guest on its timeout:
+            // answer nothing, say why here.
+            console.warn(`[${this.boardId}] bus request failed: ${line}`, e);
+          }
+          // A write the guest did not wait for (a display frame, a config
+          // register) is applied and not answered: the backend holds no
+          // request open for it.
+          if (msg.data.noreply !== true) {
+            this._send({ type: 'pi_bus_reply', data: { rid, line: reply } });
+          }
+          break;
+        }
         case 'system':
+          if (msg.data.event === 'bus_relay') {
+            this.onBusRelay?.(Number(msg.data.version) || 1);
+          }
           this.onSystemEvent?.(msg.data.event as string, msg.data);
           break;
         case 'display':
@@ -379,6 +442,17 @@ export class RaspberryPi3Bridge {
     cs?: number;
   }): void {
     this._send({ type: 'pi_detach_slave', data: spec });
+  }
+
+  /** The I2C / SPI parts wired to this board, for the backend relay to
+   * answer the guest from (`pi_bus_topology`). */
+  sendBusTopology(topology: PiBusTopology): void {
+    this._send({ type: 'pi_bus_topology', data: topology });
+  }
+
+  /** A register-file device's registers changed (`pi_bus_regs`). */
+  sendBusRegs(bus: number, address: number, regsHex: string): void {
+    this._send({ type: 'pi_bus_regs', data: { bus, addr: address, regs: regsHex } });
   }
 
   private _send(payload: unknown): void {

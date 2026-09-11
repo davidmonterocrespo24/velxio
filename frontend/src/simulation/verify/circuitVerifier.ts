@@ -130,7 +130,13 @@ export async function verifyCircuit(
       severity: 'warning',
       code: 'unsupported-sensor',
       componentId: gap.componentId,
-      message: `${gap.sensorType} on GPIO ${gap.pin} will not answer here: ${gap.why}`,
+      // A board with no analog input refuses a pot or a joystick the same
+      // way, but "will not answer" is the wrong sentence for it: the part is
+      // fine, the pin cannot measure. Its `why` already names the converter.
+      message:
+        gap.code === 'no-adc'
+          ? `${gap.sensorType} on GPIO ${gap.pin}: ${gap.why}`
+          : `${gap.sensorType} on GPIO ${gap.pin} will not answer here: ${gap.why}`,
     });
   }
 

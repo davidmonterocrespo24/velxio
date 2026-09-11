@@ -11126,11 +11126,13 @@ void loop() {
   },
 
   // ── Raspberry Pi 3 / 4 / 5 — single-board GPIO examples ──────────────────
-  // These run a Python (gpiozero) script on the QEMU Linux board. gpiozero is
-  // board-agnostic (works on Pi 3/4/5). Only DIGITAL GPIO is wired — output
-  // (LEDs, RGB) and input (button, PIR) — since the Pi has no ADC and PWM is
-  // not simulated. To run: Start the Pi, click Upload in the File System
-  // panel, then `python3 /home/pi/script.py`.
+  // These run a Python (gpiozero) script on the Pi board. gpiozero is
+  // board-agnostic (works on Pi 3/4/5). Only DIGITAL GPIO is wired here —
+  // output (LEDs, RGB) and input (button, PIR): the Pi has no ADC (an analog
+  // part needs an MCP3008 or ADS1115). PWM reaches the canvas (servo, dimmed
+  // LED), and I2C parts answer through the board's PiBridgeShim. Run uploads
+  // the file group and starts `script.py` (or the first .py when there is
+  // none).
   {
     id: 'pi3-blink-led',
     title: '[Pi 3] Blink an LED',

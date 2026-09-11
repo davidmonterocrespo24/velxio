@@ -271,6 +271,14 @@ class MetadataGenerator {
       if (Array.isArray(ov.tags)) {
         comp.tags = ov.tags;
       }
+      // The pin count is read from the element's `pinInfo` getter by a regex
+      // over its source. An element whose getter builds the array some other
+      // way scans as 0 pins, and the only fix used to be editing the generated
+      // JSON by hand — which the CI staleness check then rejects on every run
+      // (ir-receiver, 2026-09). Declare it here instead.
+      if (typeof ov.pinCount === 'number') {
+        comp.pinCount = ov.pinCount;
+      }
 
       applied++;
       console.log(`  🔧 Applied overrides for ${comp.id}`);
