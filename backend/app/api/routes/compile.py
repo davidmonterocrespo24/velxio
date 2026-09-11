@@ -1089,6 +1089,9 @@ async def _compile_job(
             "finished_at": time.time(),
             "result": response.model_dump(),
             "key": job_key,
+            # The overlay's classification of a gallery compile, kept on the
+            # finished record: the nightly reads it from the status payload.
+            "gallery": gallery,
             # Preserve the streamed buffer post-completion so a late poll
             # still has access to the live log (clients usually display
             # result.stdout once state=done, but having both costs nothing).
@@ -1150,6 +1153,7 @@ async def _compile_job(
             "finished_at": time.time(),
             "error": str(exc)[:500],
             "key": job_key,
+            "gallery": gallery,
             "stdout_buffer": COMPILE_JOBS.get(job_id, {}).get("stdout_buffer", ""),
         }
         await _record_async_metric(
