@@ -370,6 +370,13 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
     thumbnailSvg: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='5' y='5' width='50' height='34' rx='3' fill='#123833' stroke='#08201d' stroke-width='1'/><rect x='17' y='13' width='20' height='10' rx='1.5' fill='#17171a'/><rect x='40' y='15' width='9' height='5' rx='1' fill='#1c1c1e'/><rect x='12' y='39' width='36' height='10' rx='1.5' fill='#1f7a34' stroke='#12481f' stroke-width='1'/><circle cx='19' cy='44' r='2.4' fill='#cfd6da'/><circle cx='27' cy='44' r='2.4' fill='#cfd6da'/><circle cx='34' cy='44' r='2.4' fill='#cfd6da'/><circle cx='41' cy='44' r='2.4' fill='#cfd6da'/><path d='M19 49 C19 54 25 55 30 55' fill='none' stroke='#c0392b' stroke-width='1.8'/><path d='M41 49 C41 54 35 55 30 55' fill='none' stroke='#e8e8e8' stroke-width='1.8'/></svg>",
   },
   {
+    id: 'pro-mcp3008',
+    label: 'MCP3008 8-Channel ADC (SPI)',
+    description: 'Eight 10-bit analog inputs over SPI, the analog input a Raspberry Pi does not have - available in the online editor',
+    category: 'analog',
+    thumbnailSvg: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='9' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='9' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='6' y='18' width='48' height='24' rx='2' fill='#1b1b1e' stroke='#08080a' stroke-width='1'/><path d='M6 26 A4 4 0 0 1 6 34' fill='#2c2c30'/><text x='31' y='33' font-family='monospace' font-size='8' font-weight='600' fill='#e6e6e6' text-anchor='middle'>3008</text></svg>",
+  },
+  {
     id: 'pro-ili9341-touch',
     label: '2.8" TFT + Touch (ILI9341 + XPT2046)',
     description: 'A 320x240 ILI9341 panel with an XPT2046 resistive touch screen on the same SPI bus - available in the online editor',
