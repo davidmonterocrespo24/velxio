@@ -639,6 +639,7 @@ class CompileResponse(BaseModel):
 _SCOPE_RESULT_KEYS = (
     "scope_kind", "scope_src", "scope_retry", "gallery_scope_miss", "locked_miss",
     "pinned_miss", "pin_fallback", "shadowed_by_upload", "ambiguous_headers", "lock_sha",
+    "scope_retry_headers",
 )
 
 
@@ -654,6 +655,15 @@ def _scope_of(result: dict) -> dict | None:
     # explicitly with scope_retry_failed / a retry that succeeded.
     if result.get("scope_retry_failed"):
         out.setdefault("scope_retry", True)
+    # A retry that SUCCEEDED marks the result manifest_incomplete; when a
+    # scoped attempt preceded it (the overlay reported one) that is a scoped
+    # miss rescued by scan-all, and the headers the compiler suggested
+    # libraries for are the ones the scope lacked.
+    if result.get("manifest_incomplete") and reported:
+        out.setdefault("scope_retry", True)
+        suggested = result.get("manifest_suggested_libraries")
+        if isinstance(suggested, dict) and suggested:
+            out.setdefault("scope_retry_headers", sorted(suggested))
     return out or None
 
 

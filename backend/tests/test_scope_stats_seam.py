@@ -49,3 +49,15 @@ def test_no_manifest_never_calls_the_hook(monkeypatch, tmp_path):
     assert hooks.materialize_library_scope(None, None) is None
     assert calls == [] and hooks.scope_stats.get() is None
     assert Path(tmp_path).is_dir()
+
+
+def test_a_rescued_retry_after_a_scoped_attempt_is_a_scope_retry(monkeypatch):
+    from app.api.routes.compile import _scope_of
+
+    _reset(monkeypatch)
+    hooks.scope_stats.set({"scope_kind": "scoped"})
+    out = _scope_of({"manifest_incomplete": True, "manifest_suggested_libraries": {"Adafruit_I2CDevice.h": ["Adafruit BusIO"]}})
+    assert out == {"scope_kind": "scoped", "scope_retry": True, "scope_retry_headers": ["Adafruit_I2CDevice.h"]}
+    # No scoped attempt reported (a plain scan-all merge): manifest_incomplete alone is not a retry.
+    hooks.scope_stats.set(None)
+    assert _scope_of({"manifest_incomplete": True}) is None
