@@ -146,6 +146,9 @@ export const microsdExamples: ExampleProject[] = [
     boardFilter: 'arduino-uno',
     tags: ['microsd', 'sd card', 'spi', 'storage', 'files', 'fat16'],
     code: UNO_CODE,
+    // The AVR core ships no SD library: declare it, or nothing installs it
+    // and the sketch dies on the include (project/gallery-libraries-2026-09, cause A).
+    libraries: ['SD'],
     components: [
       {
         type: 'microsd-card',
