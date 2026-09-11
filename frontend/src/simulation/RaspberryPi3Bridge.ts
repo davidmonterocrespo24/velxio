@@ -39,6 +39,18 @@
 
 import { getTabSessionId } from './Esp32Bridge';
 
+/**
+ * What the board publishes to the backend about its bus (`pi_bus_topology`).
+ * `regs` is the device's 256 registers as hex when it can export them (the
+ * backend then answers reads from that copy with no round trip), null when
+ * the device has to be asked each time.
+ */
+export interface PiBusTopology {
+  version: 1;
+  i2c: Array<{ bus: number; addr: number; regs: string | null }>;
+  spi: { attached: boolean };
+}
+
 const API_BASE = (): string => {
   // The desktop shell injects the sidecar URL at runtime (random port) via
   // window.__VELXIO_API_BASE__; honor it first so the QEMU-board WebSocket
@@ -72,6 +84,10 @@ export class RaspberryPi3Bridge {
    * the reply line, or null when there is nothing to say; either way a
    * `pi_bus_reply` with the same `rid` goes back. */
   onBusRequest: ((rid: number, line: string) => string | null) | null = null;
+  /** The backend announced (`system` event `bus_relay`) that it answers the
+   * guest's bus from the canvas: publish the bus map now. Its own slot so it
+   * never competes with whoever owns onSystemEvent. */
+  onBusRelay: ((version: number) => void) | null = null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   /** Backend refused or lost the session. `code` is the server's
@@ -211,10 +227,18 @@ export class RaspberryPi3Bridge {
             // answer nothing, say why here.
             console.warn(`[${this.boardId}] bus request failed: ${line}`, e);
           }
-          this._send({ type: 'pi_bus_reply', data: { rid, line: reply } });
+          // A write the guest did not wait for (a display frame, a config
+          // register) is applied and not answered: the backend holds no
+          // request open for it.
+          if (msg.data.noreply !== true) {
+            this._send({ type: 'pi_bus_reply', data: { rid, line: reply } });
+          }
           break;
         }
         case 'system':
+          if (msg.data.event === 'bus_relay') {
+            this.onBusRelay?.(Number(msg.data.version) || 1);
+          }
           this.onSystemEvent?.(msg.data.event as string, msg.data);
           break;
         case 'display':
@@ -418,6 +442,17 @@ export class RaspberryPi3Bridge {
     cs?: number;
   }): void {
     this._send({ type: 'pi_detach_slave', data: spec });
+  }
+
+  /** The I2C / SPI parts wired to this board, for the backend relay to
+   * answer the guest from (`pi_bus_topology`). */
+  sendBusTopology(topology: PiBusTopology): void {
+    this._send({ type: 'pi_bus_topology', data: topology });
+  }
+
+  /** A register-file device's registers changed (`pi_bus_regs`). */
+  sendBusRegs(bus: number, address: number, regsHex: string): void {
+    this._send({ type: 'pi_bus_regs', data: { bus, addr: address, regs: regsHex } });
   }
 
   private _send(payload: unknown): void {

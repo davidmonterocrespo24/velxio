@@ -138,6 +138,11 @@ export interface BoardInstance {
    *  mode chip or by turning on the Linux terminal; wins over the detector
    *  so a project doesn't silently change behaviour between runs. */
   enginePinned?: 'instant' | 'linux';
+  /** QEMU-Linux boards only. The backend running this board's guest answers
+   *  the guest's I2C / SPI requests from the parts on the canvas (it said so
+   *  with a `bus_relay` system event). Until then a part that needs the
+   *  guest to reach it has to be handed to the backend some other way. */
+  busRelay?: boolean;
   compiledProgram: string | null; // hex for AVR/RP2040, null for Pi (runs Python)
   /**
    * Fingerprint of the sources (+ build options) `compiledProgram` was built

@@ -1815,6 +1815,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         bridge.onGpioPwm = (pin, frequency, dutyCycle, event) =>
           shim.applyPwm(pin, frequency, event === 'stop' ? 0 : dutyCycle);
         bridge.onBusRequest = (_rid, line) => shim.answerBusLine(line);
+        // A backend that answers the guest's bus from the canvas announces
+        // it once per guest; the shim then publishes the bus map and keeps
+        // it true, and the board says so (a part that used to be handed to
+        // the guest can stay in the tab).
+        bridge.onBusRelay = () => {
+          shim.startBusSync();
+          set((s) => ({
+            boards: s.boards.map((b) => (b.id === id ? { ...b, busRelay: true } : b)),
+          }));
+        };
+        const disconnected = bridge.onDisconnected;
+        bridge.onDisconnected = () => {
+          shim.stopBusSync();
+          disconnected?.();
+        };
         // The UART routes were built at page load, when this bridge did
         // not exist — re-attempt the TX hook now that it does, or the
         // guest's header-UART bytes never reach the canvas wire.

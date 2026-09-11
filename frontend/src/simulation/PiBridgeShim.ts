@@ -56,7 +56,7 @@
 
 import { I2CBusManager, nullI2CMaster, type I2CDevice } from './I2CBusManager';
 import type { PinManager } from './PinManager';
-import type { RaspberryPi3Bridge } from './RaspberryPi3Bridge';
+import type { RaspberryPi3Bridge, PiBusTopology } from './RaspberryPi3Bridge';
 import type { LineSupport } from './line/LineHost';
 import { recordPartGap } from './line/requestLine';
 import { requestElectricalResolve } from './spice/electricalResolveHook';
@@ -165,6 +165,10 @@ export class PiBridgeShim {
   private heldCs: { bus: number; cs: number } | null = null;
   private readonly oneWireMasters = new Map<number, OneWireByteMaster>();
   private readonly adcWarned = new Set<number>();
+  /** Bus-map sync with a relaying backend (see startBusSync). */
+  private busTimer: ReturnType<typeof setInterval> | null = null;
+  private busMapKey = '';
+  private readonly lastRegs = new Map<number, string>();
 
   constructor(opts: PiBridgeShimOptions) {
     this.boardId = opts.boardId;
@@ -177,9 +181,81 @@ export class PiBridgeShim {
 
   // ── Lifecycle (the store drives the guest through the bridge / engine) ──
   start(): void {}
-  /** Nothing to halt here; a chip-select held by an unfinished transfer is released. */
+  /** Nothing to halt here; a chip-select held by an unfinished transfer is
+   *  released and the bus-map sync with the backend stops. */
   stop(): void {
     this.releaseHeldCs();
+    this.stopBusSync();
+  }
+
+  // ── The bus map, for a backend that answers the guest from the canvas ──
+  /**
+   * What is on this board's buses, as the backend relay needs it: every I2C
+   * address with a device, and for each the 256 registers when the device
+   * can export them (a register file: BMP280, DS3231, ...). The backend
+   * answers an absent address with a NAK and a register-file read from its
+   * copy, both without asking this tab; only the rest travels here.
+   */
+  busTopology(): PiBusTopology {
+    const i2c = this.i2cBusInstance.listDevices().map((dev) => ({
+      bus: HEADER_I2C_BUS,
+      addr: dev.address & 0x7f,
+      regs: typeof dev.dumpRegisters === 'function' ? toHex(Array.from(dev.dumpRegisters())) : null,
+    }));
+    return { version: 1, i2c, spi: { attached: this.spiAttached() } };
+  }
+
+  /**
+   * The backend said it relays (`bus_relay`): publish the map, then keep it
+   * true. Every 250 ms (the ESP32 proxy's cadence) a changed set of devices
+   * republishes the whole map, and a register-file device whose registers
+   * changed pushes just its registers — compared byte for byte, because a
+   * sampled hash misses the measurement registers a slider moves.
+   */
+  startBusSync(): void {
+    this.stopBusSync();
+    this.publishBusTopology();
+    this.busTimer = setInterval(() => this.busTick(), 250);
+  }
+
+  stopBusSync(): void {
+    if (this.busTimer !== null) clearInterval(this.busTimer);
+    this.busTimer = null;
+    this.busMapKey = '';
+    this.lastRegs.clear();
+  }
+
+  private publishBusTopology(): void {
+    const topology = this.busTopology();
+    this.busMapKey = this.mapKeyOf(topology);
+    this.lastRegs.clear();
+    for (const dev of topology.i2c) if (dev.regs !== null) this.lastRegs.set(dev.addr, dev.regs);
+    (this.bridge as Partial<RaspberryPi3Bridge>).sendBusTopology?.(topology);
+  }
+
+  private busTick(): void {
+    const topology = this.busTopology();
+    if (this.mapKeyOf(topology) !== this.busMapKey) {
+      this.publishBusTopology();
+      return;
+    }
+    const bridge = this.bridge as Partial<RaspberryPi3Bridge>;
+    for (const dev of topology.i2c) {
+      if (dev.regs === null || this.lastRegs.get(dev.addr) === dev.regs) continue;
+      this.lastRegs.set(dev.addr, dev.regs);
+      bridge.sendBusRegs?.(dev.bus, dev.addr, dev.regs);
+    }
+  }
+
+  /** Which devices are where (not their register contents). */
+  private mapKeyOf(topology: PiBusTopology): string {
+    const i2c = topology.i2c.map((d) => `${d.bus}:${d.addr}:${d.regs === null ? 'ask' : 'regs'}`).sort();
+    return `${i2c.join(',')}|spi:${topology.spi.attached ? 1 : 0}`;
+  }
+
+  /** A part listens on the SPI bus in either shape parts use. */
+  private spiAttached(): boolean {
+    return !!this._spiAdapter?.onByte || this.spiHandlers.size > 0;
   }
   reset(): void {}
   setSpeed(_s: number): void {}
