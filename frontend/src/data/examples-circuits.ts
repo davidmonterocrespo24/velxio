@@ -994,14 +994,15 @@ void loop() {
     difficulty: 'intermediate',
     code: `// Software NAND SR latch simulation
 bool q = false;
-void setup() { Serial.begin(9600); pinMode(2,INPUT_PULLUP); pinMode(3,INPUT_PULLUP); pinMode(13,OUTPUT); }
+void setup() { Serial.begin(9600); pinMode(2,INPUT_PULLUP); pinMode(3,INPUT_PULLUP); pinMode(4,INPUT); pinMode(13,OUTPUT); }
 void loop() {
   bool s = !digitalRead(2), r = !digitalRead(3);
   if(s && !r) q = true;
   if(r && !s) q = false;
-  digitalWrite(13, q);
+  digitalWrite(13, q);                 // software latch, mirrored on the LED
+  bool hw = digitalRead(4);            // the hardware latch, read back
   Serial.print("S="); Serial.print(s); Serial.print(" R="); Serial.print(r);
-  Serial.print(" Q="); Serial.println(q);
+  Serial.print(" Q="); Serial.print(q); Serial.print(" Qhw="); Serial.println(hw);
   delay(200);
 }`,
     components: [
@@ -1039,8 +1040,11 @@ void loop() {
       w('w13', ['g1', 'Y'], ['rl', '1']),
       w('w14', ['rl', '2'], ['qled', 'A']),
       w('w15', ['qled', 'C'], ['arduino-uno', 'GND'], '#000000'),
-      // Also route Q to Arduino pin 13 (software mirror)
-      w('w16', ['g1', 'Y'], ['arduino-uno', '13'], '#ffaa00'),
+      // The MCU READS the hardware latch's Q on pin 4 (an input): the NAND
+      // output drives that wire, the sketch only listens. Pin 13 stays the
+      // sketch's own software mirror; wiring Q into it as well put two drivers
+      // on one wire and the circuit check refused to run the example.
+      w('w16', ['g1', 'Y'], ['arduino-uno', '4'], '#ffaa00'),
     ],
   },
 

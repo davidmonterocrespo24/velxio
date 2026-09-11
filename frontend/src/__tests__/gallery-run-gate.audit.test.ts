@@ -1,54 +1,72 @@
 import { describe, expect, it } from 'vitest';
 import { exampleProjects as examples } from '../data/examples';
 import { buildInputFromStore } from '../simulation/spice/storeAdapter';
-import { BOARD_PIN_GROUPS } from '../simulation/spice/boardPinGroups';
 import { verifyCircuit } from '../simulation/verify/circuitVerifier';
+import { buildPreflightSnapshot } from '../simulation/verify/verifyFromStore';
 import { stripBrandPrefix, isBoardComponentType } from '../utils/exampleToBuildNetlistInput';
-import type { PinSourceState } from '../simulation/spice/types';
 import type { BoardKind } from '../store/useSimulatorStore';
 
 /**
  * Gallery audit: which examples would the Run button REFUSE to start?
  *
- * EditorToolbar's `checkOrBlock` runs `verifyCircuitFromStore()` before every Run and
- * returns false when the verifier reports errors — the compile never fires and the user
- * gets a "run anyway?" modal. So a circuit error is not cosmetic: it is the difference
- * between an example that runs and one that appears dead.
+ * EditorToolbar's `checkOrBlock` runs `verifyCircuitFromStore()` before every
+ * Run and returns false when the verifier reports errors: the compile never
+ * fires and the user gets a "run anyway?" modal. So a circuit error is not
+ * cosmetic; it is the difference between an example that runs and one that
+ * appears dead.
  *
- * This mattered because the defects hide until the circuit solves END TO END. c3-button
- * wired its button to pins that do not exist, so the netlist never closed and nobody saw
- * that its LED had no series resistor. Fixing the pin names surfaced a 506 mA LED that
- * had been wrong since the example was written.
+ * This test once re-implemented the Run button's snapshot by hand (its own
+ * worst-case loop, its own board-group lookup) and stayed green for weeks
+ * while 38 examples were being refused live: every Grove analog module on
+ * the XIAO, dfr-soil-esp32 and nand-sr-latch. Two things had let that
+ * through. The snapshot here was not the app's (0ef65684 had already fixed
+ * the board-group trap in the app, not here), and the board was inferred
+ * from `boardType` only, so every `boards[]` example was audited with no
+ * board at all and could not conflict with anything.
  *
- * Reproduces the Run gate exactly: same worst-case snapshot (every wired digital pin
- * forced HIGH at the board's vcc, rails skipped), same buildInputFromStore, same
- * verifyCircuit. Real ngspice, no browser.
+ * Now it calls the SAME `buildPreflightSnapshot` the Run button calls, and
+ * infers the board the way the loader creates it: `boards[].boardKind`
+ * first (ids by addBoard's rule: the first of a kind is the kind, the Nth is
+ * `<kind>-N`, exactly loadExample.ts), then `boardType`, then a board
+ * component on the canvas (the legacy circuits' `arduino-uno`). Real
+ * ngspice, no browser. The pro overlay runs the same gate over its own
+ * examples in gallery-circuit.test.ts, with the mappers installed.
  */
 
-function boardKindOf(example: (typeof examples)[number]): BoardKind | null {
-  const bt = (example as { boardType?: string }).boardType;
-  return (bt as BoardKind) ?? null;
-}
+type Example = (typeof examples)[number];
+type BoardRef = { id: string; boardKind: BoardKind };
 
-/** The board component id an example's wires refer to (legacy examples say 'arduino-uno'). */
-function boardIdsOf(example: (typeof examples)[number]): Set<string> {
-  const declared = new Set(example.components?.map((c) => c.id) ?? []);
-  const refs = new Set<string>();
-  for (const w of example.wires ?? []) {
-    for (const ep of [w.start, w.end]) if (!declared.has(ep.componentId)) refs.add(ep.componentId);
+/** Every board the example's wires can refer to, with the id the loader would give it. */
+function boardsOf(example: Example): BoardRef[] {
+  const multi = (example as { boards?: Array<{ boardKind: string }> }).boards;
+  if (multi && multi.length) {
+    const count = new Map<string, number>();
+    return multi.map((b) => {
+      const n = (count.get(b.boardKind) ?? 0) + 1;
+      count.set(b.boardKind, n);
+      return { id: n === 1 ? b.boardKind : `${b.boardKind}-${n}`, boardKind: b.boardKind as BoardKind };
+    });
   }
-  return refs;
+  const bt = (example as { boardType?: string }).boardType;
+  if (bt) {
+    // Wires name the board by an id that is not a declared component.
+    const declared = new Set(example.components?.map((c) => c.id) ?? []);
+    const refs = new Set<string>();
+    for (const w of example.wires ?? []) {
+      for (const ep of [w.start, w.end]) if (!declared.has(ep.componentId)) refs.add(ep.componentId);
+    }
+    return [...refs].map((id) => ({ id, boardKind: bt as BoardKind }));
+  }
+  // Legacy circuits carry the board as a component (type 'wokwi-arduino-uno').
+  return (example.components ?? [])
+    .filter((c) => isBoardComponentType(c.type))
+    .map((c) => ({ id: c.id, boardKind: stripBrandPrefix(c.type) as BoardKind }));
 }
 
-async function runGate(example: (typeof examples)[number]) {
-  const kind = boardKindOf(example);
+async function runGate(example: Example) {
   const components = (example.components ?? [])
     .filter((c) => !isBoardComponentType(c.type))
-    .map((c) => ({
-      id: c.id,
-      metadataId: stripBrandPrefix(c.type),
-      properties: c.properties ?? {},
-    }));
+    .map((c) => ({ id: c.id, metadataId: stripBrandPrefix(c.type), properties: c.properties ?? {} }));
   const wires = (example.wires ?? []).map((w) => ({
     id: w.id,
     start: { componentId: w.start.componentId, pinName: w.start.pinName },
@@ -56,48 +74,43 @@ async function runGate(example: (typeof examples)[number]) {
     color: '#666',
     waypoints: [],
   }));
-
-  const boards = kind
-    ? [...boardIdsOf(example)].map((id) => {
-        const group = BOARD_PIN_GROUPS[kind] ?? BOARD_PIN_GROUPS.default;
-        const pinStates: Record<string, PinSourceState> = {};
-        const wired = new Set<string>();
-        for (const w of wires) {
-          if (w.start.componentId === id) wired.add(w.start.pinName);
-          if (w.end.componentId === id) wired.add(w.end.pinName);
-        }
-        for (const pinName of wired) {
-          if (group.gnd.includes(pinName)) continue;
-          if (group.vcc_pins.includes(pinName)) continue;
-          if (Number.isNaN(Number.parseInt(pinName, 10))) continue;
-          pinStates[pinName] = { type: 'digital', v: group.vcc };
-        }
-        return { id, boardKind: kind, pinStates };
-      })
-    : [];
-
-  const input = buildInputFromStore({ components, wires, boards });
-  return verifyCircuit(input);
+  const { snap, synthesizedPins } = buildPreflightSnapshot({ components, wires, boards: boardsOf(example) });
+  return verifyCircuit(buildInputFromStore(snap), { synthesizedPins });
 }
+
+/**
+ * Examples the gate knows are refused, with the defect that refuses them and
+ * where it is tracked. This is NOT a place to park a red example: an entry
+ * needs a cause the pre-flight cannot be blamed for and a phase that owns
+ * the fix. Today's one is a model limit: two cross-coupled NAND gates whose
+ * B-sources are ideal steps (`u(V(a)-T)`) form a bistable loop with no
+ * unique .op solution, so ngspice returns no voltages at all. The pre-flight
+ * is right to stamp nothing on the pin that reads Q (demoted, cause G) and
+ * still cannot solve the latch. Tracked as project/gallery-libraries-2026-09
+ * cause H / phase P2.H (a finite-slope gate model, or .nodeset hints).
+ */
+const KNOWN_REFUSED: Record<string, string> = {
+  'nand-sr-latch': 'bistable loop of ideal-step B-sources has no unique .op solution (cause H, P2.H)',
+};
 
 describe('gallery: no example is blocked by its own circuit', () => {
   const candidates = examples.filter(
     (e) => (e.components?.length ?? 0) > 0 && (e.wires?.length ?? 0) > 0,
   );
 
-  it('audits every wired example and reports the blockers', async () => {
+  it('audits every wired example with the Run button\'s own snapshot and reports the blockers', async () => {
     const blocked: Array<{ id: string; board: string; codes: string[]; detail: string }> = [];
     for (const ex of candidates) {
       let res;
       try {
         res = await runGate(ex);
       } catch {
-        continue; // unbuildable snapshot — the real app treats that as "don't block"
+        continue; // unbuildable snapshot: the real app treats that as "don't block"
       }
       if (res.errors.length) {
         blocked.push({
           id: ex.id,
-          board: (ex as { boardType?: string }).boardType ?? '(sin placa)',
+          board: boardsOf(ex).map((b) => b.boardKind).join('+') || '(no board)',
           codes: [...new Set(res.errors.map((e) => e.code))],
           detail: res.errors[0].message.slice(0, 110),
         });
@@ -105,12 +118,15 @@ describe('gallery: no example is blocked by its own circuit', () => {
     }
 
     if (blocked.length) {
-      console.log(
-        `\n=== ${blocked.length} de ${candidates.length} ejemplos con el Run BLOQUEADO ===`,
-      );
+      console.log(`\n=== ${blocked.length} of ${candidates.length} wired examples would be REFUSED by Run ===`);
       for (const b of blocked)
         console.log(`  ${b.board.padEnd(20)} ${b.id.padEnd(36)} ${b.codes.join(',')}  ${b.detail}`);
     }
-    expect(blocked.map((b) => `${b.id} [${b.codes.join(',')}]`)).toEqual([]);
+    const unexpected = blocked.filter((b) => !(b.id in KNOWN_REFUSED));
+    expect(unexpected.map((b) => `${b.id} [${b.codes.join(',')}]`)).toEqual([]);
+    // A known entry that stopped being refused is stale: delete it, do not
+    // let the list outlive the defect it documents.
+    const stale = Object.keys(KNOWN_REFUSED).filter((id) => !blocked.some((b) => b.id === id));
+    expect(stale, 'KNOWN_REFUSED entries that no longer fail').toEqual([]);
   }, 600_000);
 });

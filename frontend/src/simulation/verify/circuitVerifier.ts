@@ -81,6 +81,12 @@ export interface VerifierConfig {
   resistorMaxWatts: number;
   /** Below this the LED is "wired but dark" — surface a hint. */
   ledMinAmps: number;
+  /**
+   * `${boardId}:${pinName}` of the board sources the PRE-FLIGHT invented
+   * (every wired GPIO assumed HIGH). Only set by verifyCircuitFromStore; the
+   * live solver never synthesizes. Used to word a conflict honestly.
+   */
+  synthesizedPins?: ReadonlySet<string>;
 }
 
 export const DEFAULT_CONFIG: VerifierConfig = {
@@ -145,7 +151,7 @@ export async function verifyCircuit(
   // 2026-09-05 nothing said why (a 7805's VOUT wired into a XIAO's 5V pin was
   // reported as "my 9 V battery reads 0 V"). Detected from the netlist itself
   // so both sides get named; blocking, because nothing on the canvas solves.
-  errors.push(...findSourceConflicts(netlist, input));
+  errors.push(...findSourceConflicts(netlist, input, config.synthesizedPins));
 
 
   // ── Board over-voltage (graph-based, no solve) ─────────────────────────
@@ -1036,8 +1042,31 @@ function parseSourceCards(netlist: string): SourceCard[] {
   return out;
 }
 
+/** The sorted node-pair key findSourceConflicts groups ideal sources by. */
+export function sourcePairKey(a: string, b: string): string {
+  return [a, b].sort().join('|');
+}
+
+/**
+ * Every node pair an ideal source (V or B card) already sits across in this
+ * netlist. The pre-flight consults it BEFORE inventing its worst-case board
+ * sources: a wired GPIO whose pair is already held by a component source is
+ * an input by construction (a sensor module driving its signal pad, a logic
+ * gate's output into a pin the sketch reads), and stamping it HIGH would only
+ * manufacture the very conflict this check exists to report.
+ */
+export function occupiedSourcePairs(netlist: string): Set<string> {
+  const out = new Set<string>();
+  for (const card of parseSourceCards(netlist)) out.add(sourcePairKey(card.a, card.b));
+  return out;
+}
+
 /** Say which canvas item a netlist source card belongs to. */
-function describeSourceCard(card: SourceCard, input: BuildNetlistInput): { text: string; componentId?: string } {
+function describeSourceCard(
+  card: SourceCard,
+  input: BuildNetlistInput,
+  synthesizedPins?: ReadonlySet<string>,
+): { text: string; componentId?: string } {
   const lower = card.name.toLowerCase();
   if (lower === 'v_vcc_rail') return { text: "the board's main supply rail (5V / VCC / 3V3 pins)" };
   const aux = /^v_aux_rail_(.+)$/.exec(lower);
@@ -1048,7 +1077,17 @@ function describeSourceCard(card: SourceCard, input: BuildNetlistInput): { text:
       const pin = Object.keys(board.pins ?? {}).find(
         (p) => `${prefix}${sanitizeSpiceId(p)}`.toLowerCase() === lower,
       );
-      return { text: `board ${board.id} pin ${pin ?? lower.slice(prefix.length)} (driven by the MCU)`, componentId: board.id };
+      const pinName = pin ?? lower.slice(prefix.length);
+      // A source the pre-flight itself invented is not "driven by the MCU":
+      // nothing has run yet. Say what it is, so a residual conflict reads as
+      // "the check assumed this pin is an output", which is the true cause.
+      const invented = synthesizedPins?.has(`${board.id}:${pinName}`) ?? false;
+      return {
+        text: invented
+          ? `board ${board.id} pin ${pinName} (assumed HIGH by the circuit check, as an output the sketch may drive)`
+          : `board ${board.id} pin ${pinName} (driven by the MCU)`,
+        componentId: board.id,
+      };
     }
   }
   const body = lower.slice(2); // drop "v_" / "b_"
@@ -1073,13 +1112,17 @@ function describeSourceCard(card: SourceCard, input: BuildNetlistInput): { text:
  * between a node and itself: the .op matrix is singular and ngspice rejects
  * the deck. Exported for tests; `verifyCircuit` runs it before the solve.
  */
-export function findSourceConflicts(netlist: string, input: BuildNetlistInput): CircuitWarning[] {
+export function findSourceConflicts(
+  netlist: string,
+  input: BuildNetlistInput,
+  synthesizedPins?: ReadonlySet<string>,
+): CircuitWarning[] {
   const cards = parseSourceCards(netlist);
   const byPair = new Map<string, SourceCard[]>();
   const out: CircuitWarning[] = [];
   for (const card of cards) {
     if (card.a === card.b) {
-      const who = describeSourceCard(card, input);
+      const who = describeSourceCard(card, input, synthesizedPins);
       out.push({
         severity: 'error',
         code: 'source-conflict',
@@ -1088,14 +1131,14 @@ export function findSourceConflicts(netlist: string, input: BuildNetlistInput): 
       });
       continue;
     }
-    const key = [card.a, card.b].sort().join('|');
+    const key = sourcePairKey(card.a, card.b);
     const list = byPair.get(key) ?? [];
     list.push(card);
     byPair.set(key, list);
   }
   for (const [, list] of byPair) {
     if (list.length < 2) continue;
-    const parts = list.map((c) => describeSourceCard(c, input));
+    const parts = list.map((c) => describeSourceCard(c, input, synthesizedPins));
     const names = parts.map((p) => p.text);
     const last = names.pop()!;
     out.push({

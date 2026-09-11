@@ -82,3 +82,88 @@ describe('source-conflict pre-flight rule', () => {
     expect(result.errors.map((e) => e.code)).not.toContain('solver-failed');
   });
 });
+
+/**
+ * Cause G (project/gallery-libraries-2026-09): the pre-flight used to force
+ * EVERY wired numeric pin HIGH, including the ADC pin a sensor module drives
+ * with its own ideal source. Two ideal sources, one net, refused before a
+ * single line compiled. Every Grove analog example on the XIAO went that way.
+ */
+import { buildPreflightSnapshot } from '../simulation/verify/verifyFromStore';
+import { buildInputFromStore } from '../simulation/spice/storeAdapter';
+
+const board = (id: string, boardKind = 'arduino-uno') => ({ id, boardKind });
+const comp = (id: string, metadataId: string, properties: Record<string, unknown> = {}) => ({ id, metadataId, properties });
+const dcSource = (id: string) => comp(id, 'signal-generator', { waveform: 'dc', offset: 2.5 });
+
+describe('pre-flight demotion: a pin a component already sources is an input', () => {
+  it('does not stamp pin 0 when a component ideal source holds its net, and reports no conflict', async () => {
+    const state = {
+      components: [dcSource('sg')],
+      wires: [wire('w1', ['sg', 'SIG'], ['uno', '0']), wire('w2', ['sg', 'GND'], ['uno', 'GND.1'])],
+      boards: [board('uno')],
+    };
+    const { snap, synthesizedPins } = buildPreflightSnapshot(state);
+    expect(snap.boards[0]!.pinStates['0']).toBeUndefined();
+    expect(synthesizedPins.has('uno:0')).toBe(false);
+    const res = await verifyCircuit(buildInputFromStore(snap), { synthesizedPins });
+    expect(res.errors.map((e) => e.code)).toEqual([]);
+  });
+
+  it('still forces an LED-driving pin HIGH and still catches a bare LED', async () => {
+    const state = {
+      components: [
+        dcSource('sg'),
+        comp('r1', 'resistor', { value: '220' }),
+        comp('led1', 'led', { color: 'red' }),
+        comp('led2', 'led', { color: 'red' }),
+      ],
+      wires: [
+        wire('w1', ['sg', 'SIG'], ['uno', '0']),
+        wire('w2', ['sg', 'GND'], ['uno', 'GND.1']),
+        // pin 1 -> 220 R -> LED -> GND: a proper output, must still be forced HIGH
+        wire('w3', ['uno', '1'], ['r1', '1']),
+        wire('w4', ['r1', '2'], ['led1', 'A']),
+        wire('w5', ['led1', 'C'], ['uno', 'GND.1']),
+        // pin 13 -> bare LED -> GND: the defect the worst case exists to catch
+        wire('w6', ['uno', '13'], ['led2', 'A']),
+        wire('w7', ['led2', 'C'], ['uno', 'GND.2']),
+      ],
+      boards: [board('uno')],
+    };
+    const { snap, synthesizedPins } = buildPreflightSnapshot(state);
+    expect(snap.boards[0]!.pinStates['0']).toBeUndefined();
+    expect(snap.boards[0]!.pinStates['1']).toEqual({ type: 'digital', v: 5 });
+    expect(snap.boards[0]!.pinStates['13']).toEqual({ type: 'digital', v: 5 });
+    expect([...synthesizedPins].sort()).toEqual(['uno:1', 'uno:13']);
+    const res = await verifyCircuit(buildInputFromStore(snap), { synthesizedPins });
+    expect(res.errors.map((e) => e.code)).not.toContain('source-conflict');
+    expect(res.errors.map((e) => e.code)).toContain('led-overcurrent');
+  });
+
+  it('invents ONE source for two GPIOs that share a net (a board-to-board link)', () => {
+    const state = {
+      components: [],
+      wires: [wire('w1', ['uno', '5'], ['uno-2', '6']), wire('w2', ['uno', 'GND.1'], ['uno-2', 'GND.1'])],
+      boards: [board('uno'), board('uno-2')],
+    };
+    const { snap, synthesizedPins } = buildPreflightSnapshot(state);
+    const stamped = snap.boards.flatMap((b) => Object.keys(b.pinStates).map((p) => `${b.id}:${p}`));
+    expect(stamped).toHaveLength(1);
+    expect(synthesizedPins.size).toBe(1);
+  });
+
+  it('names an invented source honestly when a conflict remains', () => {
+    // Force the old behaviour by hand: pin 0 stamped although a component holds it.
+    const input = buildInputFromStore({
+      components: [dcSource('sg')],
+      wires: [wire('w1', ['sg', 'SIG'], ['uno', '0']), wire('w2', ['sg', 'GND'], ['uno', 'GND.1'])],
+      boards: [{ id: 'uno', boardKind: 'arduino-uno', pinStates: { '0': { type: 'digital', v: 5 } } }],
+    });
+    const { netlist } = buildNetlist({ ...input, analysis: { kind: 'op' } });
+    const found = findSourceConflicts(netlist, input, new Set(['uno:0']));
+    expect(found).toHaveLength(1);
+    expect(found[0]!.message).toContain('assumed HIGH by the circuit check');
+    expect(found[0]!.message).not.toContain('driven by the MCU');
+  });
+});
