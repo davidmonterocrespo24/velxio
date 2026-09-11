@@ -13,19 +13,13 @@
 
 import React, { useRef, useEffect, useCallback, useReducer } from 'react';
 import type { ComponentMetadata } from '../types/component-metadata';
-import {
-  useSimulatorStore,
-  getBoardBridge,
-  getBoardPinManager,
-  getBoardSimulator,
-} from '../store/useSimulatorStore';
+import { useSimulatorStore, getBoardSimulator } from '../store/useSimulatorStore';
 import { useElectricalStore } from '../store/useElectricalStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { buildProjectSdImage, decodeSdFiles } from '../utils/sdCardFiles';
 import { PartSimulationRegistry } from '../simulation/parts';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
 import { isPiBoardKind } from '../types/board';
-import { getBoardLineSupport } from '../lib/proBoardRegistry';
 import { isKeyBindable, formatKeyLabel } from '../utils/keyButtonBindings';
 import {
   createDefaultPinResolver,
@@ -504,15 +498,16 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       // null pin lookup (`getArduinoPin` returns null when there's no board),
       // so the stub below is enough — it satisfies the type signature without
       // doing anything when called.
-      // A QEMU-Linux board (Raspberry Pi family, UNIHIKER) has no MCU
-      // simulator: the guest IS the CPU. An input part still calls
-      // `simulator.setPinState(pin, level)` to report a button press or a
-      // PIR trip, and that call used to land on the legacy AVR instance and
-      // vanish — clicking the sensor did nothing at all. Route it to the
-      // bridge of the board this component is actually wired to: `gpio_in`
-      // for the guest, the canvas-fed `pin<N>` value the browser engine's
-      // shims read, and the PinManager so wires and SPICE see the edge.
-      const { piBoardId, piBoardKind, wiredBoardId } = (() => {
+      // A Linux-guest board (Raspberry Pi family, UNIHIKER) has no MCU
+      // emulator in the browser: the guest IS the CPU. Its simulatorMap entry
+      // is the PiBridgeShim the store installs at addBoard — the object that
+      // routes `setPinState` to the guest (`gpio_in`, the canvas-fed `pin<N>`
+      // value) and to the PinManager, hosts the I2C / SPI device models the
+      // guest's bus requests are answered against, and refuses an analog
+      // input with a reason. A hand-rolled stub used to stand here instead
+      // and, taking precedence over `getBoardSimulator`, kept every I2C part
+      // off the board's bus.
+      const { piBoardId, wiredBoardId } = (() => {
         const st = useSimulatorStore.getState();
         const ownPins = new Set<string>();
         for (const w of st.wires) {
@@ -525,50 +520,11 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
           const board = boardId ? st.boards.find((b) => b.id === boardId) : undefined;
           if (!board) continue;
           if (anyBoardId === null) anyBoardId = board.id;
-          if (isPiBoardKind(board.boardKind))
-            return { piBoardId: board.id, piBoardKind: board.boardKind, wiredBoardId: board.id };
+          if (isPiBoardKind(board.boardKind)) return { piBoardId: board.id, wiredBoardId: board.id };
         }
-        return { piBoardId: null, piBoardKind: null, wiredBoardId: anyBoardId };
+        return { piBoardId: null, wiredBoardId: anyBoardId };
       })();
-      const piSimulator = piBoardId
-        ? ({
-            setPinState: (pin: number, state: boolean) => {
-              getBoardBridge(piBoardId)?.sendPinEvent(pin, state);
-              getBoardBridge(piBoardId)?.setSensorState({ [`pin${pin}`]: state ? 1 : 0 });
-              getBoardPinManager(piBoardId)?.triggerPinChange(pin, state, 'external');
-            },
-            isRunning: () =>
-              !!useSimulatorStore.getState().boards.find((b) => b.id === piBoardId)?.running,
-            pinManager: getBoardPinManager(piBoardId),
-            // The line contract's declaration for this Pi-family board. Most
-            // QEMU-Linux boards read their pins over a serial link to the
-            // backend (measured ~120 reads/s) and carry levels, not timed
-            // edges, so a single-wire sensor's reply has nowhere to land in
-            // guest time: they DEFAULT to a refusal, said here so the part
-            // hears it and the circuit check shows it, instead of waiting on a
-            // silent pad. A board that DOES serve those sensors another way
-            // overrides this through registerBoardLineSupport (the UNIHIKER
-            // delivers DHT22 / HC-SR04 as named slider values, so the overlay
-            // declares it `hosted`).
-            lineSupport: () =>
-              (piBoardKind && getBoardLineSupport(piBoardKind)) ?? {
-                mode: 'none' as const,
-                why: 'this board runs a Linux guest that reads its pins over a serial link; timed single-wire sensors are not modelled here',
-              },
-            // Addressable pixels are the same story one step further out. A
-            // WS2812 bit cell is 1.25 us; this transport carries levels with
-            // no timestamps at roughly the rate a Python statement runs, so
-            // there is no waveform to decode and there cannot be one. Said out
-            // loud for the same reason as lineSupport: the part otherwise
-            // attaches, decodes nothing, feeds nothing and reports nothing,
-            // which is indistinguishable from a wiring mistake.
-            pixelSupport: () => ({
-              mode: 'none' as const,
-              why: 'this board drives its pins over a level protocol with no bit timing, so a WS2812 data stream cannot be produced or decoded here',
-            }),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          } as any)
-        : null;
+      const piSimulator = piBoardId ? (getBoardSimulator(piBoardId) ?? null) : null;
 
       // Route the part to the simulator of the board it is actually WIRED
       // to. The legacy store `simulator` is the shared AVR instance: handing

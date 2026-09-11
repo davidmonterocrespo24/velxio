@@ -19,12 +19,22 @@
  *         config?:  Record<string, unknown>,
  *     }}
  *     { type: 'pi_detach_slave', data: { bus_kind, bus_num, address?|cs? } }
+ *     { type: 'pi_bus_reply',  data: { rid: number, line: string | null } }
  *
  *   Backend → Frontend
  *     { type: 'serial_output', data: { data: string } }
  *     { type: 'gpio_change',   data: { pin: number, state: 0 | 1 } }
+ *     { type: 'gpio_setup',    data: { pin: number, direction: 'in'|'out', pull: 'pud_up'|'pud_down'|'pud_off' } }
+ *     { type: 'pi_bus_request', data: { rid: number, line: string } }
  *     { type: 'system',        data: { event: string, ... } }
  *     { type: 'error',         data: { message: string } }
+ *
+ * `pi_bus_request` / `pi_bus_reply` carry one bus operation each (an I2C
+ * transaction, an SPI transfer, a 1-Wire op) as a request line the guest's
+ * shim libraries wrote; the board's simulator shim answers it against the
+ * device models on the canvas (see simulation/PiBridgeShim). A request the
+ * frontend cannot answer is replied with `line: null` so the backend never
+ * waits on it.
  */
 
 import { getTabSessionId } from './Esp32Bridge';
@@ -54,6 +64,14 @@ export class RaspberryPi3Bridge {
   // Callbacks wired up by useSimulatorStore
   onSerialData: ((char: string) => void) | null = null;
   onPinChange: ((gpioPin: number, state: boolean) => void) | null = null;
+  /** The guest programmed a pin's internal pull (from its GPIO_SETUP):
+   * 0 = none, 1 = pull-up, 2 = pull-down. Wired to the store's pull handler
+   * so the netlist stamps the resistor and the pin rests at its level. */
+  onPinPull: ((gpioPin: number, pull: 0 | 1 | 2) => void) | null = null;
+  /** One bus operation the guest is waiting on (`pi_bus_request`). Return
+   * the reply line, or null when there is nothing to say; either way a
+   * `pi_bus_reply` with the same `rid` goes back. */
+  onBusRequest: ((rid: number, line: string) => string | null) | null = null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   /** Backend refused or lost the session. `code` is the server's
@@ -173,6 +191,27 @@ export class RaspberryPi3Bridge {
           const pin = msg.data.pin as number;
           const state = (msg.data.state as number) === 1;
           this.onPinChange?.(pin, state);
+          break;
+        }
+        case 'gpio_setup': {
+          const pin = msg.data.pin as number;
+          const pull = msg.data.pull === 'pud_up' ? 1 : msg.data.pull === 'pud_down' ? 2 : 0;
+          if (typeof pin === 'number') this.onPinPull?.(pin, pull);
+          break;
+        }
+        case 'pi_bus_request': {
+          const rid = msg.data.rid as number;
+          const line = msg.data.line;
+          if (typeof rid !== 'number' || typeof line !== 'string') break;
+          let reply: string | null = null;
+          try {
+            reply = this.onBusRequest?.(rid, line) ?? null;
+          } catch (e) {
+            // A model that throws must not hang the guest on its timeout:
+            // answer nothing, say why here.
+            console.warn(`[${this.boardId}] bus request failed: ${line}`, e);
+          }
+          this._send({ type: 'pi_bus_reply', data: { rid, line: reply } });
           break;
         }
         case 'system':

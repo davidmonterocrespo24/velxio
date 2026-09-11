@@ -355,14 +355,18 @@ describe('useSimulatorStore — multi-board', () => {
     expect(board?.serialMonitorOpen).toBe(true);
   });
 
-  it('addBoard for raspberry-pi-3 creates a bridge (not a simulator)', () => {
+  it('addBoard for raspberry-pi-3 creates a bridge and the bridge shim (no MCU emulator)', () => {
     const { addBoard } = useSimulatorStore.getState();
     const id = addBoard('raspberry-pi-3', 500, 50);
     const { boards } = useSimulatorStore.getState();
     const piBoard = boards.find((b) => b.id === id);
     expect(piBoard?.boardKind).toBe('raspberry-pi-3');
-    // No AVRSimulator for Pi — verify via module-level helpers
-    expect(getBoardSimulator(id)).toBeUndefined();
+    // The Pi has no MCU emulator in the browser (the guest is the CPU), but
+    // it DOES get a simulator-shaped entry: the PiBridgeShim the parts attach
+    // their I2C / SPI device models to. Until 2026-09 this slot was empty and
+    // no catalog sensor could be wired to a Pi.
+    const sim = getBoardSimulator(id) as { simulatorKind?: string } | undefined;
+    expect(sim?.simulatorKind).toBe('pi');
     expect(getBoardBridge(id)).toBeDefined();
   });
 

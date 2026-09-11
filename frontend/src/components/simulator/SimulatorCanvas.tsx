@@ -7,7 +7,7 @@ import {
 import { getBoardBuiltins, getProBoard } from '../../lib/proBoardRegistry';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { openDeviceGateway } from '../../lib/openDeviceGateway';
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
@@ -296,6 +296,13 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   const [showComponentPicker, setShowComponentPicker] = useState(false);
   const [registry] = useState(() => ComponentRegistry.getInstance());
   const [registryLoaded, setRegistryLoaded] = useState(registry.isLoaded);
+  // Metadata can arrive AFTER the first render: the overlay merges its own
+  // parts once its dynamic import lands, and renderComponent below resolves
+  // `registry.getById` at render time. Without this subscription a saved
+  // project whose parts came from that late merge opened with them invisible
+  // ("Metadata not found") until something else forced a render — a click on
+  // the canvas, Run. Same subscription the picker uses.
+  useSyncExternalStore(registry.subscribe, registry.getVersion, registry.getVersion);
 
   // Wait for registry to finish loading before rendering components
   useEffect(() => {

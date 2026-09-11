@@ -34,6 +34,7 @@ import { getSerialTxInterceptor } from '../lib/proHardwareSerial';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
 import { useOscilloscopeStore } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
+import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
 import type { Ws2812Pixel } from '../simulation/Esp32Bridge';
 import { createEsp32Bridge } from '../simulation/Esp32BridgeFactory';
@@ -1025,7 +1026,13 @@ class Stm32BridgeShim {
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
 const simulatorMap = new Map<
   string,
-  AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | Esp32BridgeShim | Stm32BridgeShim
+  | AVRSimulator
+  | RP2040Simulator
+  | RiscVSimulator
+  | Esp32C3Simulator
+  | Esp32BridgeShim
+  | Stm32BridgeShim
+  | PiBridgeShim
 >();
 const pinManagerMap = new Map<string, PinManager>();
 // Per-board ESP32 GPIO Matrix mirror.  Populated for boards whose kind
@@ -1053,10 +1060,8 @@ export async function piSyncAndRunScript(boardId: string, boardKind: string): Pr
   const home = (proDef?.guestHome ?? '/home/pi').replace(/\/+$/, '');
   const board = useSimulatorStore.getState().boards.find((b) => b.id === boardId);
   const groupId = board?.activeFileGroupId ?? `group-${boardId}`;
-  const files = useEditorStore
-    .getState()
-    .getGroupFiles(groupId)
-    .map((f) => ({ path: `${home}/${f.name}`, content: f.content }));
+  const groupFiles = useEditorStore.getState().getGroupFiles(groupId);
+  const files = groupFiles.map((f) => ({ path: `${home}/${f.name}`, content: f.content }));
   try {
     const { uploadFilesToPi } = await import('../utils/piUpload');
     await uploadFilesToPi(bridge, files);
@@ -1065,8 +1070,20 @@ export async function piSyncAndRunScript(boardId: string, boardKind: string): Pr
     // the user's first visible output is their own program.
     bridge.setQuiet(false);
   }
-  const cmd = proDef?.autoRun ?? `python3 ${home}/script.py`;
+  const cmd = proDef?.autoRun ?? `python3 ${home}/${piMainScript(groupFiles)}`;
   bridge.sendSerialText(cmd.endsWith('\n') ? cmd : cmd + '\n');
+}
+
+/** The file the guest runs: `script.py` when the group has one, else the
+ * first `.py` — the same rule the in-browser engine applies, so a project
+ * whose only script is `main.py` starts in either mode instead of the guest
+ * printing "No such file" for a name the user never typed. */
+export function piMainScript(files: readonly { name: string }[]): string {
+  return (
+    files.find((f) => f.name === 'script.py')?.name ??
+    files.find((f) => f.name.endsWith('.py'))?.name ??
+    'script.py'
+  );
 }
 
 /** Re-run on a BOOTED QEMU-Linux board without rebooting: interrupt the
@@ -1239,6 +1256,8 @@ interface SimulatorState {
     | RiscVSimulator
     | Esp32C3Simulator
     | Esp32BridgeShim
+    | Stm32BridgeShim
+    | PiBridgeShim
     | null;
   /** @deprecated use getBoardPinManager(activeBoardId) */
   pinManager: PinManager;
@@ -1778,6 +1797,24 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           });
         };
         bridgeMap.set(id, bridge);
+        // The simulator-shaped object the parts attach to (I2C devices, SPI
+        // panels, PWM consumers, the ADC refusal). Both engines route their
+        // bus requests through it, so a sensor answers the same in either.
+        const shim = new PiBridgeShim({
+          boardId: id,
+          boardKind,
+          bridge,
+          pinManager: pm,
+          boardState: () => get().boards.find((b) => b.id === id),
+        });
+        simulatorMap.set(id, shim);
+        // The guest's pulls reach the netlist and rest the pin, like every
+        // MCU board; its PWM reaches the servo / dimmed LED listeners; its
+        // bus operations reach the device models on the canvas.
+        bridge.onPinPull = makePinPullHandler(id);
+        bridge.onGpioPwm = (pin, frequency, dutyCycle, event) =>
+          shim.applyPwm(pin, frequency, event === 'stop' ? 0 : dutyCycle);
+        bridge.onBusRequest = (_rid, line) => shim.answerBusLine(line);
         // The UART routes were built at page load, when this bridge did
         // not exist — re-attempt the TX hook now that it does, or the
         // guest's header-UART bytes never reach the canvas wire.
@@ -2840,6 +2877,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (isPiBoardKind(board.boardKind)) {
         if (board.engineMode === 'instant') getInstantEngine()?.stop(boardId);
         else getBoardBridge(boardId)?.disconnect();
+        // The shim holds no process, but it may hold a chip-select from an
+        // unfinished transfer.
+        getBoardSimulator(boardId)?.stop();
       } else if (isEsp32Kind(board.boardKind)) {
         getEsp32Bridge(boardId)?.disconnect();
       } else if (isStm32BoardKind(board.boardKind)) {

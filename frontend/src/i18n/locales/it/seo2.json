@@ -121,24 +121,24 @@
     "rpi": {
       "hero": {
         "title": "Simulatore Raspberry Pi 3",
-        "accent": "Linux completo · Python · GPIO — Nel tuo browser",
-        "subtitle": "Esegui un Raspberry Pi 3B completo con Raspberry Pi OS direttamente nel tuo browser — emulazione ARM Cortex-A53 quad-core tramite QEMU. Scrivi Python, controlla GPIO, installa pacchetti. Nessun hardware necessario.",
+        "accent": "Python · GPIO · I2C — In Your Browser",
+        "subtitle": "Run Raspberry Pi projects in your browser: write Python against the circuit on the canvas with RPi.GPIO, gpiozero and smbus2, the libraries real Pi projects use. Scripts start in seconds on the in-browser engine; a Linux guest on our servers is one click away when a script needs a shell.",
         "ctaPrimary": "Apri il simulatore Pi 3",
         "ctaSecondary": "Leggi la documentazione",
-        "trust": "QEMU ARM64 · Raspberry Pi OS completo · Prova gratuita, poi piani Maker e Pro",
+        "trust": "In-browser Python · QEMU Linux guest · Three free trial sessions, then Maker and Pro plans",
         "imageAlt": "Illustrazione della scheda Raspberry Pi 3"
       },
       "what": {
         "heading": "Cosa puoi fare con il simulatore Pi 3?",
-        "lead": "Velxio emula un Raspberry Pi 3B completo — non solo pin GPIO, ma l'intero sistema operativo Linux. È un computer completo nel tuo browser.",
+        "lead": "Velxio runs your Raspberry Pi scripts against the sensors, displays and actuators you wire on the canvas — the same component models an Arduino or ESP32 talks to. Two engines: Python in the browser by default, and a QEMU Linux guest when you want a terminal.",
         "pythonTitle": "Esegui script Python",
-        "pythonBody": "Python 3 preinstallato su Raspberry Pi OS. Esegui script, usa pip, importa librerie — ambiente Python completo.",
+        "pythonBody": "Python 3 with RPi.GPIO, gpiozero, smbus2 and pyserial. GPIO in and out, PWM, UART and I2C sensors on the header bus; third-party packages through a requirements.txt.",
         "gpioTitle": "Controllo GPIO",
         "gpioBody": "Usa RPi.GPIO o gpiozero per controllare LED, leggere pulsanti, pilotare motori — emulazione GPIO reale in QEMU.",
         "linuxTitle": "Terminale Linux",
-        "linuxBody": "Terminale bash completo con apt, nano, git e tutti gli strumenti Linux standard. Installa pacchetti, modifica file, esegui servizi.",
+        "linuxBody": "Optional Linux mode boots an Alpine guest in QEMU with a real shell and python3. It is not Raspberry Pi OS: no apt, no desktop, no network from inside the guest.",
         "armTitle": "ARM Cortex-A53",
-        "armBody": "CPU ARM a 64 bit quad-core a 1.2 GHz tramite macchina QEMU raspi3b. Esegue l'immagine ufficiale di Raspberry Pi OS.",
+        "armBody": "The Linux guest runs a 64-bit ARM kernel under QEMU (32-bit for the Zero, 1 and 2) with the CPU profile of the board you picked.",
         "sdTitle": "Nessuna scheda SD necessaria",
         "sdBody": "L'immagine del sistema operativo è precaricata. Nessuna masterizzazione, nessuna scheda SD, nessun alimentatore — basta aprire il browser e iniziare a programmare.",
         "multiTitle": "Tela multi-scheda",
@@ -150,20 +150,20 @@
         "picoBodyPrefix": "Microcontrollore. ARM Cortex-M0+ a 133 MHz. Esegue codice C++ Arduino. Nessun sistema operativo, bare-metal. Ideale per embedded, IoT, sensori. ",
         "picoLink": "Prova il simulatore Pico",
         "pi3Title": "Raspberry Pi 3 (ARM Cortex-A53)",
-        "pi3Body": "Computer Linux completo. Quad-core a 1.2 GHz. Esegue Python, Node.js, bash. Ideale per automazione, server, scripting GPIO, educazione."
+        "pi3Body": "A Linux single-board computer. Runs Python scripts against the canvas, in the browser or in a QEMU guest with a shell. Best for GPIO scripting, sensors over I2C, automation and education."
       },
       "faq": {
         "heading": "Domande frequenti",
         "q1": "Posso simulare un Raspberry Pi 3 nel mio browser?",
-        "a1": "Sì. Velxio emula un Raspberry Pi 3B completo usando QEMU raspi3b — ARM Cortex-A53 quad-core a 1.2 GHz che esegue Raspberry Pi OS (Linux). Ottieni un terminale reale per eseguire Python, bash e comandi di sistema.",
+        "a1": "Yes. Velxio runs Raspberry Pi projects (Zero through Pi 5) in your browser: Python scripts execute against the circuit on the canvas, and a Linux guest under QEMU gives you a terminal when a script needs one. The guest is Alpine Linux, not Raspberry Pi OS.",
         "q2": "Il simulatore Raspberry Pi e incluso nel piano gratuito?",
         "a2": "In parte. Puoi costruire e salvare un circuito con Raspberry Pi con qualsiasi account, e un account gratuito ha tre sessioni di prova da 15 minuti per eseguirlo (ogni esecuzione durante una sessione è gratuita). L'emulazione Linux illimitata su Raspberry Pi esegue un guest ARM completo sui nostri server, quindi fa parte dei piani Maker e Pro, o di Velxio Desktop con licenza a pagamento. L'editor e i simulatori Arduino, ESP32 e Raspberry Pi Pico sono gratuiti e non richiedono un account. Velxio resta open source (GNU AGPLv3).",
         "q3": "Posso eseguire script Python sul simulatore Raspberry Pi?",
-        "a3": "Sì. Il Raspberry Pi 3 emulato esegue Raspberry Pi OS completo con Python 3 preinstallato. Puoi eseguire script Python, usare RPi.GPIO per il controllo GPIO, installare pacchetti pip e altro.",
+        "a3": "Yes. Python 3 runs in the browser with RPi.GPIO, gpiozero and smbus2, or in the Linux guest. Third-party packages are installed from a requirements.txt in your project; pip cannot reach the internet from inside the guest.",
         "q4": "Qual è la differenza tra la simulazione di Pi Pico e Pi 3?",
-        "a4": "Raspberry Pi Pico (RP2040) è un microcontrollore — esegue codice C++ Arduino, nessun sistema operativo. Raspberry Pi 3 è un computer Linux completo — esegue Python, bash e servizi di sistema. Velxio supporta entrambi.",
+        "a4": "Raspberry Pi Pico (RP2040) is a microcontroller — it runs Arduino C++ or MicroPython, no OS. Raspberry Pi Zero through 5 are Linux computers — they run Python scripts, and in Linux mode a shell. Velxio supports both.",
         "q5": "Supporta GPIO su Raspberry Pi 3?",
-        "a5": "Sì. Il Raspberry Pi 3 emulato da QEMU supporta GPIO tramite le librerie Python RPi.GPIO e gpiozero. Controlla LED, leggi pulsanti e interfaccia con sensori da Python."
+        "a5": "Yes. RPi.GPIO and gpiozero drive LEDs, read buttons and PIR sensors, and PWM reaches servos and dimmed LEDs. I2C sensors on the header bus (SDA on GPIO2, SCL on GPIO3) answer through smbus2. A Pi has no analog input: a potentiometer needs an MCP3008 or ADS1115 between it and the Pi."
       },
       "bottom": {
         "title": "Pronto a simulare Raspberry Pi 3?",
