@@ -42,6 +42,10 @@ export interface ComponentMetadata {
   defaultValues: Record<string, any>;
   pinCount: number;
   tags: string[]; // For search functionality
+  // Search-only words never shown in the UI ("temperature humidity" on a
+  // DHT22). The OSS catalogue keeps its list in data/componentSearchKeywords.ts;
+  // overlay parts can ship theirs here. Merged with tags at search time.
+  keywords?: string[];
   // Optional flag set by private overlays (e.g. velxio.dev) to mark a
   // component as gated behind a paid subscription. The OSS image never
   // sets this — self-hosters have everything unlocked. The picker can
