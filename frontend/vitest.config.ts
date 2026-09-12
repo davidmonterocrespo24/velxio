@@ -40,7 +40,21 @@ import fs from 'fs';
  * and no test imports them (the pro glob matches nothing), so a missing entry
  * is simply left unaliased rather than pointing at a path that isn't there.
  */
-const ENGINE_PACKAGES = ['esp32js', 'esp32s3js', 'esp32c3js', 'esp32c6js', 'rp2350js'];
+const ENGINE_PACKAGES = [
+  'esp32js',
+  'esp32s3js',
+  'esp32c3js',
+  'esp32c6js',
+  'rp2350js',
+  // The ARM XIAO engines. Only a test in a DOM environment needs these
+  // aliased - a node test gets them from Node's own resolver - but a
+  // missing name there fails at import analysis, before any test runs.
+  'nrf52840js',
+  'samd21js',
+  'ra4m1js',
+  'efr32mg24js',
+  'nrf54ljs',
+];
 const engineAliases: Record<string, string> = {};
 for (const name of ENGINE_PACKAGES) {
   const dir = path.resolve(__dirname, 'node_modules', name);

@@ -20,7 +20,7 @@
  * movement produces — a held tilt reads zero rotation.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getEsp32Bridge } from '../../store/useSimulatorStore';
+import { getBoardSimulator, getEsp32Bridge } from '../../store/useSimulatorStore';
 
 interface SensorBridge {
   setImuAcceleration?: (x: number, y: number, z: number) => void;
@@ -75,10 +75,28 @@ export const BoardSensorControls: React.FC<BoardSensorControlsProps> = ({
   const lastRef = useRef<{ roll: number; pitch: number; t: number } | null>(null);
   const gyroStopRef = useRef<number | null>(null);
 
-  const bridge = useCallback(
-    () => (boardId ? (getEsp32Bridge(boardId) as SensorBridge | undefined) : undefined),
-    [boardId],
-  );
+  /**
+   * Where the tilt and battery go.
+   *
+   * The ESP32 bridge first, because that is what most boards with an IMU run
+   * on. But a board can carry one without being an ESP32 - an overlay board
+   * emulated in the browser has a simulator, not a bridge - and resolving only
+   * the bridge rendered the pad and the slider for those boards and sent their
+   * values nowhere. So: whichever of the two implements the method, chosen by
+   * asking rather than by a list of board kinds.
+   */
+  const bridge = useCallback(() => {
+    if (!boardId) return undefined;
+    const esp32 = getEsp32Bridge(boardId) as SensorBridge | undefined;
+    if (typeof esp32?.setImuAcceleration === 'function' || typeof esp32?.setBatteryVoltage === 'function') {
+      return esp32;
+    }
+    const sim = getBoardSimulator(boardId) as SensorBridge | undefined;
+    if (typeof sim?.setImuAcceleration === 'function' || typeof sim?.setBatteryVoltage === 'function') {
+      return sim;
+    }
+    return esp32;
+  }, [boardId]);
 
   // Push the current attitude whenever it changes — including on mount and on
   // every re-run, since a fresh bridge starts back at flat-on-table.
