@@ -160,6 +160,57 @@ def _discard_sketch_build_cache(sketch_dir: Path) -> None:
         pass
 
 
+# ── Overlay seam: board cores an overlay ships ──────────────────────────────
+#
+# The cores below are the ones the OSS build compiles for. A private overlay
+# (velxio.com) ships boards whose cores are its own business - their index
+# URLs, their version pins, and any prelude a sketch needs before it will
+# build for them. It registers them here at import time instead of editing
+# this table, which keeps the OSS build free of boards it does not have.
+#
+# Default is an empty registry, so nothing changes for anyone who registers
+# nothing.
+
+_EXTRA_CORES: dict[str, dict] = {}
+
+
+def register_extra_core(
+    core_id: str,
+    index_url: str,
+    *,
+    version: str | None = None,
+    match: str | None = None,
+    sketch_prelude: str | None = None,
+) -> None:
+    """Register a board core the overlay ships.
+
+    core_id        "Vendor:arch", what `arduino-cli core install` takes.
+    index_url      the board-manager index that carries it.
+    version        pin passed as `<core>@<version>`, when the core needs one.
+    match          substring that identifies this core in an FQBN; defaults
+                   to core_id. The FQBN match is a plain `in`, so a bare
+                   architecture ("samd") would catch another vendor's board.
+    sketch_prelude text prepended to sketch.ino for this core's boards. The
+                   XIAO nRF52840 needs `#include <Adafruit_TinyUSB.h>` or the
+                   link fails with "undefined reference to `Serial'" - true on
+                   hardware too, but not something a user pasting a blink can
+                   be expected to know.
+    """
+    _EXTRA_CORES[core_id] = {
+        "index_url": index_url,
+        "version": version,
+        "match": match or core_id,
+        "sketch_prelude": sketch_prelude,
+    }
+
+
+def _extra_core_for_fqbn(fqbn: str) -> dict | None:
+    for core_id, entry in _EXTRA_CORES.items():
+        if entry["match"] in fqbn:
+            return {"core_id": core_id, **entry}
+    return None
+
+
 class ArduinoCLIService:
     # Board manager URLs for cores that aren't built-in
     CORE_URLS: dict[str, str] = {
@@ -204,6 +255,20 @@ class ArduinoCLIService:
         self._ensure_board_urls()
         self._ensure_core_installed()
 
+    def _all_core_urls(self) -> dict[str, str]:
+        """Built-in cores plus whatever an overlay registered."""
+        urls = dict(self.CORE_URLS)
+        for core_id, entry in _EXTRA_CORES.items():
+            urls[core_id] = entry["index_url"]
+        return urls
+
+    def _install_version_for(self, core_id: str) -> str | None:
+        pinned = self.CORE_INSTALL_VERSIONS.get(core_id)
+        if pinned:
+            return pinned
+        entry = _EXTRA_CORES.get(core_id)
+        return entry["version"] if entry else None
+
     def _ensure_board_urls(self):
         """Register additional board-manager URLs in arduino-cli config."""
         try:
@@ -247,7 +312,7 @@ class ArduinoCLIService:
             elif isinstance(urls, list):
                 existing.update(urls)
 
-            for url in self.CORE_URLS.values():
+            for url in self._all_core_urls().values():
                 if url not in existing:
                     print(f"[arduino-cli] Adding board manager URL: {url}")
                     subprocess.run(
@@ -293,7 +358,10 @@ class ArduinoCLIService:
         for prefix, core_id in self.ON_DEMAND_CORES.items():
             if prefix in fqbn:
                 return core_id
-        return None
+        # An overlay-registered core. Checked after the built-in table so the
+        # OSS boards keep their exact routing.
+        extra = _extra_core_for_fqbn(fqbn)
+        return extra["core_id"] if extra else None
 
     def _is_core_installed(self, core_id: str) -> bool:
         """Check whether a core is currently installed.
@@ -329,7 +397,7 @@ class ArduinoCLIService:
             return {"needed": False, "installed": True, "core_id": core_id, "log": ""}
 
         # Install the core (optionally pinned to a specific version)
-        version = self.CORE_INSTALL_VERSIONS.get(core_id)
+        version = self._install_version_for(core_id)
         install_spec = f"{core_id}@{version}" if version else core_id
         print(f"[arduino-cli] Auto-installing core {install_spec} for board {fqbn}...")
 
@@ -477,6 +545,14 @@ class ArduinoCLIService:
                 # RP2040: redirect Serial → Serial1 in the main sketch file only
                 if "rp2040" in board_fqbn and write_name == "sketch.ino":
                     content = "#define Serial Serial1\n" + content
+
+                # A core an overlay registered may need a line before the
+                # sketch will build for it at all (see register_extra_core).
+                if write_name == "sketch.ino":
+                    extra = _extra_core_for_fqbn(board_fqbn)
+                    prelude = extra["sketch_prelude"] if extra else None
+                    if prelude and prelude.strip() not in content:
+                        content = prelude + content
 
                 # Folder support: names may carry '/' paths ("apps/badge/x.py").
                 # Resolve inside the sketch dir and REJECT anything that
