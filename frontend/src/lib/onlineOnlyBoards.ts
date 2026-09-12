@@ -377,6 +377,13 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
     thumbnailSvg: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='9' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='9' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='6' y='18' width='48' height='24' rx='2' fill='#1b1b1e' stroke='#08080a' stroke-width='1'/><path d='M6 26 A4 4 0 0 1 6 34' fill='#2c2c30'/><text x='31' y='33' font-family='monospace' font-size='8' font-weight='600' fill='#e6e6e6' text-anchor='middle'>3008</text></svg>",
   },
   {
+    id: 'pro-pi-camera',
+    label: 'Raspberry Pi Camera Module (CSI)',
+    description: 'The Pi camera on its ribbon, with picamera2 and OpenCV in the browser - available in the online editor',
+    category: 'sensors',
+    thumbnailSvg: "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='8' y='12' width='44' height='34' rx='4' fill='#11131a' stroke='#05060a' stroke-width='1.5'/><circle cx='30' cy='28' r='11' fill='#0a0c11' stroke='#222834' stroke-width='2'/><circle cx='26' cy='24' r='4' fill='#3a4250'/><rect x='16' y='46' width='20' height='6' rx='1' fill='#c9a23a'/><rect x='18' y='46' width='2' height='6' fill='#8a6d20'/><rect x='22' y='46' width='2' height='6' fill='#8a6d20'/><rect x='26' y='46' width='2' height='6' fill='#8a6d20'/><rect x='30' y='46' width='2' height='6' fill='#8a6d20'/></svg>",
+  },
+  {
     id: 'pro-ili9341-touch',
     label: '2.8" TFT + Touch (ILI9341 + XPT2046)',
     description: 'A 320x240 ILI9341 panel with an XPT2046 resistive touch screen on the same SPI bus - available in the online editor',
