@@ -250,6 +250,7 @@ deploying velxio.dev.
 - [frontend/src/pages/RegisterPage.tsx](frontend/src/pages/RegisterPage.tsx)
 - [frontend/src/pages/UserProfilePage.tsx](frontend/src/pages/UserProfilePage.tsx) - Profile with project grid
 - [frontend/src/pages/ProjectPage.tsx](frontend/src/pages/ProjectPage.tsx) - Loads project into editor
+- [frontend/src/pages/ImageToCodePage.tsx](frontend/src/pages/ImageToCodePage.tsx) - `/tools/image-to-code`: image to monochrome C byte array for SSD1306 OLEDs (logic in [frontend/src/utils/imageToCArray.ts](frontend/src/utils/imageToCArray.ts), ported from image2cpp)
 
 ### Frontend - SEO & Public Files
 - `frontend/index.html` — Full SEO meta tags, OG, Twitter Card, JSON-LD. **Domain is `https://velxio.dev`** — update if domain changes.
