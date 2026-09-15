@@ -22,6 +22,7 @@ export type BoardKind =
   | 'esp32-c3' // RISC-V RV32IMC, QEMU backend
   | 'xiao-esp32-c3' // Seeed XIAO ESP32-C3, QEMU backend
   | 'aitewinrobot-esp32c3-supermini' // ESP32-C3 SuperMini, QEMU backend
+  | 'cyd-esp32-2424s012' // CYD round 1.28" GC9A01 display, ESP32-C3, QEMU backend
   | 'stm32-bluepill' // STM32F103C8 (Cortex-M3), QEMU backend (libqemu-arm)
   | 'stm32-blackpill' // STM32F411CE (Cortex-M4), QEMU backend (libqemu-arm)
   | 'stm32-bluepill-f103cb' // STM32F103CB (Cortex-M3, 128KB), QEMU (F100 SoC)
@@ -76,6 +77,7 @@ export const BOARD_SUPPORTS_MICROPYTHON = new Set<BoardKind>([
   'esp32-c3',
   'xiao-esp32-c3',
   'aitewinrobot-esp32c3-supermini',
+  'cyd-esp32-2424s012',
 ]);
 
 /** Boards that can run pure ESP-IDF projects (app_main entry point, IDF
@@ -253,6 +255,7 @@ export const BOARD_KIND_LABELS: Record<BoardKind, string> = {
   'esp32-c3': 'ESP32-C3 DevKit',
   'xiao-esp32-c3': 'XIAO ESP32-C3',
   'aitewinrobot-esp32c3-supermini': 'ESP32-C3 SuperMini',
+  'cyd-esp32-2424s012': 'CYD ESP32-2424S012',
   'stm32-bluepill': 'STM32 Blue Pill',
   'stm32-blackpill': 'STM32 Black Pill',
   'stm32-bluepill-f103cb': 'STM32 Blue Pill (F103CB)',
@@ -293,6 +296,7 @@ export const BOARD_KIND_FQBN: Record<BoardKind, string | null> = {
   'esp32-c3': 'esp32:esp32:esp32c3',
   'xiao-esp32-c3': 'esp32:esp32:XIAO_ESP32C3',
   'aitewinrobot-esp32c3-supermini': 'esp32:esp32:esp32c3',
+  'cyd-esp32-2424s012': 'esp32:esp32:esp32c3',
   'stm32-bluepill': 'STMicroelectronics:stm32:GenF1:pnum=BLUEPILL_F103C8',
   'stm32-blackpill': 'STMicroelectronics:stm32:GenF4:pnum=BLACKPILL_F411CE',
   'stm32-bluepill-f103cb': 'STMicroelectronics:stm32:GenF1:pnum=BLUEPILL_F103CB',
