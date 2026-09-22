@@ -97,6 +97,9 @@ export interface TraceResult {
   crossedActiveDevice: boolean;
   /** Id of the board the pin belongs to, when one was reached. */
   boardId?: string;
+  /** For a supply / GND pad (arduinoPin -1): the pad's name ('GND', '3V3'...),
+   *  so a caller can tell ground from a supply. */
+  railName?: string;
 }
 
 /** boardPinToNumber's answer for a supply / GND / reset pad. */
@@ -434,7 +437,12 @@ function collectNode(
     // the board's own names.
     const socket = traceThroughSocket(state, cur.componentId, cur.pinName);
     if (socket) {
-      const hit = { arduinoPin: socket.pin, crossedActiveDevice: false, boardId: socket.boardId };
+      const hit: TraceResult = {
+        arduinoPin: socket.pin,
+        crossedActiveDevice: false,
+        boardId: socket.boardId,
+        ...(isBoardPin(socket.pin) ? {} : { railName: cur.pinName }),
+      };
       if (isBoardPin(socket.pin)) {
         if (takeDriven(hit)) return { pins, boardHits, drivenHit, chipPin };
       } else {
@@ -477,10 +485,11 @@ function collectNode(
         // simulator, so an input part needs to know WHICH board's bridge to
         // push the level into (see the pi-aware simulator in DynamicComponent).
         if (pin !== null) {
-          const hit = {
+          const hit: TraceResult = {
             arduinoPin: pin,
             crossedActiveDevice: false,
             boardId: boardEp?.id ?? otherEp.componentId,
+            ...(isBoardPin(pin) ? {} : { railName: otherEp.pinName }),
           };
           // A driven pad ends the search for this node — and, on a big shared
           // rail, ends a walk of every leg hanging off it.

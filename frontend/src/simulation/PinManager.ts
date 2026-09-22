@@ -180,6 +180,16 @@ export class PinManager {
   }
 
   /**
+   * The level last put on the pin, or undefined when nothing has set it since
+   * the board started (or since resetPinStates). getPinState folds "never
+   * driven" into LOW, which is the wrong answer for a chip select: an active-low
+   * CS nobody has configured yet is floating, not asserted.
+   */
+  peekPinState(arduinoPin: number): boolean | undefined {
+    return this.pinStates.get(arduinoPin);
+  }
+
+  /**
    * Set a single pin state and notify listeners.
    * Alias for triggerPinChange — used by ESP32-C3, RISC-V, and RP2040 simulators.
    *

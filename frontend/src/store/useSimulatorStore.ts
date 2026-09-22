@@ -93,6 +93,7 @@ import {
 import { SINGLE_WIRE_SENSOR_MODELS } from '../simulation/sensorModels';
 import type { LineSupport } from '../simulation/line/LineHost';
 import { traceBoardGpio } from '../simulation/PinTrace';
+import { busRegistry, createStoreNetResolver } from '../simulation/buses';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
 
 // ── Sensor pre-registration ──────────────────────────────────────────────────
@@ -1145,8 +1146,29 @@ class Stm32BridgeShim {
 }
 
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
-const simulatorMap = new Map<
-  string,
+
+/**
+ * Every path that gives a board its simulator (addBoard, setBoardType,
+ * initSimulator, rebuilds, project loads...) goes through this map, so it is
+ * the one place that tells the bus fabric a board's engine changed. A new
+ * simulator object is bound; a removed one is unbound. The fabric keeps its
+ * devices either way (project board-buses-2026-09).
+ */
+class BusBoundSimulatorMap<V> extends Map<string, V> {
+  set(id: string, sim: V): this {
+    super.set(id, sim);
+    busRegistry.bindBoard(id, sim);
+    return this;
+  }
+
+  delete(id: string): boolean {
+    const had = super.delete(id);
+    if (had) busRegistry.unbindBoard(id);
+    return had;
+  }
+}
+
+const simulatorMap = new BusBoundSimulatorMap<
   | AVRSimulator
   | RP2040Simulator
   | RiscVSimulator
@@ -4538,4 +4560,38 @@ useSimulatorStore.subscribe((state) => {
     lastWiresRef = state.wires;
     icUpdateWires(state.wires);
   }
+});
+
+// ── Bus fabric (project board-buses-2026-09) ────────────────────────────────
+// The fabric reads the circuit from the store and recomputes which bus every
+// device sits on whenever the wiring, the parts or the boards change. Changes
+// are coalesced into one recompute per task: a drag emits dozens of updates.
+busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState()));
+{
+  let lastWires = useSimulatorStore.getState().wires;
+  let lastBoards = useSimulatorStore.getState().boards;
+  let lastComponents = useSimulatorStore.getState().components;
+  let pending = false;
+  useSimulatorStore.subscribe((state) => {
+    if (
+      state.wires === lastWires &&
+      state.boards === lastBoards &&
+      state.components === lastComponents
+    ) {
+      return;
+    }
+    lastWires = state.wires;
+    lastBoards = state.boards;
+    lastComponents = state.components;
+    if (pending) return;
+    pending = true;
+    queueMicrotask(() => {
+      pending = false;
+      busRegistry.netlistChanged();
+    });
+  });
+}
+busRegistry.onDiagnostic((d) => {
+  const st = useSimulatorStore.getState();
+  appendSimulatorNote(d.boardId ?? st.activeBoardId ?? INITIAL_BOARD_ID, d.message);
 });
