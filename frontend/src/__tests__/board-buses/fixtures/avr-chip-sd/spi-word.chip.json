@@ -1,0 +1,16 @@
+{
+  "schema": "velxio-chip/v1",
+  "name": "spi-word",
+  "author": "Velxio tests",
+  "license": "MIT",
+  "description": "Answers one 16-bit word per chip select, MSB first (MAX6675-style).",
+  "pins": [
+    "SCK",
+    "MOSI",
+    "MISO",
+    "CS",
+    "VCC",
+    "GND"
+  ],
+  "attributes": []
+}

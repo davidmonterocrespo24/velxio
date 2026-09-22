@@ -1,0 +1,17 @@
+{
+  "spi-probe": {
+    "sourceSha256": "30d94266ff8e9f855b0b82b4fff5c2bcd5cfae646eab45279b72c78929992ed2"
+  },
+  "spi-dual": {
+    "sourceSha256": "685d68a6e4963a9b3497bc894143bef8315542a59a8af4137390d94efa0356ca"
+  },
+  "sn74hc595": {
+    "sourceSha256": "b6437631292dcf776516718b6bc8a45b69fd4f23732e367dc712bcc0d776b10c"
+  },
+  "mcp3008": {
+    "sourceSha256": "0dbe9726e21bee5bc1b2d6f85b30f9dce6b2d66c4881fe92de1bd2a3ae4b4d50"
+  },
+  "eeprom-24c01": {
+    "sourceSha256": "4752c28db8aba350e01576ffccc2faa497c529b829ab621dd2aaa8cd2ba8ac12"
+  }
+}

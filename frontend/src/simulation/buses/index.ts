@@ -15,6 +15,9 @@ export { SpiBus, reverseBits, type SpiMember } from './spiBus';
 export { SoftSpiDecoder } from './softSpi';
 export { createStoreNetResolver, railOf } from './storeResolver';
 
+// Every OSS board's pin function table registers on import (the overlay
+// registers its own boards when it installs them).
+import './boardPinTables';
 import { busRegistry } from './registry';
 import type { BusHandle, SpiDevice, SpiDeviceDescriptor } from './types';
 
