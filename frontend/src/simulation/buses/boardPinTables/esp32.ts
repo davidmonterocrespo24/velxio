@@ -6,7 +6,9 @@
  * tables are the direct IO_MUX pins plus the pins arduino-esp32 uses when a
  * begin() call names none; the live routing always comes from the engine.
  * Units are the SoC's: UART0-2, GP-SPI2 (HSPI) = 2 and GP-SPI3 (VSPI) = 3
- * (esp32js soc.spi2/spi3, QEMU s->spi[2]/[3]), I2C0-1.
+ * (esp32js soc.spi2/spi3, QEMU s->spi[2]/[3]), I2C0-1. QEMU's picsimlab_spi
+ * events carry their own id instead, 0 and 1 in attach order (HSPI = 0,
+ * VSPI = 1: esp32_picsimlab.c attaches spi[2] first), so its adapter adds 2.
  *
  * GPIO6-11 (SPI flash) are never listed: the DevKit C breaks them out, but
  * they carry the module's flash and the UART1 / UART2 RTS-CTS IO_MUX pins that

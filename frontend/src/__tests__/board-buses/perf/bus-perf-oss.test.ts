@@ -41,6 +41,12 @@
  * must see the frame's bytes. A path that stops drawing fails the bench
  * instead of reporting a fast number.
  *
+ * Each frame is timed in wall ms, CPU ms and probe units (perfKit.ts): the
+ * frame's CPU time over a fixed JS probe run around and inside it, which is
+ * what the runner judges phases by, on a machine whose load keeps moving.
+ * BUS_PERF_INJECT=<n> adds n rounds of xorshift per bus byte to every `full`
+ * bench: the negative control that shows the comparison catches a slowdown.
+ *
  * Stand-ins, only for what node lacks: a canvas whose 2d context keeps the
  * framebuffer the part draws into, window.setTimeout for the part's flush
  * debounce, and a queued requestAnimationFrame the bench pumps itself.
@@ -48,7 +54,15 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { FrameClock, PerfReport, loadNow, perfEnabled, result, type BenchSpec } from './perfKit';
+import {
+  FrameClock,
+  PerfReport,
+  loadNow,
+  perfEnabled,
+  result,
+  withInjectedWork,
+  type BenchSpec,
+} from './perfKit';
 
 const fixture = (name: string, ext: string) =>
   fileURLToPath(new URL(`./fixtures/${name}/${name}.ino.${ext}`, import.meta.url));
@@ -275,12 +289,19 @@ function mount(board: Board, config: 'full' | 'bare', id: string) {
   const count = { n: 0 };
   let cleanup: (() => void) | undefined;
   if (config === 'full') {
-    cleanup = parts.PartSimulationRegistry.get('ili9341').attachEvents(
+    const detach = parts.PartSimulationRegistry.get('ili9341').attachEvents(
       el,
       board.sim,
       (name: string) => (name === 'D/C' ? board.dc : null),
       id,
     );
+    // The gate's negative control (BUS_PERF_INJECT), off in a real run.
+    const top = board.spi.onByte!;
+    board.spi.onByte = withInjectedWork(top);
+    cleanup = () => {
+      board.spi.onByte = top;
+      detach?.();
+    };
   } else {
     // What the adapter does with nobody listening stays (AVR: its loopback;
     // RP2040: the idle 0xFF); the counter only sits in front of it.
@@ -293,8 +314,16 @@ function mount(board: Board, config: 'full' | 'bare', id: string) {
   return { el, count, cleanup };
 }
 
-/** Boot to READY under the production loop; `onFrame` then sees each F line. */
-function boot(board: Board, maxTicks: number, onReady: () => void, onFrame: (f: FrameLine) => void, until: () => boolean) {
+/** Boot to READY under the production loop; `onFrame` then sees each F line
+ *  and `between` runs after every tick. */
+function boot(
+  board: Board,
+  maxTicks: number,
+  onReady: () => void,
+  onFrame: (f: FrameLine) => void,
+  until: () => boolean,
+  between: () => void = () => {},
+) {
   let ready = false;
   board.setSerial(
     serialFrames(() => {
@@ -302,7 +331,10 @@ function boot(board: Board, maxTicks: number, onReady: () => void, onFrame: (f: 
       onReady();
     }, onFrame),
   );
-  for (let t = 0; t < maxTicks && !until(); t++) board.tick();
+  for (let t = 0; t < maxTicks && !until(); t++) {
+    board.tick();
+    between();
+  }
   expect(ready, 'the firmware printed READY').toBe(true);
 }
 
@@ -340,6 +372,7 @@ async function runBench(def: BoardDef, workload: Workload, config: 'full' | 'bar
         if (frames.length < total) lap(f.n, f.us);
       },
       () => frames.length >= total,
+      () => clock.tick(),
     );
   } else {
     let ready = false;
@@ -367,9 +400,12 @@ async function runBench(def: BoardDef, workload: Workload, config: 'full' | 'bar
       segment(0x2a, [0, 0, 0, W - 1]);
       segment(0x2b, [0, 0, (H - 1) >> 8, (H - 1) & 0xff]);
       segment(0x2c, []);
-      for (let p = 0; p < W * H; p++) {
-        r.byte(hi);
-        r.byte(lo);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          r.byte(hi);
+          r.byte(lo);
+        }
+        clock.tick();
       }
       r.cs(true);
       lap(n);

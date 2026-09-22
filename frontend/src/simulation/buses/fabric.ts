@@ -168,8 +168,17 @@ export class BoardBusFabric {
   /** Point every controller at the bus on the SCK net it is routed to. */
   route(): void {
     for (const bus of this.spiBuses.values()) bus.controller = null;
+    for (const slot of this.slots) this.routingOf(slot);
+    // A pin that no controller routes a chip select to any more is a plain
+    // GPIO again: drop the level the hardware CS was forcing on it.
+    const csPins = new Set<number>();
+    for (const slot of this.slots) for (const p of slot.cs) if (p !== undefined) csPins.add(p);
+    for (const pin of Array.from(this.hwLevel.keys())) {
+      if (csPins.has(pin)) continue;
+      this.hwLevel.delete(pin);
+      for (const cb of this.hwWatchers.get(pin) ?? []) cb();
+    }
     for (const slot of this.slots) {
-      this.routingOf(slot);
       const bus = slot.sck !== undefined ? (this.spiBuses.get(slot.sck) ?? null) : null;
       slot.bus = bus;
       if (!bus) continue;
@@ -242,16 +251,37 @@ export class BoardBusFabric {
 
   // ── Levels (chip select) ──────────────────────────────────────────────────
 
-  /** Level of a board pin: a controller's hardware CS wins over the GPIO latch. */
+  /**
+   * Level of a board pin, as a chip select sees it:
+   *  1. a controller's hardware chip select, when it drives the pad;
+   *  2. the guest's pad drive state (driving low or high), when the engine
+   *     reports it: a pin driven by its direction register alone never moves
+   *     the level channel;
+   *  3. the last level on the wire (the MCU latch or a part driving it);
+   *  4. a released pad's pull; otherwise undefined (floating).
+   */
   level(pin: number): boolean | undefined {
     if (this.hwLevel.has(pin)) return this.hwLevel.get(pin);
-    return this.pins?.peekPinState(pin);
+    const pins = this.pins;
+    if (!pins) return undefined;
+    const pad = pins.peekPad?.(pin);
+    if (pad && pad.drive !== 'z') return pad.drive === 'high';
+    const lvl = pins.peekPinState(pin);
+    if (lvl !== undefined) return lvl;
+    if (pad?.pull === 1) return true;
+    if (pad?.pull === 2) return false;
+    return undefined;
   }
 
   /** Watch a pin's level; the callback reads level() itself. */
   watchLevel(pin: number, cb: () => void): () => void {
     const pins = this.pins;
-    const off = pins ? pins.onPinChange(pin, () => cb()) : () => {};
+    const offLevel = pins ? pins.onPinChange(pin, () => cb()) : () => {};
+    const offPad = pins?.onPadChange ? pins.onPadChange(pin, cb) : () => {};
+    const off = () => {
+      offLevel();
+      offPad();
+    };
     let set = this.hwWatchers.get(pin);
     if (!set) {
       set = new Set();

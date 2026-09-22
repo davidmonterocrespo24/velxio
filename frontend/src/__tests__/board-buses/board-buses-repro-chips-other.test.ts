@@ -365,6 +365,9 @@ describe('AVR: chip-to-board UART FIFO pacing and lifetime', () => {
     vi.advanceTimersByTime(400);
     board.sim.stop();
     expect(board.out()).toContain('ready\n');
+    // Listen-only: this run never asks for a burst, so any byte it receives
+    // can only be left over from run 1.
+    expect(board.out()).not.toContain('G');
     expect(report(board.out())).not.toBeNull();
   });
 
@@ -500,11 +503,14 @@ describe('chip releases a board pin', () => {
 
   async function pulses(idiom: 0 | 1) {
     const board = uno(HEX.openDrain);
+    // D2 as the PinManager (the chip's side of the pad) sees it.
+    const pmD2: boolean[] = [];
+    board.sim.pinManager.onPinChange(2, (_p, s) => pmD2.push(s));
     await attachChip(board.sim, 'od', 'open-drain', PINS, WIRES, { idiom });
     runUntil(board.sim, 100, () => board.out().includes('irqs='));
     const lines = board.out().split('\n').filter((l) => l.startsWith('held='));
     const irqs = /irqs=(\d+)/.exec(board.out());
-    return { board, lines, irqs: irqs ? Number(irqs[1]) : -1 };
+    return { board, lines, irqs: irqs ? Number(irqs[1]) : -1, pmD2 };
   }
 
   it(`${ID} setup: the chip hears TRIG and its first pull (set_mode OUTPUT + write 0) reaches D2`, async () => {
@@ -513,6 +519,17 @@ describe('chip releases a board pin', () => {
     expect(lines).toHaveLength(5);
     expect(lines[0]).toMatch(/^held=0 /);
     expect(irqs).toBeGreaterThanOrEqual(1);
+  });
+
+  // The idiom-1 it.fails below reads "held=1", which a chip that never heard
+  // TRIG would also produce. Prove the pull happens: the chip's
+  // set_mode(OUTPUT_LOW) takes D2 low on the PinManager after the sketch's
+  // pull-up raised it.
+  it(`${ID} setup: with the set_mode(VX_OUTPUT_LOW) idiom the chip hears TRIG and pulls D2 on the PinManager`, async () => {
+    const { board, lines, pmD2 } = await pulses(1);
+    expect(board.out()).toContain('READY');
+    expect(lines).toHaveLength(5);
+    expect(pmD2.indexOf(false, pmD2.indexOf(true))).toBeGreaterThan(0);
   });
 
   it.fails(`${ID}: releasing with vx_pin_set_mode(VX_INPUT) lets the pull-up restore HIGH (write-0 pull)`, async () => {

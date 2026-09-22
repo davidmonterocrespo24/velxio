@@ -104,15 +104,11 @@ const DEFAULTS_OFF_HEADER: Partial<Record<BoardKind, number[]>> = {
   // Serial1 = 15/16 and Serial2 = 19/20 are not among the XIAO / Nano pads.
   'xiao-esp32-s3': [15, 16, 19, 20],
   'arduino-nano-esp32': [15, 16, 19, 20],
-  // Serial1 = 18/19 (USB D-/D+) are not XIAO or SuperMini pads; the SuperMini's
-  // 20/21 are its TX/RX pads (see PAD_MAP_GAPS).
+  // Serial1 = 18/19 (USB D-/D+) are not XIAO or SuperMini pads.
   'xiao-esp32-c3': [18, 19],
-  'aitewinrobot-esp32c3-supermini': [18, 19, 20, 21],
+  'aitewinrobot-esp32c3-supermini': [18, 19],
   // SS = PB12: velxio draws only part of the Discovery headers.
   'stm32-f4-discovery': [stm32PinNumber('PB12')],
-  // The TX/RX pads resolve to GPIO1/3 (see PAD_MAP_GAPS).
-  'esp32-s3': [43, 44],
-  'esp32-c3': [20, 21],
 };
 
 /**
@@ -120,11 +116,6 @@ const DEFAULTS_OFF_HEADER: Partial<Record<BoardKind, number[]>> = {
  * boardPinMapping.ts today. If one of these starts resolving, drop it here.
  */
 const PAD_MAP_GAPS: Partial<Record<BoardKind, number[]>> = {
-  // 'TX'/'RX' fall through to ESP32_PIN_MAP (TX: 1, RX: 3), the classic ESP32's
-  // UART0, instead of GPIO43/44 (S3) or GPIO21/20 (C3).
-  'esp32-s3': [43, 44],
-  'esp32-c3': [20, 21],
-  'aitewinrobot-esp32c3-supermini': [20, 21],
   // ID_SD/ID_SC (header pins 27/28) are mapped to -1 on purpose: HAT EEPROM.
   'raspberry-pi-zero': [0, 1],
   'raspberry-pi-1': [0, 1],

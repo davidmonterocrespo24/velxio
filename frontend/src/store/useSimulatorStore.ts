@@ -531,30 +531,75 @@ export class Esp32BridgeShim {
   } | null = null;
   get spi(): { onByte: ((mosi: number) => void) | null; completeTransfer: (miso: number) => void } {
     if (!this._spiAdapter) {
-      const adapter = {
-        onByte: null as ((mosi: number) => void) | null,
-        // MISO goes back through the bridge's setSpiResponse — every bridge
-        // has it (QEMU forwards to the worker's _spi_response; the JS engines
-        // set the byte their SpiForwarder returns for THIS transfer, since the
-        // whole onByte chain runs synchronously inside the engine's transfer).
-        // This used to be a no-op "because the worker drives MISO", which was
-        // only true for QEMU-era parts: any SPI part that ANSWERS (an SD card
-        // reponding to CMD0) was talking to nobody in js mode — measured as
-        // SD.begin()=0 with sd_diskio retrying CMD0 forever.
-        completeTransfer: (miso: number) => {
-          (this.bridge as unknown as { setSpiResponse?: (b: number) => void }).setSpiResponse?.(
-            miso,
-          );
-        },
-      };
-      // Forward every per-byte WS event into whichever handler the part
-      // installed. Single-listener channel — last writer wins.
-      this.bridge.onSpiByte = (mosi: number) => {
-        adapter.onByte?.(mosi);
-      };
-      this._spiAdapter = adapter;
+      this.installSpiAdapter({ onByte: null, completeTransfer: () => {} });
     }
-    return this._spiAdapter;
+    return this._spiAdapter!;
+  }
+
+  /**
+   * Point an adapter object at THIS shim's bridge. The object itself is the
+   * stable facade parts capture at mount (project board-buses-2026-09, F2
+   * transition bridge): a bridge rebuild re-points it here instead of handing
+   * the parts a new one they would never see.
+   */
+  private installSpiAdapter(adapter: {
+    onByte: ((mosi: number) => void) | null;
+    completeTransfer: (miso: number) => void;
+  }): void {
+    // MISO goes back through the bridge's setSpiResponse, which every bridge
+    // has (QEMU forwards to the worker's _spi_response; the JS engines
+    // capture the answer for the byte being clocked, since the whole onByte
+    // chain runs synchronously inside the engine's transfer). This used to
+    // be a no-op "because the worker drives MISO", which was only true for
+    // QEMU-era parts: any SPI part that ANSWERS (an SD card reponding to
+    // CMD0) was talking to nobody in js mode, measured as SD.begin()=0 with
+    // sd_diskio retrying CMD0 forever.
+    adapter.completeTransfer = (miso: number) => {
+      (this.bridge as unknown as { setSpiResponse?: (b: number) => void }).setSpiResponse?.(miso);
+    };
+    // Forward every per-byte WS event into whichever handler the part
+    // installed. Single-listener channel: last writer wins.
+    this.bridge.onSpiByte = (mosi: number) => {
+      adapter.onByte?.(mosi);
+    };
+    this._spiAdapter = adapter;
+  }
+
+  /**
+   * The bus fabric's binding for this board (project board-buses-2026-09).
+   * The pins are this shim's PinManager. The SPI controller ports come from
+   * the bridge when it has them: the in-browser engines, through the overlay's
+   * delegating bridge, which keeps the same ports across every run. A QEMU
+   * bridge has none until F4, so the fabric knows the board's pins and clocks
+   * nothing from it. An MCU reset the bridge reports reaches the fabric after
+   * the board's pins were reset, so a chip select reads as undriven until the
+   * rebooted firmware drives it again.
+   */
+  getBusBinding(): import('../simulation/buses').EngineBinding {
+    const pins: import('../simulation/buses').BoardPins = {
+      onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
+      peekPinState: (pin) => this.pinManager.peekPinState(pin),
+      driveInput: (pin, level) => this.setPinState(pin, level),
+    };
+    const bridge = this.bridge as unknown as {
+      getBusBinding?: (
+        pins: import('../simulation/buses').BoardPins,
+      ) => import('../simulation/buses').EngineBinding | null;
+    };
+    const binding = typeof bridge.getBusBinding === 'function' ? bridge.getBusBinding(pins) : null;
+    if (!binding) return { pins, spi: [] };
+    return {
+      ...binding,
+      setResetHandler: (handler) =>
+        binding.setResetHandler?.(
+          handler
+            ? () => {
+                this.pinManager.hardResetPinStates();
+                handler();
+              }
+            : null,
+        ),
+    };
   }
   updateSensor(pin: number, properties: Record<string, unknown>): void {
     this.bridge.sendSensorUpdate(pin, properties);
@@ -635,6 +680,10 @@ export class Esp32BridgeShim {
     // shim and will not re-attach for a bridge rebuild, so without this the
     // pixel goes black on the first recompile and never comes back.
     for (const [pin, sink] of prev.ws2812Sinks) this.ws2812Sinks.set(pin, sink);
+    // And the SPI parts: each one captured the old shim's `spi` object at
+    // mount. That object stays the channel; it is re-pointed at the new
+    // bridge, so its bytes and answers flow here from now on.
+    if (prev._spiAdapter && !this._spiAdapter) this.installSpiAdapter(prev._spiAdapter);
   }
 
   /**
@@ -1091,6 +1140,23 @@ class Stm32BridgeShim {
   /** Expose the bridge so SPI/ePaper parts can subscribe to backend frames. */
   getBridge(): Stm32Bridge {
     return this.bridge;
+  }
+
+  /**
+   * The bus fabric's binding for this board (project board-buses-2026-09):
+   * its pins only. The STM32 runs in the backend QEMU worker, whose SPI
+   * controllers get their ports in F4, so the fabric knows the board and
+   * clocks nothing from it yet.
+   */
+  getBusBinding(): import('../simulation/buses').EngineBinding {
+    return {
+      pins: {
+        onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
+        peekPinState: (pin) => this.pinManager.peekPinState(pin),
+        driveInput: (pin, level) => this.setPinState(pin, level),
+      },
+      spi: [],
+    };
   }
 
   // ── I2C write-only device relay (SSD1306, PCF8574) ────────────────────────

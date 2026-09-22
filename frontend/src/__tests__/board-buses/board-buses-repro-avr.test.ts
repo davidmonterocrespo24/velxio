@@ -468,7 +468,7 @@ describe('Uno + ILI9341 + microSD on one bus (the spitftbitmap sketch)', () => {
     expect(l.slice(2)).toEqual(GOOD_BOOT_TAIL);
   });
 
-  it.fails('avr-loopback-echo-overrides-idle, avr-loopback-at-chain-bottom, avr-no-real-firmware-shared-bus: a byte clocked with nobody selected reads the idle-high 0xFF, not the MOSI echo', () => {
+  it('avr-loopback-echo-overrides-idle, avr-loopback-at-chain-bottom, avr-no-real-firmware-shared-bus: a byte clocked with nobody selected reads the idle-high 0xFF, not the MOSI echo', () => {
     // SPI.transfer(0x5A) with the panel's CS and the card's CS both high.
     // Nothing drives MISO, so the line rests at its pull-up.
     const idle: Record<string, string> = {};
@@ -515,7 +515,7 @@ describe('Uno + ILI9341 + microSD: attach-order permutations', () => {
 
 describe('Uno + ILI9341 + microSD: Stop/Run, Reset, reload', () => {
   for (const kind of ['arduino-uno', 'arduino-nano'] as const) {
-    it.fails(`avr-reset-drops-spi-chain, avr-reset-orphans-spi-chain, avr-spi-chain-lost-on-stop-run, avr-stop-recreates-spi-usart: ${kind}, Stop then Run with no recompile boots the same (card read, picture repainted)`, () => {
+    it(`avr-reset-drops-spi-chain, avr-reset-orphans-spi-chain, avr-spi-chain-lost-on-stop-run, avr-stop-recreates-spi-usart: ${kind}, Stop then Run with no recompile boots the same (card read, picture repainted)`, () => {
       const { b, tft } = tftSdBench(['tft', 'sd'], kind);
       b.load(TFT_SD_HEX);
       b.run();
@@ -622,7 +622,7 @@ describe('Uno + custom SPI chip + microSD on one bus', () => {
     });
   }
 
-  it.fails('avr-spi-chain-lost-on-stop-run, avr-reset-drops-spi-chain, avr-reset-orphans-spi-chain, avr-stop-recreates-spi-usart: after Stop then Run the chip still answers (not the MOSI echo) and the card still mounts', async () => {
+  it('avr-spi-chain-lost-on-stop-run, avr-reset-drops-spi-chain, avr-reset-orphans-spi-chain, avr-stop-recreates-spi-usart: after Stop then Run the chip still answers (not the MOSI echo) and the card still mounts', async () => {
     const { b } = chipSdBench(['chip', 'sd']);
     b.load(CHIP_SD_HEX);
     await chipReady(b);
@@ -720,7 +720,7 @@ describe('Arduino Mega: peripherals rebuilt by Stop/Run and Reset keep the ATmeg
   });
 
   for (const how of ['Stop', 'Reset'] as const) {
-    it.fails(`avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config, mega-reset-uno-spi-config: after ${how} then Run the Mega boots once and millis(), Serial and Wire keep working`, () => {
+    it(`avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config, mega-reset-uno-spi-config: after ${how} then Run the Mega boots once and millis(), Serial and Wire keep working`, () => {
       const b = new Bench('arduino-mega');
       b.load(MEGA_HEX);
       b.run();
@@ -739,7 +739,7 @@ describe('Arduino Mega: peripherals rebuilt by Stop/Run and Reset keep the ATmeg
     expect(bootMega(b, 1_000_000)).toEqual(['BOOT', 'SPI_ISR:8']);
   });
 
-  it.fails('mega-reset-uno-spi-config, avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config: after Stop then Run every SPI transfer-complete still reaches SPI_STC_vect', () => {
+  it('mega-reset-uno-spi-config, avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config: after Stop then Run every SPI transfer-complete still reaches SPI_STC_vect', () => {
     const b = new Bench('arduino-mega');
     b.load(MEGA_SPI_HEX);
     b.run();
@@ -781,7 +781,7 @@ describe('ATtiny85 + SSD1306 over the USI', () => {
     expect(histogram(oledGddram(oled))).toEqual({ '0x81': 1024 });
   });
 
-  it.fails('avr-mega-tiny-reset-wrong-config: after Stop then Run the USI bridge still carries the sketch to the OLED', () => {
+  it('avr-mega-tiny-reset-wrong-config: after Stop then Run the USI bridge still carries the sketch to the OLED', () => {
     const { b, oled } = tinyBench();
     b.load(TINY_HEX);
     b.run();

@@ -290,7 +290,7 @@ describe('RP2040 SPI0: the selected device answers MISO, whatever else shares th
     expect(cardMounted(board.out())).toBe(true);
   });
 
-  it.fails(
+  it(
     'rp2040-first-answer-wins, rp2040-first-answer-vs-idle-before-forward, rp2040-first-answer-wins-vs-chain-contract, ' +
       'rp2040-first-answer-wins-contradicts-chain-contract, rp2040-first-answer-wins-vs-idle-before-forward: ' +
       'the card mounts when an ILI9341 attached after it (so it idles 0xFF at the head, then forwards)',
@@ -458,10 +458,11 @@ describe('RP2040 MicroPython: SPI0 parts keep the bus across reset()', () => {
     expect(board.out()).toContain('R1:01');
   });
 
-  // The simulator contract: a part keeps its bus across reset(). The app hides
-  // this defect today, because every MicroPython Run (single and Run All)
-  // calls loadMicroPython again, and that rewires SPI0 to clockSpiByte.
-  it.fails('rp2040-micropython-reset-loopback: after reset() the same card still answers CMD0', async () => {
+  // The simulator contract: a part keeps its bus across reset(). The app hid
+  // this defect, because every MicroPython Run (single and Run All) calls
+  // loadMicroPython again, which rewired SPI0 to the part adapter; only reset()
+  // left the loopback. Every rebuild now clocks into the same SPI port (F2).
+  it('rp2040-micropython-reset-loopback: after reset() the same card still answers CMD0', async () => {
     const board = await bootPython(PY_CMD0);
     attachCard(board.sim, 17);
     untilDone(board, 3000);
@@ -484,7 +485,7 @@ describe('RP2040 custom chips: a chip joins SPI0 without taking it', () => {
     expect(board.out()).toContain('CHIP2:A5');
   });
 
-  it.fails(
+  it(
     'rp2-sethandler-clobbers-spi-chain: an I2C-only chip on the board leaves the SPI card alone (the card still mounts)',
     async () => {
       const board = boot('rp2040-spi0-bus');
@@ -497,7 +498,7 @@ describe('RP2040 custom chips: a chip joins SPI0 without taking it', () => {
     },
   );
 
-  it.fails('rp2-sethandler-clobbers-spi-chain: an SPI chip and the card both answer on the shared bus', async () => {
+  it('rp2-sethandler-clobbers-spi-chain: an SPI chip and the card both answer on the shared bus', async () => {
     const board = boot('rp2040-spi0-bus');
     attachCard(board.sim, 17);
     await attachChip(board.sim, 'chip-spi', 'spi-id.wasm', SPI_CHIP_PINS, SPI_CHIP_WIRING).ready;
@@ -507,7 +508,7 @@ describe('RP2040 custom chips: a chip joins SPI0 without taking it', () => {
     expect(board.out()).toContain('CHIP2:A5');
   });
 
-  it.fails(
+  it(
     'rp2-sethandler-clobbers-spi-chain: a chip mounted before the firmware loaded answers once it runs (mount, load, re-attach as hexEpoch does)',
     async () => {
       const sim = new RP2040Simulator(new PinManager());
@@ -523,7 +524,7 @@ describe('RP2040 custom chips: a chip joins SPI0 without taking it', () => {
     },
   );
 
-  it.fails('rp2-sethandler-clobbers-spi-chain: after Stop and Run the chip still answers its id', async () => {
+  it('rp2-sethandler-clobbers-spi-chain: after Stop and Run the chip still answers its id', async () => {
     const board = boot('rp2040-spi0-bus');
     await attachChip(board.sim, 'chip-spi', 'spi-id.wasm', SPI_CHIP_PINS, SPI_CHIP_WIRING).ready;
     untilDone(board);
@@ -534,7 +535,7 @@ describe('RP2040 custom chips: a chip joins SPI0 without taking it', () => {
     expect(board.out()).toContain('CHIP1:A5');
   });
 
-  it.fails(
+  it(
     'rp2-sethandler-clobbers-spi-chain: after Reset (reset() and every part re-attaches) the chip still answers its id',
     async () => {
       const board = boot('rp2040-spi0-bus');

@@ -177,6 +177,15 @@ export interface BoardPins {
   onPinChange(pin: number, cb: (pin: number, level: boolean) => void): () => void;
   /** Last level the MCU (or a part) put on the pin, undefined if never set. */
   peekPinState(pin: number): boolean | undefined;
+  /**
+   * What the guest is doing to the pad (driving low/high, or released with a
+   * pull), for engines that report it; undefined when never reported. The
+   * level channel alone misses a pin driven low by its direction register
+   * only (pinMode(OUTPUT) with the latch already 0), which on a chip select
+   * means "selected".
+   */
+  peekPad?(pin: number): { drive: 'low' | 'high' | 'z'; pull: 0 | 1 | 2 } | undefined;
+  onPadChange?(pin: number, cb: () => void): () => void;
   /** Drive a pin as an INPUT to the MCU (a device answering on MISO/SDA/RX). */
   driveInput?(pin: number, level: boolean): void;
 }

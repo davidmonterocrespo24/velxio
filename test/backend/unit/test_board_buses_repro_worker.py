@@ -59,8 +59,11 @@ BARRIER_PIN = 900
 
 # The field a sensor record uses to say which I2C controller (Wire = 0,
 # Wire1 = 1) its SDA/SCL are wired to. No record carries it today: the fix for
-# worker-i2c-slaves-ignore-bus-id has to add it (frontend) and honour it
-# (worker). Kept in one place so the fix can rename it.
+# worker-i2c-slaves-ignore-bus-id proposes adding it (frontend) and honouring
+# it (worker). Kept in one place so the fix can rename it. If the fix instead
+# sends the SDA/SCL pins and resolves the controller in the worker (the GPIO
+# matrix decides it at run time on an ESP32), give these records the pins and
+# drive the matrix callback here; a rename is then not enough.
 I2C_BUS_KEY = 'bus'
 
 # picsimlab I2C ops (hw/i2c/picsimlab_i2c.c, esp32_i2c_slaves.py)

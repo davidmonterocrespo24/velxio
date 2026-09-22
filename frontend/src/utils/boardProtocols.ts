@@ -19,6 +19,15 @@
  */
 
 import type { BoardKind } from '../types/board';
+import { boardPinToNumber } from './boardPinMapping';
+import {
+  getBoardPinFunctions,
+  type BoardPinFunctions,
+  type BusKind,
+} from '../simulation/buses/pinFunctions';
+// The OSS boards' pin function tables register on import; the overlay registers
+// its own boards when it installs them.
+import '../simulation/buses/boardPinTables';
 
 export type PinRole =
   | { kind: 'uart-tx'; uart: number }
@@ -341,6 +350,100 @@ function normalizePinName(boardKind: string, pinName: string): string | null {
   return isNaN(n) ? null : String(n);
 }
 
+/**
+ * The role a board pin plays by default, from the board's pin function table
+ * (project board-buses-2026-09): the function for which this pin is one of a
+ * controller's DEFAULT pins in the board's core (Serial1 on GP0/GP1, Wire on
+ * GP4/GP5...). A pin that only carries a function when the sketch remaps it is
+ * plain digital here: the live routing belongs to the bus fabric, which asks
+ * the engine. UART first, then I2C, then SPI, for a pin that is the default of
+ * more than one.
+ */
+function roleFromTable(table: BoardPinFunctions, pin: number): PinRole | null {
+  const order: Array<'uart' | 'i2c' | 'spi'> = ['uart', 'i2c', 'spi'];
+  for (const bus of order) {
+    for (const ctl of table.controllers) {
+      if (ctl.bus !== bus) continue;
+      for (const [signal, pins] of Object.entries(ctl.defaultPins)) {
+        const list = Array.isArray(pins) ? pins : pins === undefined ? [] : [pins];
+        if (!list.includes(pin)) continue;
+        switch (signal) {
+          case 'tx':
+            return { kind: 'uart-tx', uart: ctl.unit };
+          case 'rx':
+            return { kind: 'uart-rx', uart: ctl.unit };
+          case 'sda':
+            return { kind: 'i2c-sda', bus: ctl.unit };
+          case 'scl':
+            return { kind: 'i2c-scl', bus: ctl.unit };
+          case 'mosi':
+            return { kind: 'spi-mosi', bus: ctl.unit };
+          case 'miso':
+            return { kind: 'spi-miso', bus: ctl.unit };
+          case 'sck':
+            return { kind: 'spi-sck', bus: ctl.unit };
+          case 'cs':
+            return { kind: 'spi-cs', bus: ctl.unit };
+          default:
+            break;
+        }
+      }
+    }
+  }
+  // Not a default pin of any controller: fall back to the functions the pin
+  // CAN carry (the silkscreen's TX2/RX2 on an ESP32 DevKit are UART2's IO_MUX
+  // pins even though the core's Serial2 defaults moved). This classifier is a
+  // hint for cross-board routing; which controller is really live on a pin is
+  // the fabric's question, and it asks the engine.
+  const order2: Array<'uart' | 'i2c' | 'spi'> = ['uart', 'i2c', 'spi'];
+  for (const bus of order2) {
+    for (const fn of table.pins[pin] ?? []) {
+      if (fn.bus !== bus) continue;
+      switch (fn.signal) {
+        case 'tx':
+          return { kind: 'uart-tx', uart: fn.unit };
+        case 'rx':
+          return { kind: 'uart-rx', uart: fn.unit };
+        case 'sda':
+          return { kind: 'i2c-sda', bus: fn.unit };
+        case 'scl':
+          return { kind: 'i2c-scl', bus: fn.unit };
+        case 'mosi':
+          return { kind: 'spi-mosi', bus: fn.unit };
+        case 'miso':
+          return { kind: 'spi-miso', bus: fn.unit };
+        case 'sck':
+          return { kind: 'spi-sck', bus: fn.unit };
+        case 'cs':
+          return { kind: 'spi-cs', bus: fn.unit };
+        default:
+          break;
+      }
+    }
+  }
+  return null;
+}
+
+/** The core's default pin for a function name a board does not draw as a pad. */
+function aliasPin(table: BoardPinFunctions, name: string): number | null {
+  const m = /^(TX|RX|TXD|RXD|SDA|SCL|MOSI|MISO|SCK|SS|CS)(\d*)$/.exec(name);
+  if (!m) return null;
+  const unit = m[2] === '' ? null : Number(m[2]);
+  const signal = { TX: 'tx', TXD: 'tx', RX: 'rx', RXD: 'rx', SDA: 'sda', SCL: 'scl', MOSI: 'mosi', MISO: 'miso', SCK: 'sck', SS: 'cs', CS: 'cs' }[m[1]];
+  const bus: BusKind = signal === 'tx' || signal === 'rx' ? 'uart' : signal === 'sda' || signal === 'scl' ? 'i2c' : 'spi';
+  for (const ctl of table.controllers) {
+    if (ctl.bus !== bus) continue;
+    // 'SDA' with no number means the first controller of that kind the board
+    // binds (Wire, Serial, SPI); 'SDA1' / 'TX2' name the unit.
+    if (unit !== null && ctl.unit !== unit) continue;
+    const pins = (ctl.defaultPins as Record<string, number | number[] | undefined>)[signal!];
+    const first = Array.isArray(pins) ? pins[0] : pins;
+    if (first !== undefined) return first;
+    if (unit === null) continue;
+  }
+  return null;
+}
+
 export function classifyPin(boardKind: string, pinName: string): PinRole {
   const trimmed = pinName.trim().toUpperCase();
   if (
@@ -353,6 +456,29 @@ export function classifyPin(boardKind: string, pinName: string): PinRole {
     trimmed === 'VSYS'
   ) {
     return { kind: 'power' };
+  }
+  // Boards with a pin function table: resolve the pad the same way the wires
+  // do (boardPinToNumber, which knows every pad name and the overlay boards),
+  // then read the table. One source of truth for which pin is which UART.
+  const functions = getBoardPinFunctions(boardKind);
+  if (functions) {
+    // 'TX0' / 'RXD0' are silkscreen spellings of the console UART's pads. The
+    // pad map answers them from the classic ESP32's numbering, so ask it for
+    // the plain name, which every board resolves for its own silicon.
+    const padName = /^(TX|RX)D?0$/.test(trimmed) ? trimmed.slice(0, 2) : pinName;
+    let pin = boardPinToNumber(boardKind, padName);
+    // A function NAME the board does not draw as a pad ('SDA' on a DevKit that
+    // only labels GPIOs) is the core's default pin for that function, which the
+    // table holds per board. The old hard-coded alias list said SDA = 5 on a C3
+    // and 21 on every S3, where the cores say 8.
+    if (pin === null) pin = aliasPin(functions, trimmed);
+    if (pin === null) {
+      const n = normalizePinName(boardKind, pinName);
+      pin = n !== null && /^\d+$/.test(n) ? Number(n) : null;
+    }
+    if (pin === -1) return { kind: 'power' };
+    if (pin === null) return { kind: 'digital' };
+    return roleFromTable(functions, pin) ?? { kind: 'digital' };
   }
   const normalized = normalizePinName(boardKind, pinName);
   if (normalized === null) return { kind: 'digital' }; // unknown alias: treat as raw digital

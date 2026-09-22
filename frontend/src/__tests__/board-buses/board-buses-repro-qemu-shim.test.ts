@@ -17,6 +17,10 @@
  * sent (esp32_worker.py batches them and returns _spi_response[0] at byte
  * time), so no answer the tab gives for them can reach those transfers.
  *
+ * The last block does the same for an STM32 Blue Pill (Stm32Bridge and
+ * Stm32BridgeShim from the store, started through startBoard) with the real
+ * OSS microSD card, a part that does answer MISO.
+ *
  * Convention (TESTS.md): `it.fails` marks a finding reproduced today, stating
  * the hardware-faithful behaviour; its `setup` sibling proves the rig works.
  */
@@ -61,10 +65,15 @@ class ScriptedSocket {
 }
 vi.stubGlobal('WebSocket', ScriptedSocket);
 
-import { useSimulatorStore, getBoardSimulator, getEsp32Bridge } from '../../store/useSimulatorStore';
+import {
+  useSimulatorStore,
+  getBoardSimulator,
+  getEsp32Bridge,
+} from '../../store/useSimulatorStore';
 import { PartSimulationRegistry } from '../../simulation/parts/PartSimulationRegistry';
 import '../../simulation/parts';
 import { ensureSpiBridge, hostsChipsInWorker } from '../../simulation/customChips/simulatorBridges';
+import { lineGaps } from '../../simulation/line/requestLine';
 
 // ── Rig ──────────────────────────────────────────────────────────────────────
 
@@ -180,11 +189,14 @@ describe('QEMU ESP32 shim: MISO answers for bytes the guest already clocked', ()
     expect(rowOnPanel(tft!)).toEqual(ROW);
   });
 
-  it.fails('esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: replaying a write-only row into the ILI9341 sends at most one esp32_spi_response, not one per byte', () => {
-    const { ws } = qemuBoard({ tft: true });
-    drawRow(ws);
-    expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
-  });
+  it.fails(
+    'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: replaying a write-only row into the ILI9341 sends at most one esp32_spi_response, not one per byte',
+    () => {
+      const { ws } = qemuBoard({ tft: true });
+      drawRow(ws);
+      expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
+    },
+  );
 });
 
 // ── qemu-chip-node-floods-spi-response ───────────────────────────────────────
@@ -197,11 +209,14 @@ describe('QEMU ESP32 shim: the custom-chips SPI node with no chip on the bus', (
     expect(rowOnPanel(tft!)).toEqual(ROW);
   });
 
-  it.fails('qemu-chip-node-floods-spi-response: on a board whose chips run in the worker, the browser chips node sends no esp32_spi_response per replayed byte', () => {
-    const { ws } = qemuBoard({ chipsBridge: true });
-    drawRow(ws);
-    expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
-  });
+  it.fails(
+    'qemu-chip-node-floods-spi-response: on a board whose chips run in the worker, the browser chips node sends no esp32_spi_response per replayed byte',
+    () => {
+      const { ws } = qemuBoard({ chipsBridge: true });
+      drawRow(ws);
+      expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
+    },
+  );
 });
 
 // ── worker-i2c-slaves-ignore-bus-id (the browser half) ───────────────────────
@@ -243,26 +258,141 @@ describe('QEMU ESP32 board: two I2C sensors at one address on Wire and Wire1', (
     expect(recs[0]).toMatchObject({ addr: 0x76, temperature: 20 });
   });
 
-  it.fails('worker-i2c-slaves-ignore-bus-id: a BMP280 on Wire (21/22) and one on Wire1 (25/26) reach the worker as two devices, each with its controller', () => {
-    const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
-    const shim = getBoardSimulator(id);
-    cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
-    cleanups.push(mountBmp280(shim, 'bmp-b', 30, 25, 26));
-    const recs = bootSensors(id);
-    expect(recs.map((r) => [r[I2C_BUS_KEY], r.temperature])).toEqual([
-      [0, 20],
-      [1, 30],
-    ]);
-    expect(new Set(recs.map((r) => r.pin)).size).toBe(2);
+  it.fails(
+    'worker-i2c-slaves-ignore-bus-id: a BMP280 on Wire (21/22) and one on Wire1 (25/26), both at 0x76, reach the worker as two devices with their own readings',
+    () => {
+      const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+      const shim = getBoardSimulator(id);
+      cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
+      cleanups.push(mountBmp280(shim, 'bmp-b', 30, 25, 26));
+      const recs = bootSensors(id);
+      expect(recs.map((r) => r.temperature).sort()).toEqual([20, 30]);
+      expect(new Set(recs.map((r) => r.pin)).size).toBe(2);
+    },
+  );
+
+  // Depends on the record field the fix picks (I2C_BUS_KEY): if it names the
+  // controller some other way, rename the constant rather than read this as
+  // still failing. On an ESP32 the GPIO matrix picks the controller at run
+  // time (Wire.begin(25, 26) is legal), so a fix that sends the SDA/SCL pins
+  // and lets the worker resolve the controller makes this contract moot:
+  // delete it then, the test above still covers the two records.
+  it.fails(
+    'worker-i2c-slaves-ignore-bus-id: each of the two records names the I2C controller its SDA/SCL are wired to (Wire = 0, Wire1 = 1)',
+    () => {
+      const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+      const shim = getBoardSimulator(id);
+      cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
+      cleanups.push(mountBmp280(shim, 'bmp-b', 30, 25, 26));
+      const recs = bootSensors(id);
+      expect(Object.fromEntries(recs.map((r) => [r.temperature, r[I2C_BUS_KEY]]))).toEqual({
+        20: 0,
+        30: 1,
+      });
+    },
+  );
+
+  it.fails(
+    'worker-i2c-slaves-ignore-bus-id: deleting the Wire1 BMP280 leaves the Wire one on the board for the next Run',
+    () => {
+      const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+      const shim = getBoardSimulator(id);
+      cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
+      const offB = mountBmp280(shim, 'bmp-b', 30, 25, 26);
+      offB();
+      const recs = bootSensors(id);
+      expect(recs.map((r) => r.temperature)).toEqual([20]);
+    },
+  );
+});
+
+// ── stm32-no-client-miso-and-epaper-swallow (the browser half) ───────────────
+
+/** PA4, SPI1 NSS on the Blue Pill (the worker numbers pins port * 16 + n). */
+const STM32_SD_CS = 4;
+/** SD.begin()'s first frame: CMD0 (GO_IDLE_STATE), then one 0xFF clock for R1. */
+const CMD0_AND_R1 = [0x40, 0x00, 0x00, 0x00, 0x00, 0x95, 0xff];
+
+/**
+ * A Blue Pill on the STM32 QEMU engine, started by the store's own startBoard
+ * (the Run path), with or without an OSS microSD card on the canvas and
+ * attached to the board's shim, CS on PA4. The worker's side of SD.begin()
+ * is replayed in guest order. Returns what the tab sent to the backend (all
+ * of it, and the part sent at Run, before the guest clocks a byte), what the
+ * card answered through the shim's completeTransfer, and what the user was
+ * told (notes in the serial monitor, part gaps for the circuit check).
+ */
+async function stm32SdBegin(card: boolean) {
+  const store = useSimulatorStore.getState();
+  const id = store.addBoard('stm32-bluepill', 0, 0);
+  const shim = getBoardSimulator(id) as unknown as {
+    spi: { completeTransfer: (miso: number) => void };
+  };
+  const answered = vi.spyOn(shim.spi, 'completeTransfer');
+  if (card) {
+    store.addComponent({ id: 'sd1', metadataId: 'microsd-card', x: 0, y: 0, properties: {} });
+    cleanups.push(() => useSimulatorStore.getState().removeComponent('sd1'));
+    const pinOf = (name: string) => (name === 'CS' ? STM32_SD_CS : null);
+    cleanups.push(
+      PartSimulationRegistry.get('microsd-card')!.attachEvents!(
+        { id: 'sd1' } as unknown as HTMLElement,
+        shim as never,
+        pinOf,
+        'sd1',
+      ),
+    );
+  }
+  const gapsBefore = lineGaps().length;
+  useSimulatorStore.getState().startBoard(id);
+  const ws = ScriptedSocket.last!;
+  ws.open();
+  // Anything the tab defers a tick at Run still counts as sent at Run.
+  await new Promise((r) => setTimeout(r, 20));
+  const sentAtRun = ws.sent.length;
+  ws.receive('gpio_change', { pin: STM32_SD_CS, state: 1 });
+  ws.receive('gpio_change', { pin: STM32_SD_CS, state: 0 });
+  ws.receive('spi_batch', { b64: b64(CMD0_AND_R1) });
+  ws.receive('gpio_change', { pin: STM32_SD_CS, state: 1 });
+  await new Promise((r) => setTimeout(r, 20)); // the serial batcher's flush
+  const board = useSimulatorStore.getState().boards.find((b) => b.id === id)!;
+  return {
+    sent: ws.sent.map((m) => JSON.stringify(m)),
+    sentAtRun: ws.sent.slice(0, sentAtRun).map((m) => JSON.stringify(m)),
+    answers: answered.mock.calls.map((c) => c[0]),
+    notes: board.serialOutput,
+    gaps: lineGaps().length - gapsBefore,
+  };
+}
+
+describe('QEMU STM32 board: a browser SPI part that answers (microSD card)', () => {
+  it('stm32-no-client-miso-and-epaper-swallow setup: on a started Blue Pill the card sees its CS and CMD0 and answers R1 idle (0x01) on the clock after the command', async () => {
+    const run = await stm32SdBegin(true);
+    expect(run.sent.some((f) => f.includes('"start_stm32"'))).toBe(true);
+    expect(run.answers).toEqual([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]);
   });
 
-  it.fails('worker-i2c-slaves-ignore-bus-id: deleting the Wire1 BMP280 leaves the Wire one on the board for the next Run', () => {
-    const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
-    const shim = getBoardSimulator(id);
-    cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
-    const offB = mountBmp280(shim, 'bmp-b', 30, 25, 26);
-    offB();
-    const recs = bootSensors(id);
-    expect(recs.map((r) => r.temperature)).toEqual([20]);
-  });
+  // Today the answer goes to Stm32BridgeShim.spi.completeTransfer, an empty
+  // function (useSimulatorStore.ts ~1137), and the STM32 start path hands the
+  // worker no card: SD.begin() reads 0xFF and fails with nothing on screen.
+  // Either fix flips this: the card reaching the backend at Run, before the
+  // guest clocks (a worker-side responder, as the ESP32 start path does with
+  // sdCsPin), or a note / part gap saying it cannot answer on this engine.
+  // Forwarding the card's per-byte answers does NOT count, which is why only
+  // frames sent at Run are compared: each answer leaves after the byte it
+  // answers was clocked, so the worker applies it a byte late (TestBrowserMiso
+  // in the STM32 worker tests) and SD.begin() still fails.
+  it.fails(
+    'stm32-no-client-miso-and-epaper-swallow: a microSD card on an STM32 QEMU board is not dropped silently: the backend is handed the card at Run, or the user is told it cannot answer on this engine',
+    async () => {
+      const without = await stm32SdBegin(false);
+      while (cleanups.length) cleanups.pop()!();
+      const withCard = await stm32SdBegin(true);
+      const aboutTheCard = withCard.sentAtRun.filter((f) => !without.sentAtRun.includes(f));
+      const told = /\[Velxio\]/.test(withCard.notes) || withCard.gaps > 0;
+      expect(
+        aboutTheCard.length > 0 || told,
+        `frames only the card run sent at Run: ${aboutTheCard.length}, notes: ${JSON.stringify(withCard.notes)}, part gaps: ${withCard.gaps}`,
+      ).toBe(true);
+    },
+  );
 });

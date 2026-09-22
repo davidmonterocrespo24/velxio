@@ -5,7 +5,8 @@
  * GPIO matrix SoC: the tables are the direct IO_MUX pins plus the pins
  * arduino-esp32 uses when begin() names none. Units are the SoC's: UART0-2,
  * GP-SPI2 (FSPI) = 2 and GP-SPI3 = 3 (esp32s3js soc.spi2/spi3, QEMU GPSPI2),
- * I2C0-1.
+ * I2C0-1. The QEMU machine models only GP-SPI2 (picsimlab_spi id 0) and
+ * I2C0 (esp32s3.c); the tables describe the silicon, not that engine.
  */
 import type { BoardPinFunctions, ControllerDef } from '../pinFunctions';
 import { matrixTable, type PinRow } from './build';

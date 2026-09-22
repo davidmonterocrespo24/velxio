@@ -489,14 +489,18 @@ describe('RP2040Simulator — SPI', () => {
   // than one listener sees each byte now. On this SoC completeTransmit PUSHES
   // into the RX FIFO — it is not a register a second writer overwrites — so
   // the bus has to settle on exactly one answer per clocked byte.
-  it('takes the first answer for a clocked byte and ignores a second', () => {
+  it('pushes exactly one byte back per clocked byte, and on a shared bus the idle answer does not mask a selected device', () => {
+    // The bus contract (project board-buses-2026-09): a deselected listener
+    // idles MISO high, a selected one drives it, and the line is the AND of
+    // both, so which of them spoke last cannot matter. It used to keep the
+    // FIRST answer, which let an idle display above a card mask the card.
     const mcu = sim.getMCU()!;
     const pushed: number[] = [];
     mcu.spi[0].completeTransmit = (v: number) => pushed.push(v);
     const spi = sim.spi;
     spi.onByte = () => {
-      spi.completeTransfer(0x5a); // the selected device answers
-      spi.completeTransfer(0xff); // a second listener idles on top of it
+      spi.completeTransfer(0xff); // an idle listener answers first
+      spi.completeTransfer(0x5a); // the selected device answers after it
     };
     mcu.spi[0].onTransmit(0xaa);
     expect(pushed, 'one clocked byte, one byte back').toEqual([0x5a]);
@@ -517,13 +521,15 @@ describe('RP2040Simulator — SPI', () => {
     expect(pushed, 'the pull-up answers').toEqual([0xff]);
   });
 
-  it('keeps the bare loopback when nothing is listening at all', () => {
+  it('reads the idle level, not a loopback, when nothing is listening at all', () => {
+    // No wire from MOSI to MISO means nothing drives MISO: the pull-up wins.
+    // The old bare loopback returned MOSI, which no board does without a jumper.
     const mcu = sim.getMCU()!;
     const pushed: number[] = [];
     mcu.spi[0].completeTransmit = (v: number) => pushed.push(v);
     sim.spi.onByte = null;
     mcu.spi[0].onTransmit(0x42);
-    expect(pushed).toEqual([0x42]);
+    expect(pushed).toEqual([0xff]);
   });
 
   it('setSPIHandler() does nothing when rp2040 is null', () => {

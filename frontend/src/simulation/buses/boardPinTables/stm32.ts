@@ -401,6 +401,9 @@ export const BLACKPILL_F411_TABLE: BoardPinFunctions = stm32Table(
   F411CX_ROWS,
   PILL_BINDINGS,
   `${CORE} variants/STM32F4xx/F411C(C-E)(U-Y)/PeripheralPins.c and variant_BLACKPILL_F411CE.h. ` +
+    'The pnum builds with CUSTOM_PERIPHERAL_PINS, so the core compiles ' +
+    'PeripheralPins_BLACKPILL_F411CE.c instead: same rows except PB8 I2C3_SDA (AF9), which it ' +
+    'comments out; the silicon still has it, a sketch cannot pick it through Wire. ' +
     'QEMU runs it on the F405 SoC (netduinoplus2), where USART6 is usart[5] and SPI4/5 are spi[3]/[4].',
 );
 
@@ -408,7 +411,9 @@ export const BLACKPILL_F401_TABLE: BoardPinFunctions = stm32Table(
   F401CX_ROWS,
   PILL_BINDINGS,
   `${CORE} variants/STM32F4xx/F401CC(F-U-Y)_F401C(B-D-E)(U-Y)/PeripheralPins.c and ` +
-    'variant_BLACKPILL_F401Cx.h. QEMU runs it on the F405 SoC (netduinoplus2).',
+    'variant_BLACKPILL_F401Cx.h. The pnum builds with CUSTOM_PERIPHERAL_PINS ' +
+    '(PeripheralPins_BLACKPILL_F401Cx.c), whose serial rows are identical. ' +
+    'QEMU runs it on the F405 SoC (netduinoplus2).',
 );
 
 /**

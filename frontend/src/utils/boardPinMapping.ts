@@ -143,10 +143,12 @@ const POWER_PAD_RE =
   /^(gnd|vss|vee|3v3|3v|3\.3v|5v|vcc|vdd|vin|vbus|vbat|bat|en|rst|reset|chip_pu)([._]?\d+)?$/i;
 
 /**
- * ESP32 DevKit-C GPIO pin names → GPIO numbers.
+ * ESP32 DevKit-C GPIO pin names → GPIO numbers, classic ESP32 only.
  * Pin names are GPIO numbers directly (GPIO0–GPIO39).
  * Special aliases: the UART pads (TX/RX = UART0, RX0/TX0 the same pads under
- * their DevKit V1 silkscreen names, RX2/TX2 = UART2 on GPIO16/17).
+ * their DevKit V1 silkscreen names, RX2/TX2 = UART2 on GPIO16/17). The S3 and
+ * C3 put UART0 elsewhere, so the branches below resolve TX/RX through
+ * esp32Uart0Pad before they reach this map.
  */
 const ESP32_PIN_MAP: Record<string, number> = {
   TX: 1,
@@ -229,6 +231,50 @@ const ESP32_PIN_MAP: Record<string, number> = {
   EN: -1,
 };
 
+/**
+ * U0TXD / U0RXD per chip: the UART0 IO_MUX pads, which every dev board silks
+ * TX / RX (ESP-IDF components/soc/<chip>/include/soc/uart_pins.h). The S3 and
+ * C3 DevKits and the C3 SuperMini used to fall through to ESP32_PIN_MAP's
+ * classic 1/3, so a wire to the console pads joined the net of GPIO1/3, which
+ * on those chips are ordinary pads of their own elsewhere on the header.
+ * Overlay boards on other chips resolve their own TX/RX; one that does not
+ * gets null here rather than another chip's pads.
+ */
+const ESP32_UART0_PADS: Record<string, { TX: number; RX: number }> = {
+  esp32: { TX: 1, RX: 3 },
+  'esp32-s3': { TX: 43, RX: 44 },
+  'esp32-c3': { TX: 21, RX: 20 },
+};
+
+function esp32Uart0Pad(boardId: string, pad: 'TX' | 'RX'): number | null {
+  const family =
+    getProBoard(boardId)?.esp32Family ??
+    (boardId.startsWith('esp32-s3')
+      ? 'esp32-s3'
+      : boardId.startsWith('esp32-c3') || boardId === 'aitewinrobot-esp32c3-supermini'
+        ? 'esp32-c3'
+        : 'esp32');
+  return ESP32_UART0_PADS[family]?.[pad] ?? null;
+}
+
+/**
+ * The DevKitC V4 breaks out the module's SPI-flash block, silked by the flash
+ * signal rather than the GPIO: CLK = GPIO6, D0 = GPIO7, D1 = GPIO8, D2 = GPIO9,
+ * D3 = GPIO10, CMD = GPIO11 (Espressif ESP32-DevKitC V4 pin layout; SD_CLK,
+ * SD_DATA0-3 and SD_CMD in the ESP32 IO_MUX). 'D2' fell through to
+ * ESP32_PIN_MAP's DevKit V1 alias for GPIO2, so a wire to the flash pad joined
+ * GPIO2's net. The pads resolve to the lines they are; the pin function table
+ * lists no function on them, so nothing routes a bus there.
+ */
+const DEVKIT_C_V4_FLASH_PADS: Record<string, number> = {
+  CLK: 6,
+  D0: 7,
+  D1: 8,
+  D2: 9,
+  D3: 10,
+  CMD: 11,
+};
+
 /** All known board component IDs in the simulator */
 export const BOARD_COMPONENT_IDS = [
   'arduino-uno',
@@ -301,15 +347,22 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
       const d = parseInt(pinName.substring(1), 10);
       if (!isNaN(d)) return d;
     }
-    // Analog naming
-    return ARDUINO_UNO_ANALOG_MAP[pinName] ?? null;
+    // Analog naming. A '.N' suffix is the element's name for a second pad on
+    // the same line: the Uno R3's SDA/SCL pads beside AREF are 'A4.2'/'A5.2',
+    // wired to A4/A5 on the board, and resolved to nothing without this.
+    return ARDUINO_UNO_ANALOG_MAP[pinName.replace(/\.\d+$/, '')] ?? null;
   }
 
   if (boardId === 'arduino-mega') {
     // Supply pads BEFORE the numeric parse, or '5V' reads as D5 and '3.3V' as
     // D3 — a wire to the supply would drive a real pin, and a walk looking for
     // "what drives this net" would stop at a rail believing it found a GPIO.
-    if (POWER_PAD_RE.test(pinName)) return -1;
+    // IOREF and AREF are the same reference pads the Uno branch treats as rails.
+    if (POWER_PAD_RE.test(pinName) || pinName === 'IOREF' || pinName === 'AREF') return -1;
+    // The R3 header's dedicated SDA/SCL pads beside AREF are wired to D20/D21
+    // (PD1/PD0, the TWI pins). Only labelled, so without this they were null.
+    if (pinName === 'SDA') return 20;
+    if (pinName === 'SCL') return 21;
     // Digital pins D0–D53 parsed numerically
     const num = parseInt(pinName, 10);
     if (!isNaN(num) && num >= 0 && num <= 53) return num;
@@ -367,11 +420,15 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
   // Pi Pico W — same GPIO mapping as Raspberry Pi Pico (GP0-GP28 → 0-28)
   if (boardId === 'pi-pico-w') {
     // Same trap as the Mega below/above: '3V3' would parse as 3 and '5V' as 5.
-    if (POWER_PAD_RE.test(pinName)) return -1;
+    // POWER_PAD_RE does not cover the regulator enable '3V3_EN', which parsed
+    // as GP3, nor 'VSYS'; the Pico branch above already returns -1 for both.
+    if (POWER_PAD_RE.test(pinName) || pinName === '3V3_EN' || pinName === 'VSYS') return -1;
     if (pinName.startsWith('GP')) {
       const n = parseInt(pinName.substring(2), 10);
       if (!isNaN(n)) return n;
     }
+    // The element's A0-A2 alias pads sit on GP26-GP28 (ADC0-ADC2).
+    if (/^A[0-2]$/.test(pinName)) return 26 + Number(pinName[1]);
     const num = parseInt(pinName, 10);
     if (!isNaN(num)) return num;
     return null;
@@ -418,6 +475,9 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
     const maxGpio = boardId.startsWith('esp32-s3') ? 48 : 39;
     const num = parseInt(pinName, 10);
     if (!isNaN(num) && num >= 0 && num <= maxGpio) return num;
+    if (pinName === 'TX' || pinName === 'RX') return esp32Uart0Pad(boardId, pinName);
+    if (boardId === 'esp32-devkit-c-v4' && pinName in DEVKIT_C_V4_FLASH_PADS)
+      return DEVKIT_C_V4_FLASH_PADS[pinName];
     return ESP32_PIN_MAP[pinName] ?? null;
   }
 
@@ -510,6 +570,7 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
     if (POWER_PAD_RE.test(pinName)) return -1;
     const num = parseInt(pinName, 10);
     if (!isNaN(num)) return num;
+    if (pinName === 'TX' || pinName === 'RX') return esp32Uart0Pad(boardId, pinName);
     return ESP32_PIN_MAP[pinName] ?? null;
   }
 

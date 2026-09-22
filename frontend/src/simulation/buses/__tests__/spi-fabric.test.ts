@@ -46,6 +46,24 @@ class FakePins implements BoardPins {
   }
   reset(): void {
     this.levels.clear();
+    this.pads.clear();
+  }
+  // Pad drive state, for engines that report it (AVR DDR/PORT, RP funcsel).
+  pads = new Map<number, { drive: 'low' | 'high' | 'z'; pull: 0 | 1 | 2 }>();
+  private padListeners = new Map<number, Set<() => void>>();
+  peekPad(pin: number): { drive: 'low' | 'high' | 'z'; pull: 0 | 1 | 2 } | undefined {
+    return this.pads.get(pin);
+  }
+  onPadChange(pin: number, cb: () => void): () => void {
+    let s = this.padListeners.get(pin);
+    if (!s) this.padListeners.set(pin, (s = new Set()));
+    s.add(cb);
+    return () => this.padListeners.get(pin)?.delete(cb);
+  }
+  /** The guest changes the pad drive state without moving the level latch. */
+  pad(pin: number, drive: 'low' | 'high' | 'z', pull: 0 | 1 | 2 = 0): void {
+    this.pads.set(pin, { drive, pull });
+    for (const cb of this.padListeners.get(pin) ?? []) cb();
   }
 }
 
@@ -292,6 +310,21 @@ describe('SPI fabric: arbitration by chip select', () => {
     expect(r.port.xfer(0x80)).toBe(0x99);
   });
 
+  it('a chip select driven low by its direction register alone selects the chip', () => {
+    // pinMode(CS, OUTPUT) with the latch already 0: the level channel never
+    // moves, but the pad is driven low, and on a real board the chip listens.
+    const d = new Recorder(() => 0x3e);
+    r.spiDevice('sd', gpio(10), d);
+    expect(r.port.xfer(1)).toBe(0xff);
+    r.pins.pad(10, 'low');
+    expect(r.port.xfer(2)).toBe(0x3e);
+    r.pins.pad(10, 'z', 1); // released with the pull-up: deselected
+    expect(r.port.xfer(3)).toBe(0xff);
+    r.pins.pad(10, 'z', 0); // released and floating, no level ever latched
+    expect(r.port.xfer(4)).toBe(0xff);
+    expect(d.heard).toEqual([2]);
+  });
+
   it('active-high chip selects', () => {
     const d = new Recorder(() => 0x10);
     r.spiDevice('hi', gpio(10), d, { csActive: 'high' });
@@ -447,6 +480,28 @@ describe('SPI fabric: controllers', () => {
     hw.hwCs!(0, false);
     expect(hw.xfer(3)).toBe(0xff);
     expect(d.heard).toEqual([2]);
+  });
+
+  it('a pin that stops carrying a hardware chip select is a plain GPIO again', () => {
+    const r = rig();
+    const hw = new FakePort(0, 'SPI', { sck: 13, mosi: 11, miso: 12, cs: [10] });
+    let routingChanged: (() => void) | null = null;
+    (hw as SpiControllerPort).setRoutingChangeHandler = (h) => {
+      routingChanged = h;
+    };
+    r.reg.bindEngine('uno', { pins: r.pins, spi: [hw] });
+    const d = new Recorder(() => 0x21);
+    r.spiDevice('sd', gpio(10), d);
+    hw.hwCs!(0, true);
+    expect(hw.xfer(1)).toBe(0x21);
+    // SPI.end(); SPI.begin() without hardware CS: pin 10 is a GPIO now.
+    hw.route = { sck: 13, mosi: 11, miso: 12, cs: [] };
+    routingChanged!();
+    r.pins.write(10, true);
+    expect(hw.xfer(2)).toBe(0xff);
+    r.pins.write(10, false);
+    expect(hw.xfer(3)).toBe(0x21);
+    expect(d.heard).toEqual([1, 3]);
   });
 
   it('LSB-first controller and MSB-first chip: the chip sees reversed bits, and it is reported', () => {

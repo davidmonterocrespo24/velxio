@@ -69,6 +69,11 @@ export class PinManager {
     return this.pads.get(pin);
   }
 
+  /** The pad's drive state, or undefined when the guest never reported one. */
+  peekPad(pin: number): Readonly<PadState> | undefined {
+    return this.pads.peek(pin);
+  }
+
   /**
    * SIMULATOR -> listeners. Report what the guest did to a pad. Fires only on
    * a real change of drive or pull. Does NOT touch `pinStates` or fire

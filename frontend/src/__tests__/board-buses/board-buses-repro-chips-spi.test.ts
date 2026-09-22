@@ -369,7 +369,7 @@ describe('custom chips on the Pico SPI0', () => {
     expect(chipLog('probe')).toContain('probe rx=11 22 33');
   });
 
-  it.fails(`${RP2040_BRIDGE}: a chip dropped on a running Pico leaves the microSD card on SPI0 answering`, async () => {
+  it(`${RP2040_BRIDGE}: a chip dropped on a running Pico leaves the microSD card on SPI0 answering`, async () => {
     const { sim, con } = pico();
     run(sim, con);
     attachSd(sim, 17);
@@ -379,7 +379,7 @@ describe('custom chips on the Pico SPI0', () => {
     expect({ probe, sd: sdHandshake(con, 17) }).toEqual({ probe: 'c0 c1', sd: SD_OK });
   });
 
-  it.fails(`${RP2040_BRIDGE}: an I2C-only gallery chip (24C01 EEPROM) on the Pico leaves the microSD card answering`, async () => {
+  it(`${RP2040_BRIDGE}: an I2C-only gallery chip (24C01 EEPROM) on the Pico leaves the microSD card answering`, async () => {
     const { sim, con } = pico();
     run(sim, con);
     attachSd(sim, 17);
@@ -388,7 +388,7 @@ describe('custom chips on the Pico SPI0', () => {
     expect(sdHandshake(con, 17)).toEqual(SD_OK);
   });
 
-  it.fails(`${RP2040_BRIDGE}: a chip on the Pico still answers SPI0 after Stop and Reset`, async () => {
+  it(`${RP2040_BRIDGE}: a chip on the Pico still answers SPI0 after Stop and Reset`, async () => {
     const { sim, con } = pico();
     run(sim, con);
     await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, PICO_PROBE);
@@ -402,7 +402,7 @@ describe('custom chips on the Pico SPI0', () => {
     expect({ miso, log: chipLog('probe').at(-1) }).toEqual({ miso: 'c0 c1', log: 'probe rx=44 55' });
   });
 
-  it.fails(`${RP2040_BRIDGE}: a chip on the Pico still answers SPI0 after a recompile remounts it`, async () => {
+  it(`${RP2040_BRIDGE}: a chip on the Pico still answers SPI0 after a recompile remounts it`, async () => {
     const { sim, con } = pico();
     run(sim, con);
     const unmount = await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, PICO_PROBE);
@@ -419,7 +419,7 @@ describe('custom chips on the Pico SPI0', () => {
     expect({ miso, log: chipLog('probe').at(-1) }).toEqual({ miso: 'c0 c1', log: 'probe rx=44 55' });
   });
 
-  it.fails(`${RP2040_BRIDGE}: a chip placed before the first Run answers SPI0 once the firmware loads`, async () => {
+  it(`${RP2040_BRIDGE}: a chip placed before the first Run answers SPI0 once the firmware loads`, async () => {
     const { sim, con } = pico({ load: false });
     // Mounted with the project, before any firmware exists...
     const unmount = await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, PICO_PROBE);
@@ -494,7 +494,9 @@ describe('an always-armed chip on the Uno SPI bus', () => {
 
   it.fails('spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: a CS-gated chip that is selected gets its bytes even though a 74HC595 was placed first', async () => {
     const { sim, con } = uno();
-    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), { ...SR_HW, RCLK: 8 });
+    // RCLK on D8, clear of the probe's CS on D9. No Q outputs: SR_HW puts Q6
+    // on D8, which would short an output onto the RCLK net.
+    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), { SER: 11, SRCLK: 13, RCLK: 8 });
     await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, UNO_PROBE);
     run(sim, con);
     deselect(con, 9);
@@ -519,9 +521,13 @@ describe('a chip on software SPI (Uno)', () => {
     sim.setPinState(7, false);
     expect(con.cmd('b 5 6 7 00')).toBe('00');
     deselect(con, 4);
+    // deselect's own rising edge already logs an empty frame, so count: the
+    // l/h pair must end exactly one more frame on the chip.
+    const frames = () => chipLog('probe').filter((m) => m === 'probe rx=').length;
+    const before = frames();
     con.cmd('l 4');
     con.cmd('h 4');
-    expect(chipLog('probe')).toContain('probe rx=');
+    expect(frames()).toBe(before + 1);
   });
 
   it.fails('no-bitbang-spi-miso-undriven: the probe chip answers a software-SPI transfer on MISO and hears MOSI', async () => {
@@ -579,17 +585,25 @@ describe('the gallery MCP3008 chip (Uno)', () => {
   // input reads), CH1 wired to GND.
   const ADC = { CS: 10, SCK: 13, MOSI: 11, MISO: 12, CH0: 9, CH1: -1 };
 
-  it('mcp3008-example-returns-1023 setup: the MCP3008 attaches, answers on the bus and CH0 carries the PWM level', async () => {
+  it('mcp3008-example-returns-1023 setup: the MCP3008 is selected by its CS, decodes a CH0 read and samples CH0 at the PWM level', async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'adc', 'mcp3008', galleryJson('mcp3008'), ADC);
     run(sim, con);
     con.cmd('a 9 128');
     con.cmd('h 10');
     expect(sim.pinManager.getPwmValue(9)).toBeCloseTo(128 / 255, 5);
+    // Six bytes in one CS frame. The chip decodes the CH0 command and puts the
+    // conversion, 514 = 0x202, on MISO as 02 02 (today in the frame after the
+    // command, which is the finding). "Not the loopback" proves nothing here:
+    // an absent or unselected chip leaves the line idle at ff, the same bytes
+    // the defect answers.
+    const has514 = /(^| )02 02( |$)/;
     con.cmd('l 10');
-    // Not the loopback echo (01 80 00): the chip is the one answering.
-    expect(hex(con.spi('01 80 00'))).not.toBe('01 80 00');
+    const selected = hex(con.spi('01 80 00 00 00 00'));
     con.cmd('h 10');
+    expect(selected).toMatch(has514);
+    // With CS high the same bytes do not reach it.
+    expect(hex(con.spi('01 80 00 00 00 00'))).not.toMatch(has514);
   });
 
   it.fails('mcp3008-example-returns-1023: one 3-byte frame returns the conversion of that frame (CH0 at half scale, CH1 at GND)', async () => {

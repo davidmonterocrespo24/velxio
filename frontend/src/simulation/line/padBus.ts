@@ -28,6 +28,11 @@ export class PadBus {
     return this.states.get(pin) ?? INITIAL_PAD;
   }
 
+  /** The pad's drive state, or undefined when the guest never reported it. */
+  peek(pin: number): Readonly<PadState> | undefined {
+    return this.states.get(pin);
+  }
+
   /**
    * Report what the guest did to a pad. Fires only on a real change of drive
    * or pull; the resting level is derived here so no reporter computes it.

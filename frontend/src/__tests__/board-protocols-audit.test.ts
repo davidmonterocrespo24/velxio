@@ -44,9 +44,16 @@ describe('board protocol-pin classification (multi-board interconnect)', () => {
     for (const bk of ['esp32', 'esp32-devkit-c-v4', 'esp32-cam', 'esp32-s3']) {
       notDigital(bk, 'TX0');
       notDigital(bk, 'RX0');
+    }
+    // TX2/RX2 answer per variant now that each board reads its own pin
+    // function table: UART2 on the classic chip, UART1 on the S3 (same pads,
+    // different silicon), and nothing on the CAM, which breaks neither out.
+    for (const bk of ['esp32', 'esp32-devkit-c-v4']) {
       notDigital(bk, 'TX2');
       notDigital(bk, 'RX2');
     }
+    expect(classifyPin('esp32-s3', 'TX2')).toEqual({ kind: 'uart-tx', uart: 1 });
+    expect(classifyPin('esp32-cam', 'TX2')).toEqual({ kind: 'digital' });
     expect(classifyPin('esp32-c3', 'TX')).toEqual({ kind: 'uart-tx', uart: 0 });
     expect(classifyPin('esp32-c3', 'SDA')).toEqual({ kind: 'i2c-sda', bus: 0 });
   });

@@ -14,6 +14,7 @@ export { BoardBusFabric } from './fabric';
 export { SpiBus, reverseBits, type SpiMember } from './spiBus';
 export { SoftSpiDecoder } from './softSpi';
 export { createStoreNetResolver, railOf } from './storeResolver';
+export { boardPinsFromPinManager } from './boardPins';
 
 // Every OSS board's pin function table registers on import (the overlay
 // registers its own boards when it installs them).

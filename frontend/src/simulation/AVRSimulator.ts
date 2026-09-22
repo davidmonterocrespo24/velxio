@@ -31,10 +31,19 @@ import {
   EEPROMMemoryBackend,
   eepromConfig,
 } from 'avr8js';
+import type { AVREEPROMConfig, SPIConfig, TWIConfig } from 'avr8js';
 import type { AVRTimerConfig } from 'avr8js/dist/esm/peripherals/timer';
 import type { ADCConfig, ADCMuxConfiguration } from 'avr8js/dist/esm/peripherals/adc';
 import { ADCMuxInputType, ADCReference } from 'avr8js/dist/esm/peripherals/adc';
 import { PinManager } from './PinManager';
+import type {
+  BusCapableSimulator,
+  EngineBinding,
+  SpiControllerConfig,
+  SpiControllerPort,
+  SpiMode,
+  SpiRouting,
+} from './buses/types';
 import { ExternalPinScopeFeed } from './externalPinScope';
 import type { LineCapable, LineHostPort, LineSupport } from './line/LineHost';
 import { LineSensorHub } from './line/LineSensorHub';
@@ -43,6 +52,7 @@ import type { SerialLink } from '../store/serialWire';
 import { I2CBusManager, nullI2CMaster } from './I2CBusManager';
 import type { I2CDevice } from './I2CBusManager';
 import { attachUsiI2c } from './UsiI2cBridge';
+import { boardPinsFromPinManager } from './buses/boardPins';
 
 /**
  * AVRSimulator - Emulates Arduino Uno (ATmega328p) using avr8js
@@ -323,7 +333,184 @@ const UNO_DDRB = 0x24;
 const UNO_DDRC = 0x27;
 const TINY85_DDRB = 0x37;
 
-export class AVRSimulator implements LineCapable {
+/** Every AVR variant here runs at 16 MHz. */
+const AVR_CPU_HZ = 16_000_000;
+
+/**
+ * Peripheral configs of each ATmega variant. The ATmega2560 keeps the
+ * ATmega328P's register addresses for Timer0-2, USART0, SPI, TWI, ADC and
+ * EEPROM; only its vector table differs, because it has more external
+ * interrupts in front. avr8js takes WORD addresses, _VECTOR(N) * 2 (each
+ * vector is a two-word JMP):
+ *
+ *   TIMER2_COMPA _V(13) 0x1A   TIMER2_COMPB _V(14) 0x1C   TIMER2_OVF   _V(15) 0x1E
+ *   TIMER1_CAPT  _V(16) 0x20   TIMER1_COMPA _V(17) 0x22   TIMER1_COMPB _V(18) 0x24
+ *   TIMER1_OVF   _V(20) 0x28   TIMER0_COMPA _V(21) 0x2A   TIMER0_COMPB _V(22) 0x2C
+ *   TIMER0_OVF   _V(23) 0x2E   SPI_STC      _V(24) 0x30   USART0_RX    _V(25) 0x32
+ *   USART0_UDRE  _V(26) 0x34   USART0_TX    _V(27) 0x36   ADC          _V(29) 0x3A
+ *   EE_READY     _V(30) 0x3C   TWI          _V(39) 0x4E
+ *
+ * A firmware load and a reset both build the chip from this one table. The
+ * reset used to rebuild a Mega with the Uno's vectors, so after Stop or Reset
+ * every interrupt landed in the wrong slot: millis() stopped, Serial and Wire
+ * hung, and a transfer-complete restarted the sketch.
+ */
+interface AtmegaPeripheralConfigs {
+  timer0: AVRTimerConfig;
+  timer1: AVRTimerConfig;
+  timer2: AVRTimerConfig;
+  usart0: typeof usart0Config;
+  spi: SPIConfig;
+  twi: TWIConfig;
+  adc: ADCConfig;
+  eeprom: AVREEPROMConfig;
+}
+
+const ATMEGA328P_PERIPHERALS: AtmegaPeripheralConfigs = {
+  timer0: timer0Config,
+  timer1: timer1Config,
+  timer2: timer2Config,
+  usart0: usart0Config,
+  spi: spiConfig,
+  twi: twiConfig,
+  adc: adcConfig,
+  eeprom: eepromConfig,
+};
+
+const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
+  timer0: { ...timer0Config, compAInterrupt: 0x2a, compBInterrupt: 0x2c, ovfInterrupt: 0x2e },
+  timer1: {
+    ...timer1Config,
+    captureInterrupt: 0x20,
+    compAInterrupt: 0x22,
+    compBInterrupt: 0x24,
+    ovfInterrupt: 0x28,
+  },
+  timer2: { ...timer2Config, compAInterrupt: 0x1a, compBInterrupt: 0x1c, ovfInterrupt: 0x1e },
+  usart0: {
+    ...usart0Config,
+    rxCompleteInterrupt: 0x32,
+    dataRegisterEmptyInterrupt: 0x34,
+    txCompleteInterrupt: 0x36,
+  },
+  spi: { ...spiConfig, spiInterrupt: 0x30 },
+  twi: { ...twiConfig, twiInterrupt: 0x4e },
+  adc: { ...adcConfig, adcInterrupt: 0x3a },
+  eeprom: { ...eepromConfig, eepromReadyInterrupt: 0x3c },
+};
+
+// SPCR bits (the same on every ATmega here).
+const SPCR_SPE = 0x40;
+const SPCR_CPOL = 0x08;
+const SPCR_CPHA = 0x04;
+
+/**
+ * The single-listener SPI channel parts hook today (`simulator.spi`). Part of
+ * the board-buses F2 transition bridge: it is gone once F3 moves every part
+ * onto the bus fabric.
+ */
+export interface LegacySpiChannel {
+  onByte: ((value: number) => void) | null;
+  completeTransfer: (miso: number) => void;
+}
+
+/**
+ * The ATmega's SPI controller as the bus fabric sees it (project
+ * board-buses-2026-09, F2-SPEC). One per simulator, created with it and never
+ * replaced. avr8js builds a new AVRSPI with every CPU (firmware load, Reset,
+ * Stop), and attach() points this same port at the new one, so a handler
+ * installed before any of those keeps hearing the bus afterwards.
+ *
+ * Every frame the guest clocks (a write to SPDR) asks the fabric's handler
+ * once and hands its answer to the live CPU once, synchronously, as the byte
+ * the guest reads back. With no handler the line idles high: the guest reads
+ * 0xFF, never an echo of its own MOSI. The pins are fixed on this family, so
+ * the routing is 'static', and avr8js moves no GPIO for a transfer, so a
+ * routed pad never shows an edge.
+ *
+ * The legacy channel is the transition bridge: a stable `{ onByte,
+ * completeTransfer }` that parts captured at mount and keep using across every
+ * rebuild. Its completeTransfer only records the part's answer (the last one
+ * wins, as the chain contract expects); the port ANDs it with the fabric's,
+ * which leaves either side unchanged when the other one idles at 0xFF.
+ */
+class AvrSpiPort implements SpiControllerPort {
+  readonly bus = 'spi' as const;
+  readonly unit = 0;
+  readonly name = 'SPI';
+  readonly legacy: LegacySpiChannel;
+
+  private engine: AVRSPI | null = null;
+  private cpu: CPU | null = null;
+  private spcr = spiConfig.SPCR;
+  private handler: ((mosi: number, bits: number) => number) | null = null;
+  /** What a legacy part answered for the frame in flight, -1 for nothing. */
+  private legacyAnswer = -1;
+  private inFrame = false;
+
+  constructor() {
+    this.legacy = {
+      onByte: null,
+      completeTransfer: (miso: number) => {
+        // Outside a frame there is nothing to answer: never touch the engine.
+        if (this.inFrame) this.legacyAnswer = miso & 0xff;
+      },
+    };
+  }
+
+  /** The CPU was (re)built: take over its SPI peripheral. */
+  attach(engine: AVRSPI, cpu: CPU, config: SPIConfig): void {
+    this.engine = engine;
+    this.cpu = cpu;
+    this.spcr = config.SPCR;
+    engine.onByte = (mosi) => this.frame(engine, mosi);
+  }
+
+  private frame(engine: AVRSPI, mosi: number): void {
+    // A peripheral of a CPU that has been replaced reaches nobody.
+    if (engine !== this.engine) {
+      engine.completeTransfer(0xff);
+      return;
+    }
+    let miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
+    const legacy = this.legacy.onByte;
+    if (legacy) {
+      this.legacyAnswer = -1;
+      this.inFrame = true;
+      legacy(mosi);
+      this.inFrame = false;
+      if (this.legacyAnswer >= 0) miso &= this.legacyAnswer;
+    }
+    engine.completeTransfer(miso);
+  }
+
+  setFrameHandler(handler: ((mosi: number, bits: number) => number) | null): void {
+    this.handler = handler;
+  }
+
+  config(): SpiControllerConfig {
+    const engine = this.engine;
+    const cpu = this.cpu;
+    if (!engine || !cpu) return { enabled: false };
+    const spcr = cpu.data[this.spcr];
+    return {
+      // avr8js models the master side only: a write to SPDR clocks a frame.
+      enabled: (spcr & SPCR_SPE) !== 0,
+      // The standard numbering, CPOL << 1 | CPHA. avr8js's spiMode getter packs
+      // the two bits the other way round, which swaps modes 1 and 2.
+      mode: (((spcr & SPCR_CPOL) !== 0 ? 2 : 0) | ((spcr & SPCR_CPHA) !== 0 ? 1 : 0)) as SpiMode,
+      bitOrder: engine.dataOrder === 'lsbFirst' ? 'lsb' : 'msb',
+      bits: 8,
+      hz: engine.spiFrequency,
+    };
+  }
+
+  routing(): SpiRouting | 'static' {
+    return 'static';
+  }
+}
+
+export class AVRSimulator implements LineCapable, BusCapableSimulator {
   // Digital input pins are driven from the SPICE solve
   // (connectDigitalInputsToMcu) for nets backed by a real source/element, so
   // `digitalRead()` reflects the real wiring (a pin wired to 5V reads HIGH, a
@@ -352,13 +539,20 @@ export class AVRSimulator implements LineCapable {
   private megaPorts: Map<string, AVRIOPort> = new Map();
   private megaPortValues: Map<string, number> = new Map();
   private adc: AVRADC | null = null;
-  public spi: AVRSPI | null = null;
+  /** The SPI controller port (null on the ATtiny85, which has no SPI peripheral). */
+  private readonly spiPort: AvrSpiPort | null;
+  /**
+   * The SPI channel parts hook until they move onto the bus fabric. One object
+   * for the life of the simulator, whatever the engine rebuilds underneath, so
+   * a part that captured it at mount still hears the bus after Stop/Run.
+   */
+  public readonly spi: LegacySpiChannel | null;
   public usart: AVRUSART | null = null;
   public twi: AVRTWI | null = null;
-  // EEPROM peripheral + its backing store. The backend (the actual cells) is
-  // created once and reused across firmware reloads and resets so written
-  // values persist between boots, like real hardware (GitHub issue #203).
-  private eeprom: AVREEPROM | null = null;
+  // The EEPROM's backing store. The backend (the actual cells) is created once
+  // and reused across firmware reloads and resets so written values persist
+  // between boots, like real hardware (GitHub issue #203); the peripheral is
+  // rebuilt with each CPU and kept in `peripherals`.
   private eepromBackend: EEPROMMemoryBackend | null = null;
   public i2cBus!: I2CBusManager;
   private program: Uint16Array | null = null;
@@ -425,9 +619,18 @@ export class AVRSimulator implements LineCapable {
    */
   private lastTxEnable = false;
 
+  /** What getBusBinding() hands the fabric, built once. */
+  private busBinding: EngineBinding | null = null;
+  /** Told about every MCU reset, after the board's pins went back to undriven. */
+  private busResetHandler: (() => void) | null = null;
+
   constructor(pinManager: PinManager, boardVariant: 'uno' | 'mega' | 'tiny85' = 'uno') {
     this.pinManager = pinManager;
     this.boardVariant = boardVariant;
+    // The ATtiny85's USI is not an SPI controller avr8js can report frames for
+    // (see getBusBinding), so that variant keeps no port and no channel.
+    this.spiPort = boardVariant === 'tiny85' ? null : new AvrSpiPort();
+    this.spi = this.spiPort?.legacy ?? null;
     // Create the bus up-front with a placeholder master so that
     // Interconnect can install cross-board bridges and parts can
     // register devices BEFORE the firmware loads.  The real AVRTWI
@@ -469,8 +672,13 @@ export class AVRSimulator implements LineCapable {
     const size = this.boardVariant === 'mega' ? 4096 : this.boardVariant === 'tiny85' ? 512 : 1024;
     const backend = this.eepromBackend ?? new EEPROMMemoryBackend(size);
     this.eepromBackend = backend;
-    const config = this.boardVariant === 'tiny85' ? attiny85EepromConfig : eepromConfig;
-    this.eeprom = new AVREEPROM(cpu, backend, config);
+    const config =
+      this.boardVariant === 'tiny85'
+        ? attiny85EepromConfig
+        : this.boardVariant === 'mega'
+          ? ATMEGA2560_PERIPHERALS.eeprom
+          : ATMEGA328P_PERIPHERALS.eeprom;
+    this.peripherals.push(new AVREEPROM(cpu, backend, config));
   }
 
   /**
@@ -482,16 +690,9 @@ export class AVRSimulator implements LineCapable {
     const bytes = hexToUint8Array(hexContent);
 
     // ATmega328P: 32 KB = 16 384 words.  ATmega2560: 256 KB = 131 072 words.
-    // ATtiny85: 8 KB = 4 096 words, 512 bytes SRAM.
+    // ATtiny85: 8 KB = 4 096 words.
     const progWords =
       this.boardVariant === 'mega' ? 131072 : this.boardVariant === 'tiny85' ? 4096 : 16384;
-    // ATmega2560 data space: 0x0000–0x21FF = 8704 bytes total.
-    // avr8js: data.length = sramBytes + registerSpace (0x100 = 256).
-    // So sramBytes must be >= 8704 − 256 = 8448 to fit RAMEND=0x21FF on the stack.
-    // ATmega328P RAMEND = 0x08FF; default 8192 is already a safe over-alloc.
-    // ATtiny85 RAMEND = 0x025F; 512 bytes SRAM.
-    const sramBytes =
-      this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
 
     this.program = new Uint16Array(progWords);
     for (let i = 0; i < bytes.length; i += 2) {
@@ -500,7 +701,37 @@ export class AVRSimulator implements LineCapable {
 
     console.log(`Loaded ${bytes.length} bytes into program memory`);
 
-    this.cpu = new CPU(this.program, sramBytes);
+    this.buildMcu();
+    // Flashing reboots the chip: its pads float until the new sketch drives them.
+    this.announceMcuReset();
+
+    const boardName =
+      this.boardVariant === 'mega'
+        ? 'ATmega2560'
+        : this.boardVariant === 'tiny85'
+          ? 'ATtiny85'
+          : 'ATmega328P';
+    console.log(`AVR CPU initialized (${boardName}, ${this.peripherals.length} peripherals)`);
+  }
+
+  /**
+   * Build the CPU and every peripheral for the loaded program. The one place
+   * that does it: a firmware load and a reset (the Reset button, Stop) get the
+   * same chip, with the variant's own vectors and bridges. The ports that face
+   * the rest of the app (the SPI controller port and its legacy channel, the
+   * I2C bus) outlive the CPU and are re-pointed at the new peripherals here.
+   */
+  private buildMcu(): void {
+    if (!this.program) return;
+    // ATmega2560 data space: 0x0000–0x21FF = 8704 bytes total.
+    // avr8js: data.length = sramBytes + registerSpace (0x100 = 256).
+    // So sramBytes must be >= 8704 − 256 = 8448 to fit RAMEND=0x21FF on the stack.
+    // ATmega328P RAMEND = 0x08FF; default 8192 is already a safe over-alloc.
+    // ATtiny85 RAMEND = 0x025F; 512 bytes SRAM.
+    const sramBytes =
+      this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
+    const cpu = new CPU(this.program, sramBytes);
+    this.cpu = cpu;
 
     if (this.boardVariant === 'tiny85') {
       // ATtiny85: PORTB only (PB0-PB5). Timer0 powers millis()/delay() in
@@ -517,113 +748,74 @@ export class AVRSimulator implements LineCapable {
       // set) and ATTinyCore's ISR relying on hardware auto-clear of TOV0.
       // Workaround attempts (manual TIFR clear after ISR entry) did not
       // change the visible behavior. Needs a deeper avr8js dive.
-      this.portB = new AVRIOPort(this.cpu, attiny85PortBConfig as typeof portBConfig);
-      this.adc = new AVRADC(this.cpu, attiny85AdcConfig);
+      this.portB = new AVRIOPort(cpu, attiny85PortBConfig as typeof portBConfig);
+      this.adc = new AVRADC(cpu, attiny85AdcConfig);
+      this.usart = null;
       this.peripherals = [
-        new AVRTimer(this.cpu, attiny85Timer0Config),
-        new ATtinyTimer1(this.cpu, attinyTimer1Config),
+        new AVRTimer(cpu, attiny85Timer0Config),
+        new ATtinyTimer1(cpu, attinyTimer1Config),
+        // The ATtiny85 also has no hardware TWI: TinyWireM / Tiny4kOLED drive
+        // I2C through the USI peripheral on PB0 (SDA) / PB2 (SCL). Bridge that
+        // onto the shared I2C bus so devices (SSD1306 OLED, etc.) receive data.
+        // Rebuilt with every CPU, or a Stop/Run leaves the bus without a master.
+        attachUsiI2c(cpu, this.portB, this.i2cBus),
       ];
-      // usart stays null — ATtiny85 has no hardware USART.
-      // The ATtiny85 also has no hardware TWI: TinyWireM / Tiny4kOLED drive I2C
-      // through the USI peripheral on PB0 (SDA) / PB2 (SCL). Bridge that onto the
-      // shared I2C bus so devices (SSD1306 OLED, etc.) receive data.
-      this.peripherals.push(attachUsiI2c(this.cpu, this.portB, this.i2cBus));
     } else {
-      // ATmega2560 has more vectors before the timers/USART (8 external INTs, etc.),
-      // so the interrupt WORD addresses differ from ATmega328P.
-      //
-      // avr8js config values are WORD addresses = _VECTOR(N) * 2
-      // (each JMP vector = 4 bytes = 2 words; cpu.pc * 2 == byte address).
-      //
-      // ATmega2560 word addresses (_VECTOR(N) → N * 2):
-      //   TIMER2_COMPA=_V(13)→0x1A  TIMER2_COMPB=_V(14)→0x1C  TIMER2_OVF=_V(15)→0x1E
-      //   TIMER1_CAPT=_V(16)→0x20   TIMER1_COMPA=_V(17)→0x22  TIMER1_COMPB=_V(18)→0x24
-      //   TIMER1_COMPC=_V(19)→0x26  TIMER1_OVF=_V(20)→0x28
-      //   TIMER0_COMPA=_V(21)→0x2A  TIMER0_COMPB=_V(22)→0x2C  TIMER0_OVF=_V(23)→0x2E
-      //   SPI_STC=_V(24)→0x30       USART0_RX=_V(25)→0x32
-      //   USART0_UDRE=_V(26)→0x34   USART0_TX=_V(27)→0x36
-      //   TWI=_V(39)→0x4E
-      const isMega = this.boardVariant === 'mega';
-      const activeTimer0Config = isMega
-        ? { ...timer0Config, compAInterrupt: 0x2a, compBInterrupt: 0x2c, ovfInterrupt: 0x2e }
-        : timer0Config;
-      const activeTimer1Config = isMega
-        ? {
-            ...timer1Config,
-            captureInterrupt: 0x20,
-            compAInterrupt: 0x22,
-            compBInterrupt: 0x24,
-            ovfInterrupt: 0x28,
-          }
-        : timer1Config;
-      const activeTimer2Config = isMega
-        ? { ...timer2Config, compAInterrupt: 0x1a, compBInterrupt: 0x1c, ovfInterrupt: 0x1e }
-        : timer2Config;
-      const activeUsart0Config = isMega
-        ? {
-            ...usart0Config,
-            rxCompleteInterrupt: 0x32,
-            dataRegisterEmptyInterrupt: 0x34,
-            txCompleteInterrupt: 0x36,
-          }
-        : usart0Config;
-      const activeSpiConfig = isMega ? { ...spiConfig, spiInterrupt: 0x30 } : spiConfig;
-      const activeTwiConfig = isMega ? { ...twiConfig, twiInterrupt: 0x4e } : twiConfig;
+      const cfg = this.boardVariant === 'mega' ? ATMEGA2560_PERIPHERALS : ATMEGA328P_PERIPHERALS;
 
-      this.spi = new AVRSPI(this.cpu, activeSpiConfig, 16000000);
-      this.spi.onByte = (value) => {
-        this.spi!.completeTransfer(value);
-      };
+      const spi = new AVRSPI(cpu, cfg.spi, AVR_CPU_HZ);
+      this.spiPort?.attach(spi, cpu, cfg.spi);
 
-      this.usart = new AVRUSART(this.cpu, activeUsart0Config, 16000000);
-      this.usart.onByteTransmit = (value: number) => {
+      const usart = new AVRUSART(cpu, cfg.usart0, AVR_CPU_HZ);
+      this.usart = usart;
+      usart.onByteTransmit = (value: number) => {
         if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
         // Synthesize the UART frame on PD1 so the oscilloscope sees a real
         // waveform during Serial.print. See emitUartTxFrame() for details.
         this.emitUartTxFrame(value);
       };
-      this.usart.onRxComplete = () => this.drainSerialRxQueue();
-      this.usart.onConfigurationChange = () => {
-        if (this.onBaudRateChange && this.usart) {
-          this.onBaudRateChange(this.usart.baudRate, {
+      usart.onRxComplete = () => this.drainSerialRxQueue();
+      usart.onConfigurationChange = () => {
+        if (this.onBaudRateChange) {
+          this.onBaudRateChange(usart.baudRate, {
             source: 'uart',
-            baud: this.usart.baudRate,
-            dataBits: this.usart.bitsPerChar,
-            parity: this.usart.parityEnabled ? (this.usart.parityOdd ? 'odd' : 'even') : 'none',
-            stopBits: this.usart.stopBits,
+            baud: usart.baudRate,
+            dataBits: usart.bitsPerChar,
+            parity: usart.parityEnabled ? (usart.parityOdd ? 'odd' : 'even') : 'none',
+            stopBits: usart.stopBits,
           });
         }
         // Seed idle HIGH on the TX pin the first time TXEN flips on.
         this.handleUartConfigChange();
       };
 
-      this.twi = new AVRTWI(this.cpu, activeTwiConfig, 16000000);
+      this.twi = new AVRTWI(cpu, cfg.twi, AVR_CPU_HZ);
       // Attach the real AVRTWI to the bus created in the constructor;
       // any devices already registered + bridges already installed are
       // preserved across firmware (re)loads.
       this.i2cBus.attachMaster(this.twi);
 
       this.peripherals = [
-        new AVRTimer(this.cpu, activeTimer0Config),
-        new AVRTimer(this.cpu, activeTimer1Config),
-        new AVRTimer(this.cpu, activeTimer2Config),
-        this.usart,
-        this.spi,
+        new AVRTimer(cpu, cfg.timer0),
+        new AVRTimer(cpu, cfg.timer1),
+        new AVRTimer(cpu, cfg.timer2),
+        usart,
+        spi,
         this.twi,
       ];
 
-      this.adc = new AVRADC(this.cpu, adcConfig);
+      this.adc = new AVRADC(cpu, cfg.adc);
 
       // ── GPIO ports ──────────────────────────────────────────────────────
-      this.portB = new AVRIOPort(this.cpu, portBConfig);
-      this.portC = new AVRIOPort(this.cpu, portCConfig);
-      this.portD = new AVRIOPort(this.cpu, portDConfig);
+      this.portB = new AVRIOPort(cpu, portBConfig);
+      this.portC = new AVRIOPort(cpu, portCConfig);
+      this.portD = new AVRIOPort(cpu, portDConfig);
 
       if (this.boardVariant === 'mega') {
         this.megaPorts.clear();
         this.megaPortValues.clear();
         for (const { name, config } of MEGA_PORT_CONFIGS) {
-          this.megaPorts.set(name, new AVRIOPort(this.cpu, config));
+          this.megaPorts.set(name, new AVRIOPort(cpu, config));
           this.megaPortValues.set(name, 0);
         }
       }
@@ -631,21 +823,27 @@ export class AVRSimulator implements LineCapable {
 
     this.attachEeprom();
 
+    // Everything below mirrors the old CPU's registers: the new one starts
+    // with every port, DDR and OCR at zero and the USART disabled.
     this.lastPortBValue = 0;
     this.lastPortCValue = 0;
     this.lastPortDValue = 0;
     this.lastDdr.clear();
     this.lastOcrValues = new Array(this.pwmPins.length).fill(0);
+    this.lastTxEnable = false;
 
     this.setupPinHooks();
+  }
 
-    const boardName =
-      this.boardVariant === 'mega'
-        ? 'ATmega2560'
-        : this.boardVariant === 'tiny85'
-          ? 'ATtiny85'
-          : 'ATmega328P';
-    console.log(`AVR CPU initialized (${boardName}, ${this.peripherals.length} peripherals)`);
+  /**
+   * The MCU restarted (firmware load, Reset, Stop). Its pads float again, so
+   * the board's pin levels are wiped (listeners hear the ones that were high
+   * go low, as on a power cut), and only then is the bus fabric told: a chip
+   * select it re-reads now is "not driven", never the level of the old run.
+   */
+  private announceMcuReset(): void {
+    this.pinManager.hardResetPinStates();
+    this.busResetHandler?.();
   }
 
   /**
@@ -1051,83 +1249,11 @@ export class AVRSimulator implements LineCapable {
     this.lines?.reset();
     this.externalScope.reset();
     if (this.program) {
-      // Re-use the stored hex content path: just reload
-      const sramBytes =
-        this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
       console.log('Resetting AVR CPU...');
-
-      this.cpu = new CPU(this.program, sramBytes);
-
-      if (this.boardVariant === 'tiny85') {
-        this.portB = new AVRIOPort(this.cpu, attiny85PortBConfig as typeof portBConfig);
-        this.adc = new AVRADC(this.cpu, attiny85AdcConfig);
-        this.peripherals = [
-          new AVRTimer(this.cpu, attiny85Timer0Config),
-          new ATtinyTimer1(this.cpu, attinyTimer1Config),
-        ];
-        this.usart = null;
-      } else {
-        this.spi = new AVRSPI(this.cpu, spiConfig, 16000000);
-        this.spi.onByte = (value) => {
-          this.spi!.completeTransfer(value);
-        };
-
-        this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
-        this.usart.onByteTransmit = (value: number) => {
-          if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
-          this.emitUartTxFrame(value);
-        };
-        this.usart.onRxComplete = () => this.drainSerialRxQueue();
-        this.usart.onConfigurationChange = () => {
-          if (this.onBaudRateChange && this.usart) {
-            this.onBaudRateChange(this.usart.baudRate, {
-              source: 'uart',
-              baud: this.usart.baudRate,
-              dataBits: this.usart.bitsPerChar,
-              parity: this.usart.parityEnabled ? (this.usart.parityOdd ? 'odd' : 'even') : 'none',
-              stopBits: this.usart.stopBits,
-            });
-          }
-          this.handleUartConfigChange();
-        };
-
-        this.twi = new AVRTWI(this.cpu, twiConfig, 16000000);
-        this.i2cBus.attachMaster(this.twi);
-
-        this.peripherals = [
-          new AVRTimer(this.cpu, timer0Config),
-          new AVRTimer(this.cpu, timer1Config),
-          new AVRTimer(this.cpu, timer2Config),
-          this.usart,
-          this.spi,
-          this.twi,
-        ];
-        this.adc = new AVRADC(this.cpu, adcConfig);
-
-        this.portB = new AVRIOPort(this.cpu, portBConfig);
-        this.portC = new AVRIOPort(this.cpu, portCConfig);
-        this.portD = new AVRIOPort(this.cpu, portDConfig);
-
-        if (this.boardVariant === 'mega') {
-          this.megaPorts.clear();
-          this.megaPortValues.clear();
-          for (const { name, config } of MEGA_PORT_CONFIGS) {
-            this.megaPorts.set(name, new AVRIOPort(this.cpu, config));
-            this.megaPortValues.set(name, 0);
-          }
-        }
-      }
-
-      // Re-attach EEPROM to the new CPU. attachEeprom() reuses the existing
-      // backend, so EEPROM survives a Reset (persists between boots).
-      this.attachEeprom();
-
-      this.lastPortBValue = 0;
-      this.lastPortCValue = 0;
-      this.lastPortDValue = 0;
-      this.lastOcrValues = new Array(this.pwmPins.length).fill(0);
-      this.setupPinHooks();
-
+      // The same chip a firmware load builds, variant and all. EEPROM cells
+      // survive (attachEeprom reuses the backend), as on real hardware.
+      this.buildMcu();
+      this.announceMcuReset();
       console.log('AVR CPU reset complete');
     }
   }
@@ -1304,6 +1430,33 @@ export class AVRSimulator implements LineCapable {
    */
   getI2CBus(_bus: 0 | 1 = 0): I2CBusManager {
     return this.i2cBus;
+  }
+
+  // ── Bus fabric (project board-buses-2026-09) ──────────────────────────────
+
+  /**
+   * What the bus fabric needs from this board: its pins, its SPI controller
+   * and its resets. Built once; the port in it outlives every CPU rebuild.
+   *
+   * The ATtiny85 reports no SPI controller. ATTinyCore runs SPI on the USI in
+   * three-wire mode, but avr8js's AVRUSI has no byte callback (it only shifts
+   * the data register on each clock strobe) and models a single data pin for
+   * both DI and DO (PB0 here, the two-wire SDA), so there is no frame to hand
+   * the fabric and no place to put its MISO. Bit-banged buses (shiftOut,
+   * software SPI) reach the fabric through its software-bus decoder instead,
+   * on this board as on any other.
+   */
+  getBusBinding(): EngineBinding {
+    if (!this.busBinding) {
+      this.busBinding = {
+        pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.setPinState(pin, level)),
+        spi: this.spiPort ? [this.spiPort] : [],
+        setResetHandler: (handler) => {
+          this.busResetHandler = handler;
+        },
+      };
+    }
+    return this.busBinding;
   }
 
   // ── Line-owning sensors (simulation/line) ─────────────────────────────────

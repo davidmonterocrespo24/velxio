@@ -12,6 +12,15 @@ import { RP2040_CLOCKS_KEY, USB_CDC_LINK, watchRpPeriClock, watchRpUartLine } fr
 import type { SerialLink } from '../store/serialWire';
 import type { LineCapable, LineHostPort, LineSupport } from './line/LineHost';
 import { LineSensorHub } from './line/LineSensorHub';
+import type {
+  BusCapableSimulator,
+  EngineBinding,
+  SpiControllerConfig,
+  SpiControllerPort,
+  SpiMode,
+  SpiRouting,
+} from './buses/types';
+import { boardPinsFromPinManager } from './buses/boardPins';
 
 /**
  * RP2040Simulator — Emulates Raspberry Pi Pico (RP2040) using rp2040js
@@ -235,7 +244,105 @@ export class IdleSpinDetector {
  */
 export type RP2040I2CDevice = I2CDevice;
 
-export class RP2040Simulator implements LineCapable {
+// ── SPI controller ports (project board-buses-2026-09, F2) ───────────────────
+
+type RpSpi = RP2040['spi'][number];
+type RpAlarm = ReturnType<RP2040['clock']['createAlarm']>;
+
+/** GPIO function select F1: the pad belongs to SPI0 or SPI1 (datasheet 2.19.2). */
+const FUNCSEL_SPI = 1;
+/** rp2040js keys its peripheral map by address >> 14 << 2: IO_BANK0 at 0x40014000. */
+const IO_BANK0_KEY = 0x40014;
+/** GPIOn_CTRL is the word at 8n + 4 of IO_BANK0, up to GPIO29. */
+const GPIO_CTRL_LAST = 0x0ec;
+/** PL022 (SSP) registers the port reads (RP2040 datasheet 4.4.4). */
+const SSPCR0 = 0x000;
+const SSPCR0_SPO = 1 << 6;
+const SSPCR0_SPH = 1 << 7;
+const SSPCR1 = 0x004;
+const SSPCR1_SSE = 1 << 1;
+const SSPCR1_MS = 1 << 2;
+/**
+ * What an F1 pad carries, by GPIO number mod 4: SPIx RX, CSn, SCK, TX. The
+ * controller is SPI0 on GPIO 0-7 and 16-23 and SPI1 on 8-15 and 24-29, i.e.
+ * bit 3 of the GPIO number (the same table as boardPinTables/rp2040.ts).
+ */
+const SPI_PAD_SIGNAL = ['miso', 'cs', 'sck', 'mosi'] as const;
+
+/**
+ * Bits per frame: DSS + 1, 4 to 16. DSS values below 3 are reserved (the
+ * datasheet calls them undefined operation) and only show up on a controller
+ * nobody configured, where a frame is taken as the byte every core sends.
+ */
+function frameBits(spi: RpSpi): number {
+  const bits = spi.dataBits;
+  return bits >= 4 ? bits : 8;
+}
+
+/**
+ * One PL022 as the bus fabric sees it. Created once per simulator and never
+ * replaced: when the simulator builds a new SoC (firmware load, reset,
+ * MicroPython) it points that SoC's controller at this same port, so a
+ * device bound to it never notices the rebuild.
+ */
+class RpSpiPort implements SpiControllerPort {
+  readonly bus = 'spi' as const;
+  readonly unit: 0 | 1;
+  readonly name: string;
+  /** Installed by the fabric: the MISO the selected device drives for one frame. */
+  frame: ((mosi: number, bits: number) => number) | null = null;
+  hwCs: ((index: number, active: boolean) => void) | null = null;
+  routingChanged: (() => void) | null = null;
+  private readonly engine: () => RpSpi | null;
+  private readonly route: () => SpiRouting;
+
+  constructor(unit: 0 | 1, engine: () => RpSpi | null, route: () => SpiRouting) {
+    this.unit = unit;
+    this.name = `SPI${unit}`;
+    this.engine = engine;
+    this.route = route;
+  }
+
+  setFrameHandler(handler: ((mosi: number, bits: number) => number) | null): void {
+    this.frame = handler;
+  }
+
+  setHardwareCsHandler(handler: ((index: number, active: boolean) => void) | null): void {
+    this.hwCs = handler;
+  }
+
+  setRoutingChangeHandler(handler: (() => void) | null): void {
+    this.routingChanged = handler;
+  }
+
+  config(): SpiControllerConfig {
+    const spi = this.engine();
+    if (!spi) return { enabled: false };
+    const cr0 = spi.readUint32(SSPCR0);
+    const cr1 = spi.readUint32(SSPCR1);
+    const hz = spi.clockFrequency;
+    return {
+      // A PL022 in slave mode (MS) shifts on someone else's clock: it is not a
+      // controller of this bus.
+      enabled: (cr1 & SSPCR1_SSE) !== 0 && (cr1 & SSPCR1_MS) === 0,
+      // From SPO/SPH, not rp2040js's spiMode getter, which answers 2 for
+      // CPOL = 1, CPHA = 1 and 3 for CPOL = 1, CPHA = 0 (the standard is the
+      // other way round).
+      mode: (((cr0 & SSPCR0_SPO) !== 0 ? 2 : 0) | ((cr0 & SSPCR0_SPH) !== 0 ? 1 : 0)) as SpiMode,
+      // The PL022's Motorola format only shifts MSB first. The cores do
+      // LSBFIRST by reversing the bits in software, so the wire is honest.
+      bitOrder: 'msb',
+      bits: frameBits(spi),
+      hz: hz > 0 ? hz : undefined,
+    };
+  }
+
+  routing(): SpiRouting {
+    return this.route();
+  }
+}
+
+export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   // Drive digital INPUT pins from the solved circuit (connectDigitalInputsToMcu)
   // instead of the legacy part-seed, so digitalRead() reflects the REAL wiring:
   // a pin tied to a rail reads that rail, a button-to-GND on an INPUT_PULLUP pin
@@ -291,74 +398,198 @@ export class RP2040Simulator implements LineCapable {
    *  Same contract as AVRSimulator.onBaudRateChange, so the store wires it blind. */
   public onBaudRateChange: ((baudRate: number, link: SerialLink) => void) | null = null;
 
+  // ── SPI: one controller port per PL022 (project board-buses-2026-09) ─────
+  //
+  // SPI0 and SPI1 each have a port that lives as long as this simulator. Every
+  // path that builds a new SoC (initMCU, loadMicroPython, the MicroPython
+  // reset) calls wireSpi(), which points the new SoC's onTransmit at
+  // clockSpiFrame and nothing else: one frame in, one completeTransmit out.
+
+  private readonly spiPorts: [RpSpiPort, RpSpiPort];
+  /** Where each controller's signals are right now, from the pads' funcsel. */
+  private spiRouting: [SpiRouting, SpiRouting] = [{}, {}];
+  private spiRoutingKey: [string, string] = ['', ''];
+  /** The controller is driving its CSn active (low) right now. */
+  private spiCsActive: [boolean, boolean] = [false, false];
+  /** Releases CSn when the TX FIFO has run dry (SPH = 1), per unit. */
+  private spiCsAlarms: [RpAlarm | null, RpAlarm | null] = [null, null];
+  private busResetHandler: (() => void) | null = null;
+  private readonly busBinding: EngineBinding;
+
   /**
-   * Generic SPI bus adapter — same shape as AVRSimulator.spi so SPI parts
-   * (ILI9341, SD cards, custom chips) can hook the bus uniformly across
-   * boards. Defaults to RP2040 SPI0; firmware that uses SPI1 will need to
-   * wrap rp2040.spi[1] manually until we add a .spi1 alias.
-   *
-   * Lazy-initialised so the rp2040.spi[0].onTransmit is only overridden
-   * once a part actually accesses .spi (avoiding clobbering the default
-   * loopback handler if no SPI part is on the canvas).
+   * Transition bridge (F2-SPEC, removed with F3): `simulator.spi`, the
+   * `{ onByte, completeTransfer }` object the SPI parts hook today. It is a
+   * stable object on SPI0, not the engine's peripheral, so a part that
+   * captured it at mount keeps hearing after every reset and reload. Its
+   * completeTransfer only CAPTURES the answer (the last one wins, the chain
+   * contract); clockSpiFrame ANDs it with the fabric's and hands the engine
+   * one byte.
    */
-  private _spiAdapter: {
+  private readonly spiFacade: {
     onByte: ((mosi: number) => void) | null;
-    answered: boolean;
     completeTransfer: (miso: number) => void;
-  } | null = null;
-  /** Clock one byte out of SPI0 and take exactly one answer back.
-   *
-   *  Whoever is listening may drive MISO by calling `completeTransfer`; the
-   *  first to do so has the bus. If nobody does — every device on it
-   *  deselected, which is the normal state while a card's CS is high — the
-   *  line idles at 0xFF through its pull-up, and saying so is what keeps the
-   *  peripheral from waiting for a byte that is never coming: rp2040js leaves
-   *  `busy` set until completeTransmit runs, so silence here hangs the sketch
-   *  on its very first transfer. With no listener at all the old loopback
-   *  stands, which is what a bare SPI.transfer() with nothing on the canvas
-   *  expects. */
-  private clockSpiByte(v: number): void {
-    const adapter = this._spiAdapter;
-    if (!adapter || !adapter.onByte) {
-      this.rp2040?.spi[0].completeTransmit(v);
-      return;
-    }
-    adapter.answered = false;
-    adapter.onByte(v);
-    if (!adapter.answered) adapter.completeTransfer(0xff);
-  }
+  };
+  /** The facade's answer for the frame being clocked; null = nobody drove MISO. */
+  private spiFacadeMiso: number | null = null;
+  /**
+   * Transition bridge: the setSPIHandler listener of each bus (custom chips).
+   * One more answer in the frame's AND, never the controller's onTransmit.
+   */
+  private spiLegacyHandlers: [((value: number) => number) | null, ((value: number) => number) | null] =
+    [null, null];
 
   public get spi(): {
     onByte: ((mosi: number) => void) | null;
     completeTransfer: (miso: number) => void;
   } {
-    if (!this._spiAdapter) {
-      // One clocked byte, one answer. On this SoC completeTransmit PUSHES a
-      // byte into the RX FIFO and re-enters the transmit path, so it is not a
-      // register a second writer can overwrite the way the AVR's SPDR is: a
-      // second answer would shift the whole received stream by one and
-      // eventually overrun the FIFO. Devices share a bus now — a display and
-      // an SD card on the same SCK/MOSI — so more than one listener sees each
-      // byte, and the first one that actually drives MISO has it. The rest
-      // are in high-Z, which is what the flag models.
-      const adapter = {
-        onByte: null as ((mosi: number) => void) | null,
-        answered: false,
-        completeTransfer: (miso: number) => {
-          if (adapter.answered) return;
-          adapter.answered = true;
-          this.rp2040?.spi[0].completeTransmit(miso & 0xff);
-        },
-      };
-      // Re-route SPI0's onTransmit through our adapter when initMCU /
-      // initMicroPython runs. Until rp2040 is constructed (mcu=null) the
-      // setter just stages the handler — we wire it in start().
-      this._spiAdapter = adapter;
-      if (this.rp2040) {
-        this.rp2040.spi[0].onTransmit = (v: number) => this.clockSpiByte(v);
+    return this.spiFacade;
+  }
+
+  /** The bus fabric's view of this board: pins, both SPI controllers, MCU resets. */
+  getBusBinding(): EngineBinding {
+    return this.busBinding;
+  }
+
+  /**
+   * Clock one frame of `unit` and hand the engine exactly one answer for it.
+   *
+   * On this SoC completeTransmit PUSHES into the RX FIFO and re-enters the
+   * transmit path, so it is not a register a second writer can overwrite the
+   * way the AVR's SPDR is: zero answers hang the core (rp2040js keeps `busy`
+   * until one arrives) and two shift the whole received stream. So every
+   * listener only returns or captures its MISO, and this is the one place
+   * that completes the frame: the fabric's answer (the line's idle level with
+   * nothing selected), ANDed with the facade's and the setSPIHandler entry's,
+   * as wired outputs on one line would be. An 8-bit legacy answer drives only
+   * the low byte of a wider frame.
+   */
+  private clockSpiFrame(mcu: RP2040, spi: RpSpi, port: RpSpiPort, unit: 0 | 1, mosi: number): void {
+    const bits = frameBits(spi);
+    const mask = (1 << bits) - 1;
+    const hwCs = port.hwCs !== null && this.spiRouting[unit].cs !== undefined;
+    if (hwCs) {
+      this.spiCsAlarms[unit]?.cancel();
+      if (!this.spiCsActive[unit]) this.setSpiHwCs(unit, true);
+    }
+
+    let miso = port.frame !== null ? port.frame(mosi, bits) & mask : mask;
+    const high = bits > 8 ? mask & ~0xff : 0;
+    if (unit === 0 && this.spiFacade.onByte !== null) {
+      this.spiFacadeMiso = null;
+      this.spiFacade.onByte(mosi);
+      const legacy = this.spiFacadeMiso;
+      if (legacy !== null) miso &= legacy | high;
+    }
+    const chip = this.spiLegacyHandlers[unit];
+    if (chip) miso &= (chip(mosi) & 0xff) | high;
+
+    if (hwCs) this.endSpiHwCsFrame(mcu, unit, bits);
+    spi.completeTransmit(miso);
+  }
+
+  /**
+   * CSn after a frame (PL022 TRM, Motorola SPI format): with SPH = 0 it is
+   * pulsed high between every two words; with SPH = 1 it stays low while the
+   * TX FIFO keeps feeding frames and goes high once the FIFO has run dry,
+   * i.e. when no new frame starts within one frame time of the last one. The
+   * engine clocks a frame in zero time, so that frame time is measured on the
+   * guest clock with an alarm the next frame cancels.
+   */
+  private endSpiHwCsFrame(mcu: RP2040, unit: 0 | 1, bits: number): void {
+    const spi = mcu.spi[unit];
+    if ((spi.readUint32(SSPCR0) & SSPCR0_SPH) === 0) {
+      this.setSpiHwCs(unit, false);
+      return;
+    }
+    const hz = spi.clockFrequency;
+    if (hz <= 0) {
+      this.setSpiHwCs(unit, false);
+      return;
+    }
+    let alarm = this.spiCsAlarms[unit];
+    if (!alarm) {
+      alarm = mcu.clock.createAlarm(() => {
+        if (this.rp2040 === mcu) this.setSpiHwCs(unit, false);
+      });
+      this.spiCsAlarms[unit] = alarm;
+    }
+    alarm.schedule(Math.ceil((bits * 1e9) / hz));
+  }
+
+  private setSpiHwCs(unit: 0 | 1, active: boolean): void {
+    if (this.spiCsActive[unit] === active) return;
+    this.spiCsActive[unit] = active;
+    this.spiPorts[unit].hwCs?.(0, active);
+  }
+
+  /** Where `unit` is routed now: every pad whose funcsel is F1 in its bank. */
+  private refreshSpiRouting(unit: 0 | 1): void {
+    const mcu = this.rp2040;
+    const r: SpiRouting = {};
+    if (mcu) {
+      for (let g = 0; g < mcu.gpio.length; g++) {
+        if (((g >> 3) & 1) !== unit || mcu.gpio[g].functionSelect !== FUNCSEL_SPI) continue;
+        const signal = SPI_PAD_SIGNAL[g & 3];
+        // An output on two pads drives both; the fabric feeds one bus per
+        // controller, so the lowest pad stands for the signal. The PL022 has
+        // one chip select: CS index 0.
+        if (signal === 'cs') r.cs = r.cs ?? [g];
+        else if (r[signal] === undefined) r[signal] = g;
       }
     }
-    return this._spiAdapter;
+    const key = `${r.sck}|${r.mosi}|${r.miso}|${r.cs?.[0]}`;
+    if (key === this.spiRoutingKey[unit]) return;
+    // A CSn that leaves its pad mid-transaction is released first, while the
+    // fabric can still find the pin it was on.
+    this.spiCsAlarms[unit]?.cancel();
+    this.setSpiHwCs(unit, false);
+    this.spiRouting[unit] = r;
+    this.spiRoutingKey[unit] = key;
+    this.spiPorts[unit].routingChanged?.();
+  }
+
+  /**
+   * Point a freshly built SoC's controllers at the ports. Called by every path
+   * that creates an RP2040, so the port bound before is the one the new SoC
+   * clocks into: a device never has to re-attach, and no path installs a
+   * loopback (the MicroPython reset used to).
+   */
+  private wireSpi(mcu: RP2040): void {
+    for (const unit of [0, 1] as const) {
+      const spi = mcu.spi[unit];
+      const port = this.spiPorts[unit];
+      spi.onTransmit = (v: number) => this.clockSpiFrame(mcu, spi, port, unit, v);
+      // The old SoC's CSn goes with it.
+      this.spiCsAlarms[unit]?.cancel();
+      this.spiCsAlarms[unit] = null;
+      this.setSpiHwCs(unit, false);
+    }
+    // Funcsel lives in IO_BANK0's GPIOn_CTRL. A write there can move a
+    // controller to other pads (SPI.end() and begin() on new pins, machine.SPI
+    // with pins); the fabric has to follow, so the port reports it.
+    const io = mcu.peripherals[IO_BANK0_KEY];
+    if (io) {
+      const write = io.writeUint32.bind(io);
+      io.writeUint32 = (offset: number, value: number): void => {
+        write(offset, value);
+        if (offset <= GPIO_CTRL_LAST && (offset & 4) !== 0 && this.rp2040 === mcu) {
+          this.refreshSpiRouting(((offset >>> 3) >> 3) & 1 ? 1 : 0);
+        }
+      };
+    }
+  }
+
+  /**
+   * The new SoC is running from reset: every pad is released, so the board's
+   * pins go back to "never driven" (a chip select reads floating, not the
+   * level the old run left on it), and only then are the buses told, as
+   * F2-SPEC orders it. Routing starts over from the new SoC's funcsel.
+   */
+  private busMcuReset(): void {
+    this.pinManager.hardResetPinStates();
+    this.refreshSpiRouting(0);
+    this.refreshSpiRouting(1);
+    this.busResetHandler?.();
   }
 
   /**
@@ -389,6 +620,23 @@ export class RP2040Simulator implements LineCapable {
   constructor(pinManager: PinManager) {
     this.pinManager = pinManager;
     this.i2cBuses = [new I2CBusManager(nullI2CMaster()), new I2CBusManager(nullI2CMaster())];
+    this.spiPorts = [
+      new RpSpiPort(0, () => this.rp2040?.spi[0] ?? null, () => this.spiRouting[0]),
+      new RpSpiPort(1, () => this.rp2040?.spi[1] ?? null, () => this.spiRouting[1]),
+    ];
+    this.spiFacade = {
+      onByte: null,
+      completeTransfer: (miso: number) => {
+        this.spiFacadeMiso = miso & 0xff;
+      },
+    };
+    this.busBinding = {
+      pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.setPinState(pin, level)),
+      spi: this.spiPorts,
+      setResetHandler: (handler) => {
+        this.busResetHandler = handler;
+      },
+    };
   }
 
   /**
@@ -482,14 +730,7 @@ export class RP2040Simulator implements LineCapable {
     };
     this.wireI2C(0);
     this.wireI2C(1);
-    // Default loopback for SPI0 — overridden by the generic .spi adapter
-    // if a SPI part later accesses simulator.spi. The adapter routes
-    // onTransmit into adapter.onByte and uses completeTransmit to drive
-    // MISO when the part calls completeTransfer.
-    this.rp2040.spi[0].onTransmit = (v: number) => this.clockSpiByte(v);
-    this.rp2040.spi[1].onTransmit = (v: number) => {
-      this.rp2040!.spi[1].completeTransmit(v);
-    };
+    this.wireSpi(this.rp2040);
     this.rp2040.adc.channelValues[0] = 2048;
     this.rp2040.adc.channelValues[1] = 2048;
     this.rp2040.adc.channelValues[2] = 2048;
@@ -521,6 +762,7 @@ export class RP2040Simulator implements LineCapable {
 
     this.setupGpioListeners();
     this.micropythonMode = true;
+    this.busMcuReset();
     console.log('[RP2040] MicroPython ready');
   }
 
@@ -848,19 +1090,11 @@ export class RP2040Simulator implements LineCapable {
     this.wireI2C(0);
     this.wireI2C(1);
 
-    // ── Wire SPI0 and SPI1 ────────────────────────────────────────────
-    // SPI0 must check for a registered .spi adapter on every byte. If a
-    // part on the canvas (ILI9341, custom chip, …) accessed simulator.spi
-    // BEFORE this initMCU runs, the adapter is already staged but
-    // _adapter.onByte points at the part's handler — we have to route
-    // the byte through it. Without this, SPI parts see nothing and the
-    // canvas stays black (real regression — Pico Doom shipped with this
-    // bug for months because the same wiring in initMicroPython was
-    // adapter-aware but this Arduino path wasn't).
-    this.rp2040.spi[0].onTransmit = (v: number) => this.clockSpiByte(v);
-    this.rp2040.spi[1].onTransmit = (value: number) => {
-      this.rp2040!.spi[1].completeTransmit(value); // loopback
-    };
+    // ── Wire SPI0 and SPI1 to their ports ────────────────────────────
+    // A part that hooked simulator.spi (or a chip that called
+    // setSPIHandler) before this SoC existed is still on the stable
+    // facade and ports, so it hears this SoC from its first frame.
+    this.wireSpi(this.rp2040);
 
     // ── Set default ADC values ───────────────────────────────────────
     // Channel 0-3: GPIO26-29, channel 4: internal temp sensor
@@ -892,6 +1126,7 @@ export class RP2040Simulator implements LineCapable {
 
     // ── Set up GPIO listeners ────────────────────────────────────────
     this.setupGpioListeners();
+    this.busMcuReset();
   }
 
   /**
@@ -1263,12 +1498,9 @@ export class RP2040Simulator implements LineCapable {
         };
         this.wireI2C(0);
         this.wireI2C(1);
-        this.rp2040.spi[0].onTransmit = (v: number) => {
-          this.rp2040!.spi[0].completeTransmit(v);
-        };
-        this.rp2040.spi[1].onTransmit = (v: number) => {
-          this.rp2040!.spi[1].completeTransmit(v);
-        };
+        // The same ports as every other rebuild: never a bare loopback,
+        // which is what used to deafen every SPI part after this reset.
+        this.wireSpi(this.rp2040);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const pio of (this.rp2040 as any).pio) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1281,6 +1513,7 @@ export class RP2040Simulator implements LineCapable {
         }
         this.pioStepAccum = 0;
         this.setupGpioListeners();
+        this.busMcuReset();
       } else {
         this.initMCU(this.flashCopy);
       }
@@ -1535,16 +1768,16 @@ export class RP2040Simulator implements LineCapable {
   }
 
   /**
-   * Set SPI onTransmit handler for a bus (0 or 1).
-   * callback receives TX byte and must call completeTransmit on the SPI instance.
+   * Transition bridge (F2-SPEC, removed with F3): a legacy SPI listener on
+   * `bus`. The handler gets each frame's MOSI and returns the MISO it drives
+   * (0xFF when it is not selected). It no longer replaces the controller's
+   * onTransmit, which is how a custom chip, even a UART-only one, used to take
+   * the whole bus: its answer is one more term of the frame's AND
+   * (clockSpiFrame). One entry per bus, replaced by the next call, kept across
+   * every rebuild of the SoC and accepted before the first firmware load.
    */
   setSPIHandler(bus: 0 | 1, handler: (value: number) => number): void {
-    if (!this.rp2040) return;
-    const spi = this.rp2040.spi[bus];
-    spi.onTransmit = (value: number) => {
-      const response = handler(value);
-      spi.completeTransmit(response);
-    };
+    this.spiLegacyHandlers[bus] = handler;
   }
 
   // ── Generic sensor registration (board-agnostic API) ──────────────────────
