@@ -62,6 +62,8 @@ import { useSimulatorStore, getBoardSimulator, getBoardBridge } from '../store/u
 import type { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { VirtualBMP280, VirtualDS3231 } from '../simulation/I2CBusManager';
 import { PartSimulationRegistry } from '../simulation/parts';
+import { busRegistry, createStoreNetResolver } from '../simulation/buses';
+import type { NetResolver, PinRef, ResolvedPin } from '../simulation/buses/types';
 
 type MockBridge = { onBusRelay: ((v: number) => void) | null; onDisconnected: (() => void) | null };
 
@@ -149,12 +151,38 @@ describe('afterwards only changes travel', () => {
     expect(addrs).toEqual([0x68, 0x76]);
   });
 
-  it('an SPI listener flips spi.attached in the next map', () => {
-    const { shim, bridge } = addPi();
+  it('a chip the fabric put on a controller\'s SCK net flips spi.attached in the next map', () => {
+    // It used to be enough to assign `shim.spi.onByte`. There is no such
+    // channel now: the gate counts devices the fabric placed on SPI0 or SPI1,
+    // so the chip is wired to the header pins its model would really sit on
+    // (SCK 11, MOSI 10, MISO 9, CE0 8).
+    const { id, shim, bridge } = addPi();
     bridge.onBusRelay!(1);
-    shim.spi.onByte = () => {};
-    vi.advanceTimersByTime(260);
-    expect((sent.topology.at(-1) as { spi: { attached: boolean } }).spi.attached).toBe(true);
+    const wires = new Map<string, ResolvedPin>();
+    const resolver: NetResolver = {
+      resolve: (ref: PinRef): ResolvedPin =>
+        ref.kind === 'board'
+          ? { kind: 'board', boardId: ref.boardId, pin: ref.pin }
+          : wires.get(`${ref.componentId}:${ref.pinName}`) ?? { kind: 'floating' },
+      boardKind: (b: string) => (b === id ? 'raspberry-pi-4' : undefined),
+      boards: () => [id],
+    };
+    for (const [name, pin] of Object.entries({ SCK: 11, MOSI: 10, MISO: 9, CS: 8 })) {
+      wires.set(`adc:${name}`, { kind: 'board', boardId: id, pin });
+    }
+    busRegistry.setResolver(resolver);
+    try {
+      const h = busRegistry.attachSpi(
+        { owner: 'adc', pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' } },
+        { transfer: () => 0 },
+      );
+      vi.advanceTimersByTime(260);
+      expect((sent.topology.at(-1) as { spi: { attached: boolean } }).spi.attached).toBe(true);
+      h.dispose();
+    } finally {
+      busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState()));
+    }
+    void shim;
   });
 
   it('a disconnect stops the sync', () => {

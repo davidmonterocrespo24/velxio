@@ -445,9 +445,8 @@ function attachSSD1306(
  * I2C.  This mirrors the physical part — one component, no protocol switch to
  * set, just wire it up.
  *
- * Pure wiring check: it deliberately does NOT read `simulator.spi`, whose getter
- * on some boards (RP2040, and the ESP32/STM32 bridge shims) lazily re-routes the
- * board SPI bus as a side effect and must not fire in I2C mode.
+ * Pure wiring check: the wires decide, never the simulator. Which board is
+ * under the part says nothing about which of its two buses the user built.
  */
 function detectSSD1306Protocol(getPin: (n: string) => number | null): 'i2c' | 'spi' {
   return getPin('CS') !== null ? 'spi' : 'i2c';

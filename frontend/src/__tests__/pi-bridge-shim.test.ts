@@ -155,7 +155,13 @@ describe('one SPI transaction', () => {
     // display frame. W and WC are the fire-and-forget form.
     const { shim } = addPi();
     const seen: number[] = [];
-    shim.setSPIHandler(0, (mosi: number) => {
+    // Straight at the controller's port, which is where the fabric binds: this
+    // case is about the W/X verbs of the bus protocol, not about which device
+    // the wiring picks out. The block handler the fabric installed on bind
+    // goes first, so it is cleared here to leave the byte path exposed.
+    const p0 = shim.getBusBinding().spi[0];
+    p0.setBlockHandler?.(null);
+    p0.setFrameHandler((mosi: number) => {
       seen.push(mosi);
       return 0x5a;
     });
@@ -166,7 +172,9 @@ describe('one SPI transaction', () => {
 
   it('WC holds the chip select down after the last byte, exactly as XC does', () => {
     const { id, shim } = addPi();
-    shim.setSPIHandler(0, () => 0xff);
+    const p0 = shim.getBusBinding().spi[0];
+    p0.setBlockHandler?.(null);
+    p0.setFrameHandler(() => 0xff);
     shim.answerBusLine('SPI 0 0 WC a1');
     expect(getBoardPinManager(id)?.getPinState(8)).toBe(false); // CE0 still low
     shim.answerBusLine('SPI 0 0 W b2');

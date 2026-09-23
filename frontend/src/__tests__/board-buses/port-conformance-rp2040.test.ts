@@ -15,8 +15,7 @@
  * setRX/setSCK/setTX, through the FIFO-fed SPI.transfer(tx, rx, n). The cases
  * after it cover what is specific to this SoC: the mode numbering rp2040js
  * gets backwards, 16-bit frames, routing that follows funcsel, the PL022's own
- * chip select, the MicroPython reset, the transition bridge (the legacy
- * `simulator.spi` facade and setSPIHandler), a full fabric wired by nets, and
+ * chip select, the MicroPython reset, a full fabric wired by nets, and
  * the microSD card of bus matrix scenario d2, which never mounted on a Pico
  * before the card left the SD spec's N_CR fill byte in front of its R1.
  *
@@ -31,7 +30,6 @@ import { RP2040Simulator } from '../../simulation/RP2040Simulator';
 import { PinManager } from '../../simulation/PinManager';
 import { PartSimulationRegistry } from '../../simulation/parts/PartSimulationRegistry';
 import '../../simulation/parts/ProtocolParts';
-import { spiChainAttach } from '../../simulation/parts/spiChannel';
 import { buildFat16Image } from '../../utils/fatImage';
 import {
   ProbeDevice,
@@ -569,94 +567,11 @@ describe('RP2040 SPI ports: MicroPython', () => {
     sim.stop();
   }, 120_000);
 });
+// The F2 transition bridge (`simulator.spi` and `setSPIHandler`) lived here.
+// F3 removed it: nothing joins an RP2040 bus but the fabric. The claims that
+// outlive it (the port survives a reset and a reload, and completeTransmit is
+// called exactly once per frame) are in `defineSpiPortConformance` above.
 
-// ── The transition bridge ────────────────────────────────────────────────────
-
-describe('RP2040 transition bridge: simulator.spi and setSPIHandler share the frame', () => {
-  it('the facade is one object for the life of the simulator, on SPI0 only', () => {
-    const con = bootConsole();
-    const facade = con.sim.spi;
-    const heard: number[] = [];
-    const leave = spiChainAttach(facade, 'tap', (byte, next) => {
-      heard.push(byte);
-      next?.(byte);
-    });
-    con.bytes('t 0 17 01');
-    con.bytes('t 1 13 02');
-    expect(heard).toEqual([0x01]);
-    let mark = con.length;
-    con.sim.reset();
-    con.waitFor('READY', mark);
-    mark = con.length;
-    con.sim.loadBinary(CONSOLE_BIN);
-    con.waitFor('READY', mark);
-    expect(con.sim.spi).toBe(facade);
-    con.bytes('t 0 17 03');
-    expect(heard).toEqual([0x01, 0x03]);
-    leave();
-    con.sim.stop();
-  });
-
-  it('one completeTransmit per frame: the last facade answer wins, ANDed with the fabric device', () => {
-    const con = bootConsole();
-    const { probe, release } = bindProbe(con.sim.getBusBinding(), 0, 17);
-    const facade = con.sim.spi;
-    // Two legacy listeners answering the same byte: an idle 0xFF, then a
-    // selected part (the chain contract). The last one is the answer.
-    facade.onByte = () => {
-      facade.completeTransfer(0xff);
-      facade.completeTransfer(0xf5);
-    };
-    const bytes = [0x00, 0x5a, 0xff];
-    expect(con.bytes(`t 0 17 ${hexList(bytes)}`)).toEqual(ProbeDevice.expected(bytes).map((b) => b & 0xf5));
-    expect(probe.frames).toBe(3);
-    // A legacy listener that never answers leaves the fabric's answer alone.
-    facade.onByte = () => {};
-    expect(con.bytes('t 0 17 11')).toEqual(ProbeDevice.expected([0x11]));
-    facade.onByte = null;
-    release();
-    con.sim.stop();
-  });
-
-  it('setSPIHandler joins the frame instead of replacing onTransmit, before the first load and across resets', () => {
-    const sim = new RP2040Simulator(new PinManager());
-    const heard: Array<[number, number]> = [];
-    // A custom chip mounted with the project, before any firmware exists.
-    sim.setSPIHandler(1, (mosi) => {
-      heard.push([1, mosi]);
-      return 0x3c;
-    });
-    sim.setSPIHandler(0, (mosi) => {
-      heard.push([0, mosi]);
-      return 0xff; // not selected: high-Z
-    });
-    sim.loadBinary(CONSOLE_BIN);
-    const con = new PicoConsole(sim);
-    con.waitFor('READY');
-    const onTransmit = sim.getMCU()!.spi[1].onTransmit;
-    const { release } = bindProbe(sim.getBusBinding(), 1, 13);
-    expect(con.bytes('t 1 13 a0 a1')).toEqual(ProbeDevice.expected([0xa0, 0xa1]).map((b) => b & 0x3c));
-    expect(con.bytes('t 0 17 b0')).toEqual([0xff]);
-    expect(heard).toEqual([
-      [1, 0xa0],
-      [1, 0xa1],
-      [0, 0xb0],
-    ]);
-    // The controller still clocks into the port, not into the handler.
-    sim.setSPIHandler(1, () => 0xff);
-    expect(sim.getMCU()!.spi[1].onTransmit).toBe(onTransmit);
-    expect(con.bytes('t 1 13 c0')).toEqual(ProbeDevice.expected([0xc0]));
-
-    const mark = con.length;
-    sim.reset();
-    sim.pinManager.hardResetPinStates();
-    con.waitFor('READY', mark);
-    sim.setSPIHandler(1, () => 0x0f);
-    expect(con.bytes('t 1 13 d0')).toEqual(ProbeDevice.expected([0xd0]).map((b) => b & 0x0f));
-    release();
-    sim.stop();
-  });
-});
 
 // ── microSD on the Pico (bus matrix d2) ──────────────────────────────────────
 

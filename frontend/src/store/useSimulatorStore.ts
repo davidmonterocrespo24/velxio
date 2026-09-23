@@ -514,56 +514,11 @@ export class Esp32BridgeShim {
     return this.bridge;
   }
 
-  /**
-   * Generic SPI bus adapter — same shape as AVRSimulator.spi so SPI-driven
-   * parts (ILI9341, SD cards, custom chips…) can hook the bus without
-   * caring whether they're on AVR, RP2040, or any of the ESP32 variants.
-   * The MOSI byte arrives via the QEMU worker's spi_event WS message
-   * (decoded in Esp32Bridge); MISO is driven by the worker's
-   * `_spi_response` global, so `completeTransfer` is a no-op on ESP32.
-   *
-   * Lazy-initialised so the bridge subscription only happens once a part
-   * actually accesses `.spi`.
-   */
-  private _spiAdapter: {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  } | null = null;
-  get spi(): { onByte: ((mosi: number) => void) | null; completeTransfer: (miso: number) => void } {
-    if (!this._spiAdapter) {
-      this.installSpiAdapter({ onByte: null, completeTransfer: () => {} });
-    }
-    return this._spiAdapter!;
-  }
-
-  /**
-   * Point an adapter object at THIS shim's bridge. The object itself is the
-   * stable facade parts capture at mount (project board-buses-2026-09, F2
-   * transition bridge): a bridge rebuild re-points it here instead of handing
-   * the parts a new one they would never see.
-   */
-  private installSpiAdapter(adapter: {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  }): void {
-    // MISO goes back through the bridge's setSpiResponse, which every bridge
-    // has (QEMU forwards to the worker's _spi_response; the JS engines
-    // capture the answer for the byte being clocked, since the whole onByte
-    // chain runs synchronously inside the engine's transfer). This used to
-    // be a no-op "because the worker drives MISO", which was only true for
-    // QEMU-era parts: any SPI part that ANSWERS (an SD card reponding to
-    // CMD0) was talking to nobody in js mode, measured as SD.begin()=0 with
-    // sd_diskio retrying CMD0 forever.
-    adapter.completeTransfer = (miso: number) => {
-      (this.bridge as unknown as { setSpiResponse?: (b: number) => void }).setSpiResponse?.(miso);
-    };
-    // Forward every per-byte WS event into whichever handler the part
-    // installed. Single-listener channel: last writer wins.
-    this.bridge.onSpiByte = (mosi: number) => {
-      adapter.onByte?.(mosi);
-    };
-    this._spiAdapter = adapter;
-  }
+  // The shim has no SPI channel of its own (project board-buses-2026-09, F3).
+  // A part is on this board's SPI because its pins are on a controller's nets,
+  // and the in-browser engines answer each frame from their fabric port. The
+  // QEMU bridge's own onSpiByte / setSpiResponse seam is still there and still
+  // reaches nobody: F4 mirrors the fabric into the worker.
 
   /**
    * The bus fabric's binding for this board (project board-buses-2026-09).
@@ -680,10 +635,9 @@ export class Esp32BridgeShim {
     // shim and will not re-attach for a bridge rebuild, so without this the
     // pixel goes black on the first recompile and never comes back.
     for (const [pin, sink] of prev.ws2812Sinks) this.ws2812Sinks.set(pin, sink);
-    // And the SPI parts: each one captured the old shim's `spi` object at
-    // mount. That object stays the channel; it is re-pointed at the new
-    // bridge, so its bytes and answers flow here from now on.
-    if (prev._spiAdapter && !this._spiAdapter) this.installSpiAdapter(prev._spiAdapter);
+    // SPI needs nothing here: a device is on the board's bus because its pins
+    // are on a controller's nets, and the fabric holds that binding across
+    // every rebuild of the shim (project board-buses-2026-09).
   }
 
   /**
@@ -1184,31 +1138,10 @@ class Stm32BridgeShim {
     this.i2cBusInstance.removeDevice(addr);
   }
 
-  // ── Generic SPI bus adapter (same shape as AVRSimulator.spi) ──────────────
-  // SPI panels (ILI9341, SSD1306-SPI) hook `.spi.onByte`; STM32 runs SPI in
-  // the backend, so the MOSI bytes arrive batched over `spi_batch` and we
-  // replay them one at a time. MISO is driven by the worker, so
-  // `completeTransfer` is a no-op (mirrors the ESP32 adapter).
-  private _spiAdapter: {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  } | null = null;
-  get spi(): {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  } {
-    if (!this._spiAdapter) {
-      const adapter = {
-        onByte: null as ((mosi: number) => void) | null,
-        completeTransfer: (_miso: number) => {},
-      };
-      this.bridge.onSpiBatch = (bytes: Uint8Array) => {
-        for (const b of bytes) adapter.onByte?.(b);
-      };
-      this._spiAdapter = adapter;
-    }
-    return this._spiAdapter;
-  }
+  // No SPI channel here either (project board-buses-2026-09, F3). STM32 runs
+  // SPI in the backend and its MOSI bytes arrive batched over `spi_batch`;
+  // the bridge's onSpiBatch seam is still there and still reaches nobody,
+  // because this board has no fabric port yet. F4 gives it one.
 }
 
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────

@@ -21,14 +21,23 @@
 export type SimulatorKind = 'avr' | 'rp2040' | 'esp32' | 'unknown';
 
 /**
- * Which family a simulator belongs to, from the shape of its surface. `spi`
- * and `setSPIHandler` are read as FINGERPRINTS of the family here, never as a
- * place to hang a chip: the chip's bytes come from the bus fabric.
+ * Which family a simulator belongs to, from the shape of its surface. These
+ * are FINGERPRINTS of the family, never a place to hang a chip: a chip's SPI
+ * bytes come from the bus fabric, and its UART and I2C from the bridges below.
+ *
+ * They used to read `spi` and `setSPIHandler`, the F2 transition bridge, which
+ * F3 removed. The RP family now answers to `addI2CDevice` plus
+ * `serialWriteByte`, which is the very pair this module calls on it (the AVR
+ * has neither, the ESP32 shim has no serialWriteByte), so a simulator that
+ * passes the test is one the bridges below can actually drive.
  */
 export function detectSimulatorKind(simulator: any): SimulatorKind {
   if (!simulator) return 'unknown';
-  if (simulator.usart && simulator.spi && simulator.i2cBus) return 'avr';
-  if (typeof simulator.addI2CDevice === 'function' && typeof simulator.setSPIHandler === 'function') {
+  if (simulator.usart && simulator.i2cBus) return 'avr';
+  if (
+    typeof simulator.addI2CDevice === 'function' &&
+    typeof simulator.serialWriteByte === 'function'
+  ) {
     return 'rp2040';
   }
   if (typeof simulator.sendPinEvent === 'function') return 'esp32';
@@ -220,7 +229,7 @@ export function avrUartTx(simulator: any, byte: number): void {
 // chip is selected. What stood here installed one dispatcher per SIMULATOR,
 // whatever the chip was wired to and whatever bus it spoke: on AVR and the
 // ESP32 shim it joined the part chain, and on RP2040, RP2350 and the XIAO it
-// replaced setSPIHandler on both buses. A UART-only Grove module took the
+// replaced the SPI handler on both buses. A UART-only Grove module took the
 // board's SPI with it (issue #355 and findings
 // grove-chip-takes-spi-on-rp-and-xiao-arm, customchip-setspihandler-steals-bus0,
 // rp2-sethandler-clobbers-spi-chain).

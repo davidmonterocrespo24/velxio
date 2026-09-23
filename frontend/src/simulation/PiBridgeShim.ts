@@ -4,8 +4,8 @@
  * hands to the parts wired to it.
  *
  * Why it exists: every part on the canvas attaches to
- * `getBoardSimulator(boardId)` and asks it for a bus (`addI2CDevice`, `.spi`,
- * `setSPIHandler`), a pin (`setPinState`, `pinManager`) or an ADC
+ * `getBoardSimulator(boardId)` and asks it for a bus (`addI2CDevice`), a pin
+ * (`setPinState`, `pinManager`) or an ADC
  * (`setAdcVoltage`). A Pi had no entry in that map: a hand-rolled stub in
  * DynamicComponent answered `setPinState` and nothing else, so an I2C sensor
  * wired to GPIO2/3 attached nowhere and the guest read 0x00 from an address
@@ -59,8 +59,8 @@
  * with the shim, so a guest reboot, Stop/Run or a switch between the two
  * engines changes who clocks the bytes and never the port. The CE lines are
  * the controller's own chip selects, reported to the fabric as such. The
- * `spi` adapter and `setSPIHandler` stay as the transition bridge until the
- * parts move to the fabric (F3).
+ * fabric is the only SPI path: a part is on this bus because its pins are on
+ * the controller's nets, never because it hooked a callback here.
  */
 
 import { I2CBusManager, nullI2CMaster, type I2CDevice } from './I2CBusManager';
@@ -128,12 +128,6 @@ export interface PiBridgeShimOptions {
   pinManager: PinManager;
   /** The board's live store record (running flag, engine mode). */
   boardState: () => PiShimBoardState | undefined;
-}
-
-/** The SPI adapter in the AVR shape parts already hook (`spi.onByte`). */
-export interface PiSpiAdapter {
-  onByte: ((mosi: number) => void) | null;
-  completeTransfer: (miso: number) => void;
 }
 
 /** One SPI controller's header pins: BCM GPIO numbers, which are the board pins. */
@@ -404,13 +398,6 @@ export class PiBridgeShim {
   private readonly busBinding: EngineBinding;
   /** Set while a fabric holds this board's binding (the store binds every board). */
   private resetHandler: (() => void) | null = null;
-  /** Transition bridge (until F3): `setSPIHandler` entries, one per bus. */
-  private readonly spiHandlers = new Map<number, (mosi: number) => number>();
-  /** Transition bridge (until F3): the stable `spi` object SPI0's legacy parts hook. */
-  private readonly spiFacade: PiSpiAdapter;
-  /** What a legacy part answered for the frame in flight (`completeTransfer`). */
-  private legacyAnswer: number | null = null;
-  private legacyCapturing = false;
   /** `bus:cs` of a chip-select held low by an `XC` transfer, if any. */
   private heldCs: { bus: number; cs: number } | null = null;
   private readonly oneWireMasters = new Map<number, OneWireByteMaster>();
@@ -436,14 +423,6 @@ export class PiBridgeShim {
     // Every board of the family gets the controllers the guest image serves;
     // each port finds its pads in the board's pin function table.
     this.spiPorts = SPI_UNITS.map((unit) => new PiSpiPort(unit, opts.boardKind, unit === 0));
-    this.spiFacade = {
-      onByte: null,
-      // Captures, never answers: the frame's MISO is settled once, after
-      // every listener had its say (last answer wins, as the chain expects).
-      completeTransfer: (miso: number) => {
-        if (this.legacyCapturing) this.legacyAnswer = miso & 0xff;
-      },
-    };
     this.busBinding = {
       // A device answering on a GPIO (a bit-banged MISO) is a part driving
       // an input, exactly what setPinState carries to either engine.
@@ -575,13 +554,12 @@ export class PiBridgeShim {
   }
 
   /**
-   * Something on the canvas listens on this board's SPI: a legacy part in
-   * either shape, or a device the bus fabric placed on a controller's SCK net.
-   * The backend answers the guest's transfers with idle bytes while this is
-   * false, so a device that moved to the fabric must count here too.
+   * Something on the canvas listens on this board's SPI: a device the bus
+   * fabric placed on a controller's SCK net. The backend answers the guest's
+   * transfers with idle bytes while this is false.
    */
   private spiAttached(): boolean {
-    return !!this.spiFacade.onByte || this.spiHandlers.size > 0 || this.fabricHasSpiDevices();
+    return this.fabricHasSpiDevices();
   }
 
   private fabricHasSpiDevices(): boolean {
@@ -823,20 +801,8 @@ export class PiBridgeShim {
 
   // ── SPI ────────────────────────────────────────────────────────────────
   // Each transaction goes to its controller's port, whole when the fabric
-  // takes blocks and frame by frame otherwise. Until F3 moves the parts to the
-  // fabric, the two shapes they hook today stay as legacy listeners ANDed into
-  // the fabric's answer (an idle line reads 0xff, so a silent one changes
-  // nothing): the stable `spi` object on SPI0, and `setSPIHandler` per bus.
-
-  /** Transition bridge: the AVR-shaped adapter, stable for the board's life. SPI0 only. */
-  get spi(): PiSpiAdapter {
-    return this.spiFacade;
-  }
-
-  /** Transition bridge: one more listener on `bus`, ANDed in like the adapter. */
-  setSPIHandler(bus: 0 | 1, handler: (value: number) => number): void {
-    this.spiHandlers.set(bus, handler);
-  }
+  // takes blocks and frame by frame otherwise. The fabric is the only path:
+  // a device is on this bus because its pins are on the controller's nets.
 
   /**
    * Clock `mosi` out on `bus` with chip-select `cs` low, return MISO.
@@ -896,48 +862,22 @@ export class PiBridgeShim {
   }
 
   /**
-   * One transaction on `port`: exactly one fabric answer per frame, then each
-   * legacy listener's, ANDed. `rx` null means nobody reads MISO back.
+   * One transaction on `port`: exactly one fabric answer per frame. `rx` null
+   * means nobody reads MISO back.
    */
   private exchange(port: PiSpiPort, tx: Uint8Array, rx: Uint8Array | null): void {
-    const facade = port.unit === 0 ? this.spiFacade : null;
-    const handler = this.spiHandlers.get(port.unit) ?? null;
-    const legacy = !!facade?.onByte || handler !== null;
     // The whole transaction at once: CS cannot move while the guest waits for
     // the line's answer, so the fabric can hand it to a sink in one call.
     const block = port.blockHandler;
     if (block) {
       block(tx, rx);
-      if (!legacy) return;
+      return;
     }
     const frame = port.frameHandler;
     for (let i = 0; i < tx.length; i++) {
-      const mosi = tx[i];
-      let miso: number;
-      if (block) miso = rx ? rx[i] : 0xff;
-      else miso = frame ? frame(mosi, 8) & 0xff : 0xff;
-      if (legacy) miso &= this.legacyFrame(facade, handler, mosi);
+      const miso = frame ? frame(tx[i], 8) & 0xff : 0xff;
       if (rx) rx[i] = miso;
     }
-  }
-
-  /** What the legacy listeners drive for one frame (0xff when none does). */
-  private legacyFrame(
-    facade: PiSpiAdapter | null,
-    handler: ((mosi: number) => number) | null,
-    mosi: number,
-  ): number {
-    let answer = 0xff;
-    const onByte = facade?.onByte;
-    if (onByte) {
-      this.legacyAnswer = null;
-      this.legacyCapturing = true;
-      onByte(mosi);
-      this.legacyCapturing = false;
-      if (this.legacyAnswer !== null) answer = this.legacyAnswer;
-    }
-    if (handler) answer &= handler(mosi) & 0xff;
-    return answer;
   }
 
   private releaseHeldCs(): void {

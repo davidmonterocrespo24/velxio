@@ -405,16 +405,6 @@ const SPCR_CPOL = 0x08;
 const SPCR_CPHA = 0x04;
 
 /**
- * The single-listener SPI channel parts hook today (`simulator.spi`). Part of
- * the board-buses F2 transition bridge: it is gone once F3 moves every part
- * onto the bus fabric.
- */
-export interface LegacySpiChannel {
-  onByte: ((value: number) => void) | null;
-  completeTransfer: (miso: number) => void;
-}
-
-/**
  * The ATmega's SPI controller as the bus fabric sees it (project
  * board-buses-2026-09, F2-SPEC). One per simulator, created with it and never
  * replaced. avr8js builds a new AVRSPI with every CPU (firmware load, Reset,
@@ -427,37 +417,15 @@ export interface LegacySpiChannel {
  * 0xFF, never an echo of its own MOSI. The pins are fixed on this family, so
  * the routing is 'static', and avr8js moves no GPIO for a transfer, so a
  * routed pad never shows an edge.
- *
- * The legacy channel is the transition bridge: a stable `{ onByte,
- * completeTransfer }` that parts captured at mount and keep using across every
- * rebuild. Its completeTransfer only records the part's answer (the last one
- * wins, as the chain contract expects); the port ANDs it with the fabric's,
- * which leaves either side unchanged when the other one idles at 0xFF.
  */
 class AvrSpiPort implements SpiControllerPort {
   readonly bus = 'spi' as const;
   readonly unit = 0;
   readonly name = 'SPI';
-  readonly legacy: LegacySpiChannel;
-
   private engine: AVRSPI | null = null;
   private cpu: CPU | null = null;
   private spcr = spiConfig.SPCR;
   private handler: ((mosi: number, bits: number) => number) | null = null;
-  /** What a legacy part answered for the frame in flight, -1 for nothing. */
-  private legacyAnswer = -1;
-  private inFrame = false;
-
-  constructor() {
-    this.legacy = {
-      onByte: null,
-      completeTransfer: (miso: number) => {
-        // Outside a frame there is nothing to answer: never touch the engine.
-        if (this.inFrame) this.legacyAnswer = miso & 0xff;
-      },
-    };
-  }
-
   /** The CPU was (re)built: take over its SPI peripheral. */
   attach(engine: AVRSPI, cpu: CPU, config: SPIConfig): void {
     this.engine = engine;
@@ -472,15 +440,7 @@ class AvrSpiPort implements SpiControllerPort {
       engine.completeTransfer(0xff);
       return;
     }
-    let miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
-    const legacy = this.legacy.onByte;
-    if (legacy) {
-      this.legacyAnswer = -1;
-      this.inFrame = true;
-      legacy(mosi);
-      this.inFrame = false;
-      if (this.legacyAnswer >= 0) miso &= this.legacyAnswer;
-    }
+    const miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
     engine.completeTransfer(miso);
   }
 
@@ -541,12 +501,6 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   private adc: AVRADC | null = null;
   /** The SPI controller port (null on the ATtiny85, which has no SPI peripheral). */
   private readonly spiPort: AvrSpiPort | null;
-  /**
-   * The SPI channel parts hook until they move onto the bus fabric. One object
-   * for the life of the simulator, whatever the engine rebuilds underneath, so
-   * a part that captured it at mount still hears the bus after Stop/Run.
-   */
-  public readonly spi: LegacySpiChannel | null;
   public usart: AVRUSART | null = null;
   public twi: AVRTWI | null = null;
   // The EEPROM's backing store. The backend (the actual cells) is created once
@@ -628,9 +582,8 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.pinManager = pinManager;
     this.boardVariant = boardVariant;
     // The ATtiny85's USI is not an SPI controller avr8js can report frames for
-    // (see getBusBinding), so that variant keeps no port and no channel.
+    // (see getBusBinding), so that variant keeps no port.
     this.spiPort = boardVariant === 'tiny85' ? null : new AvrSpiPort();
-    this.spi = this.spiPort?.legacy ?? null;
     // Create the bus up-front with a placeholder master so that
     // Interconnect can install cross-board bridges and parts can
     // register devices BEFORE the firmware loads.  The real AVRTWI
@@ -718,8 +671,8 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * Build the CPU and every peripheral for the loaded program. The one place
    * that does it: a firmware load and a reset (the Reset button, Stop) get the
    * same chip, with the variant's own vectors and bridges. The ports that face
-   * the rest of the app (the SPI controller port and its legacy channel, the
-   * I2C bus) outlive the CPU and are re-pointed at the new peripherals here.
+   * the rest of the app (the SPI controller port, the I2C bus) outlive the CPU
+   * and are re-pointed at the new peripherals here.
    */
   private buildMcu(): void {
     if (!this.program) return;

@@ -346,8 +346,8 @@ function injectPerByte(port: PortLike): () => void {
 }
 
 /**
- * Put the part on the bus the way the app does (full), or a byte counter where
- * the engine's legacy facade is (bare).
+ * Put the part on the bus the way the app does (full), or a byte counter in
+ * the seat the fabric would take (bare).
  *
  * `full` builds the circuit, because since F3 that is what decides whether a
  * part hears anything: a board of this kind in the store, the panel wired to
@@ -394,13 +394,19 @@ function mount(def: BoardDef, board: Board, config: 'full' | 'bare', bench: stri
       }));
     };
   } else {
-    // What the adapter does with nobody listening stays (AVR: its loopback;
-    // RP2040: the idle 0xFF); the counter only sits in front of it.
-    const under = board.spi.onByte;
-    board.spi.onByte = (v: number) => {
+    // The counter sits exactly where the fabric binds, the controller's port,
+    // and answers the idle line, so `full - bare` is the fabric plus the
+    // decoder and nothing else. It used to sit on the engine's legacy
+    // `spi.onByte` facade, which F3 removed; that seat and this one are the
+    // same one frame handler per controller, so the ruler did not move.
+    const binding = (board.sim as { getBusBinding(): { spi: PortLike[] } }).getBusBinding();
+    const port = binding.spi.find((x) => x.unit === def.spiUnit);
+    expect(port, `${bench}: the engine publishes SPI${def.spiUnit} to the fabric`).toBeTruthy();
+    port!.setFrameHandler(() => {
       count.n++;
-      under?.(v);
-    };
+      return 0xff;
+    });
+    cleanup = () => port!.setFrameHandler(null);
   }
   return { el, count, cleanup };
 }

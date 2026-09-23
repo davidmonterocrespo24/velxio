@@ -416,35 +416,6 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   private busResetHandler: (() => void) | null = null;
   private readonly busBinding: EngineBinding;
 
-  /**
-   * Transition bridge (F2-SPEC, removed with F3): `simulator.spi`, the
-   * `{ onByte, completeTransfer }` object the SPI parts hook today. It is a
-   * stable object on SPI0, not the engine's peripheral, so a part that
-   * captured it at mount keeps hearing after every reset and reload. Its
-   * completeTransfer only CAPTURES the answer (the last one wins, the chain
-   * contract); clockSpiFrame ANDs it with the fabric's and hands the engine
-   * one byte.
-   */
-  private readonly spiFacade: {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  };
-  /** The facade's answer for the frame being clocked; null = nobody drove MISO. */
-  private spiFacadeMiso: number | null = null;
-  /**
-   * Transition bridge: the setSPIHandler listener of each bus (custom chips).
-   * One more answer in the frame's AND, never the controller's onTransmit.
-   */
-  private spiLegacyHandlers: [((value: number) => number) | null, ((value: number) => number) | null] =
-    [null, null];
-
-  public get spi(): {
-    onByte: ((mosi: number) => void) | null;
-    completeTransfer: (miso: number) => void;
-  } {
-    return this.spiFacade;
-  }
-
   /** The bus fabric's view of this board: pins, both SPI controllers, MCU resets. */
   getBusBinding(): EngineBinding {
     return this.busBinding;
@@ -458,10 +429,8 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
    * way the AVR's SPDR is: zero answers hang the core (rp2040js keeps `busy`
    * until one arrives) and two shift the whole received stream. So every
    * listener only returns or captures its MISO, and this is the one place
-   * that completes the frame: the fabric's answer (the line's idle level with
-   * nothing selected), ANDed with the facade's and the setSPIHandler entry's,
-   * as wired outputs on one line would be. An 8-bit legacy answer drives only
-   * the low byte of a wider frame.
+   * that completes the frame, with the fabric's answer: the byte the selected
+   * device drives, or the line's idle level with nothing selected.
    */
   private clockSpiFrame(mcu: RP2040, spi: RpSpi, port: RpSpiPort, unit: 0 | 1, mosi: number): void {
     const bits = frameBits(spi);
@@ -472,16 +441,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
       if (!this.spiCsActive[unit]) this.setSpiHwCs(unit, true);
     }
 
-    let miso = port.frame !== null ? port.frame(mosi, bits) & mask : mask;
-    const high = bits > 8 ? mask & ~0xff : 0;
-    if (unit === 0 && this.spiFacade.onByte !== null) {
-      this.spiFacadeMiso = null;
-      this.spiFacade.onByte(mosi);
-      const legacy = this.spiFacadeMiso;
-      if (legacy !== null) miso &= legacy | high;
-    }
-    const chip = this.spiLegacyHandlers[unit];
-    if (chip) miso &= (chip(mosi) & 0xff) | high;
+    const miso = port.frame !== null ? port.frame(mosi, bits) & mask : mask;
 
     if (hwCs) this.endSpiHwCsFrame(mcu, unit, bits);
     spi.completeTransmit(miso);
@@ -624,12 +584,6 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
       new RpSpiPort(0, () => this.rp2040?.spi[0] ?? null, () => this.spiRouting[0]),
       new RpSpiPort(1, () => this.rp2040?.spi[1] ?? null, () => this.spiRouting[1]),
     ];
-    this.spiFacade = {
-      onByte: null,
-      completeTransfer: (miso: number) => {
-        this.spiFacadeMiso = miso & 0xff;
-      },
-    };
     this.busBinding = {
       pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.setPinState(pin, level)),
       spi: this.spiPorts,
@@ -1091,9 +1045,8 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     this.wireI2C(1);
 
     // ── Wire SPI0 and SPI1 to their ports ────────────────────────────
-    // A part that hooked simulator.spi (or a chip that called
-    // setSPIHandler) before this SoC existed is still on the stable
-    // facade and ports, so it hears this SoC from its first frame.
+    // A device the fabric bound before this SoC existed is still on the same
+    // ports, so it hears this SoC from its first frame.
     this.wireSpi(this.rp2040);
 
     // ── Set default ADC values ───────────────────────────────────────
@@ -1765,19 +1718,6 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     if (channel >= 0 && channel < 5) {
       this.rp2040.adc.channelValues[channel] = Math.max(0, Math.min(4095, value));
     }
-  }
-
-  /**
-   * Transition bridge (F2-SPEC, removed with F3): a legacy SPI listener on
-   * `bus`. The handler gets each frame's MOSI and returns the MISO it drives
-   * (0xFF when it is not selected). It no longer replaces the controller's
-   * onTransmit, which is how a custom chip, even a UART-only one, used to take
-   * the whole bus: its answer is one more term of the frame's AND
-   * (clockSpiFrame). One entry per bus, replaced by the next call, kept across
-   * every rebuild of the SoC and accepted before the first firmware load.
-   */
-  setSPIHandler(bus: 0 | 1, handler: (value: number) => number): void {
-    this.spiLegacyHandlers[bus] = handler;
   }
 
   // ── Generic sensor registration (board-agnostic API) ──────────────────────

@@ -31,7 +31,7 @@ import '../../simulation/parts/ProtocolParts';
 import '../../simulation/parts/ComplexParts';
 import '../../simulation/parts/EPaperPart';
 import '../../simulation/parts/CustomChipPart';
-import { spiChainAttach } from '../../simulation/parts/spiChannel';
+import { attachSpiDevice } from '../../simulation/buses';
 import { ChipInstance, getI2CBus } from '../../simulation/customChips';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { busRegistry } from '../../simulation/buses';
@@ -387,21 +387,30 @@ describe('RP2040 SPI0: the selected device answers MISO, whatever else shares th
 
   it(
     'rp2040-first-answer-wins-vs-chain-contract, rp2040-first-answer-wins-contradicts-chain-contract (re-entrancy sub-claim): ' +
-      'a listener below an answering ILI9341 hears a 64-byte SPI.transfer(buf, n) in order',
+      'a device beside an answering ILI9341 hears a 64-byte SPI.transfer(buf, n) in order',
     () => {
+      // This used to be a tap spliced into the part chain, where the claim was
+      // that a listener BELOW the panel still heard the burst. There is no
+      // chain now, and no below: the two devices share the burst's chip select
+      // and the fabric hands the frames to both. The panel is a sink, so the
+      // probe is the only one driving MISO and there is no contention. What
+      // still has to hold is the order and the count: 64 frames, in the order
+      // the sketch clocked them, none swallowed by the buffered path.
       const board = boot('rp2040-spi0-bus');
-      let burstCs = false;
-      board.sim.pinManager.onPinChange(13, (_p: number, level: boolean) => {
-        burstCs = !level;
-      });
       const heard: number[] = [];
-      // A logic-analyzer tap at the bottom of the chain: it never answers.
-      spiChainAttach(board.sim.spi, 'tap', (byte, next) => {
-        if (burstCs) heard.push(byte);
-        next?.(byte);
-      });
+      const id = wirePart(board.sim, 'probe', { SCK: 18, MOSI: 19, MISO: 16, CS: 13 });
+      const probe = attachSpiDevice(
+        { owner: id, pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' } },
+        {
+          transfer: (mosi: number) => {
+            heard.push(mosi & 0xff);
+            return null;
+          },
+        },
+      );
       attachTft(board.sim, 15);
       untilDone(board);
+      probe.dispose();
       const sent = Array.from({ length: 64 }, (_, i) => ((i * 7) ^ 0x5a) & 0xff);
       expect(board.out()).toContain('BURST:IDLE:64');
       expect(heard).toEqual(sent);

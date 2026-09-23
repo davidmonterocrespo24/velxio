@@ -33,11 +33,9 @@ import {
   getBoardPinManager,
 } from '../../store/useSimulatorStore';
 import type { AVRSimulator } from '../../simulation/AVRSimulator';
-import { spiChainAttach } from '../../simulation/parts/spiChannel';
 import { attachSpiDevice } from '../../simulation/buses';
 import type { EngineBinding, SpiControllerConfig } from '../../simulation/buses/types';
 import {
-  bindProbe,
   defineSpiPortConformance,
   ProbeDevice,
   type GuestTransaction,
@@ -256,69 +254,12 @@ for (const kind of ['arduino-uno', 'arduino-mega'] as const) {
       }
     });
 
-    it('simulator.spi is one object for the life of the simulator, and a part hooked on it keeps hearing the bus through Stop/Run, Reset and a reload', async () => {
-      const rig = new AvrRig(kind);
-      const channel = rig.sim.spi!;
-      expect(channel).not.toBeNull();
-      const heard: number[] = [];
-      // A legacy part the way parts join today: through the chain, answering
-      // a function of the byte so the guest can tell who answered.
-      spiChainAttach(channel, 'legacy-probe', (mosi) => {
-        heard.push(mosi);
-        channel.completeTransfer(mosi ^ 0x3c);
-      });
-      const want = PATTERN.map((b) => b ^ 0x3c);
-      expect(rig.transact(rig.v.cs, PATTERN)).toEqual(want);
-      for (const step of ['stopRun', 'reset', 'reload'] as const) {
-        heard.length = 0;
-        await rig[step]();
-        expect(rig.sim.spi, `${step}: the same channel object`).toBe(channel);
-        const [got] = await rig.run([{ unit: 0, csPin: rig.v.cs, bytes: PATTERN }]);
-        expect(heard, `${step}: bytes the part heard`).toEqual(PATTERN);
-        expect(got, `${step}: bytes the guest read`).toEqual(want);
-      }
-    });
-
-    it('transition bridge: an idle bus reads 0xFF (no MOSI echo), the last legacy answer wins, and it is ANDed with the fabric answer', () => {
-      const rig = new AvrRig(kind);
-      const channel = rig.sim.spi!;
-      const binding = rig.binding();
-      binding.spi[0].setFrameHandler(null);
-
-      // A part that is not selected forwards without answering (the microSD
-      // part does exactly that): nothing drives MISO.
-      const leaveSilent = spiChainAttach(channel, 'silent', (mosi, next) => next?.(mosi));
-      expect(rig.transact(rig.v.cs, PATTERN), 'nobody answers').toEqual(PATTERN.map(() => 0xff));
-      leaveSilent();
-
-      // Idle-before-forward above a selected part: the chain contract says the
-      // last answer wins, and exactly that one byte reaches the guest per frame.
-      const leaveSel = spiChainAttach(channel, 'selected', (mosi) =>
-        channel.completeTransfer(mosi ^ 0x81),
-      );
-      const leaveIdle = spiChainAttach(channel, 'idle', (mosi, next) => {
-        channel.completeTransfer(0xff);
-        next?.(mosi);
-      });
-      expect(rig.transact(rig.v.cs, PATTERN), 'the selected part below').toEqual(
-        PATTERN.map((b) => b ^ 0x81),
-      );
-
-      // The fabric answers too: its answer AND the legacy one.
-      const { probe, release } = bindProbe(binding, 0, rig.v.cs);
-      const both = rig.transact(rig.v.cs, PATTERN);
-      release();
-      expect(probe.heard).toEqual(PATTERN);
-      const fabric = ProbeDevice.expected(PATTERN);
-      expect(both).toEqual(PATTERN.map((b, i) => fabric[i] & (b ^ 0x81)));
-
-      // Legacy idle only: the fabric's answer comes through unchanged.
-      leaveSel();
-      const second = bindProbe(binding, 0, rig.v.cs);
-      expect(rig.transact(rig.v.cs, PATTERN)).toEqual(ProbeDevice.expected(PATTERN));
-      second.release();
-      leaveIdle();
-    });
+    // The F2 transition bridge (`simulator.spi`) lived here: one case for the
+    // channel's identity across Stop/Run, Reset and a reload, one for the
+    // chain's last-answer-wins rule. F3 removed the channel; a device joins
+    // this bus through the fabric alone. The identity claim is asserted on the
+    // fabric below ('end to end through the registry'), and one-answer-per-frame
+    // is in defineSpiPortConformance.
 
     it('pins.driveInput puts a level on an input the guest reads, and peekPinState follows what the guest drives', () => {
       const rig = new AvrRig(kind);
@@ -422,7 +363,6 @@ describe('ATtiny85 bus binding', () => {
       const sim = getBoardSimulator(id) as unknown as AVRSimulator;
       const binding = sim.getBusBinding();
       expect(binding.spi).toEqual([]);
-      expect(sim.spi).toBeNull();
       expect(sim.getBusBinding(), 'one binding for the life of the simulator').toBe(binding);
 
       // The pins are the board's PinManager.

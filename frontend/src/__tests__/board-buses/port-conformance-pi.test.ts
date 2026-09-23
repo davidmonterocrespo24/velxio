@@ -19,9 +19,8 @@
  * The second half pins what the shared suite cannot see: two controllers with
  * the CE lines as their own hardware chip selects, SPI1 routed only while the
  * guest uses it, the routes against the pin function tables, the whole
- * transaction as one block on the real fabric, the transition bridge (`spi`
- * and `setSPIHandler`) joining the fabric's answer once per frame, the reset
- * order, and the relay's `spi.attached` gate seeing fabric devices.
+ * transaction as one block on the real fabric, the reset order, and the
+ * relay's `spi.attached` gate seeing fabric devices.
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 
@@ -572,71 +571,12 @@ describe('Raspberry Pi SPI on the bus fabric', () => {
     }
   });
 });
+// The F2 transition bridge (`spi` and `setSPIHandler`) lived here. F3 removed
+// it: a device is on this board's SPI because its pins are on a controller's
+// nets. Its four cases are covered above on the fabric — one answer per frame,
+// SPI0 and SPI1 kept apart, the port surviving Stop/Run, and a sink taking the
+// whole block in one call.
 
-// ── The transition bridge (deleted when F3 closes) ──────────────────────────
-
-describe('Raspberry Pi SPI transition bridge: `spi` and `setSPIHandler`', () => {
-  it('a legacy listener on `spi` hears SPI0 only, and its answer is ANDed into the fabric\'s once per frame', () => {
-    const { shim, attach } = onFabric();
-    attach('a', SPI0_CE0, new Chip(() => 0x5a));
-    const heard: number[] = [];
-    let answers: number[] = [0xff];
-    shim.spi.onByte = (m) => {
-      heard.push(m);
-      for (const x of answers) shim.spi.completeTransfer(x);
-    };
-    // An idle legacy part (it answers 0xff) changes nothing.
-    expect(shim.answerBusLine('SPI 0 0 X 01')).toBe('SPI_DATA 0 0 5a');
-    // Two answers for one frame: the last one is the part's, and it is ANDed once.
-    answers = [0x00, 0xf3];
-    expect(shim.answerBusLine('SPI 0 0 X 02')).toBe('SPI_DATA 0 0 52');
-    // A legacy part that says nothing leaves the fabric's answer.
-    answers = [];
-    expect(shim.answerBusLine('SPI 0 0 X 03')).toBe('SPI_DATA 0 0 5a');
-    // SPI1 is not the legacy adapter's bus.
-    shim.answerBusLine('SPI 1 0 X 04');
-    expect(heard).toEqual([1, 2, 3]);
-    // An answer given outside any frame goes nowhere.
-    shim.spi.completeTransfer(0x00);
-    answers = [0xff];
-    expect(shim.answerBusLine('SPI 0 0 X 05')).toBe('SPI_DATA 0 0 5a');
-  });
-
-  it('setSPIHandler is one more listener per bus, ANDed in; it never replaces the fabric', () => {
-    const { shim, attach } = onFabric();
-    attach('a', SPI0_CE0, new Chip(() => 0x3c));
-    attach('c', SPI1_CE0, new Chip(() => 0xc3));
-    const on: number[] = [];
-    shim.setSPIHandler(1, (m) => (on.push(m), 0xf0));
-    expect(shim.answerBusLine('SPI 0 0 X 01')).toBe('SPI_DATA 0 0 3c');
-    expect(shim.answerBusLine('SPI 1 0 X 02')).toBe('SPI_DATA 1 0 c0');
-    expect(on).toEqual([2]);
-  });
-
-  it('the `spi` object is the same one for the board\'s life, and still hears the bus after Stop/Run', () => {
-    const { shim } = newShim();
-    const adapter = shim.spi;
-    const heard: number[] = [];
-    adapter.onByte = (m) => heard.push(m);
-    shim.answerBusLine('SPI 0 0 X 01');
-    shim.stop();
-    shim.start();
-    expect(shim.spi).toBe(adapter);
-    shim.answerBusLine('SPI 0 0 X 02');
-    expect(heard).toEqual([1, 2]);
-  });
-
-  it('a legacy listener on the bus leaves the fabric its block, and hears every byte itself', () => {
-    const { shim, attach } = onFabric();
-    const panel = new Chip(null, { block: true });
-    attach('panel', SPI0_CE0, panel);
-    const legacy: number[] = [];
-    shim.spi.onByte = (m) => legacy.push(m);
-    shim.answerBusLine('SPI 0 0 W 010203');
-    expect(panel.blocks).toEqual([[1, 2, 3]]);
-    expect(legacy).toEqual([1, 2, 3]);
-  });
-});
 
 // ── The relay's gate ────────────────────────────────────────────────────────
 

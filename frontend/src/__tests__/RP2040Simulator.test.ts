@@ -10,7 +10,7 @@
  * - LED_BUILTIN pin (GPIO25)
  * - UART / Serial (onSerialData, serialWrite)
  * - I2C virtual devices (addI2CDevice, removeI2CDevice)
- * - SPI handler (setSPIHandler)
+ * - SPI through the bus fabric's controller ports
  * - Bootrom loading
  */
 
@@ -465,77 +465,74 @@ describe('RP2040Simulator — SPI', () => {
     expect(mcu.spi[1].onTransmit).toBeDefined();
   });
 
-  it('setSPIHandler() replaces the default handler for SPI0', () => {
+  // setSPIHandler was the F2 transition bridge and is gone: a device joins a
+  // bus through the fabric, which binds one frame handler per controller port.
+  it('the fabric port of SPI0 gets every frame the controller clocks', () => {
     const handler = vi.fn((value: number) => value ^ 0xff); // invert bits
-    sim.setSPIHandler(0, handler);
+    sim.getBusBinding().spi.find((p) => p.unit === 0)!.setFrameHandler(handler);
 
     const mcu = sim.getMCU()!;
     // Manually trigger onTransmit to test the handler wiring
     mcu.spi[0].onTransmit(0xaa);
-    // The handler should have been called
-    expect(handler).toHaveBeenCalledWith(0xaa);
+    expect(handler).toHaveBeenCalledWith(0xaa, 8);
   });
 
-  it('setSPIHandler() works for SPI1', () => {
+  it('and SPI1 has a port of its own', () => {
     const handler = vi.fn((_v: number) => 0x42);
-    sim.setSPIHandler(1, handler);
+    sim.getBusBinding().spi.find((p) => p.unit === 1)!.setFrameHandler(handler);
 
     const mcu = sim.getMCU()!;
     mcu.spi[1].onTransmit(0x00);
-    expect(handler).toHaveBeenCalledWith(0x00);
+    expect(handler).toHaveBeenCalledWith(0x00, 8);
   });
 
   // A display and an SD card share SCK/MOSI on every TFT+SD project, so more
   // than one listener sees each byte now. On this SoC completeTransmit PUSHES
   // into the RX FIFO — it is not a register a second writer overwrites — so
   // the bus has to settle on exactly one answer per clocked byte.
-  it('pushes exactly one byte back per clocked byte, and on a shared bus the idle answer does not mask a selected device', () => {
-    // The bus contract (project board-buses-2026-09): a deselected listener
-    // idles MISO high, a selected one drives it, and the line is the AND of
-    // both, so which of them spoke last cannot matter. It used to keep the
-    // FIRST answer, which let an idle display above a card mask the card.
+  it('pushes exactly one byte back per clocked byte, whatever shares the bus', () => {
+    // The bus contract (project board-buses-2026-09): on this SoC
+    // completeTransmit PUSHES into the RX FIFO, so two answers shift the whole
+    // received stream and none hangs the core. The fabric settles the line
+    // (the AND of every selected driver) and the port completes the frame
+    // once. It used to keep the FIRST answer, which let an idle display above
+    // a card mask the card.
     const mcu = sim.getMCU()!;
     const pushed: number[] = [];
     mcu.spi[0].completeTransmit = (v: number) => pushed.push(v);
-    const spi = sim.spi;
-    spi.onByte = () => {
-      spi.completeTransfer(0xff); // an idle listener answers first
-      spi.completeTransfer(0x5a); // the selected device answers after it
-    };
+    sim.getBusBinding().spi.find((p) => p.unit === 0)!.setFrameHandler(() => 0xff & 0x5a);
     mcu.spi[0].onTransmit(0xaa);
     expect(pushed, 'one clocked byte, one byte back').toEqual([0x5a]);
   });
 
-  it('idles the line high when no listener drives MISO', () => {
+  it('idles the line high when nothing selected drives MISO', () => {
     // Every device deselected — the normal state while a card's CS is high.
     // rp2040js keeps `busy` set until completeTransmit runs, so saying
     // nothing here would hang the sketch on its first transfer.
     const mcu = sim.getMCU()!;
     const pushed: number[] = [];
     mcu.spi[0].completeTransmit = (v: number) => pushed.push(v);
-    const spi = sim.spi;
-    spi.onByte = () => {
-      /* not mine: high-Z */
-    };
+    sim.getBusBinding().spi.find((p) => p.unit === 0)!.setFrameHandler(() => 0xff);
     mcu.spi[0].onTransmit(0xaa);
     expect(pushed, 'the pull-up answers').toEqual([0xff]);
   });
 
-  it('reads the idle level, not a loopback, when nothing is listening at all', () => {
+  it('reads the idle level, not a loopback, when nothing is bound at all', () => {
     // No wire from MOSI to MISO means nothing drives MISO: the pull-up wins.
     // The old bare loopback returned MOSI, which no board does without a jumper.
     const mcu = sim.getMCU()!;
     const pushed: number[] = [];
     mcu.spi[0].completeTransmit = (v: number) => pushed.push(v);
-    sim.spi.onByte = null;
+    sim.getBusBinding().spi.find((p) => p.unit === 0)!.setFrameHandler(null);
     mcu.spi[0].onTransmit(0x42);
     expect(pushed).toEqual([0xff]);
   });
 
-  it('setSPIHandler() does nothing when rp2040 is null', () => {
+  it('a port bound before any firmware load hears the first frame after it', () => {
     const freshSim = new RP2040Simulator(pm);
-    // No loadBinary
-    expect(() => freshSim.setSPIHandler(0, () => 0)).not.toThrow();
+    // No loadBinary: the ports exist with the simulator, so binding cannot throw.
+    const port = freshSim.getBusBinding().spi.find((p) => p.unit === 0)!;
+    expect(() => port.setFrameHandler(() => 0)).not.toThrow();
   });
 });
 
