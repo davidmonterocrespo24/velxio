@@ -249,6 +249,53 @@ extern uint32_t vx_rom_size(void);
  *  Reads past the end of the ROM are silently truncated. */
 extern void vx_rom_read(uint32_t offset, uint8_t* dst, uint32_t len);
 
+/* ─── Named blobs (read/write byte storage) ─────────────────────────────── */
+
+/**
+ * Named byte storage the host hands the chip, and that the chip can write
+ * back to. Where vx_rom_* is one read-only image baked in before setup, a blob
+ * is a named buffer the chip also OWNS: a microSD model gets the card image as
+ * the blob "card", serves sectors out of it, and the sectors the guest writes
+ * land back in the same bytes, which is how the card panel in the editor sees
+ * them.
+ *
+ * The rules are the same in every host that runs a chip (the browser, the
+ * QEMU worker and the Linux-board host), because a model that behaves
+ * differently depending on where it runs is the very thing the bus work
+ * exists to remove:
+ *
+ *   - Storage is PER CHIP INSTANCE. Two microSD parts on the canvas each have
+ *     their own "card"; nothing is shared between instances or between chips.
+ *   - A blob exists only because the host declared it for this instance. An
+ *     unknown name (and a NULL or empty one) has size 0, reads nothing and
+ *     accepts nothing: a chip cannot bring storage into being.
+ *   - A blob never grows. Its size is the device's capacity, so a write that
+ *     runs off the end stops at the end, exactly as addressing a sector past
+ *     the last one does on a real card.
+ *   - Reads and writes are byte-exact and truncating: both copy
+ *     min(len, size - offset) bytes and return how many they copied, 0 when
+ *     `offset` is at or past the end. Bytes of `dst` beyond the returned
+ *     count are left untouched.
+ *   - A write is visible to the next read from the same instance.
+ *
+ * Typical use, a card model serving a 512-byte sector:
+ *
+ *   uint32_t n = vx_blob_read("card", sector * 512u, buf, 512u);
+ *   if (n < 512u) { ... the card has no such sector ... }
+ */
+
+/** Byte length of the named blob, 0 when the host declared no such blob. */
+extern uint32_t vx_blob_size(const char* name);
+
+/** Copy up to `len` bytes from `offset` of the blob into `dst`.
+ *  Returns the number of bytes copied (0 past the end or on an unknown name). */
+extern uint32_t vx_blob_read(const char* name, uint32_t offset, uint8_t* dst, uint32_t len);
+
+/** Copy up to `len` bytes from `src` into the blob at `offset`.
+ *  Returns the number of bytes stored (0 past the end or on an unknown name).
+ *  The blob does not grow. */
+extern uint32_t vx_blob_write(const char* name, uint32_t offset, const uint8_t* src, uint32_t len);
+
 /* ─── Lifecycle (chip exports) ──────────────────────────────────────────── */
 
 /** Required: called once per chip instance after the simulator boots. */

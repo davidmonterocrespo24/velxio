@@ -1,0 +1,702 @@
+{
+  "why": "One table, every host that runs the portable microSD model: the browser runtime, the QEMU worker runtime and the Linux-board host. Offsets are counted from the first byte of each step's own exchange. Bytes not named are not checked.",
+  "card": {
+    "blob": "card",
+    "sectors": 2048,
+    "rule": "byte(sector, offset) = (sector * 37 + offset) & 255"
+  },
+  "scripts": {
+    "sdsc": {
+      "why": "A standard-capacity card: byte addressing, CSD v1.",
+      "attrs": {},
+      "steps": [
+        {
+          "why": "chip select asserted: the transaction begins",
+          "cs": "low"
+        },
+        {
+          "why": "CMD0 leaves the card idle, and R1 arrives at offset 7 with the N_CR fill byte in front of it, never on offset 6",
+          "mosi": [
+            "400000000095"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 6,
+              "is": "ff"
+            },
+            {
+              "at": 7,
+              "is": "01"
+            }
+          ]
+        },
+        {
+          "why": "CMD13 before init: R2's first byte carries the idle bit",
+          "mosi": [
+            "4d000000000d"
+          ],
+          "clock": 6,
+          "expect": [
+            {
+              "at": 7,
+              "is": "01"
+            },
+            {
+              "at": 8,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "CMD8 answers R7: R1 then the voltage and check pattern echoed back",
+          "mosi": [
+            "48000001aa87"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 7,
+              "is": "01"
+            },
+            {
+              "at": 8,
+              "is": "000001aa"
+            }
+          ]
+        },
+        {
+          "why": "CMD55 announces an application command and stays idle",
+          "mosi": [
+            "770000000065"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "01"
+            }
+          ]
+        },
+        {
+          "why": "ACMD41 completes initialisation: R1 is 0x00, the card is out of idle",
+          "mosi": [
+            "694000000077"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "CMD13 after init: the same status, now with the idle bit clear",
+          "mosi": [
+            "4d000000000d"
+          ],
+          "clock": 6,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "CMD58 reports a powered card with CCS clear: arguments are byte offsets",
+          "mosi": [
+            "7a00000000fd"
+          ],
+          "clock": 6,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "80"
+            }
+          ]
+        },
+        {
+          "why": "CMD9 returns the CSD as a data block; structure 1.0 encodes the 1024 KiB the card image holds",
+          "mosi": [
+            "4900000000af"
+          ],
+          "clock": 24,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "002600325b590000ffffff800a4000bf"
+            }
+          ]
+        },
+        {
+          "why": "CMD10 returns the CID the same way",
+          "mosi": [
+            "4a000000001b"
+          ],
+          "clock": 24,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "01565856454c58531000000001016001"
+            }
+          ]
+        },
+        {
+          "why": "ACMD51 returns the SCR. The ESP-IDF stack reads it for every card and clocks 0xFF forever when it never comes, which is why two of the three twins could not mount an IDF app",
+          "mosi": [
+            "770000000065"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "and the SCR block itself",
+          "mosi": [
+            "7300000000c7"
+          ],
+          "clock": 16,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "0235000000000000"
+            }
+          ]
+        },
+        {
+          "why": "CMD17 with a BYTE address reads sector 3: start token, 512 bytes, then the CRC placeholder with CRC off",
+          "mosi": [
+            "510000060021"
+          ],
+          "clock": 520,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "6f707172737475767778797a7b7c7d7e"
+            },
+            {
+              "at": 505,
+              "is": "5f606162636465666768696a6b6c6d6e"
+            },
+            {
+              "at": 521,
+              "is": "ffff"
+            }
+          ]
+        },
+        {
+          "why": "CMD24 accepts a write to sector 5",
+          "mosi": [
+            "5800000a00f3"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "the block that follows is taken and acknowledged with the data-response token 0x05, and the card is not busy after it",
+          "mosi": [
+            "fffe",
+            "a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5aa5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5a",
+            "ffff"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 516,
+              "is": "05"
+            },
+            {
+              "at": 517,
+              "is": "ff"
+            }
+          ]
+        },
+        {
+          "why": "reading that sector back gives what was written, so the write reached the card's storage and not a queue",
+          "mosi": [
+            "5100000a00c9"
+          ],
+          "clock": 520,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "a5a4a7a6a1a0a3a2adacafaea9a8abaa"
+            },
+            {
+              "at": 505,
+              "is": "55545756515053525d5c5f5e59585b5a"
+            }
+          ]
+        },
+        {
+          "why": "CMD59 turns data-block CRC checking on. The ESP-IDF host validates it; Arduino SD.h leaves it off, which is why the placeholder above is two 0xFF bytes",
+          "mosi": [
+            "7b0000000183"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "the same sector 3 now trails a real CRC-16",
+          "mosi": [
+            "510000060021"
+          ],
+          "clock": 520,
+          "expect": [
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "6f70717273747576"
+            },
+            {
+              "at": 521,
+              "is": "28f5"
+            }
+          ]
+        },
+        {
+          "why": "and CMD59 turns it off again, so the rest of the script reads the placeholder",
+          "mosi": [
+            "7b0000000091"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "a sector past the end of the image reads as zeros: the card is exactly as big as the image it was given, and the sectors beyond it were never written",
+          "mosi": [
+            "5100100000ef"
+          ],
+          "clock": 24,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "0000000000000000"
+            }
+          ]
+        },
+        {
+          "why": "and writing there is refused with the write-error token 0x0d rather than swallowed: a full card says so, and the blob it was given cannot grow",
+          "mosi": [
+            "5800100000d5"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "the block the host sends anyway is not stored",
+          "mosi": [
+            "fffe",
+            "a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5aa5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5a",
+            "ffff"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 516,
+              "is": "0d"
+            }
+          ]
+        },
+        {
+          "why": "a write data phase SURVIVES chip select. SdFat releases the select between writeStart, writeData and writeStop and comes back expecting the card to still be waiting for the block; a card that forgot would read 512 bytes of user data as commands",
+          "mosi": [
+            "5800000c0087"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "the host lets go of the bus between the command and the data",
+          "cs": "high"
+        },
+        {
+          "why": "and comes back",
+          "cs": "low"
+        },
+        {
+          "why": "the block is still taken, and acknowledged",
+          "mosi": [
+            "fffe",
+            "a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5aa5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5a",
+            "ffff"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 516,
+              "is": "05"
+            }
+          ]
+        },
+        {
+          "why": "and so does the APP_CMD flag of a CMD55: it belongs to the next command, which SdFat clocks after deselecting",
+          "mosi": [
+            "770000000065"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "the host lets go of the bus between CMD55 and its ACMD",
+          "cs": "high"
+        },
+        {
+          "why": "and comes back",
+          "cs": "low"
+        },
+        {
+          "why": "ACMD41 is still read as an application command, not as CMD41",
+          "mosi": [
+            "694000000077"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "CMD18 streams: sector 0 arrives, and the card refills with the next sector as soon as the first block's CRC has gone out, so the second start token follows it with no command in between",
+          "mosi": [
+            "5200000000e1"
+          ],
+          "clock": 1040,
+          "expect": [
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "0001020304050607"
+            },
+            {
+              "at": 521,
+              "is": "ffff"
+            },
+            {
+              "at": 523,
+              "is": "fe"
+            },
+            {
+              "at": 524,
+              "is": "25262728292a2b2c"
+            }
+          ]
+        },
+        {
+          "why": "CMD12 stops the stream: the queued remainder is flushed, so R1b lands at offset 7 and no block data trails it",
+          "mosi": [
+            "4c0000000061"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 6,
+              "is": "ff"
+            },
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "00"
+            },
+            {
+              "at": 9,
+              "is": "ff"
+            },
+            {
+              "at": 10,
+              "is": "ff"
+            }
+          ]
+        },
+        {
+          "why": "chip select released",
+          "cs": "high"
+        },
+        {
+          "why": "a command frame cut in half by chip select is forgotten, so the bytes of the next transaction are not read as its tail",
+          "cs": "low"
+        },
+        {
+          "why": "three bytes of a CMD0 and then the host walks away",
+          "mosi": [
+            "400000"
+          ]
+        },
+        {
+          "why": "chip select released mid-command",
+          "cs": "high"
+        },
+        {
+          "why": "and again",
+          "cs": "low"
+        },
+        {
+          "why": "a whole CMD0 is understood on its own terms: had the card kept the three orphan bytes, this frame would end three bytes early",
+          "mosi": [
+            "400000000095"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 6,
+              "is": "ff"
+            },
+            {
+              "at": 7,
+              "is": "01"
+            }
+          ]
+        },
+        {
+          "why": "chip select released",
+          "cs": "high"
+        }
+      ],
+      "after": {
+        "writes": [
+          {
+            "offset": 2560,
+            "hex": "a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5aa5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5a"
+          },
+          {
+            "offset": 3072,
+            "hex": "a5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5aa5a4a7a6a1a0a3a2adacafaea9a8abaab5b4b7b6b1b0b3b2bdbcbfbeb9b8bbba85848786818083828d8c8f8e89888b8a95949796919093929d9c9f9e99989b9ae5e4e7e6e1e0e3e2edecefeee9e8ebeaf5f4f7f6f1f0f3f2fdfcfffef9f8fbfac5c4c7c6c1c0c3c2cdcccfcec9c8cbcad5d4d7d6d1d0d3d2dddcdfded9d8dbda25242726212023222d2c2f2e29282b2a35343736313033323d3c3f3e39383b3a05040706010003020d0c0f0e09080b0a15141716111013121d1c1f1e19181b1a65646766616063626d6c6f6e69686b6a75747776717073727d7c7f7e79787b7a45444746414043424d4c4f4e49484b4a55545756515053525d5c5f5e59585b5a"
+          }
+        ],
+        "dirty": {
+          "card": [
+            2560,
+            3584
+          ]
+        }
+      }
+    },
+    "sdhc": {
+      "why": "The same card forced high capacity: block addressing, CCS set, CSD v2. The attribute exists so this half of the model can be exercised without a 2 GB image.",
+      "attrs": {
+        "sdhc": 1
+      },
+      "steps": [
+        {
+          "why": "chip select asserted",
+          "cs": "low"
+        },
+        {
+          "why": "CMD0 answers as it always does",
+          "mosi": [
+            "400000000095"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 7,
+              "is": "01"
+            }
+          ]
+        },
+        {
+          "why": "CMD58 sets CCS on a high-capacity card: arguments are block indices",
+          "mosi": [
+            "7a00000000fd"
+          ],
+          "clock": 6,
+          "expect": [
+            {
+              "at": 7,
+              "is": "01"
+            },
+            {
+              "at": 8,
+              "is": "c0"
+            }
+          ]
+        },
+        {
+          "why": "CMD9 returns a structure 2.0 CSD, which is the only one that can describe a high-capacity card",
+          "mosi": [
+            "4900000000af"
+          ],
+          "clock": 24,
+          "expect": [
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "402600325b59000000017f800a400095"
+            }
+          ]
+        },
+        {
+          "why": "CMD17 with the BLOCK INDEX 3 reads that sector; the same argument on a standard card would read sector 0",
+          "mosi": [
+            "510000000363"
+          ],
+          "clock": 520,
+          "expect": [
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "6f707172737475767778797a7b7c7d7e"
+            }
+          ]
+        },
+        {
+          "why": "chip select released",
+          "cs": "high"
+        }
+      ],
+      "after": {
+        "writes": [],
+        "dirty": {}
+      }
+    },
+    "empty": {
+      "why": "No blob at all: an empty slot, which drives nothing.",
+      "attrs": {},
+      "noCard": true,
+      "steps": [
+        {
+          "why": "chip select asserted on a slot the host gave no card image",
+          "cs": "low"
+        },
+        {
+          "why": "an empty slot drives nothing: the master reads the line's idle level for the command and for every byte after it",
+          "mosi": [
+            "400000000095"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 6,
+              "is": "ff"
+            },
+            {
+              "at": 7,
+              "is": "ff"
+            },
+            {
+              "at": 8,
+              "is": "ff"
+            }
+          ]
+        },
+        {
+          "why": "chip select released",
+          "cs": "high"
+        }
+      ],
+      "after": {
+        "writes": [],
+        "dirty": {}
+      }
+    }
+  }
+}

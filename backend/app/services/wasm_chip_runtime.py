@@ -13,6 +13,7 @@ generic for any chip the user writes.
 Scope of this MVP:
 - Pin register/read/write (digital)
 - Attributes (vx_attr_register / vx_attr_read)
+- Named blobs (vx_blob_size / vx_blob_read / vx_blob_write)
 - I2C slave (vx_i2c_attach + 4 callbacks)
 - vx_log + printf via WASI fd_write
 - vx_sim_now_nanos (returns wall-clock for now)
@@ -209,6 +210,26 @@ class ChipNetBus:
                    at_ns=ts_ns if ts_ns > 0 else None)
 
 
+def decode_blobs(raw: dict | None) -> dict[str, bytes]:
+    """Turn a chip config's `blobs` field into the bytes the runtime wants.
+
+    The wire carries them base64, like wasm_b64 does, because they ride the
+    same JSON. One decoder for every host that builds a runtime (the ESP32 and
+    STM32 workers, the Linux-board adapter) so a card image cannot arrive as
+    bytes in one place and as text in another.
+    """
+    out: dict[str, bytes] = {}
+    for name, value in (raw or {}).items():
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            out[str(name)] = bytes(value)
+        elif isinstance(value, str):
+            try:
+                out[str(name)] = base64.b64decode(value)
+            except Exception:
+                continue
+    return out
+
+
 class WasmChipRuntime:
     """Wraps a single chip WASM instance.
 
@@ -238,6 +259,7 @@ class WasmChipRuntime:
         uart_map: dict[int, int] | None = None,
         display: dict | None = None,
         component_id: str | None = None,
+        blobs: dict[str, bytes] | None = None,
     ):
         """
         Args:
@@ -268,6 +290,9 @@ class WasmChipRuntime:
                         browser runtime (128x64) when the chip declares none.
             component_id: the canvas component this chip is, so a framebuffer
                         frame can be routed to its element (like ePaper frames).
+            blobs:      named byte storage for vx_blob_* (the microSD card
+                        image arrives as "card"). Raw bytes; decode_blobs()
+                        turns the base64 that travels on the wire into them.
         """
         self._engine = wasmtime.Engine()
         self._store = wasmtime.Store(self._engine)
@@ -300,6 +325,21 @@ class WasmChipRuntime:
         # Per-instance state
         self._pins: list[dict] = []           # [{name, mode, value, gpio, net}]
         self._attr_handles: list[dict] = []   # [{name, default}]
+
+        # Named byte storage (vx_blob_*), per chip instance. Copied in, like the
+        # browser runtime does, so the chip's writes stay inside the chip until
+        # the host asks for them with blob_bytes()/take_blob_dirty().
+        self._blobs: dict[str, bytearray] = {
+            str(k): bytearray(v) for k, v in (blobs or {}).items()
+        }
+        # {name: [lo, hi)} the chip has written since the last take_blob_dirty().
+        self._blob_dirty: dict[str, list[int]] = {}
+        # The chip writes from whichever thread runs its WASM (QEMU's IO thread
+        # inside a bus callback, the chip-timer thread inside a timer) and the
+        # host drains the spans from its own thread, exactly like the
+        # framebuffer, so the same lock discipline applies: without it a drain
+        # racing a write loses the part of the span the write had just added.
+        self._blob_lock = threading.Lock()
 
         # I2C state populated by vx_i2c_attach
         self.i2c_address: int | None = None
@@ -879,6 +919,42 @@ class WasmChipRuntime:
         def vx_rom_read(_offset: int, _dst_ptr: int, _len: int) -> None:
             return
 
+        # ── Named blobs ──
+        # velxio-chip.h writes out the contract; ChipRuntime.ts answers the same
+        # for the same call. Storage is per instance, an unknown name has
+        # nothing, a blob never grows, and both directions truncate at the end
+        # and return what they moved.
+        def vx_blob_size(name_ptr: int) -> int:
+            blob = self._blobs.get(self._read_cstring(name_ptr))
+            return len(blob) if blob is not None else 0
+
+        def vx_blob_read(name_ptr: int, offset: int, dst_ptr: int, length: int) -> int:
+            blob = self._blobs.get(self._read_cstring(name_ptr))
+            if blob is None or length <= 0 or offset < 0 or offset >= len(blob):
+                return 0
+            n = min(length, len(blob) - offset)
+            with self._blob_lock:
+                chunk = bytes(blob[offset:offset + n])
+            self._write_bytes(dst_ptr, chunk)
+            return n
+
+        def vx_blob_write(name_ptr: int, offset: int, src_ptr: int, length: int) -> int:
+            name = self._read_cstring(name_ptr)
+            blob = self._blobs.get(name)
+            if blob is None or length <= 0 or offset < 0 or offset >= len(blob):
+                return 0
+            n = min(length, len(blob) - offset)
+            chunk = self._read_bytes(src_ptr, n)
+            with self._blob_lock:
+                blob[offset:offset + n] = chunk
+                span = self._blob_dirty.get(name)
+                if span is None:
+                    self._blob_dirty[name] = [offset, offset + n]
+                else:
+                    span[0] = min(span[0], offset)
+                    span[1] = max(span[1], offset + n)
+            return n
+
         # ── Logging ──
         def vx_log(msg_ptr: int) -> None:
             text = self._read_cstring(msg_ptr)
@@ -920,6 +996,10 @@ class WasmChipRuntime:
 
             "vx_rom_size":         (wasmtime.FuncType([], [i32]),         vx_rom_size),
             "vx_rom_read":         (wasmtime.FuncType([i32, i32, i32], []), vx_rom_read),
+
+            "vx_blob_size":        (wasmtime.FuncType([i32], [i32]),        vx_blob_size),
+            "vx_blob_read":        (wasmtime.FuncType([i32, i32, i32, i32], [i32]), vx_blob_read),
+            "vx_blob_write":       (wasmtime.FuncType([i32, i32, i32, i32], [i32]), vx_blob_write),
 
             "vx_log":              (wasmtime.FuncType([i32], []),         vx_log),
         }
@@ -970,6 +1050,24 @@ class WasmChipRuntime:
         update is atomic enough under the GIL for float slots."""
         for name, value in attrs.items():
             self._attrs[str(name)] = float(value)
+
+    # ── Named blob readback (the host ships the writes onwards) ─────────────
+    def blob_bytes(self, name: str) -> bytes | None:
+        """Current bytes of a named blob, None when the chip has no such blob."""
+        blob = self._blobs.get(name)
+        if blob is None:
+            return None
+        with self._blob_lock:
+            return bytes(blob)
+
+    def take_blob_dirty(self) -> dict[str, tuple[int, int]]:
+        """The byte spans [lo, hi) the chip wrote since the last call, and
+        clears them. A card image is megabytes, so what goes back to the panel
+        is the span the guest touched, never the whole blob."""
+        with self._blob_lock:
+            out = {name: (span[0], span[1]) for name, span in self._blob_dirty.items()}
+            self._blob_dirty = {}
+        return out
 
     # ── Pin watch dispatch (worker calls this from _on_pin_change) ──────────
     # ── Framebuffer delivery ──────────────────────────────────────────────────

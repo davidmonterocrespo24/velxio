@@ -22,6 +22,7 @@ Both are kept in sync; either works as the include path.
 - [UART](#uart)
 - [Timers and time](#timers-and-time)
 - [Display / framebuffer](#display--framebuffer)
+- [Named blobs](#named-blobs)
 - [Logging](#logging)
 - [Type & constant cheat sheet](#type--constant-cheat-sheet)
 - [ABI guarantees](#abi-guarantees)
@@ -558,6 +559,79 @@ for (uint32_t y = 0; y < h; y++) {
 ```
 
 For real LCDs you typically convert RGB565 → RGBA8888 inline before writing.
+
+---
+
+## Named blobs
+
+Byte storage the host hands your chip by name, and that your chip can write
+back to. An attribute carries a number or a line of text; a blob carries a
+file: the image of a microSD card, a flash dump, a font ROM. The chip reads
+sectors out of it, and the sectors the firmware writes land back in the same
+bytes, which is how the card panel in the editor sees what the sketch stored.
+
+```c
+uint32_t vx_blob_size(const char* name);
+uint32_t vx_blob_read(const char* name, uint32_t offset, uint8_t* dst, uint32_t len);
+uint32_t vx_blob_write(const char* name, uint32_t offset, const uint8_t* src, uint32_t len);
+```
+
+`vx_blob_size` answers the blob's length. `vx_blob_read` and `vx_blob_write`
+each copy `min(len, size - offset)` bytes and **return how many they copied**.
+Check the return value: it is the only thing that tells you the transfer was
+short.
+
+```c
+/* A card model serving one 512-byte sector. */
+static bool read_sector(uint32_t sector, uint8_t* buf) {
+  return vx_blob_read("card", sector * 512u, buf, 512u) == 512u;
+}
+
+static bool write_sector(uint32_t sector, const uint8_t* buf) {
+  return vx_blob_write("card", sector * 512u, buf, 512u) == 512u;
+}
+```
+
+### The rules
+
+Your chip runs in three places: the browser tab, the QEMU worker (ESP32 and
+STM32 boards) and the host that drives the Linux boards. All three answer
+these calls identically, and here is what they answer.
+
+| Case | `vx_blob_size` | `vx_blob_read` | `vx_blob_write` |
+|---|---|---|---|
+| The blob the host declared | its length | copies, returns the count | stores, returns the count |
+| `offset` past (or at) the end | n/a | 0, `dst` untouched | 0, nothing stored |
+| `offset + len` past the end | n/a | copies what fits, returns that | stores what fits, returns that |
+| A name the host never declared | 0 | 0, `dst` untouched | 0, nothing stored |
+| `NULL` or `""` as the name | 0 | 0 | 0 |
+| `len` of 0 | n/a | 0 | 0 |
+
+Four things follow, and they are worth stating because a model that assumes
+otherwise breaks on one host and not the others:
+
+- **Storage is per chip instance.** Two microSD parts on the canvas each have
+  their own `"card"`. Blobs are never shared between instances, and never
+  between chips.
+- **A chip cannot create a blob.** A name the host did not declare stays empty
+  however much you write to it. Storage comes from the part, which is where
+  the user picked the file.
+- **A blob never grows.** Its size is the device's capacity, so a write off the
+  end stops at the end, exactly as addressing a sector past the last one does
+  on a real card.
+- **Bytes past the returned count are left alone.** A short read does not zero
+  or pad the rest of your buffer, so you can tell a truncated sector from a
+  sector of zeros.
+
+A write is visible to the next read from the same instance, immediately.
+
+### Blobs and `vx_rom_*`
+
+`vx_rom_size` / `vx_rom_read` stay what they were: ONE read-only image,
+injected before `chip_setup`, for a chip that boots a program (a CPU emulator
+loading its ROM). A blob is named, there can be several, and the chip writes to
+it. Reach for `vx_rom_*` for firmware you only execute, and for a blob for
+storage the device owns.
 
 ---
 

@@ -1,0 +1,11 @@
+{
+  "schema": "velxio-chip/v1",
+  "name": "microSD card",
+  "author": "Velxio",
+  "license": "MIT",
+  "description": "microSD card in SPI mode: CMD0/8/9/10/12/13/16/17/18/24/25/55/58/59 and ACMD13/41/51, standard and high capacity. The card image is the named blob \"card\", and the sectors the guest writes go back into it.",
+  "pins": ["SCK", "DI", "DO", "CS"],
+  "attributes": [
+    { "name": "sdhc", "default": -1, "min": -1, "max": 1 }
+  ]
+}

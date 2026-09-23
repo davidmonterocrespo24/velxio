@@ -149,6 +149,11 @@ export interface ChipInstanceOptions {
    *  Used by CPU-emulator chips that load their program from a project file
    *  instead of hard-coding it as a C byte array. */
   romBytes?: Uint8Array | null;
+  /** Named byte storage the chip reads and writes (vx_blob_size / _read /
+   *  _write): a microSD model gets its card image here as "card". Copied in,
+   *  so the chip's writes never reach the caller's array behind its back; read
+   *  them back with blobBytes(). */
+  blobs?: Map<string, Uint8Array> | null;
   /** Canvas component id of this chip. Used to key its SPICE pin sources so
    *  the analog engine drives the nets wired to the chip's output pins. */
   componentId?: string;
@@ -185,6 +190,12 @@ export class ChipInstance {
   /** chip_setup is running: SPI handles wait for it to finish before joining. */
   private inSetup = false;
   private _romBytes: Uint8Array;
+  /** Named byte storage, per chip instance. See vx_blob_* in velxio-chip.h. */
+  private _blobs = new Map<string, Uint8Array>();
+  /** Byte span [lo, hi) the chip has written in each blob since the last
+   *  takeBlobDirty(). The host ships those bytes back to whatever owns the
+   *  storage (the SD panel), so it needs the span, not just the fact. */
+  private _blobDirty = new Map<string, [number, number]>();
 
   /** Framebuffer state — created on first vx_framebuffer_init call. */
   private _framebuffer: { rgba: Uint8Array; width: number; height: number } | null = null;
@@ -227,6 +238,11 @@ export class ChipInstance {
     this.strAttrs = opts.strAttrs ?? new Map();
     this.display = opts.display ?? null;
     this._romBytes = opts.romBytes ?? new Uint8Array(0);
+    // Copy: the chip owns its blob from here on, and the same copy rule holds
+    // in the Python runtime, so a model cannot behave differently by host.
+    for (const [name, bytes] of opts.blobs ?? []) {
+      this._blobs.set(name, Uint8Array.from(bytes));
+    }
     this.componentId = opts.componentId ?? '';
 
     this.wasi = new WasiShim(
@@ -406,6 +422,12 @@ export class ChipInstance {
       vx_rom_read: (offset: number, dstPtr: number, len: number) =>
         this._rom_read(offset, dstPtr, len),
 
+      vx_blob_size:  (namePtr: number) => this._blob_size(namePtr),
+      vx_blob_read:  (namePtr: number, offset: number, dstPtr: number, len: number) =>
+        this._blob_read(namePtr, offset, dstPtr, len),
+      vx_blob_write: (namePtr: number, offset: number, srcPtr: number, len: number) =>
+        this._blob_write(namePtr, offset, srcPtr, len),
+
       vx_log: (msgPtr: number) => {
         const msg = readCString(this.memory!, msgPtr);
         this.wasi.writeStdout(`[chip] ${msg}\n`);
@@ -420,6 +442,65 @@ export class ChipInstance {
     const end = Math.min(offset + len, max);
     const dst = new Uint8Array(this.memory.buffer, dstPtr, end - offset);
     dst.set(this._romBytes.subarray(offset, end));
+  }
+
+  // ── Named blobs ──────────────────────────────────────────────────────────
+  // The contract these three follow is written out in velxio-chip.h: storage
+  // is per instance, an unknown name has nothing, a blob never grows, and both
+  // directions truncate at the end and return what they moved. The Python
+  // runtime answers the same for the same call, which is the only reason one
+  // model can run next to the CPU on QEMU and in the tab here. It guards its
+  // store with a lock and this does not, because there the chip runs on QEMU's
+  // IO thread while the host drains the spans from another, and here there is
+  // only the one thread.
+
+  /** A NULL pointer is not a name. Python's _read_cstring says the same for
+   *  ptr 0, so both hosts land on "unknown blob" instead of reading address 0. */
+  private _blob_name(namePtr: number): string {
+    if (!this.memory || namePtr === 0) return '';
+    return readCString(this.memory, namePtr);
+  }
+
+  private _blob_size(namePtr: number): number {
+    return this._blobs.get(this._blob_name(namePtr))?.length ?? 0;
+  }
+
+  private _blob_read(namePtr: number, offset: number, dstPtr: number, len: number): number {
+    const blob = this._blobs.get(this._blob_name(namePtr));
+    if (!this.memory || !blob || len <= 0 || offset < 0 || offset >= blob.length) return 0;
+    const n = Math.min(len, blob.length - offset);
+    new Uint8Array(this.memory.buffer, dstPtr, n).set(blob.subarray(offset, offset + n));
+    return n;
+  }
+
+  private _blob_write(namePtr: number, offset: number, srcPtr: number, len: number): number {
+    const name = this._blob_name(namePtr);
+    const blob = this._blobs.get(name);
+    if (!this.memory || !blob || len <= 0 || offset < 0 || offset >= blob.length) return 0;
+    const n = Math.min(len, blob.length - offset);
+    blob.set(new Uint8Array(this.memory.buffer, srcPtr, n), offset);
+    const span = this._blobDirty.get(name);
+    if (span) {
+      span[0] = Math.min(span[0], offset);
+      span[1] = Math.max(span[1], offset + n);
+    } else {
+      this._blobDirty.set(name, [offset, offset + n]);
+    }
+    return n;
+  }
+
+  /** Current bytes of a named blob, or null when the chip has no such blob.
+   *  The live buffer, so a caller that means to keep it copies it. */
+  blobBytes(name: string): Uint8Array | null {
+    return this._blobs.get(name) ?? null;
+  }
+
+  /** The byte spans [lo, hi) the chip wrote since the last call, and clears
+   *  them. The host ships those bytes to whoever owns the storage. */
+  takeBlobDirty(): Map<string, [number, number]> {
+    const out = this._blobDirty;
+    this._blobDirty = new Map();
+    return out;
   }
 
   // ── Pin implementations ──────────────────────────────────────────────────

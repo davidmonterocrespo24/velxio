@@ -1,0 +1,71 @@
+{
+  "_comment": [
+    "The vx_blob_* contract, written from velxio-chip.h and not from any one",
+    "runtime. Three suites replay this same table against the same",
+    "blob-probe.wasm: board-buses-blob-abi.test.ts (browser), the OSS",
+    "test_wasm_chip_blobs.py (QEMU worker) and the pro",
+    "test_board_buses_blob_abi_pi.py (Linux boards). A row that answers",
+    "differently in one host is the per-engine divergence F4 removes.",
+    "scratchHex is the head of the chip's scratch buffer after the call; the",
+    "probe fills it with 0xEE before every read, so a byte still 0xEE is a byte",
+    "the host did not touch."
+  ],
+  "blobName": "card",
+  "blobHex": "000102030405060708090a0b0c0d0e0f",
+  "setupSize": 16,
+  "steps": [
+    { "op": "size",  "which": 0, "ret": 16, "why": "the blob the host declared" },
+    { "op": "size",  "which": 1, "ret": 0,  "why": "a name the host never declared" },
+    { "op": "size",  "which": 2, "ret": 0,  "why": "the empty name" },
+
+    { "op": "read",  "which": 0, "offset": 0,  "len": 4, "ret": 4,
+      "scratchHex": "00010203eeeeeeee", "why": "a plain read copies exactly len" },
+    { "op": "read",  "which": 0, "offset": 14, "len": 8, "ret": 2,
+      "scratchHex": "0e0feeeeeeeeeeee",
+      "why": "a read off the end truncates and leaves the rest of dst alone" },
+    { "op": "read",  "which": 0, "offset": 16, "len": 4, "ret": 0,
+      "scratchHex": "eeeeeeeeeeeeeeee", "why": "offset AT the end copies nothing" },
+    { "op": "read",  "which": 0, "offset": 99, "len": 4, "ret": 0,
+      "scratchHex": "eeeeeeeeeeeeeeee", "why": "offset past the end copies nothing" },
+    { "op": "read",  "which": 1, "offset": 0,  "len": 4, "ret": 0,
+      "scratchHex": "eeeeeeeeeeeeeeee", "why": "an unknown name has nothing to give" },
+    { "op": "read",  "which": 2, "offset": 0,  "len": 4, "ret": 0,
+      "scratchHex": "eeeeeeeeeeeeeeee", "why": "the empty name is not a blob" },
+    { "op": "read",  "which": 0, "offset": 0,  "len": 0, "ret": 0,
+      "scratchHex": "eeeeeeeeeeeeeeee", "why": "a zero-length read is a no-op" },
+
+    { "op": "poke",  "hex": "aabb" },
+    { "op": "write", "which": 0, "offset": 2, "len": 2, "ret": 2 },
+    { "op": "read",  "which": 0, "offset": 0, "len": 6, "ret": 6,
+      "scratchHex": "0001aabb0405", "why": "a write is visible to the next read" },
+
+    { "op": "poke",  "hex": "11223344" },
+    { "op": "write", "which": 0, "offset": 14, "len": 4, "ret": 2,
+      "why": "a write off the end stops at the end; the blob does not grow" },
+    { "op": "read",  "which": 0, "offset": 12, "len": 4, "ret": 4,
+      "scratchHex": "0c0d1122", "why": "only the two bytes that fit were stored" },
+
+    { "op": "poke",  "hex": "ff" },
+    { "op": "write", "which": 0, "offset": 16, "len": 1, "ret": 0,
+      "why": "offset AT the end stores nothing" },
+    { "op": "write", "which": 0, "offset": 99, "len": 1, "ret": 0,
+      "why": "offset past the end stores nothing" },
+    { "op": "write", "which": 1, "offset": 0,  "len": 1, "ret": 0,
+      "why": "an unknown name accepts nothing" },
+    { "op": "size",  "which": 1, "ret": 0,
+      "why": "and writing to it did not bring it into being" },
+    { "op": "write", "which": 0, "offset": 0,  "len": 0, "ret": 0,
+      "why": "a zero-length write is a no-op" }
+  ],
+  "finalBlobHex": "0001aabb0405060708090a0b0c0d1122",
+  "dirty": { "card": [2, 16] },
+  "i2c": {
+    "address": 66,
+    "reads": [
+      { "register": 2,  "count": 4, "hex": "aabb0405",
+        "why": "the Linux host reaches the same blob over whole transactions" },
+      { "register": 14, "count": 4, "hex": "1122ffff",
+        "why": "past the last byte the slave has nothing and the line reads ones" }
+    ]
+  }
+}
