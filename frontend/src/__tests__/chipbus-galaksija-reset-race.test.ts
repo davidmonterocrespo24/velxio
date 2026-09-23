@@ -65,7 +65,16 @@ const cellLit = (fb: Uint8Array, col: number, row: number): number => {
   return n;
 };
 
-describe.skipIf(!have)('chipbus Phase 3 — RESET ordering race via reset-gen', () => {
+/**
+ * Gated behind `RUN_CHIPBUS_TESTS=1` so the default `npm test` skips the whole
+ * Galaksija set. It is a real Z80 home computer booting over the chip-to-chip
+ * bus: five WASM chips clocked against each other, minutes of CPU across the
+ * seven files, and it dominated the wall clock of a suite of ~470 files. Run
+ * it with `npm run test:chipbus`, or set the variable and run the file.
+ */
+const RUN_CHIPBUS = process.env.RUN_CHIPBUS_TESTS === '1';
+
+describe.skipIf(!RUN_CHIPBUS || !have)('chipbus Phase 3 — RESET ordering race via reset-gen', () => {
   beforeEach(() => { setChipBusEnabledForTest(true); resetChipNetIndexForTest(); resetBusNets(); });
   afterEach(() => { setChipBusEnabledForTest(null); resetChipNetIndexForTest(); resetBusNets(); });
 

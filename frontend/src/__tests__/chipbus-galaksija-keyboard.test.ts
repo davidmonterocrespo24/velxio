@@ -55,7 +55,16 @@ const cellLit = (fb: Uint8Array, col: number, row: number): number => {
   return n;
 };
 
-describe.skipIf(!have)('chipbus Phase 3 — typing on the Galaksija', () => {
+/**
+ * Gated behind `RUN_CHIPBUS_TESTS=1` so the default `npm test` skips the whole
+ * Galaksija set. It is a real Z80 home computer booting over the chip-to-chip
+ * bus: five WASM chips clocked against each other, minutes of CPU across the
+ * seven files, and it dominated the wall clock of a suite of ~470 files. Run
+ * it with `npm run test:chipbus`, or set the variable and run the file.
+ */
+const RUN_CHIPBUS = process.env.RUN_CHIPBUS_TESTS === '1';
+
+describe.skipIf(!RUN_CHIPBUS || !have)('chipbus Phase 3 — typing on the Galaksija', () => {
   beforeEach(() => { setChipBusEnabledForTest(true); resetChipNetIndexForTest(); resetBusNets(); });
   afterEach(() => { setChipBusEnabledForTest(null); resetChipNetIndexForTest(); resetBusNets(); });
 
@@ -92,11 +101,5 @@ describe.skipIf(!have)('chipbus Phase 3 — typing on the Galaksija', () => {
     expect(cellLit(fb!, 1, 1), 'the "A" glyph is at the input column').toBeGreaterThan(6);
 
     z80.dispose(); kbd.dispose(); disp.dispose();
-    // A whole Galaksija booting BASIC and taking a keypress: five WASM chips
-    // clocked against each other, and the slowest row in the suite by a wide
-    // margin. Measured on the production box at 66 s alone and 82 s on the
-    // pre-fabric tree, both over the 60 s this used to allow, so it failed on
-    // wall clock and not on anything it asserts. The budget is the machine's,
-    // not the model's: nothing here waits on a timer.
   }, 180_000);
 });

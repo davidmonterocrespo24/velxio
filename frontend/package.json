@@ -27,6 +27,7 @@
     "test:ui": "vitest --ui",
     "tsc": "tsc -b",
     "test:libraries": "RUN_LIBRARY_TESTS=1 vitest run src/__tests__/library-compile.integration.test.ts",
+    "test:chipbus": "RUN_CHIPBUS_TESTS=1 vitest run src/__tests__/chipbus-galaksija",
     "test:visual": "node ../scripts/visual-led-test.mjs"
   },
   "dependencies": {

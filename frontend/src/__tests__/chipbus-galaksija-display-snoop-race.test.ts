@@ -49,7 +49,16 @@ const pk = (c: string, p: string): number => resolveChipNetKey(STATE, c, p) ?? s
 const wf = (c: string, pins: string[]) => new Map(pins.map((p) => [p, pk(c, p)] as [string, number]));
 const cellLit = (fb: Uint8Array, col: number, row: number): number => { let n = 0; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) if (fb[((row * 8 + y) * 256 + (col * 8 + x)) * 4 + 1] > 0x80) n++; return n; };
 
-describe.skipIf(!have)('chipbus Phase 3 — display-snoop load-order race', () => {
+/**
+ * Gated behind `RUN_CHIPBUS_TESTS=1` so the default `npm test` skips the whole
+ * Galaksija set. It is a real Z80 home computer booting over the chip-to-chip
+ * bus: five WASM chips clocked against each other, minutes of CPU across the
+ * seven files, and it dominated the wall clock of a suite of ~470 files. Run
+ * it with `npm run test:chipbus`, or set the variable and run the file.
+ */
+const RUN_CHIPBUS = process.env.RUN_CHIPBUS_TESTS === '1';
+
+describe.skipIf(!RUN_CHIPBUS || !have)('chipbus Phase 3 — display-snoop load-order race', () => {
   beforeEach(() => { setChipBusEnabledForTest(true); resetChipNetIndexForTest(); resetBusNets(); });
   afterEach(() => { setChipBusEnabledForTest(null); resetChipNetIndexForTest(); resetBusNets(); });
 
@@ -77,10 +86,5 @@ describe.skipIf(!have)('chipbus Phase 3 — display-snoop load-order race', () =
     // The prompt never appears: the snoop saw none of the boot writes.
     expect(cellLit(fb!, 0, 1), 'a late-attached snoop display shows no prompt').toBe(0);
     z80.dispose(); disp.dispose();
-    // Z80 emulation against four other WASM chips: CPU-bound, and the
-    // whole suite runs ~470 files in parallel on a box that also runs
-    // production. It passes alone in well under this; the old budget was
-    // wall clock, not a claim about the model. Same reasoning as the
-    // keyboard row.
   }, 180_000);
 });
