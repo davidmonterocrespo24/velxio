@@ -92,5 +92,11 @@ describe.skipIf(!have)('chipbus Phase 3 — typing on the Galaksija', () => {
     expect(cellLit(fb!, 1, 1), 'the "A" glyph is at the input column').toBeGreaterThan(6);
 
     z80.dispose(); kbd.dispose(); disp.dispose();
-  }, 60_000);
+    // A whole Galaksija booting BASIC and taking a keypress: five WASM chips
+    // clocked against each other, and the slowest row in the suite by a wide
+    // margin. Measured on the production box at 66 s alone and 82 s on the
+    // pre-fabric tree, both over the 60 s this used to allow, so it failed on
+    // wall clock and not on anything it asserts. The budget is the machine's,
+    // not the model's: nothing here waits on a timer.
+  }, 180_000);
 });
