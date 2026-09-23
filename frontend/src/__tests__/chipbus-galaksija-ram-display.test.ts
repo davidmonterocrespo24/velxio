@@ -76,5 +76,10 @@ describe.skipIf(!have)('chipbus Phase 3 — Galaksija RAM+display renders from v
     expect(cellLit(fb!, 0, 1), 'the BASIC ">" prompt rendered from video RAM').toBeGreaterThan(4);
 
     z80.dispose(); rd.dispose();
-  }, 60_000);
+    // Z80 emulation against four other WASM chips: CPU-bound, and the
+    // whole suite runs ~470 files in parallel on a box that also runs
+    // production. It passes alone in well under this; the old budget was
+    // wall clock, not a claim about the model. Same reasoning as the
+    // keyboard row.
+  }, 180_000);
 });

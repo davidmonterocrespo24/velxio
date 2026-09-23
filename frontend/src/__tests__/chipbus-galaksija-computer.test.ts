@@ -84,5 +84,10 @@ describe.skipIf(!have)('chipbus Phase 3 — full Galaksija computer renders READ
     expect(litReady, 'the READY prompt is rendered on screen').toBeGreaterThan(20);
 
     z80.dispose(); rom.dispose(); ram.dispose(); inv.dispose(); disp.dispose();
-  }, 30_000);
+    // Z80 emulation against four other WASM chips: CPU-bound, and the
+    // whole suite runs ~470 files in parallel on a box that also runs
+    // production. It passes alone in well under this; the old budget was
+    // wall clock, not a claim about the model. Same reasoning as the
+    // keyboard row.
+  }, 120_000);
 });

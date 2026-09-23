@@ -77,5 +77,10 @@ describe.skipIf(!have)('chipbus Phase 3 — display-snoop load-order race', () =
     // The prompt never appears: the snoop saw none of the boot writes.
     expect(cellLit(fb!, 0, 1), 'a late-attached snoop display shows no prompt').toBe(0);
     z80.dispose(); disp.dispose();
-  }, 60_000);
+    // Z80 emulation against four other WASM chips: CPU-bound, and the
+    // whole suite runs ~470 files in parallel on a box that also runs
+    // production. It passes alone in well under this; the old budget was
+    // wall clock, not a claim about the model. Same reasoning as the
+    // keyboard row.
+  }, 180_000);
 });
