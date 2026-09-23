@@ -32,8 +32,9 @@ import '../../simulation/parts/ComplexParts';
 import '../../simulation/parts/EPaperPart';
 import '../../simulation/parts/CustomChipPart';
 import { spiChainAttach } from '../../simulation/parts/spiChannel';
-import { ChipInstance, getI2CBus, getSimulatorBridges } from '../../simulation/customChips';
+import { ChipInstance, getI2CBus } from '../../simulation/customChips';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { busRegistry } from '../../simulation/buses';
 import { buildFat16Image } from '../../utils/fatImage';
 
 // ── Rig ──────────────────────────────────────────────────────────────────────
@@ -47,10 +48,38 @@ const pinsOf = (map: PinMap) => (name: string): number | null => map[name] ?? nu
 
 interface Board {
   sim: RP2040Simulator;
+  /** This board's id in the store: what its wires and its bus fabric use. */
+  id: string;
   /** Everything the console received since the last `newBoot()`. */
   out: () => string;
   /** Start a new output window (after a reset, the program prints again). */
   newBoot: () => void;
+}
+
+/** The store's board id for each simulator the rig booted. */
+const boardIds = new WeakMap<RP2040Simulator, string>();
+let boardSeq = 0;
+
+/**
+ * The store id of this simulator's board, putting the Pico on the canvas the
+ * first time somebody asks for it: the store knows it (that is what the nets
+ * are walked against) and its engine is bound to that board's bus fabric, so
+ * a part registered with attachSpiDevice lands on the bus its wires say.
+ *
+ * On demand, because a part can be wired before the sketch is loaded, and on
+ * the canvas the board is there either way: its ports exist from the
+ * simulator's constructor and outlive every firmware load (F2-SPEC).
+ */
+function boardIdOf(sim: RP2040Simulator): string {
+  const known = boardIds.get(sim);
+  if (known) return known;
+  const id = `pico-bb${++boardSeq}`;
+  boardIds.set(sim, id);
+  useSimulatorStore.setState((s) => ({
+    boards: [...s.boards, { id, boardKind: 'raspberry-pi-pico', x: 0, y: 0 }],
+  }) as never);
+  busRegistry.bindEngine(id, sim.getBusBinding());
+  return id;
 }
 
 function wrap(sim: RP2040Simulator): Board {
@@ -59,7 +88,38 @@ function wrap(sim: RP2040Simulator): Board {
   sim.onSerialData = (ch) => {
     out += ch;
   };
-  return { sim, out: () => out.slice(from), newBoot: () => (from = out.length) };
+  const id = boardIdOf(sim);
+  return { sim, id, out: () => out.slice(from), newBoot: () => (from = out.length) };
+}
+
+/**
+ * Wire a component to its board, as the canvas does. `pins` maps the
+ * component's own pin names to the Pico's GPIOs. The wires are what the
+ * fabric walks, so a device that is not wired here is on no bus at all,
+ * whatever it was handed at attach time.
+ */
+function wireTo(sim: RP2040Simulator, id: string, pins: PinMap): void {
+  const boardId = boardIdOf(sim);
+  const wires = Object.entries(pins).map(([pinName, gpio], i) => ({
+    id: `${id}-w${i}`,
+    start: { componentId: id, pinName, x: 0, y: 0 },
+    end: { componentId: boardId, pinName: `GP${gpio}`, x: 0, y: 0 },
+    waypoints: [],
+    color: '#0a0',
+  }));
+  useSimulatorStore.setState((s) => ({
+    wires: [...s.wires.filter((w) => !w.id.startsWith(`${id}-w`)), ...wires],
+  }) as never);
+}
+
+/**
+ * Wire a part to its board and give it the component id the fabric
+ * identifies it by.
+ */
+function wirePart(sim: RP2040Simulator, tag: string, pins: PinMap): string {
+  const id = `${boardIdOf(sim)}-${tag}`;
+  wireTo(sim, id, pins);
+  return id;
 }
 
 function boot(name: string): Board {
@@ -93,23 +153,37 @@ function stopRun(board: Board): void {
 
 const CARD_TEXT = 'BUS OK 2040';
 
+/** SPI0 on the Pico's default Arduino pins; the CS is the sketch's. */
+const SPI0_CARD = { SCK: 18, DI: 19, DO: 16 };
+/** SPI1 (rp2040-sd-spi1 wires the card to GP10/11/12, CS GP13). */
+const SPI1_CARD = { SCK: 10, DI: 11, DO: 12 };
+
 /** The real microSD part, holding a FAT16 card with hello.txt. */
-function attachCard(sim: RP2040Simulator, cs: number, id = 'sd1'): () => void {
+function attachCard(sim: RP2040Simulator, cs: number, bus = SPI0_CARD): () => void {
+  const id = wirePart(sim, 'sd', { ...bus, CS: cs });
   const img = buildFat16Image([{ name: 'hello.txt', data: new TextEncoder().encode(CARD_TEXT) }]);
   const el = { id, sdImageData: img } as unknown as HTMLElement;
   return PartSimulationRegistry.get('microsd-card')!.attachEvents!(el, sim as never, pinsOf({ CS: cs }), id);
 }
 
-/** The real ILI9341 part. No canvas here, which only matters to pixel writes;
- *  the SPI path under test is the same code. */
-function attachTft(sim: RP2040Simulator, dc: number, id = 'tft1'): () => void {
+/** The real ILI9341 part, on SPI0 with its chip select on GP13 (the burst's,
+ *  so the panel is selected for a transaction some test actually clocks). No
+ *  canvas here, which only matters to pixel writes; the bus path is the same
+ *  code. */
+function attachTft(sim: RP2040Simulator, dc: number): () => void {
+  const id = wirePart(sim, 'tft', { SCK: 18, MOSI: 19, MISO: 16, CS: 13, 'D/C': dc });
   const el = {
     id,
     canvas: null,
     addEventListener: () => {},
     removeEventListener: () => {},
   } as unknown as HTMLElement;
-  return PartSimulationRegistry.get('ili9341')!.attachEvents!(el, sim as never, pinsOf({ 'D/C': dc }), id);
+  return PartSimulationRegistry.get('ili9341')!.attachEvents!(
+    el,
+    sim as never,
+    pinsOf({ 'D/C': dc }),
+    id,
+  );
 }
 
 type Picture = { width: number; height: number; data: Uint8ClampedArray };
@@ -124,7 +198,8 @@ interface Panel {
 
 /** The real e-paper part (1.54" SSD1681) with a canvas stub that keeps what
  *  it paints. BUSY rising is how the part says the panel refreshed. */
-function attachEpaper(sim: RP2040Simulator, id = 'epd1'): Panel {
+function attachEpaper(sim: RP2040Simulator): Panel {
+  const id = wirePart(sim, 'epd', { SCK: 18, SDI: 19, CS: 20, DC: 21, RST: 22, BUSY: 26 });
   let refreshes = 0;
   let painted: Picture | null = null;
   const ctx = {
@@ -197,6 +272,10 @@ function attachChip(sim: RP2040Simulator, id: string, wasmFile: string, pins: st
   useSimulatorStore.setState((s) => ({
     components: [...s.components.filter((c) => c.id !== id), component as never],
   }));
+  // A chip is on the SPI bus its own pins are wired to (vx_spi_attach hands
+  // the fabric the pin names of its config), so the wires go in the store
+  // like any part's, not just into the getPin this attach is handed.
+  wireTo(sim, id, wiring);
   const before = chipStarts.get(id) ?? 0;
   const leave = PartSimulationRegistry.get('custom-chip')!.attachEvents!(
     {} as HTMLElement,
@@ -335,7 +414,7 @@ describe('RP2040 SPI0: the selected device answers MISO, whatever else shares th
 describe('RP2040 SPI1: a part wired to the second controller hears it', () => {
   it('rp2040-spi1-unreachable, rp-spi1-no-adapter setup: the SD init traffic leaves the core on SPI1', () => {
     const board = boot('rp2040-sd-spi1');
-    attachCard(board.sim, 13);
+    attachCard(board.sim, 13, SPI1_CARD);
     const spi1 = (board.sim as unknown as { rp2040: { spi: Array<{ onTransmit: (v: number) => void }> } }).rp2040
       .spi[1];
     const engine = spi1.onTransmit;
@@ -351,11 +430,11 @@ describe('RP2040 SPI1: a part wired to the second controller hears it', () => {
     expect(clocked).toBeGreaterThanOrEqual(30);
   });
 
-  it.fails(
+  it(
     'rp2040-spi1-unreachable, rp-spi1-no-adapter: a microSD card on the SPI1 pins (GP10/11/12, CS GP13) answers CMD0 and CMD8',
     () => {
       const board = boot('rp2040-sd-spi1');
-      attachCard(board.sim, 13);
+      attachCard(board.sim, 13, SPI1_CARD);
       untilDone(board);
       expect(board.out()).toContain('SD:CMD0:1');
       expect(board.out()).toContain('SD:CMD8:1:AA');
@@ -376,7 +455,7 @@ describe('RP2040 e-paper: the panel shares SPI0 and survives Stop/Run', () => {
     panel.leave();
   });
 
-  it.fails(
+  it(
     'epaper-rp2040-direct-onTransmit, epaper-rp2040-overwrites-ontransmit: a card attached before the e-paper still mounts, and the panel still refreshes',
     () => {
       const board = boot('rp2040-spi0-bus');
@@ -391,7 +470,7 @@ describe('RP2040 e-paper: the panel shares SPI0 and survives Stop/Run', () => {
     },
   );
 
-  it.fails(
+  it(
     'epaper-rp2040-direct-onTransmit, epaper-rp2040-overwrites-ontransmit: an e-paper attached before the card still refreshes, and the card still mounts',
     () => {
       const board = boot('rp2040-spi0-bus');
@@ -405,7 +484,7 @@ describe('RP2040 e-paper: the panel shares SPI0 and survives Stop/Run', () => {
     },
   );
 
-  it.fails('epaper-rp2040-direct-onTransmit: after Stop and Run (reset() with no re-attach) the panel refreshes again', () => {
+  it('epaper-rp2040-direct-onTransmit: after Stop and Run (reset() with no re-attach) the panel refreshes again', () => {
     const board = boot('rp2040-spi0-bus');
     const panel = attachEpaper(board.sim);
     untilDone(board);
@@ -580,7 +659,6 @@ describe('RP2040 I2C: a chip answers on the controller its SDA/SCL are wired to'
       componentId: 'chip-i2c-bus1',
       pinManager: board.sim.pinManager,
       i2cBus: getI2CBus(board.sim, 1) as never,
-      spiBus: getSimulatorBridges(board.sim).spiBus,
       wires: new Map([
         ['SDA', 6],
         ['SCL', 7],

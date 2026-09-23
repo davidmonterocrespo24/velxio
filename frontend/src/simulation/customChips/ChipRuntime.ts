@@ -2,13 +2,15 @@
  * ChipRuntime — TypeScript port of test/test_custom_chips/src/ChipRuntime.js.
  *
  * Loads a Velxio custom-chip WASM, wires its imports to host services
- * (PinManager, I2CBusManager, SPIBus, attribute storage, timer queue), and
- * dispatches its callbacks back into the simulator. One ChipInstance per
- * chip dropped on the canvas.
+ * (PinManager, I2CBusManager, the SPI bus fabric, attribute storage, timer
+ * queue), and dispatches its callbacks back into the simulator. One
+ * ChipInstance per chip dropped on the canvas.
  */
 import type { PinManager } from '../PinManager';
 import type { I2CBusManager } from '../I2CBusManager';
-import { SPIBus, SPIDevice } from './SPIBus';
+import { SPIDevice } from './SPIBus';
+import { attachSpiDevice } from '../buses';
+import type { BusHandle, SpiMode } from '../buses/types';
 import { WasiShim, type SimNanosFn, type WriteStdoutFn } from './WasiShim';
 import { setChipPinDrive } from './chipPinDrives';
 import { isSyntheticChipPin, isSyntheticNetPin } from './syntheticPins';
@@ -119,9 +121,11 @@ interface TimerEntry {
 }
 
 interface SpiEntry {
+  /** The chip's armed buffer for this handle. */
   device: SPIDevice;
   cfg: SpiConfig;
-  onDoneCallback: (buffer: Uint8Array, count: number) => void;
+  /** Registration on the board's SPI bus, disposed with the chip. */
+  bus: BusHandle | null;
 }
 
 export interface ChipInstanceOptions {
@@ -129,7 +133,6 @@ export interface ChipInstanceOptions {
   wasm: Uint8Array | ArrayBuffer | WebAssembly.Module;
   pinManager: PinManager;
   i2cBus?: I2CBusManager | null;
-  spiBus?: SPIBus | null;
   /** Logical chip pin name → real Arduino pin number (resolved from wires). */
   wires?: Map<string, number>;
   /** User-editable attributes — keyed by name. */
@@ -161,7 +164,6 @@ export class ChipInstance {
   private wasm: ChipInstanceOptions['wasm'];
   private pinManager: PinManager;
   private i2cBus: I2CBusManager | null;
-  private spiBus: SPIBus | null;
   private wires: Map<string, number>;
   private attrs: Map<string, number>;
   private strAttrs: Map<string, string>;
@@ -180,7 +182,8 @@ export class ChipInstance {
   private uarts: UartConfig[] = [];
   private _uartTxListener: ((byte: number) => void) | null = null;
   private spiDevices: SpiEntry[] = [];
-  private _currentSpiBufPtr: number = 0;
+  /** chip_setup is running: SPI handles wait for it to finish before joining. */
+  private inSetup = false;
   private _romBytes: Uint8Array;
 
   /** Framebuffer state — created on first vx_framebuffer_init call. */
@@ -219,7 +222,6 @@ export class ChipInstance {
     this.wasm = opts.wasm;
     this.pinManager = opts.pinManager;
     this.i2cBus = opts.i2cBus ?? null;
-    this.spiBus = opts.spiBus ?? null;
     this.wires = opts.wires ?? new Map();
     this.attrs = opts.attrs ?? new Map();
     this.strAttrs = opts.strAttrs ?? new Map();
@@ -281,7 +283,18 @@ export class ChipInstance {
     if (!this.exports?.chip_setup) {
       throw new Error('Chip WASM does not export chip_setup');
     }
-    this.exports.chip_setup();
+    this.inSetup = true;
+    try {
+      this.exports.chip_setup();
+    } finally {
+      this.inSetup = false;
+    }
+    // The chip is on the bus once its setup is done, not in the middle of it:
+    // see _joinSpiBus for why the order against its own pin watches matters.
+    for (let i = 0; i < this.spiDevices.length; i++) {
+      const e = this.spiDevices[i];
+      if (!e.bus) e.bus = this._joinSpiBus(e, i);
+    }
     this.wasi.flush();
   }
 
@@ -334,9 +347,7 @@ export class ChipInstance {
     if (this.i2cBus && this._i2cDevice) {
       this.i2cBus.removeDevice(this._i2cDevice.address);
     }
-    if (this.spiBus) {
-      for (const d of this.spiDevices) this.spiBus.removeDevice(d.device);
-    }
+    for (const e of this.spiDevices) e.bus?.dispose();
     this.spiDevices = [];
     // Stop driving any bus nets this chip contributed to, then re-resolve them
     // so a removed chip releases the bus (its drivers no longer count).
@@ -797,36 +808,99 @@ export class ChipInstance {
 
   // ── SPI ──────────────────────────────────────────────────────────────────
 
+  /**
+   * vx_spi_attach: THIS is where a chip joins an SPI bus, not where its part
+   * mounts. A model that never calls it (every UART-only and I2C-only Grove
+   * module) now takes no part in SPI at all, which is what issue #355 was
+   * about (findings grove-chip-takes-spi-on-rp-and-xiao-arm,
+   * customchip-setspihandler-steals-bus0).
+   *
+   * The pins of the chip's own config decide which bus it lands on and when it
+   * is selected: the fabric resolves them through the circuit's nets and only
+   * clocks the chip while its chip select is active. `cs = NO_PIN` (-1) means
+   * the chip has no select line, like a 74HC595 whose SER/SRCLK shift whatever
+   * the bus carries. Handles are independent devices: a chip with two of them
+   * is two owners on the bus, each with its own buffer and its own select.
+   */
   private _spi_attach(cfgPtr: number): number {
-    if (!this.spiBus) {
-      throw new Error('Chip called vx_spi_attach but no SPIBus is wired to the host');
-    }
     const cfg = readSpiConfig(this.memory!, cfgPtr);
     const handle = this.spiDevices.length;
-    const device = new SPIDevice();
-
-    const onDoneCallback = (_buffer: Uint8Array, count: number) => {
-      if (cfg.on_done) {
+    // The completion is handed THIS handle's buffer pointer. It used to be an
+    // instance-wide field, so the last vx_spi_start of any handle decided what
+    // every on_done saw (finding spi-done-bufptr-shared).
+    const device = new SPIDevice(
+      () => new Uint8Array(this.memory!.buffer),
+      (bufPtr, count) => {
+        if (!cfg.on_done) return;
         const table = this.exports?.__indirect_function_table as WebAssembly.Table | undefined;
         const fn = table?.get(cfg.on_done) as ((ud: number, buf: number, c: number) => void) | null;
         if (fn) {
-          try { fn(cfg.user_data, this._currentSpiBufPtr, count); } catch { /* swallow */ }
+          try { fn(cfg.user_data, bufPtr, count); } catch { /* swallow */ }
         }
         this.wasi.flush();
-      }
-    };
-
-    this.spiDevices.push({ device, cfg, onDoneCallback });
-    this.spiBus.addDevice(device);
+      },
+    );
+    const entry: SpiEntry = { device, cfg, bus: null };
+    this.spiDevices.push(entry);
+    // During chip_setup the join waits for start() to finish it (see
+    // _joinSpiBus); a handle attached later joins straight away.
+    if (!this.inSetup) entry.bus = this._joinSpiBus(entry, handle);
     return handle;
+  }
+
+  /**
+   * Put one SPI handle on the bus its pins are wired to. Null when the chip has
+   * no clock pin, or no canvas identity to resolve its wires against.
+   *
+   * Called after chip_setup, never inside it, so the chip's own CS watch is
+   * registered on that pin BEFORE the bus's. The order is what a real chip
+   * does: it puts its first MISO bit on the wire as CS falls, so it has to have
+   * armed its answer by the time the bus asks what it will shift out (a
+   * bit-banged master reads that bit before the first clock edge).
+   */
+  private _joinSpiBus(entry: SpiEntry, handle: number): BusHandle | null {
+    const { cfg } = entry;
+    const pinName = (h: number): string | undefined => {
+      const p = h >= 0 ? this.pins[h] : undefined;
+      return p && p.name ? p.name : undefined;
+    };
+    const sck = pinName(cfg.sck);
+    if (!this.componentId || !sck) return null;
+    const drivesMiso = pinName(cfg.miso) !== undefined;
+    return attachSpiDevice(
+      {
+        owner: `${this.componentId}:spi${handle}`,
+        componentId: this.componentId,
+        pins: { sck, mosi: pinName(cfg.mosi), miso: pinName(cfg.miso), cs: pinName(cfg.cs) },
+        // The mode the chip was written for. The bus compares it with the
+        // controller's and reports a mismatch instead of exchanging bytes that
+        // would come out shifted on hardware.
+        modes: [(cfg.mode & 3) as SpiMode],
+      },
+      {
+        // No CS handling here: the fabric only calls a device while it is
+        // selected. What gates the bytes on this side is the chip's own arming
+        // (vx_spi_start / vx_spi_stop), the documented Wokwi-compatible
+        // contract, which the chip drives from its own pin watch.
+        transfer: (mosi) => (drivesMiso ? entry.device.transfer(mosi) : this._spiSink(entry, mosi)),
+        peekMiso: () => (drivesMiso ? entry.device.peek() : null),
+        // The MCU reset: the transaction in flight is over, as it is when CS
+        // is released. Protocol state only: the chip's own data is its own.
+        boardReset: () => entry.device.stopTransfer(),
+      },
+    );
+  }
+
+  /** A handle with no MISO pin receives the master's bytes and drives nothing. */
+  private _spiSink(entry: SpiEntry, mosi: number): null {
+    entry.device.transfer(mosi);
+    return null;
   }
 
   private _spi_start(handle: number, bufPtr: number, count: number): void {
     const entry = this.spiDevices[handle];
     if (!entry) return;
-    const buf = new Uint8Array(this.memory!.buffer, bufPtr, count);
-    this._currentSpiBufPtr = bufPtr;
-    entry.device.startTransfer(buf, count, (b, c) => entry.onDoneCallback(b, c));
+    entry.device.startTransfer(bufPtr, count);
   }
 
   private _spi_stop(handle: number): void {

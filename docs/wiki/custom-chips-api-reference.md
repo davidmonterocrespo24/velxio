@@ -363,7 +363,8 @@ typedef struct {
   vx_pin   sck;
   vx_pin   mosi;
   vx_pin   miso;
-  vx_pin   cs;          /* watched by the chip — runtime ignores this field */
+  vx_pin   cs;          /* the bus honours it: no bytes while deasserted.
+                           ((vx_pin)-1) = the chip has no select line */
   uint32_t mode;        /* 0..3 */
   void   (*on_done)(void* user_data, uint8_t* buffer, uint32_t count);
   void*    user_data;

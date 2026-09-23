@@ -2,29 +2,29 @@
  * Per-simulator bridge state for custom chips.
  *
  * Each simulator family exposes its peripherals differently:
- *   - AVR (avr8js)   — `simulator.usart` / `simulator.spi` / `simulator.i2cBus`
- *   - RP2040 (rp2040js) — `simulator.serialWriteByte` / `simulator.setSPIHandler` /
+ *   - AVR (avr8js)   — `simulator.usart` / `simulator.i2cBus`
+ *   - RP2040 (rp2040js) — `simulator.serialWriteByte` /
  *                         `simulator.addI2CDevice` (per-bus indexing)
  *   - ESP32 (bridge shim) — `simulator.sendPinEvent`. The shim wraps either
  *     the backend QEMU bridge, which hosts custom chips in its worker
  *     (CustomChipPart hands the WASM over and no browser instance exists),
  *     or an overlay's in-browser engine, which answers `hostsCustomChips()`
  *     false so the chip runs here: GPIO through the shim's PinManager, I2C
- *     through `addI2CDevice` (synchronous on the engine bus), SPI through
- *     the shim's `spi` adapter, UART on CHIP_UART.
+ *     through `addI2CDevice` (synchronous on the engine bus), UART on
+ *     CHIP_UART.
  *
  * The bridges in this module install a single dispatcher per simulator that
- * fans out to every chip subscribed, regardless of family.
+ * fans out to every chip subscribed, regardless of family. SPI is not one of
+ * them: a chip joins a bus from vx_spi_attach and the fabric
+ * (simulation/buses) routes it by its wiring.
  */
-import { SPIBus } from './SPIBus';
-import { spiChainAttach } from '../parts/spiChannel';
-
-/** The custom chips' place in a board's SPI chain (one per simulator: every
- *  chip on it sits behind the same SPIBus). */
-const CHIP_SPI_OWNER = 'custom-chips';
-
 export type SimulatorKind = 'avr' | 'rp2040' | 'esp32' | 'unknown';
 
+/**
+ * Which family a simulator belongs to, from the shape of its surface. `spi`
+ * and `setSPIHandler` are read as FINGERPRINTS of the family here, never as a
+ * place to hang a chip: the chip's bytes come from the bus fabric.
+ */
 export function detectSimulatorKind(simulator: any): SimulatorKind {
   if (!simulator) return 'unknown';
   if (simulator.usart && simulator.spi && simulator.i2cBus) return 'avr';
@@ -67,11 +67,6 @@ export interface SimulatorBridges {
   uartRxQueue: number[];
   /** setTimeout handle for the queue drainer (0 if not active). */
   uartDrainHandle: number;
-
-  /** Shared SPI bus across all custom chips on this simulator. */
-  spiBus: SPIBus;
-  /** Whether the SPI dispatcher has already been wired. */
-  spiInstalled: boolean;
 }
 
 const SIM_BRIDGES = new WeakMap<object, SimulatorBridges>();
@@ -89,8 +84,6 @@ export function getSimulatorBridges(simulator: any): SimulatorBridges {
       uartPreviousOnByteTransmit: null,
       uartRxQueue: [],
       uartDrainHandle: 0,
-      spiBus: new SPIBus(),
-      spiInstalled: false,
     };
     SIM_BRIDGES.set(simulator, b);
   }
@@ -220,55 +213,17 @@ export function avrUartTx(simulator: any, byte: number): void {
 }
 
 // ── SPI ─────────────────────────────────────────────────────────────────────
-
-/**
- * Install the SPI master TX → SPIBus dispatcher idempotently. The chip's
- * SPIDevice (created in `vx_spi_attach`) ends up on `b.spiBus` and is picked
- * up automatically — no per-chip wiring needed beyond `bridges.spiBus`.
- */
-export function ensureSpiBridge(simulator: any): void {
-  const b = getSimulatorBridges(simulator);
-  const kind = detectSimulatorKind(simulator);
-
-  // The ESP32 shim exposes the same `{ onByte, completeTransfer }` adapter
-  // (completeTransfer hands MISO to the bridge's setSpiResponse), so a chip
-  // hosted in the browser next to an in-browser engine gets SPI the AVR way.
-  if ((kind === 'avr' || kind === 'esp32') && simulator.spi) {
-    // A chip shares the board's bus with every other SPI part (a display, its
-    // touch panel, a card), so it joins the chain instead of taking the
-    // channel: it answers only while one of its chips is selected, and
-    // otherwise idles and passes the byte along. Taking the channel used to
-    // deafen whatever had attached first — a Grove sensor model on the board
-    // killed the ILI9488's touch panel (issue #355).
-    //
-    // Joined on EVERY call, not once: attaching under the same owner replaces
-    // the previous incarnation, so a part that dropped the chain on its way
-    // out cannot leave the chips off the bus for the rest of the run.
-    spiChainAttach(simulator.spi, CHIP_SPI_OWNER, (mosi, next) => {
-      if (b.spiBus.active) {
-        simulator.spi.completeTransfer(b.spiBus.transferByte(mosi));
-        return;
-      }
-      simulator.spi.completeTransfer(0xff);
-      next?.(mosi);
-    });
-    b.spiInstalled = true;
-    return;
-  }
-
-  if (kind === 'rp2040' && typeof simulator.setSPIHandler === 'function') {
-    if (b.spiInstalled) return;
-    // RP2040 has SPI0 and SPI1; we route both through the same bus so
-    // CS-gated chips can live on either.
-    for (const bus of [0, 1] as const) {
-      try {
-        simulator.setSPIHandler(bus, (mosi: number) => b.spiBus.transferByte(mosi));
-      } catch { /* this bus may not be in use; ignore */ }
-    }
-    b.spiInstalled = true;
-    return;
-  }
-}
+//
+// There is no SPI bridge any more. A chip joins a board's SPI bus from
+// vx_spi_attach, with the pins of its own config (ChipRuntime._joinSpiBus),
+// and the fabric in simulation/buses decides which bus that is and when the
+// chip is selected. What stood here installed one dispatcher per SIMULATOR,
+// whatever the chip was wired to and whatever bus it spoke: on AVR and the
+// ESP32 shim it joined the part chain, and on RP2040, RP2350 and the XIAO it
+// replaced setSPIHandler on both buses. A UART-only Grove module took the
+// board's SPI with it (issue #355 and findings
+// grove-chip-takes-spi-on-rp-and-xiao-arm, customchip-setspihandler-steals-bus0,
+// rp2-sethandler-clobbers-spi-chain).
 
 // ── I2C adapter ─────────────────────────────────────────────────────────────
 

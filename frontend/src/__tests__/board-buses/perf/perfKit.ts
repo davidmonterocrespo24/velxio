@@ -100,20 +100,23 @@ export const injectedWorkPerByte = Number(process.env.BUS_PERF_INJECT ?? 0);
 
 let burnKeep = 1;
 
-/** Wrap a bus byte handler with the injected work (identity when there is none). */
-export function withInjectedWork<F extends (v: number) => unknown>(handler: F): F {
+/**
+ * One byte's worth of injected work. Call it once per bus byte, inside the
+ * path under test; it does nothing when the control is off. The benches wrap
+ * BOTH entry points a byte can take (a frame and a block), because an engine
+ * that hands whole W-buffer transactions over calls the frame path for none of
+ * them, and wrapping frames alone left the control dead.
+ */
+export function burnInjectedWork(): void {
   const n = injectedWorkPerByte;
-  if (!n) return handler;
-  return ((v: number) => {
-    let x = burnKeep;
-    for (let i = 0; i < n; i++) {
-      x ^= x << 13;
-      x ^= x >>> 17;
-      x ^= x << 5;
-    }
-    burnKeep = x | 1;
-    return handler(v);
-  }) as F;
+  if (!n) return;
+  let x = burnKeep;
+  for (let i = 0; i < n; i++) {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+  }
+  burnKeep = x | 1;
 }
 
 export interface FrameSample {

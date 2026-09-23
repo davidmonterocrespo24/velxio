@@ -194,6 +194,20 @@ export class BusRegistry {
       p.kind === 'board' && p.boardId === board ? p.pin : undefined;
     const mosi = onBoard(this.resolve(desc, desc.pins.mosi));
     const miso = onBoard(this.resolve(desc, desc.pins.miso));
+    if (desc.pins.miso !== undefined && miso === undefined) {
+      // The chip has a data-out leg and it reaches nothing on this board, so it
+      // cannot answer. Silence here reads as a dead chip, which is exactly the
+      // wiring mistake worth naming.
+      this.emit({
+        code: 'spi-wiring',
+        bus: 'spi',
+        boardId: board,
+        owners: [desc.owner],
+        message:
+          `${desc.owner}: its MISO is not wired to the board, so the chip can clock bytes in ` +
+          `but never answers. Wire it to the controller's MISO pin.`,
+      });
+    }
     const cs = this.csSource(desc, board);
     const key = `${board}|${sck.pin}|${mosi ?? ''}|${miso ?? ''}|${JSON.stringify(cs)}`;
     if (key === e.key && e.bus) return;

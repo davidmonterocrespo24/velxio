@@ -4,9 +4,13 @@
  * Registers all five Phase-1 panel kinds against a single `attachEvents`
  * factory. Internally the factory:
  *
- *   - Decodes SPI bytes via `SSD168xDecoder` (browser-side AVR / RP2040).
- *   - Subscribes to `bridge.onEpaperUpdate` (ESP32 backend renders).
- *   - Tracks DC + CS + RST pins via `pinManager.onPinChange`.
+ *   - Decodes SPI bytes via `SSD168xDecoder`, as a write-only device of the
+ *     board's SPI fabric (one path for every engine that clocks SPI in the
+ *     browser: AVR, RP2040, RP2350, the XIAOs, the ESP32 JS engines, the Pi).
+ *   - Subscribes to `bridge.onEpaperUpdate` on a QEMU board, whose worker
+ *     still owns the controller model until F4 of board-buses-2026-09.
+ *   - Tracks DC + RST pins via `pinManager.onPinChange` (CS is the fabric's:
+ *     a frame only reaches the panel while its own chip select is active).
  *   - On flush: paints the latched framebuffer to the element's `<canvas>`
  *     via `putImageData()` (RAF-batched) and holds BUSY at the controller's
  *     BUSY level for `refreshMs`, so firmware busy-waits see realistic timing.
@@ -27,18 +31,13 @@ import {
 } from '../displays/UC8159cDecoder';
 import { Uc8179Decoder, type Uc8179Diagnostic } from '../displays/Uc8179Decoder';
 import { PANEL_CONFIGS, getPanelConfig, PANEL_IDS, busyLevels } from '../displays/EPaperPanels';
-import { RP2040Simulator } from '../RP2040Simulator';
-import { spiChainAttach } from './spiChannel';
+import { attachSpiDevice, isBusCapable } from '../buses';
 import { recordPartGap, releaseLineGap } from '../line/requestLine';
 import { useSimulatorStore, appendSimulatorNote } from '../../store/useSimulatorStore';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface AvrLikeSimulator {
-  // `onByte` is null at rest on a board that has no SPI listener yet (the
-  // Raspberry Pi's adapter, see PiBridgeShim): the channel is a slot, not a
-  // method, and whoever listens assigns it.
-  spi?: { onByte: ((value: number) => void) | null; completeTransfer: (resp: number) => void };
+interface PinnedSimulator {
   pinManager?: { onPinChange(pin: number, cb: (p: number, state: boolean) => void): () => void };
 }
 
@@ -61,6 +60,8 @@ interface Esp32LikeSimulator {
 
 // Pin name → panel-side label. The Web Component exposes them as
 // 'GND', 'VCC', 'SCK', 'SDI', 'CS', 'DC', 'RST', 'BUSY'.
+const PIN_SCK = 'SCK';
+const PIN_SDI = 'SDI';
 const PIN_DC = 'DC';
 const PIN_CS = 'CS';
 const PIN_RST = 'RST';
@@ -68,32 +69,20 @@ const PIN_BUSY = 'BUSY';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function isRP2040(sim: AnySimulator): sim is RP2040Simulator {
-  return sim instanceof RP2040Simulator;
-}
-
 /**
- * A board whose SPI bus is the single-listener adapter (`spi.onByte` is a
- * slot, `spi.completeTransfer` answers MISO) and whose pins go through a
- * PinManager. The AVR is one. So is the Raspberry Pi: its guest's spidev
- * transfers are replayed byte by byte through the same adapter, with CE0
- * pulsed around them and DC / RST arriving as ordinary pin changes.
+ * Whether this board's engine clocks SPI frames through the bus fabric.
  *
- * `isAvr` could not see the Pi because it asks for `typeof onByte ===
- * 'function'`, and the Pi's slot is null until somebody listens. That is
- * what kept every e-paper panel dark on a Pi: no branch was taken at all,
- * the shim reported "nothing attached on SPI", and the backend answered the
- * guest with idle bytes without ever asking the canvas.
+ * Every engine that runs the CPU in the tab does: the AVR, the RP2040 and
+ * RP2350, the ARM XIAOs, the six in-browser ESP32 engines, and the Raspberry
+ * Pi, whose guest's spidev transfers come back as frames on the same ports.
+ * A QEMU board (ESP32 or STM32 in the worker) has no controller port until
+ * F4 of board-buses-2026-09, so its panel stays the worker's model and is
+ * fed through `registerSensor` / `onEpaperUpdate`.
  */
-function hasSpiAdapter(sim: AnySimulator): boolean {
-  const s = sim as AvrLikeSimulator;
-  return (
-    !!s.spi &&
-    typeof s.spi === 'object' &&
-    'onByte' in s.spi &&
-    typeof s.spi.completeTransfer === 'function' &&
-    !!s.pinManager
-  );
+function hasFabricSpi(sim: AnySimulator): boolean {
+  if (!isBusCapable(sim)) return false;
+  const binding = sim.getBusBinding();
+  return !!binding && binding.spi.length > 0;
 }
 
 function isEsp32Shim(sim: AnySimulator): sim is Esp32LikeSimulator {
@@ -212,12 +201,15 @@ const epaperSimulation = {
 
     // ── BUSY pulse plumbing ──────────────────────────────────────────────
     const levels = busyLevels(cfg.controllerFamily);
-    // On the ESP32 lane the WORKER owns the pad: it sets the idle level when
+    // Which side models the controller: the panel here, on the board's SPI
+    // fabric, or the QEMU worker, which renders the frame and sends it back.
+    const onFabric = hasFabricSpi(simulator);
+    // On the QEMU lane the WORKER owns the pad: it sets the idle level when
     // the slave is created and pulses it around each refresh, with the same
     // per-family levels. Driving it from here as well was two writers on one
     // pin, and for an UltraChip panel they disagreed (this side said HIGH =
     // busy, the worker said HIGH = idle).
-    const drivesBusyPad = !isEsp32Shim(simulator);
+    const drivesBusyPad = onFabric || !isEsp32Shim(simulator);
     let busyTimer: ReturnType<typeof setTimeout> | null = null;
     const setBusy = (state: boolean) => {
       (element as any).busy = state;
@@ -307,11 +299,11 @@ const epaperSimulation = {
       if (rafId !== null) cancelAnimationFrame(rafId);
     });
 
-    // ── Browser-side decoder + SPI hook (AVR / RP2040) ───────────────────
-    const installBrowserPath = () => {
-      // Pick the decoder that matches the panel's controller family. Both
-      // expose .feed(byte, dcHigh) + .reset() so the SPI hook below stays
-      // family-agnostic.
+    // ── Browser-side decoder, on the board's SPI fabric ──────────────────
+    const installFabricPath = () => {
+      // Pick the decoder that matches the panel's controller family. All
+      // three expose .feed(byte, dcHigh) + .reset(), so the device below
+      // stays family-agnostic.
       const onDecoderFlush = (frame: Frame | UC8159cFrame) => {
         scheduleFlush(frame);
         pulseBusy(refreshMs);
@@ -333,28 +325,18 @@ const epaperSimulation = {
                 onFlush: onDecoderFlush,
               });
 
-      // CS / DC / RST pin tracking.
-      let csLow = false; // start with CS de-asserted (idle)
+      // DC and RST are plain pins the driver toggles; CS is not ours to read,
+      // because the fabric only clocks the panel while it is selected.
       let dcHigh = false;
       const dcPin = getArduinoPinHelper(PIN_DC);
-      const csPin = getArduinoPinHelper(PIN_CS);
       const rstPin = getArduinoPinHelper(PIN_RST);
 
-      const pm =
-        (simulator as AvrLikeSimulator).pinManager ??
-        ((simulator as unknown as { pinManager: any }).pinManager as any);
+      const pm = (simulator as PinnedSimulator).pinManager;
       if (pm) {
         if (dcPin !== null) {
           cleanups.push(
             pm.onPinChange(dcPin, (_p: number, s: boolean) => {
               dcHigh = s;
-            }),
-          );
-        }
-        if (csPin !== null) {
-          cleanups.push(
-            pm.onPinChange(csPin, (_p: number, s: boolean) => {
-              csLow = !s;
             }),
           );
         }
@@ -368,42 +350,29 @@ const epaperSimulation = {
         }
       }
 
-      // SPI byte source: AVR or RP2040.
-      if (isRP2040(simulator)) {
-        const sim = simulator as RP2040Simulator;
-        const rp = (sim as any).rp2040 as
-          | { spi: Array<{ onTransmit: (v: number) => void; completeTransmit: (v: number) => void }> }
-          | undefined;
-        if (rp?.spi?.length) {
-          // SPI0 covers the GxEPD2 default pinmap (GP18=SCK, GP19=MOSI).
-          // Hook both buses; whichever the user wired will do the work.
-          for (let bus = 0; bus < rp.spi.length; bus++) {
-            const spi = rp.spi[bus];
-            const prev = spi.onTransmit;
-            spi.onTransmit = (value: number) => {
-              if (csLow || csPin === null) decoder.feed(value, dcHigh);
-              spi.completeTransmit(0xff);
-            };
-            cleanups.push(() => {
-              spi.onTransmit = prev;
-            });
-          }
-        }
-      } else if (hasSpiAdapter(simulator)) {
-        const spi = (simulator as AvrLikeSimulator).spi!;
-        // Joins the chain: write-only, so it answers idle and passes every
-        // byte on to whatever else shares the bus (see spiChannel).
-        cleanups.push(
-          spiChainAttach(spi, `epaper:${componentId}`, (value, next) => {
-            if (csLow || csPin === null) decoder.feed(value, dcHigh);
-            spi.completeTransfer(0xff);
-            next?.(value);
-          }),
-        );
-      }
+      // The panel is a write-only sink: it reports status on BUSY, never on
+      // MISO, so it answers null and the fabric resolves the line. No
+      // boardReset(): the MCU's reset pin is not the panel's, and the image
+      // in its RAM is data (F3-SPEC rule 7). Only a falling edge on RST
+      // clears the controller, above.
+      const handle = attachSpiDevice(
+        { owner: componentId, pins: { sck: PIN_SCK, mosi: PIN_SDI, cs: PIN_CS } },
+        {
+          transfer: (value: number) => {
+            decoder.feed(value, dcHigh);
+            return null;
+          },
+          transferBlock: (bytes: Uint8Array) => {
+            for (let i = 0; i < bytes.length; i++) decoder.feed(bytes[i], dcHigh);
+          },
+        },
+      );
+      cleanups.push(() => handle.dispose());
     };
 
-    // ── ESP32 backend path (decoded frames arrive over WS) ───────────────
+    // ── QEMU path (the worker decodes, frames arrive over WS) ────────────
+    // The last engine without controller ports. F4 of board-buses-2026-09
+    // mirrors the fabric into the worker and this whole path goes.
     const installEsp32Path = () => {
       if (!isEsp32Shim(simulator)) return;
       const bridge = simulator.getBridge!();
@@ -448,13 +417,13 @@ const epaperSimulation = {
     };
 
     // ── Pick the path ────────────────────────────────────────────────────
-    if (isEsp32Shim(simulator)) {
+    if (onFabric) {
+      installFabricPath();
+    } else if (isEsp32Shim(simulator)) {
       installEsp32Path();
-    } else if (isRP2040(simulator) || hasSpiAdapter(simulator)) {
-      installBrowserPath();
     }
-    // Other simulators (RiscV, Esp32C3, …) silently no-op for now; the
-    // canvas stays in its idle paper colour. See plan §"Out of scope".
+    // A board with neither (an ATtiny85, whose USI gives avr8js no frame)
+    // silently no-ops: the canvas stays in its idle paper colour.
 
     // ── Cleanup ──────────────────────────────────────────────────────────
     return () => {

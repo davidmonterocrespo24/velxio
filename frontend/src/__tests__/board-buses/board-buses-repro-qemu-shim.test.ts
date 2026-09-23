@@ -1,30 +1,48 @@
 /**
- * Board buses F0: reproduction of the "qemu" findings that live in the browser
+ * Board buses: the "qemu" findings as seen from the browser
  * (project/board-buses-2026-09, evidence/f0-repro-areas.json).
  *
- * An ESP32 board on the backend QEMU engine: the store's own addBoard builds
- * the real Esp32Bridge and Esp32BridgeShim, the real ILI9341 model from
- * PartSimulationRegistry attaches to the shim's `spi` adapter, and the real
- * custom-chips SPI node (simulatorBridges.ensureSpiBridge, the call a Grove
- * module's browser copy makes on every board) joins the same chain. What the
- * worker would send arrives through the WebSocket exactly as the backend
- * relays it (`gpio_change`, then `spi_batch` with the MOSI bytes in base64);
- * what the tab sends back is read off the same socket. The socket is the only
- * stand-in, plus the canvas the panel paints on (a context that keeps the
- * pixels) and window.setTimeout (its paint debounce).
+ * The boards here run in the backend QEMU worker: an ESP32 DevKit and an STM32
+ * Blue Pill, built by the store's own addBoard, with the real Esp32Bridge /
+ * Stm32Bridge behind the real Esp32BridgeShim / Stm32BridgeShim, and real parts
+ * from PartSimulationRegistry (the OSS ILI9341, the OSS microSD card, a real
+ * custom chip). What the worker would send arrives through the WebSocket
+ * exactly as the backend relays it (`gpio_change`, then `spi_batch` with the
+ * MOSI bytes in base64); what the tab sends back is read off the same socket.
+ * The stand-ins are the socket, the canvas the panel paints on (a context that
+ * keeps the pixels), window.setTimeout (the panel's paint debounce) and a
+ * document with no elements in it (the chip part looks its element up there).
+ *
+ * WHAT THIS LANE IS SINCE F3. A part is on a bus because its pins are on that
+ * bus's nets, and the bytes reach it from a controller PORT the engine adapter
+ * publishes. The QEMU bridges have no port: Esp32BridgeShim.getBusBinding and
+ * Stm32BridgeShim.getBusBinding hand the fabric the board's PINS and an empty
+ * `spi` list until F4. So a device on a QEMU board is placed on the right bus
+ * and its chip select follows the guest's `gpio_change`, and then it is handed
+ * nothing: the MOSI bytes of a `spi_batch` reach no device in the tab, and no
+ * device can answer MISO. That is what every case below states.
  *
  * The bytes in a `spi_batch` were clocked by the guest before the batch was
  * sent (esp32_worker.py batches them and returns _spi_response[0] at byte
- * time), so no answer the tab gives for them can reach those transfers.
+ * time), so even a device that did get them could not answer them in time.
+ * That is the shape of the F4 job: the responder has to live next to the
+ * guest, and the browser device has to be fed as a block.
  *
- * The last block does the same for an STM32 Blue Pill (Stm32Bridge and
- * Stm32BridgeShim from the store, started through startBoard) with the real
- * OSS microSD card, a part that does answer MISO.
- *
- * Convention (TESTS.md): `it.fails` marks a finding reproduced today, stating
- * the hardware-faithful behaviour; its `setup` sibling proves the rig works.
+ * Convention (TESTS.md), and how to tell the three states apart here:
+ *  - `it.fails` + "F4, still broken": the hardware-faithful behaviour, not
+ *    reached today. Its `setup` sibling proves the rig (board, wiring, fabric
+ *    placement, chip select) so the it.fails can never pass on a broken rig.
+ *  - `it.fails` + "F4, no longer reachable this way": the finding's own
+ *    machinery (one esp32_spi_response per byte, applied to a later byte) is
+ *    still in the product, but nothing drives it any more now that browser
+ *    devices get no bytes on this lane. The case asserts BOTH halves, so it
+ *    cannot pass by the lane staying dead.
+ *  - plain `it` + "closed by F3": the finding's cause is gone; the case is the
+ *    regression guard, and it asserts what replaced it, not an absence alone.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 vi.stubGlobal('window', {
   setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
@@ -32,6 +50,9 @@ vi.stubGlobal('window', {
 });
 vi.stubGlobal('requestAnimationFrame', () => 0);
 vi.stubGlobal('cancelAnimationFrame', () => {});
+// The custom-chip part asks the document for its element (to paint a chip
+// display). On this lane there is no element and no display.
+vi.stubGlobal('document', { getElementById: () => null });
 
 /** The socket the bridge opens. Records every frame the tab sends. */
 class ScriptedSocket {
@@ -45,7 +66,9 @@ class ScriptedSocket {
   onclose: ((e?: unknown) => void) | null = null;
   onerror: ((e?: unknown) => void) | null = null;
   sent: Array<{ type: string; data?: Record<string, unknown> }> = [];
-  constructor(readonly url: string) {
+  readonly url: string;
+  constructor(url: string) {
+    this.url = url;
     ScriptedSocket.last = this;
   }
   send(frame: string): void {
@@ -72,7 +95,9 @@ import {
 } from '../../store/useSimulatorStore';
 import { PartSimulationRegistry } from '../../simulation/parts/PartSimulationRegistry';
 import '../../simulation/parts';
-import { ensureSpiBridge, hostsChipsInWorker } from '../../simulation/customChips/simulatorBridges';
+import { attachSpiDevice, busRegistry, isBusCapable } from '../../simulation/buses';
+import type { EngineBinding } from '../../simulation/buses';
+import { hostsChipsInWorker } from '../../simulation/customChips/simulatorBridges';
 import { lineGaps } from '../../simulation/line/requestLine';
 
 // ── Rig ──────────────────────────────────────────────────────────────────────
@@ -106,8 +131,12 @@ function tftElement(id: string) {
   };
 }
 
+/** VSPI on an ESP32 DevKit: the pins every Arduino SPI sketch gets by default,
+ *  and the pads they are silked as on the header. */
 const TFT_CS = 15;
 const TFT_DC = 2;
+const ESP32_SPI = { SCK: 'D18', MOSI: 'D23', MISO: 'D19' };
+const ESP32_PIN = { SCK: 18, MOSI: 23, MISO: 19 };
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -115,16 +144,44 @@ afterEach(() => {
   for (const b of [...useSimulatorStore.getState().boards]) {
     useSimulatorStore.getState().removeBoard?.(b.id);
   }
+  useSimulatorStore.setState({ wires: [], components: [] } as never);
 });
 
-/** An ESP32 DevKit on the QEMU engine, connected, with the given parts. */
-function qemuBoard(opts: { tft?: boolean; chipsBridge?: boolean }) {
+/**
+ * Wire a component's pins to a board's pads, as the canvas does. The fabric
+ * walks these wires (PinTrace) to decide which bus the component is on, so a
+ * part that is not wired is on no bus at all, here as in the app.
+ */
+function wire(boardId: string, componentId: string, pads: Record<string, string>): void {
+  const wires = Object.entries(pads).map(([pinName, pad], i) => ({
+    id: `${componentId}-w${i}`,
+    start: { componentId, pinName, x: 0, y: 0 },
+    end: { componentId: boardId, pinName: pad, x: 0, y: 0 },
+    waypoints: [],
+    color: '#0a0',
+  }));
+  useSimulatorStore.setState((s) => ({ wires: [...s.wires, ...wires] }) as never);
+}
+
+/** The engine binding the fabric got for this board. */
+function bindingOf(boardId: string): EngineBinding | null {
+  const sim = getBoardSimulator(boardId);
+  return isBusCapable(sim) ? sim.getBusBinding() : null;
+}
+
+/**
+ * An ESP32 DevKit on the QEMU engine, connected, with an ILI9341 wired to VSPI
+ * (CS GPIO15, D/C GPIO2) when asked for. The panel is a real part: it registers
+ * itself on the bus its wires say, exactly as it does in the app.
+ */
+function qemuBoard(opts: { tft?: boolean }) {
   const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
   const shim = getBoardSimulator(id) as unknown as { spi: unknown };
   const bridge = getEsp32Bridge(id)!;
   let tft: ReturnType<typeof tftElement> | null = null;
   if (opts.tft) {
     tft = tftElement('tft1');
+    wire(id, 'tft1', { ...ESP32_SPI, CS: `D${TFT_CS}`, 'D/C': `D${TFT_DC}` });
     const pinOf = (name: string) => (name === 'D/C' ? TFT_DC : name === 'CS' ? TFT_CS : null);
     const off = PartSimulationRegistry.get('ili9341')!.attachEvents!(
       tft as unknown as HTMLElement,
@@ -134,11 +191,10 @@ function qemuBoard(opts: { tft?: boolean; chipsBridge?: boolean }) {
     );
     cleanups.push(off);
   }
-  if (opts.chipsBridge) ensureSpiBridge(shim);
   bridge.connect();
   const ws = ScriptedSocket.last!;
   ws.open();
-  return { ws, tft, bridge, shim };
+  return { id, ws, tft, bridge, shim };
 }
 
 const b64 = (bytes: number[]) => Buffer.from(bytes).toString('base64');
@@ -179,44 +235,153 @@ function rowOnPanel(tft: ReturnType<typeof tftElement>): number[] {
 
 const misoFrames = (ws: ScriptedSocket) => ws.sent.filter((m) => m.type === 'esp32_spi_response');
 
+/**
+ * A responder wired to the same bus as the panel: it counts the frames it is
+ * handed and answers a byte for each, which is what an SD card, a touch
+ * controller or an ADC does. Not a stand-in for a part: it is a device of the
+ * fabric like any other, registered through the public attachSpiDevice, and it
+ * is here to make "the guest's bytes reached the devices on this bus" and "the
+ * tab answered MISO" observable in one place.
+ */
+function responder(boardId: string, owner: string, cs: number) {
+  const seen: number[] = [];
+  wire(boardId, owner, { ...ESP32_SPI, CS: `D${cs}` });
+  const handle = attachSpiDevice(
+    { owner, pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' } },
+    {
+      transfer: (mosi: number) => {
+        seen.push(mosi);
+        return 0x01;
+      },
+      peekMiso: () => 0x01,
+    },
+  );
+  cleanups.push(() => handle.dispose());
+  return { seen };
+}
+
+// ── The lane itself: pins bound, no controller ──────────────────────────────
+
+describe('QEMU ESP32 board: what the bus fabric is given', () => {
+  it('the fabric gets the board pins and no SPI controller port (F4 adds the port)', () => {
+    const { id } = qemuBoard({ tft: true });
+    const binding = bindingOf(id);
+    expect(binding, 'the QEMU shim binds the board').not.toBeNull();
+    expect(binding!.spi, 'SPI controller ports on the QEMU lane').toEqual([]);
+    expect(typeof binding!.pins.peekPinState).toBe('function');
+  });
+});
+
 // ── esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte ─────────────────────
 
 describe('QEMU ESP32 shim: MISO answers for bytes the guest already clocked', () => {
-  it('esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte setup: the replayed batches reach the ILI9341 and it draws the row exactly', () => {
-    const { ws, tft } = qemuBoard({ tft: true });
-    const clocked = drawRow(ws);
-    expect(clocked).toBe(491);
-    expect(rowOnPanel(tft!)).toEqual(ROW);
+  it('esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte setup: the ILI9341 is on the board bus its wires say, and the guest chip select selects it', () => {
+    const { id, ws } = qemuBoard({ tft: true });
+    expect(busRegistry.placement('tft1')).toEqual({
+      boardId: id,
+      sckPin: ESP32_PIN.SCK,
+      selected: false,
+    });
+    ws.receive('gpio_change', { pin: TFT_CS, state: 0 });
+    expect(busRegistry.placement('tft1')!.selected, 'CS low selects the panel').toBe(true);
+    ws.receive('gpio_change', { pin: TFT_CS, state: 1 });
+    expect(busRegistry.placement('tft1')!.selected, 'CS high deselects it').toBe(false);
   });
 
+  // F4, still broken. The batch holds the bytes the guest clocked while the
+  // panel's CS was low; on a board with a controller port (any in-browser
+  // engine) that same row lands on the glass. Here it reaches no device at
+  // all, because the QEMU bridge publishes no port for the fabric to clock.
   it.fails(
-    'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: replaying a write-only row into the ILI9341 sends at most one esp32_spi_response, not one per byte',
+    'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: the row the guest clocked into a selected ILI9341 reaches the panel',
     () => {
-      const { ws } = qemuBoard({ tft: true });
-      drawRow(ws);
-      expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
+      const { ws, tft } = qemuBoard({ tft: true });
+      expect(drawRow(ws)).toBe(491);
+      expect(rowOnPanel(tft!)).toEqual(ROW);
+    },
+  );
+
+  // F4, no longer reachable this way. The finding is the answer channel:
+  // Esp32BridgeShim's legacy .spi facade hands every completeTransfer to
+  // Esp32Bridge.setSpiResponse, which is one esp32_spi_response WebSocket
+  // message per MOSI byte, applied by the worker to whatever byte it is
+  // clocking when it arrives. That code is untouched; what changed with F3 is
+  // that no device is on that facade any more, so nothing drives it and the
+  // flood does not happen today. Both halves are asserted together, so this
+  // cannot pass just because the lane is dead: a responder must be handed the
+  // bytes AND the tab must not answer them one socket message at a time.
+  it.fails(
+    'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: a responder on the bus is handed the guest bytes without the tab answering one WebSocket message per byte',
+    () => {
+      const { id, ws } = qemuBoard({});
+      const sd = responder(id, 'sd1', TFT_CS);
+      const clocked = drawRow(ws);
+      expect(sd.seen.length, 'frames the responder was handed').toBe(clocked);
+      expect(misoFrames(ws).length, 'esp32_spi_response frames the tab sent').toBe(0);
     },
   );
 });
 
 // ── qemu-chip-node-floods-spi-response ───────────────────────────────────────
 
-describe('QEMU ESP32 shim: the custom-chips SPI node with no chip on the bus', () => {
-  it('qemu-chip-node-floods-spi-response setup: the board hosts its chips in the worker, and with the chips bridge installed the batches still reach the ILI9341 and the row is exact', () => {
-    const { ws, tft, shim } = qemuBoard({ tft: true, chipsBridge: true });
+/** The real spi-probe chip of the chips fixtures (built by
+ *  fixtures/chips-spi-chips/build.sh, checked in board-buses-repro-chips-spi). */
+const probeWasm = readFileSync(
+  fileURLToPath(new URL('./fixtures/chips-spi-chips/spi-probe.wasm', import.meta.url)),
+).toString('base64');
+const PROBE_JSON = JSON.stringify({ pins: ['CS', 'SCK', 'MOSI', 'MISO', 'GROW', 'VCC', 'GND'] });
+const CHIP_CS = 5;
+
+/** Drop a real custom chip on the canvas, wired to the board's SPI pins, and
+ *  attach it with the real part, as DynamicComponent does. */
+function attachChip(boardId: string, shim: unknown, id: string) {
+  const pins: Record<string, number> = { CS: CHIP_CS, ...ESP32_PIN };
+  useSimulatorStore.setState((s) => ({
+    components: [
+      ...s.components,
+      {
+        id,
+        metadataId: 'custom-chip',
+        x: 0,
+        y: 0,
+        properties: { wasmBase64: probeWasm, chipJson: PROBE_JSON, attrs: {} },
+      },
+    ],
+  }) as never);
+  wire(boardId, id, { ...ESP32_SPI, CS: `D${CHIP_CS}` });
+  const off = PartSimulationRegistry.get('custom-chip')!.attachEvents!(
+    { id } as unknown as HTMLElement,
+    shim as never,
+    (pin: string) => (pin in pins ? pins[pin] : null),
+    id,
+  );
+  cleanups.push(off);
+}
+
+describe('QEMU ESP32 shim: a custom chip on the board SPI pins', () => {
+  it('qemu-chip-node-floods-spi-response setup: the chip goes to the worker, as a custom-chip record carrying the SPI pins it is wired to', () => {
+    const { id, ws, shim } = qemuBoard({});
     expect(hostsChipsInWorker(shim)).toBe(true);
-    drawRow(ws);
-    expect(rowOnPanel(tft!)).toEqual(ROW);
+    attachChip(id, shim, 'chip1');
+    const rec = ws.sent.find(
+      (m) => m.type === 'esp32_sensor_attach' && m.data?.sensor_type === 'custom-chip',
+    );
+    expect(rec, 'the chip reached the worker').toBeTruthy();
+    expect(rec!.data!.pin_map).toMatchObject({ CS: CHIP_CS, SCK: ESP32_PIN.SCK });
   });
 
-  it.fails(
-    'qemu-chip-node-floods-spi-response: on a board whose chips run in the worker, the browser chips node sends no esp32_spi_response per replayed byte',
-    () => {
-      const { ws } = qemuBoard({ chipsBridge: true });
-      drawRow(ws);
-      expect(misoFrames(ws).length).toBeLessThanOrEqual(1);
-    },
-  );
+  // Closed by F3. There is no browser chips SPI node any more: a chip joins
+  // a board's bus from its own vx_spi_attach, and on a board that hosts its
+  // chips in the worker no browser instance exists at all. So the chip
+  // registers no device in the tab's fabric and nothing answers, per byte or
+  // otherwise, the bytes the guest already clocked.
+  it('qemu-chip-node-floods-spi-response: a chip hosted in the worker puts no device in the tab and answers no replayed byte', () => {
+    const { id, ws, shim } = qemuBoard({});
+    attachChip(id, shim, 'chip1');
+    expect(busRegistry.placement('chip1'), 'no browser device for a worker-hosted chip').toBeNull();
+    drawRow(ws);
+    expect(misoFrames(ws)).toEqual([]);
+  });
 });
 
 // ── worker-i2c-slaves-ignore-bus-id (the browser half) ───────────────────────
@@ -308,30 +473,31 @@ describe('QEMU ESP32 board: two I2C sensors at one address on Wire and Wire1', (
 
 // ── stm32-no-client-miso-and-epaper-swallow (the browser half) ───────────────
 
-/** PA4, SPI1 NSS on the Blue Pill (the worker numbers pins port * 16 + n). */
+/** SPI1 on the Blue Pill, as every SD library uses it: SCK PA5, MISO PA6,
+ *  MOSI PA7, NSS PA4. The worker numbers pins port * 16 + n. */
+const STM32_SD = { SCK: 'PA5', DI: 'PA7', DO: 'PA6', CS: 'PA4' };
 const STM32_SD_CS = 4;
 /** SD.begin()'s first frame: CMD0 (GO_IDLE_STATE), then one 0xFF clock for R1. */
 const CMD0_AND_R1 = [0x40, 0x00, 0x00, 0x00, 0x00, 0x95, 0xff];
 
 /**
  * A Blue Pill on the STM32 QEMU engine, started by the store's own startBoard
- * (the Run path), with or without an OSS microSD card on the canvas and
- * attached to the board's shim, CS on PA4. The worker's side of SD.begin()
- * is replayed in guest order. Returns what the tab sent to the backend (all
- * of it, and the part sent at Run, before the guest clocks a byte), what the
- * card answered through the shim's completeTransfer, and what the user was
- * told (notes in the serial monitor, part gaps for the circuit check).
+ * (the Run path), with or without an OSS microSD card on the canvas, wired to
+ * SPI1 and attached with the real part. The worker's side of SD.begin() is
+ * replayed in guest order. Returns what the tab sent to the backend (all of
+ * it, and the part sent at Run, before the guest clocks a byte), where the
+ * fabric placed the card and whether its chip select followed the guest, and
+ * what the user was told (notes in the serial monitor, part gaps for the
+ * circuit check).
  */
 async function stm32SdBegin(card: boolean) {
   const store = useSimulatorStore.getState();
   const id = store.addBoard('stm32-bluepill', 0, 0);
-  const shim = getBoardSimulator(id) as unknown as {
-    spi: { completeTransfer: (miso: number) => void };
-  };
-  const answered = vi.spyOn(shim.spi, 'completeTransfer');
+  const shim = getBoardSimulator(id);
   if (card) {
     store.addComponent({ id: 'sd1', metadataId: 'microsd-card', x: 0, y: 0, properties: {} });
     cleanups.push(() => useSimulatorStore.getState().removeComponent('sd1'));
+    wire(id, 'sd1', STM32_SD);
     const pinOf = (name: string) => (name === 'CS' ? STM32_SD_CS : null);
     cleanups.push(
       PartSimulationRegistry.get('microsd-card')!.attachEvents!(
@@ -351,36 +517,41 @@ async function stm32SdBegin(card: boolean) {
   const sentAtRun = ws.sent.length;
   ws.receive('gpio_change', { pin: STM32_SD_CS, state: 1 });
   ws.receive('gpio_change', { pin: STM32_SD_CS, state: 0 });
+  const selected = busRegistry.placement('sd1')?.selected ?? null;
   ws.receive('spi_batch', { b64: b64(CMD0_AND_R1) });
   ws.receive('gpio_change', { pin: STM32_SD_CS, state: 1 });
   await new Promise((r) => setTimeout(r, 20)); // the serial batcher's flush
   const board = useSimulatorStore.getState().boards.find((b) => b.id === id)!;
   return {
+    boardId: id,
     sent: ws.sent.map((m) => JSON.stringify(m)),
     sentAtRun: ws.sent.slice(0, sentAtRun).map((m) => JSON.stringify(m)),
-    answers: answered.mock.calls.map((c) => c[0]),
+    placement: busRegistry.placement('sd1'),
+    selected,
     notes: board.serialOutput,
     gaps: lineGaps().length - gapsBefore,
   };
 }
 
 describe('QEMU STM32 board: a browser SPI part that answers (microSD card)', () => {
-  it('stm32-no-client-miso-and-epaper-swallow setup: on a started Blue Pill the card sees its CS and CMD0 and answers R1 idle (0x01) on the clock after the command', async () => {
+  it('stm32-no-client-miso-and-epaper-swallow setup: on a started Blue Pill the card sits on SPI1 and the guest chip select selects it, and the board has no SPI controller port', async () => {
     const run = await stm32SdBegin(true);
     expect(run.sent.some((f) => f.includes('"start_stm32"'))).toBe(true);
-    expect(run.answers).toEqual([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]);
+    expect(run.placement).toEqual({ boardId: run.boardId, sckPin: 5, selected: false });
+    expect(run.selected, 'CS low selects the card').toBe(true);
+    expect(bindingOf(run.boardId)!.spi, 'SPI controller ports on the STM32 lane').toEqual([]);
   });
 
-  // Today the answer goes to Stm32BridgeShim.spi.completeTransfer, an empty
-  // function (useSimulatorStore.ts ~1137), and the STM32 start path hands the
-  // worker no card: SD.begin() reads 0xFF and fails with nothing on screen.
-  // Either fix flips this: the card reaching the backend at Run, before the
-  // guest clocks (a worker-side responder, as the ESP32 start path does with
-  // sdCsPin), or a note / part gap saying it cannot answer on this engine.
-  // Forwarding the card's per-byte answers does NOT count, which is why only
-  // frames sent at Run are compared: each answer leaves after the byte it
-  // answers was clocked, so the worker applies it a byte late (TestBrowserMiso
-  // in the STM32 worker tests) and SD.begin() still fails.
+  // F4, still broken, and now for one reason instead of two. The card is on
+  // the bus and selected, and CMD0 still reaches nobody: the STM32 worker runs
+  // the controller and the tab has no port to be clocked from. Either fix
+  // closes this: the card reaching the backend at Run, before the guest clocks
+  // (a worker-side responder, as the ESP32 start path does with sdCsPin), or a
+  // note / part gap saying it cannot answer on this engine. Forwarding
+  // per-byte answers does NOT count, which is why only frames sent at Run are
+  // compared: an answer leaves after the byte it answers was clocked, so the
+  // worker applies it a byte late (TestBrowserMiso in the STM32 worker tests)
+  // and SD.begin() still fails.
   it.fails(
     'stm32-no-client-miso-and-epaper-swallow: a microSD card on an STM32 QEMU board is not dropped silently: the backend is handed the card at Run, or the user is told it cannot answer on this engine',
     async () => {

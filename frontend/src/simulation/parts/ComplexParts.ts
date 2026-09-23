@@ -1,7 +1,7 @@
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { PartSimulationRegistry } from './PartSimulationRegistry';
-import { spiChainDetach, spiChainTag, spiChainUnder } from './spiChannel';
-import type { AnySimulator } from './PartSimulationRegistry';
+import { attachSpiDevice } from '../buses';
+import type { AnySimulator, PartSimulationLogic } from './PartSimulationRegistry';
 import { RP2040Simulator } from '../RP2040Simulator';
 import { getADC, setAdcVoltage, emitPropertyChange } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
@@ -983,12 +983,15 @@ PartSimulationRegistry.register('lcd2002', createLcdSimulation(20, 2));
 // ─── ILI9341 TFT Display (SPI) ───────────────────────────────────────────────
 
 /**
- * ILI9341 TFT display simulation via hardware SPI.
+ * ILI9341 TFT display simulation.
  *
- * Intercepts writes to SPDR (via AVRSPI) and decodes ILI9341 commands:
+ * A write-only device on the board's SPI fabric (it registers its own SCK /
+ * MOSI / MISO / CS pins and is clocked only while its chip select is active).
+ * It decodes ILI9341 commands:
  *   - 0x2A CASET  – set column address window
  *   - 0x2B PASET  – set page (row) address window
- *   - 0x2C RAMWR  – stream RGB-565 pixel data
+ *   - 0x2C RAMWR  – rewind the cursor to the window's start and stream
+ *                    RGB-565 pixel data
  *   - 0x36 MADCTL – memory access control (rotation MV / MX / MY bits)
  *   - 0x01 SWRESET – clear display
  *   - All others are silently accepted (DISPON, COLMOD, …)
@@ -1003,20 +1006,12 @@ PartSimulationRegistry.register('lcd2002', createLcdSimulation(20, 2));
  *
  * DC/RS pin: LOW = command byte, HIGH = data bytes.
  */
-const ili9341Simulation = {
-  attachEvents: (element, simulator, getArduinoPinHelper) => {
+const ili9341Simulation: PartSimulationLogic = {
+  attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
     const el = element as any;
     const pinManager = (simulator as any).pinManager;
-    // Generic .spi accessor — every simulator (AVR, RP2040, ESP32 family)
-    // exposes a SpiBusLike object via this name (see frontend/src/simulation/
-    // SpiBus.ts). Single-listener channel: assign to spi.onByte and
-    // chain any prior handler in our cleanup.
-    const spi = (simulator as any).spi as
-      | { onByte: ((mosi: number) => void) | null;
-          completeTransfer?: (miso: number) => void }
-      | undefined;
 
-    if (!pinManager || !spi) return () => {};
+    if (!pinManager) return () => {};
 
     // ── Canvas setup ──────────────────────────────────────────────────
     const SCREEN_W = 240;
@@ -1209,6 +1204,18 @@ const ili9341Simulation = {
       inRamWrite = cmd === 0x2c;
       pixelByteCount = 0;
 
+      // RAMWR (2Ch) puts the frame-memory pointer back at the start of the
+      // window (datasheet 8.2.22 Memory Write): the next pixel lands on
+      // (SC, SP) whether or not CASET/PASET were sent again. Without this the
+      // cursor only ever moved on a CASET/PASET, so a driver that keeps the
+      // window and re-sends RAMWR alone (a second fillScreen of the same
+      // area, TFT_eSPI skipping an unchanged setAddrWindow) went on writing
+      // past rowEnd and drew nothing at all.
+      if (cmd === 0x2c) {
+        curX = colStart;
+        curY = rowStart;
+      }
+
       if (cmd === 0x01) {
         // SWRESET – clear framebuffer + reset MADCTL to defaults
         colStart = 0;
@@ -1267,37 +1274,49 @@ const ili9341Simulation = {
       }
     };
 
-    // ── Intercept SPI (board-agnostic) ────────────────────────────────
-    // Single hook regardless of board kind: every simulator's `.spi`
-    // exposes the same shape — settable onByte handler + optional
-    // completeTransfer to drive MISO. AVR and RP2040 actually use
-    // completeTransfer; ESP32 ignores it (worker drives MISO via
-    // its own _spi_response global).
-    // `spi.onByte` holds ONE listener, and this panel is rarely alone on its
-    // bus — an SD card is wired to the same SCK/MOSI on every TFT+SD project.
-    // Taking the channel outright muted whatever was already on it (issue
-    // #343), so the byte is passed along; everything else in the chain gates
-    // on its own chip select, so hearing it costs nothing. MISO is driven
-    // before forwarding, on purpose: a device downstream that IS selected
-    // overwrites the idle byte with its real answer.
-    const owner = `ili9341:${(el?.id as string) || 'panel'}`;
-    const chain = spiChainUnder(spi.onByte, owner);
-    const onByte = (value: number) => {
+    // ── On the SPI bus ────────────────────────────────────────────────
+    // The panel is a write-only sink: it never drives MISO, so it answers
+    // null and the fabric resolves the line. The fabric hands it a frame
+    // only while its OWN chip select is active, which is what a real panel
+    // does and what the chain never did: a card or a touch controller on the
+    // same SCK/MOSI used to paint its traffic as pixels (#343).
+    //
+    // CS rising deliberately does NOT end a RAM write. On the chip the frame
+    // memory pointer and the active command survive CSX, which is what every
+    // Adafruit driver relies on: setAddrWindow + RAMWR go out in one
+    // transaction and the pixels in the next (pushColor). Only a new RAMWR
+    // moves the cursor.
+    const owner = componentId || (el?.id as string) || 'ili9341';
+    const feed = (value: number) => {
       if (!dcState) processCommand(value);
-      else          processData(value);
-      // Idle-byte response — the typical ILI9341 driver writes only,
-      // so any value works. 0xff matches what the prior AVR path
-      // returned to keep behaviour stable.
-      spi.completeTransfer?.(0xff);
-      chain.next?.(value);
+      else processData(value);
     };
-    spi.onByte = spiChainTag(onByte, owner, chain);
+    const handle = attachSpiDevice(
+      { owner, pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' } },
+      {
+        transfer: (value: number) => {
+          feed(value);
+          return null;
+        },
+        transferBlock: (bytes: Uint8Array) => {
+          for (let i = 0; i < bytes.length; i++) feed(bytes[i]);
+        },
+        boardReset: () => {
+          // The MCU rebooted: the next byte on the wire is a fresh command,
+          // so the half-read parameter list and the half-read pixel go. The
+          // window, the rotation and the picture are the panel's own and
+          // stay, as they do on a board whose reset button is pressed.
+          currentCmd = -1;
+          dataBytes = [];
+          inRamWrite = false;
+          pixelByteCount = 0;
+        },
+      },
+    );
 
     // ── Cleanup ───────────────────────────────────────────────────────
     return () => {
-      // Out of the chain wherever we sit: restoring the channel outright
-      // would mute a part that attached after us.
-      spiChainDetach(spi, onByte);
+      handle.dispose();
       if (idleTimerId !== null) clearTimeout(idleTimerId);
       el.removeEventListener('canvas-ready', onCanvasReady);
       unsubscribers.forEach((u) => u());

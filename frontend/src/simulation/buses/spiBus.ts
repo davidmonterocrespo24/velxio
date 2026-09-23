@@ -26,6 +26,14 @@ import type {
 
 export type DiagnosticSink = (d: BusDiagnostic) => void;
 
+/** A device drives MISO only if its MISO pin reaches this board's net: a chip
+ *  whose data-out leg is not wired (a 74HC595's QH) leaves the line alone, as
+ *  it does on the bench. A device that declares no MISO pin at all answers
+ *  null anyway. */
+function drives(m: SpiMember): boolean {
+  return m.desc.pins.miso === undefined ? false : m.misoPin !== undefined;
+}
+
 /** Bus-side view of one registered device. */
 export interface SpiMember {
   readonly owner: string;
@@ -164,12 +172,13 @@ export class SpiBus {
     if (n === 1) {
       const m = sel[0];
       if (!m.checked) this.check(m);
+      const wired = drives(m);
       if (!m.reverse) {
         const r = m.device.transfer(mosi, bits);
-        return r === null ? this.idleMiso : r;
+        return r === null || !wired ? this.idleMiso : r;
       }
       const r = m.device.transfer(reverseBits(mosi, bits), bits);
-      return r === null ? this.idleMiso : reverseBits(r, bits);
+      return r === null || !wired ? this.idleMiso : reverseBits(r, bits);
     }
     let drivers = 0;
     let miso = this.idleMiso;
@@ -183,7 +192,7 @@ export class SpiBus {
             return x === null ? null : reverseBits(x, bits);
           })()
         : m.device.transfer(mosi, bits);
-      if (r === null) continue;
+      if (r === null || !drives(m)) continue;
       drivers++;
       driving.push(m.owner);
       miso = drivers === 1 ? r : miso & r;
@@ -231,14 +240,14 @@ export class SpiBus {
       let miso = this.idleMiso;
       let drivers = 0;
       for (const m of sel) {
-        const r = m.device.peekMiso?.() ?? null;
+        const r = drives(m) ? (m.device.peekMiso?.() ?? null) : null;
         if (r === null) continue;
         drivers++;
         miso = drivers === 1 ? r : miso & r;
       }
       return miso;
     }
-    const r = sel[0].device.peekMiso?.() ?? null;
+    const r = drives(sel[0]) ? (sel[0].device.peekMiso?.() ?? null) : null;
     return r === null ? this.idleMiso : r;
   }
 

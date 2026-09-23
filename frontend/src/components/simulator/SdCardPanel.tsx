@@ -22,15 +22,23 @@ import {
 } from '../../utils/sdCardFiles';
 import { normalizeSdPath, readFat16Image, type FatDirFile } from '../../utils/fatImage';
 import { sdCardUploadAllowed, triggerSdCardUpgradePrompt } from '../../lib/proSdCardGate';
-import { getEsp32Bridge, useSimulatorStore } from '../../store/useSimulatorStore';
+import {
+  getEsp32Bridge,
+  readCanvasSdCardImage,
+  readSdCardImage,
+  useSimulatorStore,
+} from '../../store/useSimulatorStore';
 
 interface SdCardPanelProps {
   files: UploadedSdFile[];
   onChange: (next: UploadedSdFile[]) => void;
-  /** Board whose bridge mounts the card (the board inspector passes its own
-   *  id; the standalone card component leaves it unset and the active board
-   *  is used). Enables the live "Card contents" listing below the uploads. */
+  /** Board whose slot holds the card (the board inspector passes its own id;
+   *  the standalone card component leaves it unset). Enables the live "Card
+   *  contents" listing below the uploads. */
   boardId?: string | null;
+  /** The card component this panel was opened on, when it is a part on the
+   *  canvas. Its own model publishes what is on the card. */
+  componentId?: string | null;
 }
 
 function fileBytes(f: UploadedSdFile): number {
@@ -45,7 +53,12 @@ function humanSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-export const SdCardPanel: React.FC<SdCardPanelProps> = ({ files, onChange, boardId }) => {
+export const SdCardPanel: React.FC<SdCardPanelProps> = ({
+  files,
+  onChange,
+  boardId,
+  componentId,
+}) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const total = files.reduce((s, f) => s + fileBytes(f), 0);
@@ -56,22 +69,39 @@ export const SdCardPanel: React.FC<SdCardPanelProps> = ({ files, onChange, board
   const canUpload = sdCardUploadAllowed();
 
   // ── Live card contents: what is ON the card right now, including files
-  //    the running sketch wrote (photos, logs). Read back from the bridge's
-  //    card image and parsed with the same FAT16 layout the builder emits.
-  //    null = no card mounted yet (never run).
+  //    the running sketch wrote (photos, logs), parsed with the same FAT16
+  //    layout the builder emits. null = no card mounted yet (never run).
+  //
+  //    Read from whoever OWNS the card the guest is talking to, in that
+  //    order: the card component on the canvas (its model is the card, on
+  //    every engine family), the slot of the board this panel was opened on,
+  //    and only then an engine bridge - which holds a card only for a board
+  //    with a built-in slot, and, after Stop, the dump it kept at disconnect.
+  //    Going to the bridge first was how this listing worked when every
+  //    engine built its own second card for a canvas part; that card is gone,
+  //    and with it the bridge's answer for a card on the canvas.
   const [live, setLive] = useState<FatDirFile[] | null>(null);
   const running = useSimulatorStore((st) => st.running);
 
   const refreshLive = useCallback(() => {
-    type SdBridge = { readSdImage?: () => Uint8Array | null };
-    let bridge = boardId ? (getEsp32Bridge(boardId) as SdBridge | undefined) : undefined;
-    if (!bridge?.readSdImage) {
-      const activeId = useSimulatorStore.getState().activeBoardId;
-      bridge = activeId ? (getEsp32Bridge(activeId) as SdBridge | undefined) : undefined;
+    // Named owners first. The last resort is for the property dialog, which
+    // opens on a card without saying which component it is: with exactly one
+    // card on the canvas there is nothing to confuse it with, and it is only
+    // asked when this panel belongs to no named owner at all - a board's slot
+    // panel must never end up listing the card component's files.
+    let img = readSdCardImage(componentId) ?? readSdCardImage(boardId);
+    if (!img && !componentId && !boardId) img = readCanvasSdCardImage();
+    if (!img) {
+      type SdBridge = { readSdImage?: () => Uint8Array | null };
+      let bridge = boardId ? (getEsp32Bridge(boardId) as SdBridge | undefined) : undefined;
+      if (!bridge?.readSdImage) {
+        const activeId = useSimulatorStore.getState().activeBoardId;
+        bridge = activeId ? (getEsp32Bridge(activeId) as SdBridge | undefined) : undefined;
+      }
+      img = bridge?.readSdImage?.() ?? null;
     }
-    const img = bridge?.readSdImage?.() ?? null;
     setLive(img ? readFat16Image(img) : null);
-  }, [boardId]);
+  }, [boardId, componentId]);
 
   // Read on open and whenever the run state flips (start mounts the card,
   // stop freezes its final contents).

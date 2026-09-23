@@ -21,7 +21,7 @@
  */
 
 import { PartSimulationRegistry } from './PartSimulationRegistry';
-import { spiChainAttach, spiChainDetach, spiChainTag, spiChainUnder } from './spiChannel';
+import { attachSpiDevice, type SpiDevice } from '../buses';
 import { requestLine, releaseLineGap } from '../line/requestLine';
 import { VirtualDS1307, VirtualBMP280, VirtualDS3231, VirtualPCF8574 } from '../I2CBusManager';
 import type { I2CDevice } from '../I2CBusManager';
@@ -36,7 +36,7 @@ import {
   type IrAirFrame,
   type IrPulse,
 } from '../ir';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { useSimulatorStore, registerSdImageReader } from '../../store/useSimulatorStore';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,18 @@ class SSD1306Core {
   writeData(value: number): void {
     this.buffer[this.page * 128 + this.col] = value;
     this.advanceCursor();
+  }
+
+  /**
+   * Drop a half-received command. The MCU restarting leaves the panel
+   * powered, so its GDDRAM and its configuration survive (the glass keeps
+   * showing the last frame); only the bytes of a command that will never be
+   * completed have to go, or the first byte of the new init would be eaten
+   * as their parameter.
+   */
+  resetCommand(): void {
+    this.cmdBuf = [];
+    this.cmdWant = 0;
   }
 
   /** Feed a command or parameter byte. Multi-byte commands are accumulated. */
@@ -278,27 +290,34 @@ class VirtualSSD1306 implements I2CDevice {
 }
 
 /**
- * Attach SSD1306 in SPI mode — intercepts the AVR SPI bus.
+ * Attach SSD1306 in SPI mode.
  *
- * Follows the same pattern as ILI9341 (ComplexParts.ts): hook spi.onByte,
- * track DC pin state via PinManager, and render GDDRAM to the element.
+ * The panel is a write-only sink on its bus: it has no MISO pin at all, so it
+ * answers null and lets the fabric resolve the line, and it takes a whole
+ * block in one call when the controller clocks one (DESIGN 11). Chip select
+ * is not its business either: the fabric hands it the frames clocked while
+ * this panel is selected and nothing else, so a CS strapped to a rail is a
+ * selection like any other instead of an edge that never comes.
+ *
+ * D/C stays a plain pin (F3 rule 6), read from its CURRENT level when the
+ * part attaches: a panel that (re)attaches in the middle of a frame, while
+ * the sketch holds D/C high, must keep decoding pixels, not commands.
  */
 function attachSSD1306SPI(
   element: HTMLElement,
   simulator: any,
   getPin: (name: string) => number | null,
+  componentId?: string,
 ): () => void {
-  const pinManager = simulator.pinManager;
-  const spi = simulator.spi;
-  if (!pinManager || !spi) return () => {};
-
+  const pinManager = simulator?.pinManager;
   const core = new SSD1306Core();
   let dcState = false;
   const unsubs: (() => void)[] = [];
 
-  // Track DC pin (LOW = command, HIGH = data)
+  // D/C: LOW = command, HIGH = data.
   const pinDC = getPin('DC');
-  if (pinDC !== null) {
+  if (pinDC !== null && pinDC >= 0 && pinManager) {
+    dcState = pinManager.peekPinState?.(pinDC) ?? false;
     unsubs.push(
       pinManager.onPinChange(pinDC, (_: number, s: boolean) => {
         dcState = s;
@@ -320,37 +339,49 @@ function attachSSD1306SPI(
     });
   };
 
-  // Chip select. This mode is only picked when CS is wired, and on a shared
-  // bus the panel must ignore every byte clocked for somebody else, as the
-  // real controller does (it latches nothing while CS is high).
-  let csLow = false;
-  const pinCS = getPin('CS');
-  if (pinCS !== null) {
-    unsubs.push(
-      pinManager.onPinChange(pinCS, (_: number, s: boolean) => {
-        csLow = !s;
-      }),
-    );
-  }
-
-  // Join the board's SPI chain (onByte + completeTransfer). Write-only: the
-  // panel answers idle and passes every byte along.
-  const leaveSpi = spiChainAttach(spi, `ssd1306:${(element as { id?: string }).id || 'panel'}`, (value, next) => {
-    if (csLow || pinCS === null) {
-      if (!dcState) {
-        core.writeCommand(value);
-      } else {
-        core.writeData(value);
-        dirty = true;
-        scheduleSync();
-      }
+  const take = (value: number): void => {
+    if (!dcState) {
+      core.writeCommand(value);
+      return;
     }
-    spi.completeTransfer(0xff);
-    next?.(value);
-  });
+    core.writeData(value);
+    dirty = true;
+    scheduleSync();
+  };
+
+  // No deselect(): a real SSD1306 keeps its command parser across chip
+  // select. Adafruit_SSD1306 sends a two-byte command as two transactions
+  // (ssd1306_command1 per byte, CS toggled in between), and the panel on the
+  // bench still reads the second byte as the parameter of the first.
+  const device: SpiDevice = {
+    transfer: (value: number): number | null => {
+      take(value);
+      return null;
+    },
+    transferBlock: (bytes: Uint8Array): void => {
+      for (let i = 0; i < bytes.length; i++) take(bytes[i]);
+    },
+    boardReset: () => core.resetCommand(),
+  };
+
+  const handle = attachSpiDevice(
+    {
+      owner: componentId ?? (element as { id?: string }).id ?? 'ssd1306',
+      componentId,
+      pins: { sck: 'CLK', mosi: 'DATA', cs: 'CS' },
+      // 4-wire SPI: the byte is latched on the rising edge of the clock,
+      // which idles either way (datasheet 8.1.3).
+      modes: [0, 3],
+      // A module wired for SPI whose CS pad is left open is the only chip on
+      // the bus: that is how the bench wires it, and how every project
+      // migrated from the old ssd1306-spi entry is wired.
+      csWhenFloating: 'selected',
+    },
+    device,
+  );
 
   return () => {
-    leaveSpi();
+    handle.dispose();
     if (rafId !== null) cancelAnimationFrame(rafId);
     unsubs.forEach((u) => u());
   };
@@ -367,9 +398,10 @@ function attachSSD1306(
   getPin: (n: string) => number | null,
   protocol: 'i2c' | 'spi',
   i2cAddr = 0x3c,
+  componentId?: string,
 ): () => void {
   if (protocol === 'spi') {
-    return attachSSD1306SPI(element, simulator, getPin);
+    return attachSSD1306SPI(element, simulator, getPin, componentId);
   }
   const sim = simulator as any;
   const device = new VirtualSSD1306(i2cAddr, element);
@@ -438,7 +470,7 @@ PartSimulationRegistry.register('ssd1306', {
     const explicit = comp?.properties?.protocol;
     const protocol: 'i2c' | 'spi' =
       explicit === 'i2c' || explicit === 'spi' ? explicit : detectSSD1306Protocol(getPin);
-    return attachSSD1306(element, simulator, getPin, protocol, i2cAddr);
+    return attachSSD1306(element, simulator, getPin, protocol, i2cAddr, componentId);
   },
 });
 
@@ -957,8 +989,9 @@ PartSimulationRegistry.register('ir-remote', {
 /**
  * MicroSD card — generic SD-over-SPI device with a real backing store.
  *
- * Hooks the hardware SPI peripheral (simulator.spi) — works for AVR and RP2040
- * (both expose the `.spi` adapter). ESP32 runs in QEMU and is a separate path.
+ * A responder on the bus fabric: it is on the bus its SCK/DI/DO/CS wires put
+ * it on, whatever board and whatever engine, and it only ever sees the frames
+ * clocked while its own chip select is active.
  *
  * Implements the SD v2 / SDHC command set the SD.h / SdFat libraries use, so it
  * works generically with any card configuration (not a one-card hack):
@@ -973,7 +1006,8 @@ PartSimulationRegistry.register('ir-remote', {
  *
  * An optional pre-built FAT image can be injected via element.sdImageData (the
  * file-upload / auto-copy feature lands files there). The response queue drains
- * one byte per SPI transfer; idle line reads 0xFF.
+ * one byte per SPI transfer; with nothing to say the card leaves MISO alone and
+ * the line reads its idle level.
  */
 const SD_BLOCK_SIZE = 512;
 // Fixed card capacity (mirrors Wokwi's "no size attribute" model). The backing
@@ -983,26 +1017,8 @@ const SD_CARD_BYTES = 64 * 1024 * 1024; // 64 MB
 const SD_C_SIZE = Math.floor(SD_CARD_BYTES / (512 * 1024)) - 1; // CSD v2 C_SIZE
 
 PartSimulationRegistry.register('microsd-card', {
-  attachEvents: (element, simulator, getPin) => {
-    const spi = (simulator as any).spi;
-    if (!spi) return () => {};
+  attachEvents: (element, _simulator, _getPin, componentId) => {
     const el = element as any;
-
-    // The card answers only while its CS is low, and hands every other byte
-    // back to whoever had the bus. `spi.onByte` is a single-listener channel,
-    // so taking it unconditionally made a display on the same SCK/MOSI go
-    // silent the moment a card was dropped on the canvas — no wiring could
-    // avoid it, which is what issue #343 was about. An unwired CS keeps the
-    // old always-listening behaviour: nothing to share with.
-    // A rail is not a GPIO. The pin walk answers -1 for a pad that reaches
-    // GND or a supply, and subscribing to that waits for an edge that never
-    // comes — which would leave a card wired CS-to-GND (permanently selected
-    // on the bench, and a normal way to wire a card that is alone) silent for
-    // the whole run.
-    const csPin = getPin('CS');
-    const csGpio = typeof csPin === 'number' && csPin >= 0 ? csPin : null;
-    const pm = (simulator as any).pinManager;
-    let selected = csGpio === null;
 
     // ── Backing store: sparse map of blockIndex -> 512-byte sector ──────────
     const store = new Map<number, Uint8Array>();
@@ -1012,6 +1028,11 @@ PartSimulationRegistry.register('microsd-card', {
       blk.set(Array.from(data).slice(0, SD_BLOCK_SIZE));
       store.set(idx, blk);
     };
+
+    // How big the card was handed to us: the dump below pads back to it, so a
+    // FAT parser reading the card sees the whole volume and not just the
+    // blocks somebody touched.
+    let imageBytes = 0;
 
     // Optional pre-built FAT image (Phase 2 sets element.sdImageData). Loaded
     // into the store block-by-block so the firmware can mount + read it.
@@ -1027,6 +1048,7 @@ PartSimulationRegistry.register('microsd-card', {
               ? Uint8Array.from(raw)
               : null;
       if (!bytes) return;
+      imageBytes = bytes.length;
       for (let i = 0; i * SD_BLOCK_SIZE < bytes.length; i++) {
         const slice = bytes.subarray(i * SD_BLOCK_SIZE, (i + 1) * SD_BLOCK_SIZE);
         // Skip all-zero blocks so the store stays sparse (they read back as
@@ -1104,6 +1126,15 @@ PartSimulationRegistry.register('microsd-card', {
       const arg = ((raw[1] << 24) | (raw[2] << 16) | (raw[3] << 8) | raw[4]) >>> 0;
       const isAcmd = expectingAcmd;
       expectingAcmd = false;
+      // N_CR: a card never answers on the byte right after the command. The
+      // spec allows 1 to 8 fill bytes there and real cards take at least one,
+      // so SdFat (the SD.h of arduino-pico) simply throws that byte away
+      // before it starts polling for R1. With no fill at all it threw R1
+      // away, and no Pico sketch using SD.h could mount this card
+      // (evidence/matrix-2026-09-22-prod.json, microsd-ncr-zero-vs-sdfat).
+      // The libraries that poll from the first byte (Arduino SD on AVR,
+      // ESP-IDF sd_diskio) skip it as the idle byte it is.
+      respQueue.push(0xff);
 
       if (isAcmd) {
         if (cmd === 41) {
@@ -1180,21 +1211,14 @@ PartSimulationRegistry.register('microsd-card', {
       }
     };
 
-    const chain = spiChainUnder(spi.onByte, `sd:${(el?.id as string) ?? 'microsd'}`);
-
-    const onByte = (byte: number) => {
-      // Not ours: the bus belongs to whatever else is wired to it.
-      if (!selected) {
-        chain.next?.(byte);
-        return;
-      }
-      // Full-duplex: the MISO shifted out for THIS transfer was prepared by
-      // earlier bytes, so reply FIRST (from the queue as it stood before this
-      // byte), THEN consume this MOSI byte to prepare future MISO. This gives
-      // the 1-byte (Ncr) command->response latency real SD cards have — the
-      // host reads R1 on the 0xFF clocks it sends AFTER the 6 command bytes,
-      // not on the last command byte. Replying after processing broke SD.begin.
-      spi.completeTransfer?.(respQueue.length > 0 ? respQueue.shift()! : 0xff);
+    /**
+     * One frame while the card is selected. Full-duplex: the MISO shifted out
+     * for THIS frame was prepared by earlier bytes, so answer FIRST (from the
+     * queue as it stood before this byte) and only THEN consume the MOSI byte
+     * to prepare what comes next. Answering after processing broke SD.begin().
+     */
+    const frame = (byte: number): number => {
+      const miso = respQueue.length > 0 ? respQueue.shift()! : 0xff;
 
       switch (phase) {
         case 'cmd':
@@ -1239,33 +1263,95 @@ PartSimulationRegistry.register('microsd-card', {
           }
           break;
       }
+      return miso;
     };
-    spi.onByte = spiChainTag(onByte, `sd:${(el?.id as string) ?? 'microsd'}`, chain);
 
-    const csCleanup =
-      csGpio !== null && pm
-        ? pm.onPinChange(csGpio, (_p: number, level: boolean) => {
-            const now = !level; // active low
-            if (selected && !now) {
-              // Letting go of CS ends the transaction: a command frame still
-              // being clocked in cannot be finished by bytes meant for the
-              // display, and a reply nobody stayed to read is gone.
-              cmdBuf = [];
-              respQueue.length = 0;
-            }
-            selected = now;
-          })
-        : null;
+    /**
+     * CS went high: the command frame being clocked in cannot be finished by
+     * bytes meant for the next chip, and a reply nobody stayed to read is
+     * gone. That is ALL a real card forgets here. A multiple-block transfer
+     * survives chip select on purpose: SdFat's SharedSpiCard (the SD.h of
+     * arduino-pico, and of every board whose bus is shared) releases CS
+     * between writeStart / writeData / writeStop and between readStart /
+     * readData / readStop, and the card is expected to still be in its data
+     * phase when the host comes back. Clearing `phase` here made the 0xFC
+     * token of the next block land in the command parser, which then read 512
+     * bytes of user data as commands. The APP_CMD flag of a CMD55 survives
+     * too: it belongs to the next command, not to this transaction, and
+     * SdFat deselects between the two.
+     */
+    const endFrame = (): void => {
+      cmdBuf = [];
+      respQueue.length = 0;
+    };
+
+    /** The MCU restarted: no transfer of any kind is in flight any more. */
+    const resetProtocol = (): void => {
+      endFrame();
+      dataBuf = [];
+      phase = 'cmd';
+      multiRead = false;
+      multiWrite = false;
+      expectingAcmd = false;
+    };
+
+    const device: SpiDevice = {
+      transfer: (byte: number): number => frame(byte),
+      // What the card will shift out on the next frame, for a bit-banged
+      // master that reads MISO bit by bit before the byte is in: the queue is
+      // already the answer it has prepared, so there is nothing to compute.
+      peekMiso: (): number => (respQueue.length > 0 ? respQueue[0] : 0xff),
+      deselect: endFrame,
+      // Stop/Run resets the MCU, not the card: the image and everything
+      // written to it stay, exactly as they do on a board whose reset button
+      // never cuts the card's power. Only the transfer in flight is gone.
+      boardReset: resetProtocol,
+    };
+
+    /**
+     * The card's contents RIGHT NOW: the image it was built with plus every
+     * block the guest has written since. This is what the SD panel lists, and
+     * it has to come from here: the card the guest talks to is this model, on
+     * whatever engine, and the only other copy of it (the SdSpiCard a pro
+     * bridge builds) exists only for a board with a built-in slot.
+     *
+     * Padded back to the original image size so a FAT parser sees the whole
+     * volume even when the tail blocks were never written; null when there is
+     * no card image at all, which the panel reads as "nothing mounted yet".
+     */
+    const dumpImage = (): Uint8Array | null => {
+      let top = Math.ceil(imageBytes / SD_BLOCK_SIZE);
+      for (const idx of store.keys()) top = Math.max(top, idx + 1);
+      if (top <= 0) return null;
+      const out = new Uint8Array(top * SD_BLOCK_SIZE);
+      for (const [idx, blk] of store) out.set(blk, idx * SD_BLOCK_SIZE);
+      return out;
+    };
+
+    const owner = componentId ?? (el?.id as string) ?? 'microsd-card';
+    // The panel asks by owner. `fromPart` says this card is a component on the
+    // canvas, so a panel opened on the card itself finds it without being told
+    // which component it is.
+    const unpublish = registerSdImageReader(owner, dumpImage, { fromPart: true });
+
+    const handle = attachSpiDevice(
+      {
+        owner,
+        componentId,
+        pins: { sck: 'SCK', mosi: 'DI', miso: 'DO', cs: 'CS' },
+        // SD cards clock on modes 0 and 3.
+        modes: [0, 3],
+        // CS (pin 1, DAT3) carries the card's own pull-up, so a card whose CS
+        // nothing drives reads as deselected and stays quiet.
+        csWhenFloating: 'deselected',
+      },
+      device,
+    );
 
     return () => {
-      csCleanup?.();
-      // Out of the chain wherever we sit. Restoring the channel outright
-      // would mute a part that attached after us, and staying in it would
-      // leave a torn-down card answering from an emptied store.
-      spiChainDetach(spi, onByte);
-      respQueue.length = 0;
-      cmdBuf = [];
-      store.clear();
+      handle.dispose();
+      unpublish();
+      resetProtocol();
     };
   },
 });

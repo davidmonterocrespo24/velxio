@@ -1304,6 +1304,71 @@ export async function piRerunScript(boardId: string, boardKind: string): Promise
   await new Promise((r) => setTimeout(r, 400));
   await piSyncAndRunScript(boardId, boardKind);
 }
+/**
+ * Live microSD contents, by owner.
+ *
+ * The card the guest talks to is the one on the bus fabric, and it belongs to
+ * whoever registered it: the `microsd-card` part on the canvas (owner = its
+ * component id, on every engine family), or a board's own slot built by the
+ * board's built-ins (owner = the board id). Whoever holds the model publishes
+ * a reader here, and the SD panel's live listing asks for it by owner instead
+ * of going through an engine bridge - which only ever had a card for the ESP32
+ * families, and now only for a board that declares a built-in slot.
+ *
+ * `fromPart` marks a card that is a component on the canvas, which is what
+ * lets a panel opened on the card itself find it without being told which
+ * component it belongs to (see readCanvasSdCardImage).
+ */
+export type SdImageReader = () => Uint8Array | null;
+
+interface SdImageEntry {
+  read: SdImageReader;
+  fromPart: boolean;
+}
+
+const sdImageReaders = new Map<string, SdImageEntry>();
+
+/** Publish a card's contents under `ownerId`. Returns the unregister; calling
+ *  it again for the same owner replaces the previous reader, so a re-attach
+ *  never leaves a dead card answering the panel. */
+export function registerSdImageReader(
+  ownerId: string,
+  read: SdImageReader,
+  opts: { fromPart?: boolean } = {},
+): () => void {
+  const entry: SdImageEntry = { read, fromPart: opts.fromPart ?? false };
+  sdImageReaders.set(ownerId, entry);
+  return () => {
+    if (sdImageReaders.get(ownerId) === entry) sdImageReaders.delete(ownerId);
+  };
+}
+
+/** Current contents of the card owned by `ownerId`, or null when nothing of
+ *  that name holds one. */
+export function readSdCardImage(ownerId: string | null | undefined): Uint8Array | null {
+  if (!ownerId) return null;
+  try {
+    return sdImageReaders.get(ownerId)?.read() ?? null;
+  } catch (e) {
+    console.warn('[microsd] reading the card failed:', e);
+    return null;
+  }
+}
+
+/** The canvas card, when the project has exactly one. The property dialog
+ *  opens on a card without telling the panel which component it is; with a
+ *  single card on the canvas there is no ambiguity to resolve. Two cards and
+ *  this answers null rather than guess. */
+export function readCanvasSdCardImage(): Uint8Array | null {
+  let only: string | null = null;
+  for (const [id, entry] of sdImageReaders) {
+    if (!entry.fromPart) continue;
+    if (only !== null) return null;
+    only = id;
+  }
+  return readSdCardImage(only);
+}
+
 export const getEsp32Bridge = (id: string) => esp32BridgeMap.get(id);
 export const getStm32Bridge = (id: string) => stm32BridgeMap.get(id);
 

@@ -1,89 +1,97 @@
 /**
- * SPIBus — virtual SPI bus for custom chips.
+ * SPIDevice: the armed transfer of ONE custom-chip SPI handle.
  *
- * Each chip with vx_spi_attach() registers a SPIDevice. The active slave is
- * the one that has a pending transfer (set up via vx_spi_start()) — typically
- * gated by the chip's own CS pin watch.
+ * This file used to hold a bus as well: every chip on a simulator shared one
+ * SPIBus, the first chip with a transfer armed answered every byte the board
+ * clocked, and the sck/mosi/miso/cs of the chip's own vx_spi_config were never
+ * looked at (findings spibus-selection-ignores-pins,
+ * spibus-no-cs-armed-chip-swallows). The bus now lives in the fabric
+ * (simulation/buses): it works out which bus a chip is on from its wiring and
+ * only calls the chip while its chip select is active.
  *
- * In the MVP, this bus is *not* connected to the AVR's SPI master peripheral
- * — that integration requires hooking avr8js AVRSPI which behaves differently
- * from AVRTWI. For now, tests/chip-to-chip flows can drive the bus via
- * `transferByte`. AVR-driven SPI is a phase-2 follow-up.
+ * What is left here is the part only the chip knows: the buffer vx_spi_start
+ * armed, how far into it the exchange has got, and when it is complete. The
+ * Wokwi-compatible semantics are unchanged: a byte reaches the chip only
+ * between vx_spi_start and the completion or vx_spi_stop, and a chip with
+ * nothing armed does not drive MISO and consumes nothing.
+ *
+ * The buffer is held as a POINTER into the chip's WASM memory and read through
+ * a view taken at access time. A chip that grows its memory while a transfer is
+ * armed detaches every view made before the growth, and MOSI bytes used to be
+ * written into that detached view while MISO read back undefined (finding
+ * spi-view-detached-on-memory-grow).
  */
 
-export class SPIDevice {
-  private _pending: {
-    buffer: Uint8Array;
-    count: number;
-    position: number;
-    onDone: (buffer: Uint8Array, count: number) => void;
-  } | null = null;
+/** A live view of the whole WASM memory of the chip that owns this handle. */
+export type ChipMemoryView = () => Uint8Array;
 
-  startTransfer(
-    buffer: Uint8Array,
-    count: number,
-    onDone: (buffer: Uint8Array, count: number) => void,
-  ): void {
-    this._pending = { buffer, count, position: 0, onDone };
+/** Called when the exchange finishes (or is stopped): the chip's own buffer
+ *  pointer and how many bytes were exchanged. */
+export type SpiTransferDone = (bufPtr: number, count: number) => void;
+
+export class SPIDevice {
+  private readonly view: ChipMemoryView;
+  private readonly onDone: SpiTransferDone;
+  private ptr = 0;
+  private count = 0;
+  private position = 0;
+  private active = false;
+
+  constructor(view: ChipMemoryView, onDone: SpiTransferDone) {
+    this.view = view;
+    this.onDone = onDone;
   }
 
+  /** vx_spi_start: arm `count` bytes at `bufPtr` of the chip's memory. */
+  startTransfer(bufPtr: number, count: number): void {
+    this.ptr = bufPtr;
+    this.count = count;
+    this.position = 0;
+    // An empty exchange arms nothing: there is no byte to shift and no
+    // completion to report.
+    this.active = count > 0;
+  }
+
+  /** vx_spi_stop: end the exchange where it stands, as CS rising does. */
   stopTransfer(): void {
-    const t = this._pending;
-    if (!t) return;
-    this._pending = null;
-    t.onDone(t.buffer, t.position);
+    if (!this.active) return;
+    const ptr = this.ptr;
+    const done = this.position;
+    this.active = false;
+    this.position = 0;
+    this.onDone(ptr, done);
   }
 
   hasPendingTransfer(): boolean {
-    return this._pending !== null;
+    return this.active;
   }
 
-  transfer(masterByte: number): number {
-    const t = this._pending;
-    if (!t) return 0xff;
-    const slaveByte = t.buffer[t.position];
-    t.buffer[t.position] = masterByte & 0xff;
-    t.position++;
-    if (t.position >= t.count) {
-      const buf = t.buffer;
-      const cnt = t.count;
-      const cb = t.onDone;
-      this._pending = null;
-      cb(buf, cnt);
+  /** The byte this handle will shift out NEXT, without consuming anything.
+   *  Null when nothing is armed: the chip is not driving MISO. */
+  peek(): number | null {
+    if (!this.active) return null;
+    return this.view()[this.ptr + this.position] ?? 0xff;
+  }
+
+  /**
+   * One frame while the chip is selected. The master's byte lands in the
+   * buffer, the byte that was there goes out on MISO, and the completion fires
+   * on the last byte of the exchange. Nothing armed: no answer, no consumption.
+   */
+  transfer(masterByte: number): number | null {
+    if (!this.active) return null;
+    const mem = this.view();
+    const at = this.ptr + this.position;
+    const slaveByte = mem[at] ?? 0xff;
+    mem[at] = masterByte & 0xff;
+    this.position++;
+    if (this.position >= this.count) {
+      const ptr = this.ptr;
+      const count = this.count;
+      this.active = false;
+      this.position = 0;
+      this.onDone(ptr, count);
     }
     return slaveByte;
-  }
-}
-
-export class SPIBus {
-  private devices = new Set<SPIDevice>();
-
-  addDevice(dev: SPIDevice): void {
-    this.devices.add(dev);
-  }
-
-  removeDevice(dev: SPIDevice): void {
-    this.devices.delete(dev);
-  }
-
-  /** Whether any chip on the bus is selected (its CS asserted, a transfer
-   *  armed). A byte clocked while none is belongs to some other part. */
-  get active(): boolean {
-    for (const d of this.devices) if (d.hasPendingTransfer()) return true;
-    return false;
-  }
-
-  /** Transfer one byte. Returns the active slave's response on MISO. */
-  transferByte(masterByte: number): number {
-    for (const d of this.devices) {
-      if (d.hasPendingTransfer()) return d.transfer(masterByte);
-    }
-    return 0xff;
-  }
-
-  transferBytes(bytes: number[]): number[] {
-    const out: number[] = [];
-    for (const b of bytes) out.push(this.transferByte(b));
-    return out;
   }
 }

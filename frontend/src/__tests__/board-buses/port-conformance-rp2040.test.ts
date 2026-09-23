@@ -17,7 +17,8 @@
  * gets backwards, 16-bit frames, routing that follows funcsel, the PL022's own
  * chip select, the MicroPython reset, the transition bridge (the legacy
  * `simulator.spi` facade and setSPIHandler), a full fabric wired by nets, and
- * the microSD card that never mounted on a Pico (bus matrix scenario d2).
+ * the microSD card of bus matrix scenario d2, which never mounted on a Pico
+ * before the card left the SD spec's N_CR fill byte in front of its R1.
  *
  * Stand-ins, only for what node lacks: a fetch that serves the MicroPython UF2
  * and the littlefs WASM from disk, and a console.log that keeps the guest's
@@ -39,7 +40,7 @@ import {
   type GuestTransaction,
   type SpiConformanceRig,
 } from '../../simulation/buses/conformance/spiPortConformance';
-import { BusRegistry } from '../../simulation/buses/registry';
+import { BusRegistry, busRegistry } from '../../simulation/buses/registry';
 import type {
   NetResolver,
   PinRef,
@@ -661,114 +662,125 @@ describe('RP2040 transition bridge: simulator.spi and setSPIHandler share the fr
 
 const CARD_TEXT = 'VELXIO-BUS-MATRIX-7F3A';
 
+/** The card's own pin names on the sketch's SPI0 pins (GP18 SCK, GP19 MOSI,
+ *  GP16 MISO) with the chip select conf-rp2040-sd drives, GP17. */
+const SD_WIRING: Record<string, number> = { SCK: 18, DI: 19, DO: 16, CS: 17 };
+
 interface SdRun {
   out: string;
-  /** What the guest read on the eight bytes after the first CMD0 frame. */
-  cmd0: number[];
+  /** The MISO the guest read on the eight frames after the first CMD0. */
+  reply: number[];
 }
 
 /**
  * Boot conf-rp2040-sd with the OSS microsd-card part holding a FAT16 card with
- * /data.txt, CS on GP17. With `fill`, the card sits behind a one-byte delay
- * line while selected: every answer it gives reaches the wire one byte later,
- * which puts the fill byte the SD spec asks for (N_CR >= 1: at least one 0xFF
- * between the end of a command and its response) in front of every response.
- * The reads SD.begin() and SD.open() do poll for their tokens, so the shift
- * changes nothing else they see (a write's data-response token would land a
- * byte late; this sketch never writes).
+ * /data.txt.
+ *
+ * The card reaches the board the way it does in the app: through the bus
+ * fabric. The rig supplies what the canvas supplies, a circuit that says where
+ * the card's SCK/DI/DO/CS land and the board's engine binding, so the part is
+ * clocked only while GP17 is low and answers on the board's MISO net.
+ *
+ * `wireDo: false` leaves the card's data-out leg unconnected. That is the
+ * negative control: the fabric still clocks the card, and the card still
+ * prepares its answers, but nothing of it reaches MISO, exactly as on a bench
+ * with the DO pad open.
  */
-function runSdMount(fill: boolean): SdRun {
+function runSdMount(wireDo = true): SdRun {
   const sim = new RP2040Simulator(new PinManager());
   sim.loadBinary(SD_BIN);
   let out = '';
   sim.onSerialData = (ch) => {
     out += ch;
   };
+  const circuit = new Circuit();
+  const { DO, ...noDataOut } = SD_WIRING;
+  circuit.wire('sd', wireDo ? SD_WIRING : noDataOut);
+  busRegistry.setResolver(circuit);
+  busRegistry.bindEngine('pico', sim.getBusBinding());
+
   const img = buildFat16Image([{ name: 'data.txt', data: new TextEncoder().encode(`${CARD_TEXT}\n`) }]);
   const el = { id: 'sd', sdImageData: img } as unknown as HTMLElement;
-  const facade = sim.spi;
-  const cs = () => sim.pinManager.peekPinState(17) === false;
+  const off = PartSimulationRegistry.get('microsd-card')!.attachEvents!(el, sim as never, () => null, 'sd');
 
-  // Watch the wire: MOSI in, the MISO the guest reads back (from the port side).
-  const port = sim.getBusBinding().spi[0];
+  // Watch the wire: MOSI in, the MISO the guest reads back. Both are taken on
+  // the SoC's own peripheral, under whatever the fabric decided, so the test
+  // reads the line and never stands in for a device on it.
+  const cs = () => sim.pinManager.peekPinState(17) === false;
   const wire: Array<[number, number]> = [];
-  const capture = sim.getMCU()!.spi[0];
-  const complete = capture.completeTransmit.bind(capture);
-  let lastMosi = -1;
-  capture.completeTransmit = (miso: number) => {
-    if (cs()) wire.push([lastMosi, miso]);
+  const spi0 = sim.getMCU()!.spi[0];
+  const clock = spi0.onTransmit;
+  const complete = spi0.completeTransmit.bind(spi0);
+  let mosi = -1;
+  spi0.onTransmit = (value: number) => {
+    mosi = value;
+    clock?.(value);
+  };
+  spi0.completeTransmit = (miso: number) => {
+    if (cs()) wire.push([mosi, miso]);
     complete(miso);
   };
-  port.setFrameHandler((mosi) => {
-    lastMosi = mosi;
-    return 0xff;
-  });
 
-  if (!fill) {
-    PartSimulationRegistry.get('microsd-card')!.attachEvents!(el, sim as never, (p) => (p === 'CS' ? 17 : null), 'sd');
-  } else {
-    // The same part, attached to a facade of its own; the delay line sits on the real one.
-    let answer: number | null = null;
-    const inner = {
-      onByte: null as ((b: number) => void) | null,
-      completeTransfer: (m: number): void => {
-        answer = m & 0xff;
-      },
-    };
-    PartSimulationRegistry.get('microsd-card')!.attachEvents!(
-      el,
-      { spi: inner, pinManager: sim.pinManager } as never,
-      (p) => (p === 'CS' ? 17 : null),
-      'sd',
-    );
-    let held = 0xff;
-    sim.pinManager.onPinChange(17, () => {
-      held = 0xff;
-    });
-    spiChainAttach(facade, 'ncr-fill', (byte, next) => {
-      answer = null;
-      inner.onByte?.(byte);
-      if (cs()) {
-        facade.completeTransfer(held);
-        held = answer ?? 0xff;
-      }
-      next?.(byte);
-    });
+  try {
+    for (let t = 0; t < 4000 && !out.includes('DONE'); t += 10) sim.runFrameForTime(10);
+  } finally {
+    sim.stop();
+    off();
+    busRegistry.clear();
   }
-  for (let t = 0; t < 4000 && !out.includes('DONE'); t += 10) sim.runFrameForTime(10);
-  sim.stop();
-  // The first CMD0 frame (40 00 00 00 00 95) and the eight bytes after it.
+  // The first CMD0 frame (40 00 00 00 00 95) and the eight frames after it.
   const at = wire.findIndex(([m], i) => m === 0x40 && wire[i + 5]?.[0] === 0x95);
-  return { out, cmd0: at < 0 ? [] : wire.slice(at + 6, at + 14).map(([, miso]) => miso) };
+  return { out, reply: at < 0 ? [] : wire.slice(at + 6, at + 14).map(([, miso]) => miso) };
 }
 
-/** The part as it is, booted once: SdFat retries CMD0 for two seconds of guest time. */
-let asIs: SdRun | null = null;
-const sdAsIs = (): SdRun => (asIs ??= runSdMount(false));
+/**
+ * Where R1 sits in a reply. The SD spec gives a card N_CR to answer, 1 to 8
+ * fill bytes between the end of a command and its response, so a host scans
+ * for the first byte with bit 7 clear instead of reading a fixed index, and so
+ * does this test: reading index 0 would assert a timing the spec forbids, and
+ * reading index 1 would assert one particular legal timing as if it were the
+ * only one.
+ */
+function r1(reply: number[]): { fill: number; value: number | undefined } {
+  const at = reply.findIndex((b) => (b & 0x80) === 0);
+  return { fill: at < 0 ? reply.length : at, value: at < 0 ? undefined : reply[at] };
+}
 
-describe('RP2040 microSD with SD.h (bus matrix d2: the card never mounts on a Pico)', () => {
-  it('microsd-r1-without-ncr-fill setup: SD.h mounts a card that leaves the SD spec fill byte before R1, over the RP2040 port, and reads the file', () => {
-    const run = runSdMount(true);
-    expect(run.out).toContain('BEGIN:1');
-    expect(run.out).toContain(`READ:${CARD_TEXT}`);
-    // What the spec asks for: 0xFF on the first byte after the command, R1 after.
-    expect(run.cmd0.slice(0, 2)).toEqual([0xff, 0x01]);
-  }, 60_000);
+/** The mount, booted once and read by both tests below. */
+let mounted: SdRun | null = null;
+const sdMounted = (): SdRun => (mounted ??= runSdMount());
 
-  it('microsd-r1-without-ncr-fill setup: with the part as it is, CMD0 reaches the card and it answers R1 on the very first byte after the command', () => {
-    const run = sdAsIs();
+describe('RP2040 microSD with SD.h (bus matrix d2: the card mounts on a Pico)', () => {
+  it('microsd-r1-without-ncr-fill setup: CMD0 reaches the card over the RP2040 port and the card answers R1 after the spec fill byte', () => {
+    const run = sdMounted();
     expect(run.out).toContain('DONE');
-    expect(run.cmd0[0]).toBe(0x01);
+    const { fill, value } = r1(run.reply);
+    expect(value).toBe(0x01); // R1 = idle, the answer to CMD0
+    // N_CR: a card never answers on the byte right after the command.
+    expect(fill).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
-  // Not an RP2040 defect: SdFat (arduino-pico's SD.h) discards the first byte
-  // after every command, as N_CR >= 1 allows, and the OSS part puts R1 on
-  // exactly that byte (ProtocolParts.ts microsd-card: processCmd queues the
-  // response when the command's sixth byte arrives, and onByte serves it on
-  // the next clock). The AVR SD library and ESP32's sd_diskio poll from the
-  // first byte, which is why the same card mounts there.
-  it.fails('microsd-r1-without-ncr-fill: SD.h on arduino-pico mounts the OSS microSD card and reads /data.txt', () => {
-    const run = sdAsIs();
+  it('microsd-r1-without-ncr-fill control: with the card DO leg unwired nothing drives MISO, and SD.begin() reports failure', () => {
+    const run = runSdMount(false);
+    expect(run.out).toContain('DONE');
+    expect(run.out).toContain('BEGIN:0');
+    // The capture has to have found the CMD0 frame: with an empty reply
+    // "no R1" would be true of a rig that clocked nothing at all.
+    expect(run.reply, 'the eight frames after CMD0').toHaveLength(8);
+    // Nobody drives the line, so every one of them reads its idle level.
+    expect(run.reply).toEqual(new Array(8).fill(0xff));
+    expect(r1(run.reply).value).toBeUndefined();
+  }, 60_000);
+
+  // Closed by the N_CR fill byte the card now leaves in front of every
+  // response (ProtocolParts.ts microsd-card: processCmd queues 0xFF before the
+  // response). SdFat (the SD.h of arduino-pico) throws away the first byte
+  // after a command, as N_CR >= 1 allows, and used to throw R1 away with it,
+  // so no Pico sketch could mount this card. The libraries that poll from the
+  // first byte (Arduino SD on AVR, ESP-IDF sd_diskio) read the fill byte as
+  // the idle byte it is, which is why the same card mounted there.
+  it('microsd-r1-without-ncr-fill: SD.h on arduino-pico mounts the OSS microSD card and reads /data.txt', () => {
+    const run = sdMounted();
     expect(run.out).toContain('BEGIN:1');
     expect(run.out).toContain(`READ:${CARD_TEXT}`);
   }, 60_000);

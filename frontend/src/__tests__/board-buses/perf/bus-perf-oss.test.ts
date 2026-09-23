@@ -30,11 +30,18 @@
  *                  this is the bus path alone, with little noise.
  *
  * Two configurations of each:
- *   full  the part on the bus: engine SPI -> the simulator's .spi adapter ->
- *         spiChannel chain -> ILI9341 decoder, with its per-pixel flush
- *         debounce (performance.now + setTimeout).
- *   bare  no part; a byte counter where the part would be. `full - bare` is
- *         what the bus path and the decoder cost.
+ *   full  the part on the bus, the way the app puts it there (F3): the board
+ *         is in the store, the panel is wired to its SPI pads and its own CS
+ *         and D/C, the engine's controller port is bound to that board's
+ *         fabric, and the ILI9341 model is a DEVICE of the bus its wires say.
+ *         Engine SPI -> controller port -> the bus of the SCK net -> the
+ *         decoder, with its per-pixel flush debounce (performance.now +
+ *         setTimeout). Attaching the part to a bare simulator, as this bench
+ *         did before F3, now measures nothing at all: with no board and no
+ *         wires the panel is on no bus and never sees a byte.
+ *   bare  no part; a byte counter where the part would be, on the engine's
+ *         legacy facade, with the fabric never bound. `full - bare` is what
+ *         the bus path and the decoder cost.
  *
  * Every timed frame is checked: in `full` the bottom row of the panel must
  * hold that frame's colour (blue and red alternate), in `bare` the counter
@@ -46,6 +53,14 @@
  * what the runner judges phases by, on a machine whose load keeps moving.
  * BUS_PERF_INJECT=<n> adds n rounds of xorshift per bus byte to every `full`
  * bench: the negative control that shows the comparison catches a slowdown.
+ * It is injected where the engine hands the fabric a frame (the controller
+ * port's frame handler, wrapped before the fabric installs it), so it is paid
+ * on the real path and once per byte the guest clocks. Neither OSS port has a
+ * block entry point: every byte of these engines goes through that handler.
+ * Measured with 200 rounds a byte: avr-uno reg-frame full 27.1 -> 52.7
+ * pu/frame, rp2040-pico reg-frame full 47.5 -> 73.8, while both `bare` benches
+ * stayed put (1.49 -> 1.46 and 20.1 -> 18.7). The wrapper is only installed
+ * while the control is on, so a real run pays for nothing.
  *
  * Stand-ins, only for what node lacks: a canvas whose 2d context keeps the
  * framebuffer the part draws into, window.setTimeout for the part's flush
@@ -57,10 +72,11 @@ import { fileURLToPath } from 'node:url';
 import {
   FrameClock,
   PerfReport,
+  burnInjectedWork,
+  injectedWorkPerByte,
   loadNow,
   perfEnabled,
   result,
-  withInjectedWork,
   type BenchSpec,
 } from './perfKit';
 
@@ -176,6 +192,12 @@ interface Board {
 interface BoardDef {
   board: string;
   engine: string;
+  /** Board kind in the store: what the fabric reads the pin table from. */
+  boardKind: string;
+  /** The controller the firmware clocks, and the pads a device on it is wired
+   *  to: the panel's own pin names against this board's pad names. */
+  spiUnit: number;
+  pads: Record<string, string>;
   /** rAF ticks after which the bench gives up (a hung path fails, it does not stall). */
   maxTicks: number;
   fw: { warmupFrames: number; frames: number };
@@ -187,6 +209,10 @@ interface BoardDef {
 const AVR_UNO: BoardDef = {
   board: 'avr-uno',
   engine: 'avr8js (AVRSimulator, ATmega328P 16 MHz)',
+  boardKind: 'arduino-uno',
+  spiUnit: 0,
+  // Hardware SPI, and the fixture's TFT_CS 10 / TFT_DC 9.
+  pads: { SCK: 'D13', MOSI: 'D11', MISO: 'D12', CS: 'D10', 'D/C': 'D9' },
   maxTicks: 3000,
   fw: { warmupFrames: 1, frames: 6 },
   reg: { warmupFrames: 3, frames: 12 },
@@ -234,6 +260,10 @@ const AVR_UNO: BoardDef = {
 const RP2040_PICO: BoardDef = {
   board: 'rp2040-pico',
   engine: 'rp2040js (RP2040Simulator, 125 MHz)',
+  boardKind: 'raspberry-pi-pico',
+  spiUnit: 0,
+  // SPI0 on the Pico's Arduino defaults, and the fixture's TFT_CS 17 / TFT_DC 20.
+  pads: { SCK: 'GP18', MOSI: 'GP19', MISO: 'GP16', CS: 'GP17', 'D/C': 'GP20' },
   maxTicks: 8000,
   fw: { warmupFrames: 1, frames: 4 },
   reg: { warmupFrames: 3, frames: 12 },
@@ -278,29 +308,90 @@ const BOARDS = [AVR_UNO, RP2040_PICO];
 
 // ── One bench ────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 let parts: any;
+let store: any;
+let buses: any;
 
 type Workload = 'fw-fillscreen' | 'reg-frame';
 
-/** Put the part on the bus (full) or a byte counter where it would be (bare). */
-function mount(board: Board, config: 'full' | 'bare', id: string) {
+/** The engine's side of one SPI controller, as much of it as this file needs. */
+interface PortLike {
+  unit: number;
+  setFrameHandler(handler: ((mosi: number, bits: number) => number) | null): void;
+}
+
+/**
+ * The gate's negative control (BUS_PERF_INJECT), off in a real run: one burn
+ * per byte the controller clocks, paid where the engine hands the fabric a
+ * frame. Wrapped BEFORE the fabric installs its handler, so what runs is the
+ * real chain with the burn in front of it; nothing is wrapped when the control
+ * is off, so a real run pays for neither the wrapper nor the check.
+ */
+function injectPerByte(port: PortLike): () => void {
+  if (!injectedWorkPerByte) return () => {};
+  const setFrame = port.setFrameHandler.bind(port);
+  port.setFrameHandler = (handler) =>
+    setFrame(
+      handler
+        ? (mosi: number, bits: number) => {
+            burnInjectedWork();
+            return handler(mosi, bits);
+          }
+        : null,
+    );
+  return () => {
+    delete (port as Partial<PortLike>).setFrameHandler;
+  };
+}
+
+/**
+ * Put the part on the bus the way the app does (full), or a byte counter where
+ * the engine's legacy facade is (bare).
+ *
+ * `full` builds the circuit, because since F3 that is what decides whether a
+ * part hears anything: a board of this kind in the store, the panel wired to
+ * its SPI pads and to its own CS and D/C, and the engine's binding handed to
+ * that board's fabric. The part then registers itself as a device of the bus
+ * its SCK net is on and is clocked only while its own chip select is low.
+ */
+function mount(def: BoardDef, board: Board, config: 'full' | 'bare', bench: string) {
+  const id = `${bench}.${config}-tft`;
+  const boardId = `${bench}.${config}-board`;
   const el = panelElement(id);
   const count = { n: 0 };
   let cleanup: (() => void) | undefined;
   if (config === 'full') {
+    const wires = Object.entries(def.pads).map(([pinName, pad], i) => ({
+      id: `${id}-w${i}`,
+      start: { componentId: id, pinName, x: 0, y: 0 },
+      end: { componentId: boardId, pinName: pad, x: 0, y: 0 },
+      waypoints: [],
+      color: '#0a0',
+    }));
+    store.setState((s: any) => ({
+      boards: [...s.boards, { id: boardId, boardKind: def.boardKind, x: 0, y: 0 }],
+      wires: [...s.wires, ...wires],
+    }));
+    const binding = (board.sim as { getBusBinding(): { spi: PortLike[] } }).getBusBinding();
+    const port = binding.spi.find((x) => x.unit === def.spiUnit);
+    expect(port, `${bench}: the engine publishes SPI${def.spiUnit} to the fabric`).toBeTruthy();
+    const unwrap = injectPerByte(port!);
+    buses.busRegistry.bindEngine(boardId, binding);
     const detach = parts.PartSimulationRegistry.get('ili9341').attachEvents(
       el,
       board.sim,
       (name: string) => (name === 'D/C' ? board.dc : null),
       id,
     );
-    // The gate's negative control (BUS_PERF_INJECT), off in a real run.
-    const top = board.spi.onByte!;
-    board.spi.onByte = withInjectedWork(top);
     cleanup = () => {
-      board.spi.onByte = top;
       detach?.();
+      buses.busRegistry.unbindBoard(boardId);
+      unwrap();
+      store.setState((s: any) => ({
+        boards: s.boards.filter((b: any) => b.id !== boardId),
+        wires: s.wires.filter((w: any) => !w.id.startsWith(`${id}-w`)),
+      }));
     };
   } else {
     // What the adapter does with nobody listening stays (AVR: its loopback;
@@ -341,7 +432,7 @@ function boot(
 async function runBench(def: BoardDef, workload: Workload, config: 'full' | 'bare') {
   const board = await def.load();
   const bench = `${def.board}.ili9341.${workload}`;
-  const { el, count, cleanup } = mount(board, config, `${bench}-tft`);
+  const { el, count, cleanup } = mount(def, board, config, bench);
   const plan = workload === 'fw-fillscreen' ? def.fw : def.reg;
   const total = plan.warmupFrames + plan.frames;
   const clock = new FrameClock();
@@ -443,8 +534,8 @@ async function runBench(def: BoardDef, workload: Workload, config: 'full' | 'bar
         ? 'Adafruit_ILI9341 fillScreen under the production frame loop: '
         : 'firmware frame written into the SPI data register, CPU stopped: ') +
       (config === 'full'
-        ? 'engine SPI -> simulator .spi adapter -> spiChannel chain -> ILI9341 decoder (+ flush debounce per pixel)'
-        : 'engine SPI -> simulator .spi adapter -> byte counter'),
+        ? "engine SPI -> the board's SPI controller port -> the bus of the SCK net the panel is wired to -> ILI9341 decoder, selected by its own CS (+ flush debounce per pixel)"
+        : 'engine SPI -> simulator .spi legacy facade -> byte counter'),
     pixelBytesPerFrame: PIXEL_BYTES,
     warmupFrames: plan.warmupFrames,
   };
@@ -467,6 +558,9 @@ describe.skipIf(!perfEnabled)('bus perf baseline: OSS engines, ILI9341 240x320 R
     console.log = () => {};
     parts = await import('../../../simulation/parts/PartSimulationRegistry');
     await import('../../../simulation/parts/ComplexParts');
+    // The circuit the fabric reads, and the fabric itself.
+    store = (await import('../../../store/useSimulatorStore')).useSimulatorStore;
+    buses = await import('../../../simulation/buses');
   });
 
   afterAll(() => {

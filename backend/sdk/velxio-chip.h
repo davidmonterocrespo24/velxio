@@ -151,8 +151,17 @@ extern bool    vx_uart_write(vx_uart u, const uint8_t* buffer, uint32_t count);
 typedef int32_t vx_spi;
 
 /**
- * SPI configuration. The CS pin is GPIO and watched by the chip directly —
- * the runtime starts/stops transactions automatically based on its level.
+ * SPI configuration.
+ *
+ * `cs` is the chip's select line, and the bus HONOURS it: the chip is clocked
+ * only while that pin is asserted, as the silicon is. A chip with no select
+ * line (a 74HC595, whose RCLK is a latch and not a select) sets it to
+ * ((vx_pin)-1) and is always on the bus. The chip still watches the pin itself
+ * when it wants the edges, which is the usual way to arm a transfer.
+ *
+ * `sck`, `mosi` and `miso` say which lines the chip is wired to: they decide
+ * which bus of the board the chip sits on, so a chip whose miso leg is not
+ * wired clocks bytes in and answers nothing.
  *
  * `on_done` fires after every `count` bytes received via vx_spi_start():
  *   - Before the call, `buffer` contains the chip's outgoing MISO bytes.

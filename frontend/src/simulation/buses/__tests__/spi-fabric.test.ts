@@ -253,6 +253,26 @@ describe('SPI fabric: arbitration by chip select', () => {
     expect(b.heard).toEqual([2]);
   });
 
+  it('a chip whose data-out leg is not wired does not drive MISO', () => {
+    // A 74HC595 on the SPI pins with its QH left open: it shifts the byte in
+    // and answers nothing, so the card selected next to it is still readable.
+    const shifter = new Recorder(() => 0x00);
+    r.circuit.wire('595', 'SCK', gpio(13));
+    r.circuit.wire('595', 'MOSI', gpio(11));
+    r.circuit.wire('595', 'MISO', { kind: 'floating' });
+    r.reg.attachSpi({ owner: '595', pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO' } }, shifter);
+    expect(r.port.xfer(0x3c)).toBe(0xff);
+    expect(shifter.heard).toEqual([0x3c]);
+    expect(
+      r.diags.some((d) => d.code === 'spi-wiring' && /never answers/.test(d.message)),
+      'an unwired data-out leg is reported, not silently dead',
+    ).toBe(true);
+    const card = new Recorder(() => 0x01);
+    r.spiDevice('sd', gpio(10), card);
+    r.pins.write(10, false);
+    expect(r.port.xfer(0x40), 'the card answers, the shifter does not mask it').toBe(0x01);
+  });
+
   it('a write-only sink leaves MISO at the idle level', () => {
     const sink = new Recorder(() => null);
     r.spiDevice('tft', gpio(10), sink);

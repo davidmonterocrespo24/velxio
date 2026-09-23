@@ -12,7 +12,6 @@ import {
   ChipInstance,
   decodeWasmBase64,
   ensureUartBridge,
-  ensureSpiBridge,
   getSimulatorBridges,
   avrUartTx,
   getI2CBus,
@@ -340,10 +339,11 @@ PartSimulationRegistry.register('custom-chip', {
     const attrs = new Map<string, number>(Object.entries(attrsObj));
     const strAttrs = new Map<string, string>(Object.entries(strAttrsObj));
 
-    // Lazily install the per-simulator bridges. Idempotent — safe to call
-    // even if other custom chips have already wired them up.
+    // Lazily install the per-simulator UART bridge. Idempotent — safe to call
+    // even if other custom chips have already wired it up. SPI needs nothing
+    // here: the chip joins the board's bus from vx_spi_attach, with the pins of
+    // its own config, and a chip that never calls it stays off SPI entirely.
     ensureUartBridge(sim);
-    ensureSpiBridge(sim);
     const bridges = getSimulatorBridges(sim);
 
     // Async create — wrap so we can dispose even if create is still in-flight
@@ -367,7 +367,6 @@ PartSimulationRegistry.register('custom-chip', {
           // and a browser-hosted ESP32 (in-browser engine) a thin adapter,
           // anything else null (chip won't get I2C).
           i2cBus: getI2CBus(sim, 0) as any,
-          spiBus: bridges.spiBus,
           wires,
           attrs,
           strAttrs,

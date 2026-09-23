@@ -1,10 +1,9 @@
 export { ChipInstance, type ChipInstanceOptions } from './ChipRuntime';
-export { SPIBus, SPIDevice } from './SPIBus';
+export { SPIDevice } from './SPIBus';
 export { WasiShim } from './WasiShim';
 export {
   getSimulatorBridges,
   ensureUartBridge,
-  ensureSpiBridge,
   avrUartTx,
   getI2CBus,
   detectSimulatorKind,

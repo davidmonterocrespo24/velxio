@@ -56,6 +56,7 @@ import '../../simulation/parts';
 import { traceDetailed } from '../../simulation/PinTrace';
 import { buildFat16Image } from '../../utils/fatImage';
 import { ensureUartBridge, getSimulatorBridges } from '../../simulation/customChips/simulatorBridges';
+import { busRegistry } from '../../simulation/buses';
 
 const fixture = (name: string) =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${name}/${name}.ino.hex`, import.meta.url)), 'utf-8');
@@ -447,7 +448,7 @@ describe('Uno + ILI9341 + microSD on one bus (the spitftbitmap sketch)', () => {
     });
   }
 
-  it.fails('ili9341-no-cs-gating: with the card mounted first, the panel ignores the card traffic clocked while its own CS is high', () => {
+  it('ili9341-no-cs-gating: with the card mounted first, the panel ignores the card traffic clocked while its own CS is high', () => {
     // Mount order puts the panel above the card in the chain, so every card
     // byte reaches the ILI9341 model. The sketch sets the address window once
     // and reads the card in the middle of it, exactly like spitftbitmap.
@@ -491,15 +492,19 @@ describe('Uno + ILI9341 + microSD: attach-order permutations', () => {
   // wire-edit remount of L4). Checked per scenario: the card's answers are
   // what the MCU reads (SUM) and the panel decodes its own bytes, each once,
   // and nothing else (the picture is exact).
-  const scenarios: Array<{ name: string; order: TftSdPart[]; edit?: TftSdPart; holds: boolean }> = [
-    { name: 'panel, card', order: ['tft', 'sd'], holds: true },
-    { name: 'card, panel', order: ['sd', 'tft'], holds: false },
-    { name: 'panel, card, then a wire edit re-attaches the panel', order: ['tft', 'sd'], edit: 'tft', holds: false },
-    { name: 'card, panel, then a wire edit re-attaches the card', order: ['sd', 'tft'], edit: 'sd', holds: true },
+  // `gated` marks the two orders that used to put the panel above the card in
+  // the chain, so it decoded the card's bytes: the ili9341-no-cs-gating
+  // reproduction. On the fabric a device only ever hears its own chip select,
+  // so every order holds and the finding's name stays in the title.
+  const scenarios: Array<{ name: string; order: TftSdPart[]; edit?: TftSdPart; gated: boolean }> = [
+    { name: 'panel, card', order: ['tft', 'sd'], gated: false },
+    { name: 'card, panel', order: ['sd', 'tft'], gated: true },
+    { name: 'panel, card, then a wire edit re-attaches the panel', order: ['tft', 'sd'], edit: 'tft', gated: true },
+    { name: 'card, panel, then a wire edit re-attaches the card', order: ['sd', 'tft'], edit: 'sd', gated: false },
   ];
   for (const s of scenarios) {
-    const title = `no-attach-order-permutation-tests, avr-no-real-firmware-shared-bus${s.holds ? '' : ', ili9341-no-cs-gating'}: ${s.name} gives the card read and the exact picture`;
-    (s.holds ? it : it.fails)(title, () => {
+    const title = `no-attach-order-permutation-tests, avr-no-real-firmware-shared-bus${s.gated ? ', ili9341-no-cs-gating' : ''}: ${s.name} gives the card read and the exact picture`;
+    it(title, () => {
       const { b, tft, tftId, sdId } = tftSdBench(s.order);
       b.load(TFT_SD_HEX);
       if (s.edit === 'tft') b.wire(tftId, 'LED', '5V');
@@ -594,11 +599,22 @@ function chipSdBench(order: ChipSdPart[]) {
   return { b };
 }
 
-/** The chip's WASM instance comes up asynchronously after each attach. */
+/**
+ * The chip's WASM instance comes up asynchronously after each attach, and it
+ * is on the bus once chip_setup has called vx_spi_attach.
+ *
+ * What is waited on is the fabric, not the old per-simulator SPI bridge: a
+ * chip is a device of the board's bus now, registered under
+ * '<componentId>:spi<handle>' with the pins of its own config, so being on the
+ * bus is what "ready" means and where it sits is part of the claim.
+ */
 async function chipReady(b: Bench): Promise<void> {
-  const bus = getSimulatorBridges(b.sim).spiBus as unknown as { devices: Set<unknown> };
-  for (let i = 0; i < 400 && bus.devices.size !== 1; i++) await new Promise((r) => setTimeout(r, 5));
-  expect(bus.devices.size, 'chip instances on the bus').toBe(1);
+  const owner = `${b.id}-chip:spi0`;
+  for (let i = 0; i < 400 && !busRegistry.placement(owner); i++) await new Promise((r) => setTimeout(r, 5));
+  expect(busRegistry.placement(owner), 'the chip on the board SPI bus').toMatchObject({
+    boardId: b.id,
+    sckPin: 13,
+  });
 }
 
 function bootChipSd(b: Bench): string[] {
@@ -864,7 +880,7 @@ describe('Uno + SPI panels: CS tied to GND', () => {
     expect(histogram(oledGddram(oled))).toEqual({ [hex2(oledPattern(2))]: 1024 });
   });
 
-  it.fails('cs-tied-to-gnd-never-selected: SSD1306 in SPI mode with CS wired to GND is always selected and shows the frames', () => {
+  it('cs-tied-to-gnd-never-selected: SSD1306 in SPI mode with CS wired to GND is always selected and shows the frames', () => {
     const { b, oled } = oledSpiBench('GND.2');
     b.load(OLED_HEX);
     b.run();
@@ -883,7 +899,7 @@ describe('Uno + SPI panels: CS tied to GND', () => {
     expect(epaperErrors(epd, 2)).toBe(0);
   });
 
-  it.fails('cs-tied-to-gnd-never-selected: e-paper with CS wired to GND is always selected and shows each refresh', () => {
+  it('cs-tied-to-gnd-never-selected: e-paper with CS wired to GND is always selected and shows each refresh', () => {
     const { b, epd } = epaperBench('GND.2');
     b.load(EPD_HEX);
     b.run();
@@ -906,7 +922,7 @@ describe('Uno + SSD1306 (SPI): CS and DC state when the part (re)attaches', () =
     expect(histogram(oledGddram(oled))).toEqual({ [hex2(oledPattern(2))]: 1024 });
   });
 
-  it.fails('spi-part-state-not-seeded-on-reattach: a panel re-attached mid-frame, while the sketch holds CS low and DC high, keeps decoding', () => {
+  it('spi-part-state-not-seeded-on-reattach: a panel re-attached mid-frame, while the sketch holds CS low and DC high, keeps decoding', () => {
     const { b, oled, id } = oledSpiBench('10');
     b.load(OLED_HEX);
     b.run();
@@ -941,7 +957,7 @@ describe('Uno + SSD1306 (SPI): CS and DC state when the part (re)attaches', () =
     expect(histogram(oledGddram(oled))).toEqual({ [hex2(oledPattern(2))]: 1024 });
   });
 
-  it.fails('spi-part-state-not-seeded-on-reattach: a panel whose CS the sketch pulls low straight out of reset (no edge, only a level) is selected', () => {
+  it('spi-part-state-not-seeded-on-reattach: a panel whose CS the sketch pulls low straight out of reset (no edge, only a level) is selected', () => {
     // avr-oled-spi-cs-low differs from avr-oled-spi only in never driving CS
     // high first; the setup test above runs this firmware with CS ungated.
     const { b, oled } = oledSpiBench('10');

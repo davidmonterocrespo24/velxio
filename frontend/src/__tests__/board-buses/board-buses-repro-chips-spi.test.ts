@@ -5,7 +5,7 @@
  * RP2040Simulator) on a real sketch built with the production toolchain
  * (fixtures/chips-spi-console, a serial-driven SPI master), with the real
  * custom-chip part ('custom-chip' in PartSimulationRegistry: CustomChipPart ->
- * ChipRuntime -> SPIBus -> simulatorBridges) loading real chip WASM (the
+ * ChipRuntime -> the bus fabric) loading real chip WASM (the
  * gallery sources, and two probe chips, under fixtures/chips-spi-chips) and
  * the real microSD and e-paper parts. Nothing on the byte path is mocked; the
  * only stubs are requestAnimationFrame (driven here as the frame clock, so the
@@ -35,7 +35,7 @@ import '../../simulation/parts/EPaperPart';
 import '../../simulation/parts/ComplexParts';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { busRegistry } from '../../simulation/buses/registry';
-import type { BusDiagnostic } from '../../simulation/buses/types';
+import type { BusDiagnostic, NetResolver, PinRef, ResolvedPin } from '../../simulation/buses/types';
 
 // ── Frame clock ──────────────────────────────────────────────────────────────
 // Both simulators run their production loop off requestAnimationFrame; here
@@ -139,16 +139,27 @@ class SketchConsole {
 
 const hex = (bytes: number[]) => bytes.map((b) => b.toString(16).padStart(2, '0')).join(' ');
 
+/**
+ * The card's answer to the command whose six bytes were just clocked: the
+ * first byte after them that is not the idle line. A card sends N_CR fill
+ * bytes first (one to eight, and this model sends one), so a host polls for
+ * the answer instead of reading a fixed offset, and so does this.
+ */
+function sdAnswer(bytes: number[]): number[] {
+  const at = bytes.findIndex((b, i) => i >= 6 && b !== 0xff);
+  return at < 0 ? [] : bytes.slice(at);
+}
+
 /** SD SPI-mode handshake: CMD0 (answers R1 = 01) then CMD8 (echoes R7 01 00 00 01 AA). */
 function sdHandshake(con: SketchConsole, cs: number): { r1: number; r7: string } {
   con.cmd(`h ${cs}`);
   con.spi('FF FF FF FF FF FF FF FF FF FF');
   con.cmd(`l ${cs}`);
-  const r1 = con.spi('40 00 00 00 00 95 FF FF')[6];
+  const r1 = sdAnswer(con.spi('40 00 00 00 00 95 FF FF'))[0] ?? 0xff;
   con.cmd(`h ${cs}`);
   con.spi('FF');
   con.cmd(`l ${cs}`);
-  const r7 = hex(con.spi('48 00 00 01 AA 87 FF FF FF FF FF').slice(6, 11));
+  const r7 = hex(sdAnswer(con.spi('48 00 00 01 AA 87 FF FF FF FF FF FF')).slice(0, 5));
   con.cmd(`h ${cs}`);
   con.spi('FF');
   return { r1, r7 };
@@ -173,6 +184,56 @@ function probeExchange(con: SketchConsole, cs: number, bytes: string): string {
   return miso;
 }
 
+// ── The circuit ──────────────────────────────────────────────────────────────
+// The rig plugs a part in with a pin map instead of store wires, so the same
+// map is the circuit the bus fabric reads: which board each part sits on and
+// which pad each of its pins reaches. In the app both come from the netlist;
+// here they come from the one place the test states them.
+
+class Circuit implements NetResolver {
+  private readonly pins = new Map<string, ResolvedPin>();
+  private readonly kinds = new Map<string, string>();
+
+  board(boardId: string, kind: string): void {
+    this.kinds.set(boardId, kind);
+  }
+
+  /** Plug a component's pins into a board (a negative pad is a ground rail). */
+  wire(boardId: string, componentId: string, pins: Record<string, number>): void {
+    for (const [name, pin] of Object.entries(pins)) {
+      this.pins.set(
+        `${componentId}:${name}`,
+        pin >= 0 ? { kind: 'board', boardId, pin } : { kind: 'rail', rail: 'gnd' },
+      );
+    }
+    busRegistry.netlistChanged();
+  }
+
+  resolve(ref: PinRef): ResolvedPin {
+    if (ref.kind === 'board') return { kind: 'board', boardId: ref.boardId, pin: ref.pin };
+    return this.pins.get(`${ref.componentId}:${ref.pinName}`) ?? { kind: 'floating' };
+  }
+
+  boardKind(boardId: string): string | undefined {
+    return this.kinds.get(boardId);
+  }
+
+  boards(): string[] {
+    return [...this.kinds.keys()];
+  }
+
+  clear(): void {
+    this.pins.clear();
+    this.kinds.clear();
+  }
+}
+
+let circuit = new Circuit();
+/** The board a simulator is, so a helper that is handed the simulator alone
+ *  (as a part's attachEvents is) can still say where its part is plugged in. */
+const boardOf = new WeakMap<object, string>();
+let boardSeq = 0;
+
 // ── Boards and parts ─────────────────────────────────────────────────────────
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -186,10 +247,26 @@ afterEach(() => {
   frameCallbacks.clear();
   chipLines.length = 0;
   useSimulatorStore.setState({ components: [] } as never);
+  busRegistry.clear();
+  circuit = new Circuit();
+  busRegistry.setResolver(circuit);
 });
+busRegistry.setResolver(circuit);
+
+/** Put a board on the canvas: the fabric binds its engine and keeps it until
+ *  the test ends, the way the store's simulator map does. */
+function board<T extends object>(sim: T, kind: string): string {
+  const id = `${kind}-${++boardSeq}`;
+  circuit.board(id, kind);
+  boardOf.set(sim, id);
+  busRegistry.bindBoard(id, sim);
+  cleanups.push(() => busRegistry.unbindBoard(id));
+  return id;
+}
 
 function uno(): { sim: AVRSimulator; con: SketchConsole } {
   const sim = new AVRSimulator(new PinManager(), 'uno');
+  board(sim, 'arduino-uno');
   sim.loadHex(UNO_HEX);
   const con = new SketchConsole(sim);
   cleanups.push(() => sim.stop());
@@ -198,6 +275,7 @@ function uno(): { sim: AVRSimulator; con: SketchConsole } {
 
 function pico(opts: { load?: boolean } = {}): { sim: RP2040Simulator; con: SketchConsole } {
   const sim = new RP2040Simulator(new PinManager());
+  board(sim, 'raspberry-pi-pico');
   if (opts.load !== false) sim.loadBinary(PICO_BIN);
   const con = new SketchConsole(sim);
   cleanups.push(() => sim.stop());
@@ -211,7 +289,30 @@ function run(sim: Board, con: SketchConsole): void {
   con.waitFor('READY', mark);
 }
 
+/** The hardware SPI pads of each board in this rig (the pins the sketch's
+ *  SPI.transfer() clocks), by the pin names the part in question uses. */
+const HW_SPI: Record<string, { sck: number; mosi: number; miso: number }> = {
+  'arduino-uno': { sck: 13, mosi: 11, miso: 12 },
+  'raspberry-pi-pico': { sck: 18, mosi: 19, miso: 16 },
+};
+
+/** Plug a part's bus pins into the board's hardware SPI pads, under the names
+ *  that part gives them, plus whatever else the test wires by hand. */
+function wireToSpi(
+  sim: Board,
+  id: string,
+  names: { sck: string; mosi: string; miso?: string },
+  rest: Record<string, number> = {},
+): void {
+  const boardId = boardOf.get(sim)!;
+  const pads = HW_SPI[boardId.replace(/-\d+$/, '')];
+  const pins: Record<string, number> = { [names.sck]: pads.sck, [names.mosi]: pads.mosi, ...rest };
+  if (names.miso) pins[names.miso] = pads.miso;
+  circuit.wire(boardId, id, pins);
+}
+
 function attachSd(sim: Board, cs: number, id = 'sd1'): () => void {
+  wireToSpi(sim, id, { sck: 'SCK', mosi: 'DI', miso: 'DO' }, { CS: cs });
   const off = PartSimulationRegistry.get('microsd-card')!.attachEvents!(
     partElement(id),
     sim as never,
@@ -249,6 +350,7 @@ async function attachChip(
       },
     ],
   } as never);
+  circuit.wire(boardOf.get(sim)!, id, pins);
   const before = chipLog(id).length;
   const off = PartSimulationRegistry.get('custom-chip')!.attachEvents!(
     { id } as unknown as HTMLElement,
@@ -445,6 +547,20 @@ const SR_HW_Q = [2, 3, 4, 5, 6, 7, 8, 14];
 const SR_GPIO = { SER: 2, SRCLK: 3, RCLK: 4, Q0: 5, Q1: 6, Q2: 7, Q3: 8, Q4: 14, Q5: 15, Q6: 16, Q7: 17 };
 const SR_GPIO_Q = [5, 6, 7, 8, 14, 15, 16, 17];
 
+// Closed by F3. The gallery 74HC595 used to declare `.cs = RCLK` in its
+// vx_spi_config, from the days when the runtime ignored that field. Once the
+// fabric honoured it the chip went deaf except while RCLK was low, which is
+// backwards: RCLK is the output LATCH the sketch pulses, not a select. A 595
+// has no chip select at all, and its source now says so (`.cs = NO_PIN`,
+// DESIGN section 10), so the fabric holds it permanently selected on the SCK
+// net its SRCLK is wired to. The wasm fixture is built from that gallery
+// source by fixtures/chips-spi-chips/build.sh, and the manifest case above
+// fails while it is stale.
+//
+// The other half is in the fabric: a device drives MISO only when its declared
+// MISO pin resolves to a board pin on that bus, so a 595 whose QH is unwired
+// (every single-595 board) leaves the line to the card, and the last case here
+// keeps passing with the chip permanently selected.
 describe('an always-armed chip on the Uno SPI bus', () => {
   it('custom-chip-bus-ignores-wiring, spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins setup: the gallery 74HC595 on the hardware SPI pins latches the byte clocked into it', async () => {
     const { sim, con } = uno();
@@ -455,7 +571,10 @@ describe('an always-armed chip on the Uno SPI bus', () => {
     expect(readPins(con, SR_HW_Q)).toBe(0x3c);
   });
 
-  it.fails('custom-chip-bus-ignores-wiring, spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: a 74HC595 on the hardware SPI pins does not deafen the microSD card that shares them', async () => {
+  // Flipped by F3: the 595 hears the card's traffic (it has no select, so it
+  // shifts whatever the bus carries, as on the bench) but it does not answer,
+  // because its QH is unwired. The card is the only driver on MISO.
+  it('custom-chip-bus-ignores-wiring, spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: a 74HC595 on the hardware SPI pins does not deafen the microSD card that shares them', async () => {
     const { sim, con } = uno();
     attachSd(sim, 10);
     await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), SR_HW);
@@ -464,7 +583,10 @@ describe('an always-armed chip on the Uno SPI bus', () => {
     expect(sdHandshake(con, 10)).toEqual(SD_OK);
   });
 
-  it.fails('custom-chip-bus-ignores-wiring, spibus-selection-ignores-pins: a 74HC595 wired to D2/D3/D4 for shiftOut() takes no part in hardware SPI traffic', async () => {
+  // Closed by F3: a chip is on the bus of the SCK net its own vx_spi_config
+  // names, so a 595 clocked on D3 hears nothing of what the SPI peripheral
+  // clocks on D13, and the card has the bus to itself.
+  it('custom-chip-bus-ignores-wiring, spibus-selection-ignores-pins: a 74HC595 wired to D2/D3/D4 for shiftOut() takes no part in hardware SPI traffic', async () => {
     const { sim, con } = uno();
     attachSd(sim, 10);
     await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), SR_GPIO);
@@ -479,7 +601,9 @@ describe('an always-armed chip on the Uno SPI bus', () => {
     expect({ sd, q: readPins(con, SR_GPIO_Q) }).toEqual({ sd: SD_OK, q: before });
   });
 
-  it.fails('spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: two 74HC595 on the same SER/SRCLK both shift the byte and each latches it on its own RCLK', async () => {
+  // Flipped by F3: every device on the net is clocked, not just the first one
+  // with a transfer armed, so both registers take the byte.
+  it('spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: two 74HC595 on the same SER/SRCLK both shift the byte and each latches it on its own RCLK', async () => {
     const { sim, con } = uno();
     // A: RCLK D9, Q0..Q3 on D2..D5. B: RCLK D8, Q0..Q3 on D6, D7, A0, A1.
     await attachChip(sim, 'srA', 'sn74hc595', galleryJson('sn74hc595'), { SER: 11, SRCLK: 13, RCLK: 9, Q0: 2, Q1: 3, Q2: 4, Q3: 5 });
@@ -492,7 +616,10 @@ describe('an always-armed chip on the Uno SPI bus', () => {
     expect(readPins(con, [2, 3, 4, 5, 6, 7, 14, 15]).toString(16)).toBe('55');
   });
 
-  it.fails('spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: a CS-gated chip that is selected gets its bytes even though a 74HC595 was placed first', async () => {
+  // Closed by F3: there is no chain and no "first armed chip wins" any more.
+  // Every selected device on the bus is clocked, so the probe hears its frame
+  // whoever was placed first.
+  it('spibus-no-cs-armed-chip-swallows, spibus-selection-ignores-pins: a CS-gated chip that is selected gets its bytes even though a 74HC595 was placed first', async () => {
     const { sim, con } = uno();
     // RCLK on D8, clear of the probe's CS on D9. No Q outputs: SR_HW puts Q6
     // on D8, which would short an output onto the RCLK net.
@@ -530,7 +657,12 @@ describe('a chip on software SPI (Uno)', () => {
     expect(frames()).toBe(before + 1);
   });
 
-  it.fails('no-bitbang-spi-miso-undriven: the probe chip answers a software-SPI transfer on MISO and hears MOSI', async () => {
+  // Closed by F3: the chip hears a bit-banged master, and it answers the first
+  // byte too. The soft decoder used to cache the outgoing byte at the
+  // selection edge, and on AVR the pad channel delivers that edge before the
+  // level channel the chip's own CS watch listens on, so it asked before the
+  // chip had armed. It now asks the bus at drive time.
+  it('no-bitbang-spi-miso-undriven: the probe chip answers a software-SPI transfer on MISO and hears MOSI', async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, BITBANG_PROBE);
     run(sim, con);
@@ -568,7 +700,10 @@ describe('a chip on software SPI (Uno)', () => {
     expect(readPins(con, SR_GPIO_Q)).toBe(0xff);
   });
 
-  it.fails('no-bitbang-spi-miso-undriven: the gallery 74HC595 wired to D2/D3/D4 latches the byte shiftOut() clocks into it', async () => {
+  // Flipped by F3: shiftOut() on D2/D3 is a software SPI master on the D3 SCK
+  // net, and the 595, selected because it declares no select, shifts the byte
+  // in like the part on a breadboard.
+  it('no-bitbang-spi-miso-undriven: the gallery 74HC595 wired to D2/D3/D4 latches the byte shiftOut() clocks into it', async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), SR_GPIO);
     run(sim, con);
@@ -646,7 +781,10 @@ describe('SPI mode and bit order between the master and a chip (Uno)', () => {
     expect(spcr & 0x2c).toBe(0x20);
   });
 
-  it.fails('spi-mode-bitorder-ignored: an LSB-first master and an MSB-first chip see each other bit-reversed', async () => {
+  // Closed by F3: the chip declares the mode of its vx_spi_config and MSB
+  // first, so the bus compares them with the controller's and hands the chip
+  // the bit-reversed byte an LSB-first master really puts on the wire.
+  it('spi-mode-bitorder-ignored: an LSB-first master and an MSB-first chip see each other bit-reversed', async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, UNO_PROBE);
     run(sim, con);
@@ -657,7 +795,9 @@ describe('SPI mode and bit order between the master and a chip (Uno)', () => {
     expect({ miso, log: chipLog('probe').at(-1) }).toEqual({ miso: '03', log: 'probe rx=80' });
   });
 
-  it.fails('spi-mode-bitorder-ignored: a chip declaring mode 1 clocked by a mode-0 master is reported', async () => {
+  // Closed by F3: the declared mode reaches the bus, which reports the
+  // mismatch as the spi-mode diagnostic (DESIGN section 12).
+  it('spi-mode-bitorder-ignored: a chip declaring mode 1 clocked by a mode-0 master is reported', async () => {
     // Either channel counts: a console warning, or the bus fabric's own
     // diagnostic (code 'spi-mode', DESIGN section 12), which is where D-011
     // puts this report and which never touches the console.
@@ -703,7 +843,10 @@ describe('ChipRuntime SPI bookkeeping (Uno)', () => {
     expect(chipLog('probe').at(-1)).toBe('probe rx=11 22');
   });
 
-  it.fails('spi-view-detached-on-memory-grow: a chip that grows its memory while a transfer is armed keeps answering and receiving', async () => {
+  // Closed by F3: the armed transfer is a POINTER into the chip's memory,
+  // read through a view taken per access, so a growth that detaches every
+  // older view does not swallow the bytes.
+  it('spi-view-detached-on-memory-grow: a chip that grows its memory while a transfer is armed keeps answering and receiving', async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'probe', 'spi-probe', PROBE_JSON, GROW_PROBE);
     run(sim, con);
@@ -735,7 +878,9 @@ describe('ChipRuntime SPI bookkeeping (Uno)', () => {
     expect(log.some((m) => m.startsWith('dual h1 '))).toBe(true);
   });
 
-  it.fails("spi-done-bufptr-shared: each SPI handle's on_done is handed that handle's own buffer", async () => {
+  // Closed by F3: each handle is its own device on the bus, with its own
+  // buffer pointer captured for its own completion.
+  it("spi-done-bufptr-shared: each SPI handle's on_done is handed that handle's own buffer", async () => {
     const { sim, con } = uno();
     await attachChip(sim, 'dual', 'spi-dual', DUAL_JSON, { CS: 9, SCK: 13, MOSI: 11 });
     run(sim, con);
@@ -778,6 +923,7 @@ describe('a part removed from under a chip (Uno)', () => {
 
   it('cleanup-tests-pass-under-old-restore-prev: removing an e-paper panel leaves the chip that joined after it on the bus', async () => {
     const { sim, con } = uno();
+    wireToSpi(sim, 'epd', { sck: 'SCK', mosi: 'SDI' }, EPD_PINS);
     const removePanel = PartSimulationRegistry.get('epaper-1in54-bw')!.attachEvents!(
       partElement('epd', { 'panel-kind': 'epaper-1in54-bw' }),
       sim as never,
@@ -796,6 +942,7 @@ describe('a part removed from under a chip (Uno)', () => {
 
   it('cleanup-tests-pass-under-old-restore-prev: removing an ILI9341 leaves the chip that joined after it on the bus', async () => {
     const { sim, con } = uno();
+    wireToSpi(sim, 'tft', { sck: 'SCK', mosi: 'MOSI', miso: 'MISO' }, TFT_PINS);
     const removePanel = PartSimulationRegistry.get('ili9341')!.attachEvents!(
       partElement('tft'),
       sim as never,

@@ -21,7 +21,6 @@ import type { BoardPins, SpiMode } from './types';
 export class SoftSpiDecoder {
   private count = 0;
   private shiftIn = 0;
-  private shiftOut = 0xff;
   private sckLevel: boolean;
   private readonly unsub: () => void;
   private readonly pins: BoardPins;
@@ -42,7 +41,6 @@ export class SoftSpiDecoder {
   restart(): void {
     this.count = 0;
     this.shiftIn = 0;
-    this.shiftOut = this.bus.peekMiso() & 0xff;
     const m = this.active();
     // CPHA = 0: the first bit must already be on MISO when the first sampling
     // edge arrives, so it goes out on the select edge itself.
@@ -66,7 +64,11 @@ export class SoftSpiDecoder {
     const miso = m.misoPin;
     if (miso === undefined || !this.pins.driveInput) return;
     const idx = this.msbFirst(m) ? 7 - this.count : this.count;
-    this.pins.driveInput(miso, ((this.shiftOut >> idx) & 1) === 1);
+    // Asked at drive time, never cached: a chip can arm itself after its chip
+    // select falls (its own pin watch runs on a different channel than the
+    // fabric's), and the bit it puts on the wire is the one it has THEN.
+    const out = this.bus.peekMiso() & 0xff;
+    this.pins.driveInput(miso, ((out >> idx) & 1) === 1);
   }
 
   private onSck(level: boolean): void {
@@ -91,7 +93,6 @@ export class SoftSpiDecoder {
         this.count = 0;
         this.shiftIn = 0;
         this.bus.frame(byte, 8);
-        this.shiftOut = this.bus.peekMiso() & 0xff;
       }
     } else {
       // Shift edge: the chip moves the next bit onto MISO.

@@ -1,23 +1,34 @@
 /*
  * sn74hc595.c — 8-bit SPI shift register with output latches.
  *
- * Pins: SER (data in, MOSI), SRCLK (shift clock, SCK), RCLK (latch / CS),
+ * Pins: SER (data in, MOSI), SRCLK (shift clock, SCK), RCLK (latch),
  *       SRCLR (active-low clear), OE (output enable), QH' (cascade out, MISO),
  *       Q0..Q7 (parallel outputs).
  *
- * Wired as an SPI slave: SER=MOSI, SRCLK=SCK, RCLK acts as our chip-select
- * (rising edge latches the shift register to the output stage).
+ * Wired as an SPI slave: SER = MOSI, SRCLK = SCK, QH' = MISO. A 74HC595 has
+ * NO chip select: it shifts on every SRCLK edge, whatever else is on the bus,
+ * so the config declares cs = NO_PIN (DESIGN section 10 of
+ * project/board-buses-2026-09). RCLK is the LATCH, not a select: declaring it
+ * as the chip select made the chip deaf except while RCLK was low, which is
+ * the opposite of the part.
  *
  * Behavior:
  *   - On every SPI byte, 8 bits shift into the internal register.
  *   - On RCLK rising edge, the register copies to Q0..Q7.
  *   - SRCLR LOW resets the register and outputs to 0.
- *   - QH' echoes the bit being shifted out the high end (cascade).
+ *   - QH' echoes the byte shifted out the high end (cascade): the buffer the
+ *     host hands back holds the previous byte, which is what the 8th stage
+ *     puts on the wire while the next one shifts in. It only reaches the bus
+ *     when QH' is actually wired to the MISO net.
  */
 
 #include "velxio-chip.h"
 #include <stdlib.h>
 #include <string.h>
+
+/* No pin. vx_spi_config fields left at 0 would name pad 0, so a chip with no
+ * select has to say so explicitly. */
+#define NO_PIN ((vx_pin)-1)
 
 static const char* Q_NAMES[8] = {"Q0","Q1","Q2","Q3","Q4","Q5","Q6","Q7"};
 
@@ -43,8 +54,9 @@ static void on_spi_done(void* ud, uint8_t* buffer, uint32_t count) {
   if (count > 0) {
     s->shift_reg = buffer[0];
   }
-  /* Re-arm the SPI for the next byte (real 74HC595 has no CS — it shifts on
-   * every SCK edge as long as data flows). */
+  /* Re-arm the SPI for the next byte: a real 74HC595 has no CS, it shifts on
+   * every SRCLK edge as long as data flows. The buffer still holds the byte
+   * just received, which is what QH' cascades out during the next frame. */
   vx_spi_start(s->spi, s->spi_buf, 1);
 }
 
@@ -80,7 +92,7 @@ void chip_setup(void) {
     .sck       = s->SRCLK,
     .mosi      = s->SER,
     .miso      = s->QH,
-    .cs        = s->RCLK,   /* runtime ignores cs, chip drives via RCLK watch */
+    .cs        = NO_PIN,    /* no select line: RCLK below is the output latch */
     .mode      = 0,
     .on_done   = on_spi_done,
     .user_data = s,

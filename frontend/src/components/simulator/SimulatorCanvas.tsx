@@ -317,25 +317,27 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // element + the board's simulator/bridge handles shortly after run start
   // (the element and bridge need a beat to exist) and dispose on stop/unmount.
   //
-  // Keyed on a STABLE run signature, not the boards array identity: `boards`
-  // is replaced on every serial batch (~60 Hz while output flows), and
-  // re-running this effect then detaches/re-attaches the peripherals in a
-  // loop — any event arriving inside the 500 ms re-attach window is lost
-  // (one-shot streams like a display list never recover, unlike the
-  // continuously-repainting SPI LCD decoders that masked this).
-  const attachKey = boards
-    .map((b) => `${b.id}:${b.boardKind}:${b.running ? 1 : 0}`)
-    .join('|');
+  // A board's own peripherals (its LCD, its card slot, its e-paper) are
+  // soldered to it: they exist as long as the board is on the canvas, not as
+  // long as it is running. They register on the board's buses (project
+  // board-buses-2026-09) and the fabric hands them their reset when the MCU
+  // resets, so attaching them per Run is both wrong and lossy: the guest
+  // clocks its display init in the first milliseconds of a run, and a
+  // peripheral that attaches 500 ms later has already missed it. Keyed on the
+  // board identity only, so a serial batch (which replaces `boards` ~60 times a
+  // second) cannot tear them down either.
+  const attachKey = boards.map((b) => `${b.id}:${b.boardKind}`).join('|');
   useEffect(() => {
     const cleanups: (() => void)[] = [];
+    const pending: Array<ReturnType<typeof setInterval>> = [];
     useSimulatorStore
       .getState()
       .boards.forEach((board) => {
         const attachBuiltins = getBoardBuiltins(board.boardKind);
-        if (!attachBuiltins || !board.running) return;
-        const timeout = setTimeout(() => {
+        if (!attachBuiltins) return;
+        const attach = (): boolean => {
           const el = document.getElementById(board.id);
-          if (!el) return;
+          if (!el) return false;
           try {
             cleanups.push(
               attachBuiltins({
@@ -349,10 +351,25 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           } catch (e) {
             console.warn(`[${board.boardKind}] built-in peripheral attach failed:`, e);
           }
-        }, 500);
-        cleanups.push(() => clearTimeout(timeout));
+          return true;
+        };
+        // The board element is a custom element the overlay may still be
+        // loading, so wait for it rather than guessing a delay.
+        if (attach()) return;
+        const interval = setInterval(() => {
+          if (attach()) clearInterval(interval);
+        }, 100);
+        pending.push(interval);
+        const timeout = setTimeout(() => clearInterval(interval), 10000);
+        cleanups.push(() => {
+          clearInterval(interval);
+          clearTimeout(timeout);
+        });
       });
-    return () => cleanups.forEach((fn) => fn());
+    return () => {
+      for (const i of pending) clearInterval(i);
+      cleanups.forEach((fn) => fn());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachKey]);
 
