@@ -791,14 +791,15 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
 
               {/* microSD upload panel: the standalone card and any part that
                   declares its own TF slot (metadata.sdSlot). For a board
-                  (sdSlot) the componentId IS the board id, which lets the
-                  panel read the live card off that board's bridge; the
-                  standalone card falls back to the active board inside. */}
+                  (sdSlot) the componentId IS the board id. For a card on the
+                  canvas it names the card itself, so the listing comes from
+                  THAT card's model even when the canvas holds two of them. */}
               {(componentMetadata.id === 'microsd-card' || componentMetadata.sdSlot === true) && (
                 <SdCardPanel
                   files={(componentProperties.sdFiles as UploadedSdFile[] | undefined) ?? []}
                   onChange={(next) => onPropertyChange?.(componentId, 'sdFiles', next)}
                   boardId={componentMetadata.sdSlot === true ? componentId : undefined}
+                  componentId={componentMetadata.sdSlot === true ? undefined : componentId}
                 />
               )}
 

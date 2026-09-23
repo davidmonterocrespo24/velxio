@@ -54,9 +54,14 @@ import '../simulation/parts/EPaperPart';
 // immediately so the hook's flush schedules synchronously, and stub
 // ImageData so `ctx.createImageData` works.
 
+// The stub runs the callback BEFORE it returns, the opposite order to a real
+// rAF, so the id it hands back has to mean "nothing pending" (null). Returning
+// a live id latched the part's `rafId` guard after the very first flush and
+// every later frame was dropped, which made a panel look frozen on its first
+// picture here and nowhere else.
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
   cb(performance.now());
-  return 1;
+  return null as unknown as number;
 });
 vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
@@ -393,17 +398,29 @@ describe('EPaperPart — on the board bus', () => {
 
   it('RST still reaches the controller through the PinManager, and the panel refreshes after it', () => {
     // RST, DC and BUSY are plain pins, not the bus's business: only CS moved
-    // to the fabric. A reset pulse mid-session must leave the panel working.
+    // to the fabric. The pulse has to REACH the controller (its RAM comes back
+    // clear), and the panel has to keep working afterwards.
     const r = rig('epaper-1in54-bw', { refreshMs: '1' });
+    pump(r, TINY_REFRESH);
+    expect(glassPixel(r.el, 0, 0), 'first pixel').toEqual(INK);
     r.write(PIN_RST, true);
     r.write(PIN_RST, false); // active LOW: the controller resets here
     r.write(PIN_RST, true);
+    // A bare ACTIVATE now shows cleared RAM. Without this the test passes on a
+    // panel whose RST goes nowhere.
+    pump(r, [cmd(CMD_DISP_UPDATE_CTRL_2), ...data(0xf7), cmd(CMD_MASTER_ACTIVATION)]);
+    expect(glassPixel(r.el, 0, 0), 'the reset did not clear the RAM').toEqual(PAPER);
     pump(r, TINY_REFRESH);
     expect(r.sim.externalPinState.get(PIN_BUSY)).toBe(true);
+    expect(glassPixel(r.el, 0, 0), 'the panel went deaf after the reset').toEqual(INK);
   });
 
   it('cleanup takes the panel off the bus, and a later frame decodes nowhere', () => {
     const r = rig('epaper-1in54-bw', { refreshMs: '1' });
+    // It was on the bus first: otherwise the silence below is also what a
+    // panel that never attached at all would produce.
+    pump(r, TINY_REFRESH);
+    expect(glassPixel(r.el, 0, 0), 'the panel never painted while attached').toEqual(INK);
     r.detach();
     const busyWrites = r.sim.driven.length;
     r.write(PIN_CS, false);

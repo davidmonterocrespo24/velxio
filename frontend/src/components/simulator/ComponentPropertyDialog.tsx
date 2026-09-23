@@ -344,6 +344,8 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
         <SdCardPanel
           files={(componentProperties.sdFiles as UploadedSdFile[] | undefined) ?? []}
           onChange={(next) => onPropertyChange?.(componentId, 'sdFiles', next)}
+          boardId={componentMetadata.sdSlot === true ? componentId : undefined}
+          componentId={componentMetadata.sdSlot === true ? undefined : componentId}
         />
       )}
 
