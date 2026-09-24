@@ -29,7 +29,7 @@ export interface UploadedSdFile {
 /** Max total size of uploaded files — matches the FAT16 volume (Wokwi ~8 MB). */
 export const SD_UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
 
-function b64ToBytes(b64: string): Uint8Array {
+export function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

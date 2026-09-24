@@ -63,6 +63,10 @@
  * absorbs the R1 and fill bytes around them. */
 #define RESP_CAP    2048u
 #define RESP_MASK   (RESP_CAP - 1u)
+/* The longest run handed over in one transfer. A data block is 1 + 512 + 2
+ * bytes plus the R1 and fill in front of it, so this covers the whole of the
+ * one answer that is worth batching and nothing has to be split. */
+#define ARM_MAX     520u
 
 /* Data-response tokens (the byte that follows a written block). */
 #define DATA_ACCEPTED    0x05u
@@ -88,9 +92,15 @@ static struct {
   /* What the card will shift out, oldest first. */
   uint8_t resp[RESP_CAP];
   uint32_t head, tail;
-  /* The byte on the wire right now: popped from the queue, handed to
-   * vx_spi_start, and therefore what the host's peek reads. */
-  uint8_t armed[1];
+  /* What is on the wire right now: popped from the queue, handed to
+   * vx_spi_start, and therefore what the host's peek reads. A RUN of bytes
+   * rather than one, because the host pays a call into this module for every
+   * armed transfer and a 512-byte sector was 515 of them: hosted in Python
+   * beside a QEMU guest that was ~30 us a byte, against 0.15 us for the
+   * hand-written card it replaces (project board-buses-2026-09,
+   * harness/sd-host-cost.py). A queued answer is already decided, so handing
+   * it over in one piece changes nothing the master can observe. */
+  uint8_t armed[ARM_MAX];
 
   uint8_t cmd[6];
   uint32_t cmd_len;
@@ -460,13 +470,32 @@ static void consume(uint8_t mosi) {
  *  ahead of the clock is the byte this buffer holds. */
 static void arm(void) {
   if (card.sectors == 0u) return; /* empty slot: nothing drives MISO */
-  if (resp_empty()) {
-    card.armed[0] = 0xFF;
-  } else {
-    card.armed[0] = card.resp[card.head];
+  /* A streamed read is the one answer the host is allowed to interrupt: it
+   * sends CMD12 when it has had enough, and the card flushes what is still
+   * queued so R1b arrives right behind the command. A run already handed over
+   * cannot be flushed, so CMD18 keeps the byte-at-a-time arming and only the
+   * single-block answers are batched. */
+  const uint32_t cap = card.multi_read ? 1u : ARM_MAX;
+  uint32_t n = 0u;
+  while (!resp_empty() && n < cap) {
+    card.armed[n++] = card.resp[card.head];
     card.head = (card.head + 1u) & RESP_MASK;
   }
-  vx_spi_start(card.spi, card.armed, 1u);
+  if (n == 0u) {
+    /* Nothing to say: the idle level. The one place where that is worth a run
+     * rather than a byte is the data block of a write, where the card holds
+     * MISO high for a known number of bytes and only speaks again with the
+     * data-response token. The cost of the run is that a host which drops
+     * chip select in the MIDDLE of a data block loses the bytes it had
+     * already clocked, where byte-at-a-time would have kept them; no host
+     * does that (SdFat releases between blocks, not inside one) and no test
+     * covers it, so it is said here rather than left to be discovered. */
+    uint32_t idle = 1u;
+    if (card.phase == PH_RECV_DATA) idle = (SECTOR - card.data_len) + 2u;
+    if (idle > ARM_MAX) idle = ARM_MAX;
+    while (n < idle) card.armed[n++] = 0xFF;
+  }
+  vx_spi_start(card.spi, card.armed, n);
 }
 
 /**
@@ -492,7 +521,10 @@ static void on_done(void* ud, uint8_t* buffer, uint32_t count) {
     arm();
     return;
   }
-  consume(buffer[0]);
+  /* Every MOSI byte of the run, in order. Their answers were decided before
+   * the run went out, which is what a queued response IS; what these bytes
+   * decide is the NEXT one, and arm() below is where that lands. */
+  for (uint32_t i = 0u; i < count; i++) consume(buffer[i]);
   arm();
 }
 

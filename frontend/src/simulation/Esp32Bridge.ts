@@ -13,7 +13,7 @@
  *     { type: 'esp32_gpio_in',      data: { pin: number, state: 0 | 1 } }
  *     { type: 'esp32_adc_set',      data: { channel: number, millivolts: number } }
  *     { type: 'esp32_i2c_response', data: { addr: number, response: number } }
- *     { type: 'esp32_spi_response', data: { response: number } }
+ *     { type: 'esp32_bus_map',       data: { spi: BusMapEntry[] } }
  *     { type: 'esp32_sensor_attach', data: { sensor_type: string, pin: number, ... } }
  *     { type: 'esp32_sensor_update', data: { pin: number, ... } }
  *     { type: 'esp32_sensor_detach', data: { pin: number } }
@@ -31,7 +31,7 @@
  *                                        pixels: Array<{r,g,b}> | [r,g,b][] } }
  *     { type: 'i2c_event',        data: { addr: number, data: number } }
  *     { type: 'i2c_transaction',  data: { addr: number, data: number[] } }
- *     { type: 'spi_event',        data: { data: number } }
+ *     { type: 'spi_event',        data: { bus: number, event: number } }
  *     { type: 'chip_net',      data: { net: string, level: 0 | 1, ts: number } }
  *     { type: 'system',        data: { event: string, ... } }
  *     { type: 'error',         data: { message: string } }
@@ -202,17 +202,15 @@ export class Esp32Bridge {
   wifiEnabled = false;
 
   /**
-   * Base64 FAT16 image for an on-canvas microSD card, set before connect().
-   * Undefined when no card is present. Forwarded to the worker, which attaches
-   * it as a synchronous SD-over-SPI slave (esp32_sd_slave.SdSpiSlave).
+   * Base64 FAT16 image for the BOARD's own microSD slot, set before connect().
+   * Undefined for a board with no slot.
+   *
+   * It is not sent to the worker any more (project board-buses-2026-09, F4):
+   * the slot is a device of the bus fabric, and the card that answers the
+   * guest is the portable model the bus map carries. This is what the shim
+   * builds that card from, on every engine.
    */
   sdImageB64: string | undefined = undefined;
-
-  /** SD chip-select GPIO for a board with a BUILT-IN SD sharing the SPI bus —
-   * the worker CS-gates the slave so it doesn't consume the display stream.
-   * Undefined only when the card's CS was never wired to a GPIO — nothing to
-   * gate on, and it answers the whole bus as it always did. */
-  sdCsPin: number | undefined = undefined;
 
   // Callbacks wired up by useSimulatorStore
   onSerialData: ((char: string, uart?: number) => void) | null = null;
@@ -310,6 +308,14 @@ export class Esp32Bridge {
   onSpiEvent: ((data: number) => void) | null = null;
   /** Same as onSpiEvent but more explicit (a single MOSI byte). */
   onSpiByte: ((mosi: number) => void) | null = null;
+  /**
+   * A whole batch of MOSI bytes the guest clocked, in order. Preferred over
+   * onSpiByte: the bus fabric takes a block in one call (its selection cannot
+   * change inside a batch, because the worker flushes before every chip-select
+   * and pin edge), which is what keeps a full-screen TFT redraw off the
+   * per-byte path.
+   */
+  onSpiBatch: ((mosi: Uint8Array) => void) | null = null;
   /** Fires on every CS line change emitted by the SoC's SPI peripheral.
    * `csIdx` is the index of the CS pin within the SPI bus (0-3 typical),
    * `low` is true when CS goes LOW (slave selected), false when HIGH. */
@@ -470,17 +476,14 @@ export class Esp32Bridge {
         type: 'start_esp32',
         data: {
           board: toQemuBoardType(this.boardKind),
+          // The bus map rides with the firmware rather than following it: the
+          // worker has to know who is on the bus before the guest clocks its
+          // first byte, and a command sent after the start would race the
+          // boot.
+          bus_map: { spi: this._busMap },
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
           sensors: this._pendingSensors,
           wifi_enabled: this.wifiEnabled,
-          ...(this.sdImageB64
-            ? {
-                sd_card: {
-                  image_b64: this.sdImageB64,
-                  ...(this.sdCsPin !== undefined ? { cs_pin: this.sdCsPin } : {}),
-                },
-              }
-            : {}),
         },
       });
     };
@@ -656,6 +659,11 @@ export class Esp32Bridge {
           const b64 = msg.data.b64 as string;
           if (b64) {
             const bin = atob(b64);
+            if (this.onSpiBatch) {
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              this.onSpiBatch(bytes);
+            }
             const handler = this.onSpiByte ?? this.onSpiEvent;
             if (handler) {
               for (let i = 0; i < bin.length; i++) {
@@ -667,7 +675,7 @@ export class Esp32Bridge {
           break;
         }
         case 'spi_event': {
-          // Worker emits {bus, event, response}. The 'event' field encodes:
+          // Worker emits {bus, event}. The 'event' field encodes:
           //   event = mosi << 8        (op = event & 0xFF == 0x00) → byte transfer
           //   event = ((cs<<1)|level) << 8 | 0x01 (op == 0x01)     → CS line change
           // See backend/app/services/esp32_worker.py::_on_spi_event.
@@ -685,11 +693,11 @@ export class Esp32Bridge {
           } else if (op === 0x01) {
             const csIdx = (event >> 9) & 0x3;
             const level = (event >> 8) & 0x1;
-            this.onSpiCsChange?.(csIdx, level === 1);
-          }
-          // Backwards-compat path for callers reading the old `data` field.
-          if (msg.data.data !== undefined) {
-            this.onSpiEvent?.(msg.data.data as number);
+            // Level 0 is the ASSERTED state: every controller we model drives
+            // its chip select low to select. This read `level === 1` until
+            // F4, which was harmless only because nothing consumed the
+            // callback; the fabric's remote port does.
+            this.onSpiCsChange?.(csIdx, level === 0);
           }
           break;
         }
@@ -954,10 +962,23 @@ export class Esp32Bridge {
     });
   }
 
-  /** Configure the MISO byte returned during an SPI transaction */
-  setSpiResponse(response: number): void {
-    this._send({ type: 'esp32_spi_response', data: { response } });
+  /**
+   * Who is on this board's SPI bus and how each one is selected (project
+   * board-buses-2026-09, F4). The whole map travels every time, so a device
+   * the user deleted is gone by being absent rather than by a second message
+   * nobody can be sure arrived.
+   *
+   * It replaced setSpiResponse, which sent one MISO byte per socket message
+   * for a byte the guest had already clocked: the worker applied it to
+   * whatever byte it happened to be clocking when it arrived.
+   */
+  sendBusMap(spi: unknown[]): void {
+    this._busMap = spi;
+    if (this._connected) this._send({ type: 'esp32_bus_map', data: { spi } });
   }
+
+  /** The last map, replayed after a reconnect: the worker starts empty. */
+  private _busMap: unknown[] = [];
 
   // ── Generic sensor protocol offloading ────────────────────────────────────
   // Sensors call these to delegate their protocol to the backend QEMU.

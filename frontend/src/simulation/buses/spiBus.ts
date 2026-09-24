@@ -54,6 +54,8 @@ export interface SpiMember {
 export interface BusController {
   readonly name: string;
   config(): SpiControllerConfig;
+  /** The master runs outside this tab (a QEMU worker): see reportRemoteGaps. */
+  readonly remote?: boolean;
 }
 
 export function reverseBits(v: number, bits: number): number {
@@ -118,6 +120,7 @@ export class SpiBus {
     for (const m of this.members.values()) if (m.selected) list.push(m);
     this.selectedList = list;
     this.onSelectionChange?.();
+    this.reportRemoteGaps();
     if (list.length > 1) {
       this.report({
         code: 'spi-multiple-selected',
@@ -127,6 +130,36 @@ export class SpiBus {
         message:
           `${list.length} SPI devices are selected at the same time on the bus whose SCK is pin ` +
           `${this.sckPin}; each one receives the other's bytes, as on a real board.`,
+      });
+    }
+  }
+
+  /**
+   * On a remote lane, name every selected device that would have to ANSWER
+   * and has no portable model to answer with.
+   *
+   * The master is in a QEMU worker: it reads MISO for a byte before this tab
+   * has seen the byte at all, so a responder that lives only here cannot be
+   * right, only late. Half working is the worst outcome (the guest reads the
+   * answer to an earlier byte and the sketch misbehaves somewhere else
+   * entirely), so the device is told about instead. Reported once per device
+   * and Run, by the registry's own deduplication.
+   */
+  reportRemoteGaps(): void {
+    if (!this.controller?.remote) return;
+    for (const m of this.selectedList) {
+      if (!drives(m)) continue;
+      if (m.desc.remoteModel?.() != null) continue;
+      this.report({
+        code: 'bus-remote-responder-missing',
+        bus: 'spi',
+        boardId: this.boardId,
+        owners: [m.owner],
+        message:
+          `${m.owner} answers on MISO, but this board's processor runs in the backend and the ` +
+          `part has no portable model to run there with it, so the board reads an idle bus ` +
+          `instead of the chip. Run this board on an in-browser engine, or use a part that ` +
+          `carries a model.`,
       });
     }
   }

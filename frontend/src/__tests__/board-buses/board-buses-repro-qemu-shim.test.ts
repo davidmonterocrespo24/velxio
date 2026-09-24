@@ -13,20 +13,18 @@
  * keeps the pixels), window.setTimeout (the panel's paint debounce) and a
  * document with no elements in it (the chip part looks its element up there).
  *
- * WHAT THIS LANE IS SINCE F3. A part is on a bus because its pins are on that
+ * WHAT THIS LANE IS SINCE F4. A part is on a bus because its pins are on that
  * bus's nets, and the bytes reach it from a controller PORT the engine adapter
- * publishes. The QEMU bridges have no port: Esp32BridgeShim.getBusBinding and
- * Stm32BridgeShim.getBusBinding hand the fabric the board's PINS and an empty
- * `spi` list until F4. So a device on a QEMU board is placed on the right bus
- * and its chip select follows the guest's `gpio_change`, and then it is handed
- * nothing: the MOSI bytes of a `spi_batch` reach no device in the tab, and no
- * device can answer MISO. That is what every case below states.
+ * publishes. The QEMU bridges have no port of their own, so the shims publish
+ * a REMOTE one (simulation/buses/remotePort.ts): the worker's `spi_batch` is
+ * pushed into it and the fabric hands it to whatever the chip selects say is
+ * listening, exactly as it does for an in-browser engine.
  *
- * The bytes in a `spi_batch` were clocked by the guest before the batch was
- * sent (esp32_worker.py batches them and returns _spi_response[0] at byte
- * time), so even a device that did get them could not answer them in time.
- * That is the shape of the F4 job: the responder has to live next to the
- * guest, and the browser device has to be fed as a block.
+ * What that port does NOT do is carry an answer back. The bytes in a
+ * `spi_batch` were clocked by the guest before the batch was sent, so a
+ * device here would always answer the wrong byte. A device that has to
+ * ANSWER travels the other way instead, as a portable model in the bus map
+ * the shim sends, and runs beside the guest.
  *
  * Convention (TESTS.md), and how to tell the three states apart here:
  *  - `it.fails` + "F4, still broken": the hardware-faithful behaviour, not
@@ -263,12 +261,19 @@ function responder(boardId: string, owner: string, cs: number) {
 // ── The lane itself: pins bound, no controller ──────────────────────────────
 
 describe('QEMU ESP32 board: what the bus fabric is given', () => {
-  it('the fabric gets the board pins and no SPI controller port (F4 adds the port)', () => {
+  it('the fabric gets the board pins and the remote SPI controller port', () => {
     const { id } = qemuBoard({ tft: true });
     const binding = bindingOf(id);
     expect(binding, 'the QEMU shim binds the board').not.toBeNull();
-    expect(binding!.spi, 'SPI controller ports on the QEMU lane').toEqual([]);
+    expect(binding!.spi.map((p) => [p.name, p.remote])).toEqual([['VSPI', true]]);
     expect(typeof binding!.pins.peekPinState).toBe('function');
+  });
+
+  it('the port is the SAME object across rebuilds of the shim binding', () => {
+    // A device is on this board's bus because of its wiring, and that has to
+    // survive every rebuild of the bridge behind the shim (D-003).
+    const { id } = qemuBoard({ tft: true });
+    expect(bindingOf(id)!.spi[0]).toBe(bindingOf(id)!.spi[0]);
   });
 });
 
@@ -288,11 +293,12 @@ describe('QEMU ESP32 shim: MISO answers for bytes the guest already clocked', ()
     expect(busRegistry.placement('tft1')!.selected, 'CS high deselects it').toBe(false);
   });
 
-  // F4, still broken. The batch holds the bytes the guest clocked while the
-  // panel's CS was low; on a board with a controller port (any in-browser
-  // engine) that same row lands on the glass. Here it reaches no device at
-  // all, because the QEMU bridge publishes no port for the fabric to clock.
-  it.fails(
+  // Closed by F4. The batch holds the bytes the guest clocked while the
+  // panel's CS was low, and the remote port pushes them into the fabric, so
+  // the row lands on the glass exactly as it does on an in-browser engine.
+  // This is the case that says hardware SPI reaches a canvas part on the QEMU
+  // lane at all: without the port it reaches nothing.
+  it(
     'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: the row the guest clocked into a selected ILI9341 reaches the panel',
     () => {
       const { ws, tft } = qemuBoard({ tft: true });
@@ -301,16 +307,14 @@ describe('QEMU ESP32 shim: MISO answers for bytes the guest already clocked', ()
     },
   );
 
-  // F4, no longer reachable this way. The finding is the answer channel:
-  // Esp32BridgeShim's legacy .spi facade hands every completeTransfer to
-  // Esp32Bridge.setSpiResponse, which is one esp32_spi_response WebSocket
-  // message per MOSI byte, applied by the worker to whatever byte it is
-  // clocking when it arrives. That code is untouched; what changed with F3 is
-  // that no device is on that facade any more, so nothing drives it and the
-  // flood does not happen today. Both halves are asserted together, so this
-  // cannot pass just because the lane is dead: a responder must be handed the
-  // bytes AND the tab must not answer them one socket message at a time.
-  it.fails(
+  // Closed by F4. The finding was the answer channel: every completeTransfer
+  // went to Esp32Bridge.setSpiResponse, one esp32_spi_response WebSocket
+  // message per MOSI byte, applied by the worker to whatever byte it was
+  // clocking when it arrived. That channel is gone; the bytes still reach the
+  // devices here. Both halves are asserted together, so this cannot pass by
+  // the lane being dead: a responder must be handed the bytes AND the tab
+  // must not answer them one socket message at a time.
+  it(
     'esp32-qemu-miso-ws-flood, qemu-shim-miso-ws-per-byte: a responder on the bus is handed the guest bytes without the tab answering one WebSocket message per byte',
     () => {
       const { id, ws } = qemuBoard({});
@@ -534,25 +538,29 @@ async function stm32SdBegin(card: boolean) {
 }
 
 describe('QEMU STM32 board: a browser SPI part that answers (microSD card)', () => {
-  it('stm32-no-client-miso-and-epaper-swallow setup: on a started Blue Pill the card sits on SPI1 and the guest chip select selects it, and the board has no SPI controller port', async () => {
+  it('stm32-no-client-miso-and-epaper-swallow setup: on a started Blue Pill the card sits on SPI1 and the guest chip select selects it, and the board has the remote SPI controller port', async () => {
     const run = await stm32SdBegin(true);
     expect(run.sent.some((f) => f.includes('"start_stm32"'))).toBe(true);
     expect(run.placement).toEqual({ boardId: run.boardId, sckPin: 5, selected: false });
     expect(run.selected, 'CS low selects the card').toBe(true);
-    expect(bindingOf(run.boardId)!.spi, 'SPI controller ports on the STM32 lane').toEqual([]);
+    expect(
+      bindingOf(run.boardId)!.spi.map((p) => [p.name, p.remote]),
+      'SPI controller ports on the STM32 lane',
+    ).toEqual([['SPI1', true]]);
   });
 
-  // F4, still broken, and now for one reason instead of two. The card is on
-  // the bus and selected, and CMD0 still reaches nobody: the STM32 worker runs
-  // the controller and the tab has no port to be clocked from. Either fix
-  // closes this: the card reaching the backend at Run, before the guest clocks
-  // (a worker-side responder, as the ESP32 start path does with sdCsPin), or a
-  // note / part gap saying it cannot answer on this engine. Forwarding
-  // per-byte answers does NOT count, which is why only frames sent at Run are
-  // compared: an answer leaves after the byte it answers was clocked, so the
-  // worker applies it a byte late (TestBrowserMiso in the STM32 worker tests)
-  // and SD.begin() still fails.
-  it.fails(
+  // Closed by F4, and this rig exercises the SECOND of the two ways the case
+  // allows. The card does carry a portable model now, but the model is an
+  // artifact fetched from /bus-chips and nothing serves it here, so the map
+  // goes out without it and the bus SAYS SO once instead of leaving the user
+  // with a card that is wired, selected and mute. The other way, the card
+  // actually riding to the backend at Run, is board-buses-f4-sd-remote, which
+  // hands the real artifact to the registry.
+  // Forwarding per-byte answers would still not count, which is why only
+  // frames sent at Run are compared: an answer leaves after the byte it
+  // answers was clocked, so the worker would apply it a byte late
+  // (TestBrowserMiso in the STM32 worker tests) and SD.begin() still fails.
+  it(
     'stm32-no-client-miso-and-epaper-swallow: a microSD card on an STM32 QEMU board is not dropped silently: the backend is handed the card at Run, or the user is told it cannot answer on this engine',
     async () => {
       const without = await stm32SdBegin(false);

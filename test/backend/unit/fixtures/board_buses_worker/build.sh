@@ -13,10 +13,10 @@ for c in "${WASI_SDK:-}" "$HOME/wasi-sdk" /opt/wasi-sdk; do
 done
 [ -n "$clang" ] || { echo "wasi-sdk not found (set WASI_SDK)" >&2; exit 1; }
 
-for name in spi-probe i2c-probe; do
+for name in spi-probe i2c-probe touch-probe free-probe; do
   "$clang" --target=wasm32-unknown-wasip1 -O2 -nostartfiles \
     -Wl,--import-memory -Wl,--export-table -Wl,--no-entry \
     -Wl,--export=chip_setup -Wl,--allow-undefined \
     -I "$sdk_inc" "$here/$name.c" -o "$here/$name.wasm"
 done
-echo "built: spi-probe.wasm i2c-probe.wasm"
+echo "built: spi-probe.wasm i2c-probe.wasm touch-probe.wasm free-probe.wasm"

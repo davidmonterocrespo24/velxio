@@ -235,7 +235,7 @@ class EspLibManager:
         sensors:      list | None = None,
         wifi_enabled: bool = False,
         wifi_hostfwd_port: int = 0,
-        sd_card: dict | None = None,
+        bus_map: dict | None = None,
     ) -> None:
         # Stop any existing instance for this client_id first
         if client_id in self._instances:
@@ -255,7 +255,10 @@ class EspLibManager:
             'sensors':           sensors or [],
             'wifi_enabled':      wifi_enabled,
             'wifi_hostfwd_port': wifi_hostfwd_port,
-            **({'sd_card': sd_card} if sd_card else {}),
+            # The board's SPI bus as the tab sees it, in the config rather than
+            # in a command after the start: the guest can clock a byte before a
+            # command would arrive (project board-buses-2026-09, F4).
+            **({'bus_map': bus_map} if bus_map else {}),
         })
 
         logger.info('Launching esp32_worker for %s (machine=%s, script=%s, python=%s)',
@@ -439,12 +442,17 @@ class EspLibManager:
             self._write_cmd(inst, {'cmd': 'set_i2c_response', 'addr': addr,
                                    'response': response_byte & 0xFF})
 
-    def set_spi_response(self, client_id: str, response_byte: int) -> None:
-        """Configure the MISO byte returned during SPI transfers."""
+    def set_bus_map(self, client_id: str, spi: list) -> None:
+        """Replace the worker's view of who is on the board's SPI bus.
+
+        The tab sends the whole map on every membership change, so a device
+        the user deleted is gone by being absent. It replaced
+        set_spi_response, which sent one MISO byte for a byte the guest had
+        already clocked (project board-buses-2026-09, F4)."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:
-            self._write_cmd(inst, {'cmd': 'set_spi_response', 'response': response_byte & 0xFF})
+            self._write_cmd(inst, {'cmd': 'bus_map', 'spi': spi})
 
     # ── Generic sensor protocol offloading ──────────────────────────────────
 

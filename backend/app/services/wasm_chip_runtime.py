@@ -33,7 +33,42 @@ from typing import Callable, Optional
 import base64
 import zlib
 
+import ctypes
 import wasmtime
+
+
+class _FastCallApi:
+    """The pieces of wasmtime's ctypes layer the per-byte call path needs.
+
+    Probed once, here, so the rest of the file can ask a single question
+    ("is it there?") and a wasmtime whose internals moved just keeps the
+    generic call instead of failing. See WasmChipRuntime._fast_call.
+    """
+
+    def __init__(self, ffi, enter_wasm):
+        self.val_t = ffi.wasmtime_val_t
+        self.call = ffi.wasmtime_func_call
+        self.enter_wasm = enter_wasm
+        # wasmtime spells the i32 kind as a c_ubyte constant.
+        kind = ffi.WASMTIME_I32
+        self.i32_kind = getattr(kind, "value", kind)
+
+
+def _probe_fast_call():
+    try:
+        from wasmtime import _ffi as _wt_ffi
+        from wasmtime._func import enter_wasm as _enter_wasm
+
+        api = _FastCallApi(_wt_ffi, _enter_wasm)
+        # Touch every field once: a missing one raises here and nowhere else.
+        _ = (api.val_t * 1)(), api.call, api.i32_kind
+        return api
+    except Exception:  # noqa: BLE001 - any shape change falls back
+        return None
+
+
+_FAST_CALL = _probe_fast_call()
+
 
 # The UART a chip talks on. UART0 is the serial monitor on every ESP32
 # family, so a chip there collides with the console in both directions.
@@ -303,6 +338,12 @@ class WasmChipRuntime:
             self._store, wasmtime.MemoryType(wasmtime.Limits(2, 16))
         )
 
+        # See _mem_view / _call_indirect: both caches are dropped whenever wasm
+        # runs, which is the only thing that can invalidate them.
+        self._mem_view_cache = None
+        self._fn_cache: dict[int, object] = {}
+        self._fast_cache: dict[int, object] = {}
+
         self._attrs = {k: v for k, v in (attrs or {}).items()
                        if isinstance(v, (int, float))}
         # String attribute values (vx_attr_register_string) ride the same
@@ -416,7 +457,10 @@ class WasmChipRuntime:
         chip_setup = self._exports["chip_setup"]
         if chip_setup is None:
             raise RuntimeError("chip WASM does not export chip_setup")
+        # chip_setup allocates, so the memory can grow under the view.
+        self._drop_mem_view()
         chip_setup(self._store)
+        self._drop_mem_view()
         self._flush_stdout()
 
     # ── Memory & helpers ──────────────────────────────────────────────────────
@@ -426,6 +470,90 @@ class WasmChipRuntime:
 
     def _write_bytes(self, ptr: int, data: bytes) -> None:
         self._memory.write(self._store, data, ptr)
+
+    # ── The hot path ────────────────────────────────────────────────────────
+    #
+    # An SPI responder is asked for one byte at a time, and a 512-byte SD
+    # sector is therefore 512 round trips through this file. The generic
+    # wasmtime-py helpers are far too expensive for that: `Memory.read` of ONE
+    # byte asks the engine for the buffer size, builds a ctypes array type and
+    # allocates a bytearray, and `Func.__call__` re-reads the function's TYPE
+    # on every call and rebuilds its parameter list. Measured on the microSD
+    # model, that was ~85 % of the cost of a byte (project
+    # board-buses-2026-09, harness/sd-host-cost.py).
+    #
+    # Both are cached here instead. The invariant that makes it safe is small:
+    # the memory's base address only moves when the memory GROWS, and it only
+    # grows while wasm code runs, so the view is dropped around the two places
+    # that enter the module (`run_chip_setup` and `_call_indirect`) and
+    # nowhere else has to know.
+
+    def _fast_call(self, fn, args: tuple) -> int | None:
+        """Call a wasm function without wasmtime-py's per-call type work.
+
+        `Func.__call__` asks the engine for the function's TYPE on every call
+        and rebuilds its parameter list from it, then converts each argument
+        through the generic Val path. For a responder that is per SPI BYTE. The
+        type never changes, so it is read once and the value array is filled in
+        place after that: measured at about a fifth of the generic call on the
+        microSD model (harness/sd-host-cost.py).
+
+        This reaches into wasmtime's ctypes bindings, which are not a published
+        API, so everything it needs is probed once at import and a host without
+        it simply keeps the generic path. Returns None when it cannot run, and
+        the caller falls back.
+        """
+        if _FAST_CALL is None:
+            return None
+        cached = self._fast_cache.get(id(fn))
+        if cached is None:
+            try:
+                ty = fn.type(self._store)
+                params = list(ty.params)
+                results = list(ty.results)
+                nres = len(results)
+                # Only the all-i32 shape the chip ABI uses; anything else goes
+                # the generic way rather than being guessed at.
+                if (any(str(p) != "i32" for p in params)
+                        or any(str(r) != "i32" for r in results)
+                        or nres > 1):
+                    self._fast_cache[id(fn)] = False
+                    return None
+                argv = (_FAST_CALL.val_t * len(params))()
+                for v in argv:
+                    v.kind = _FAST_CALL.i32_kind
+                resv = (_FAST_CALL.val_t * nres)()
+                cached = (fn, argv, len(params), resv, nres)
+                self._fast_cache[id(fn)] = cached
+            except Exception:
+                self._fast_cache[id(fn)] = False
+                return None
+        if cached is False:
+            return None
+        _fn, argv, nargs, resv, nres = cached
+        if len(args) != nargs:
+            return None
+        for i, a in enumerate(args):
+            argv[i].of.i32 = int(a)
+        with _FAST_CALL.enter_wasm(self._store) as trap:
+            err = _FAST_CALL.call(
+                self._store._context(), ctypes.byref(_fn._func),
+                argv, nargs, resv, nres, trap,
+            )
+            if err:
+                raise wasmtime.WasmtimeError._from_ptr(err)
+        return int(resv[0].of.i32) if nres else 0
+
+    def _mem_view(self):
+        """A ctypes view of the guest's linear memory, valid until wasm runs."""
+        view = self._mem_view_cache
+        if view is None:
+            view = self._memory.get_buffer_ptr(self._store)
+            self._mem_view_cache = view
+        return view
+
+    def _drop_mem_view(self) -> None:
+        self._mem_view_cache = None
 
     def _read_cstring(self, ptr: int) -> str:
         if ptr == 0:
@@ -504,9 +632,20 @@ class WasmChipRuntime:
         if table is None:
             return 0
         try:
-            fn = table.get(self._store, idx)
+            # The table lookup is stable for the life of the module, and it is
+            # not free: it builds a Func object and its type. A responder calls
+            # the same on_done for every byte of a transfer.
+            fn = self._fn_cache.get(idx)
             if fn is None:
-                return 0
+                fn = table.get(self._store, idx)
+                if fn is None:
+                    return 0
+                self._fn_cache[idx] = fn
+            # Anything below runs wasm, which can grow the memory.
+            self._drop_mem_view()
+            fast = self._fast_call(fn, args)
+            if fast is not None:
+                return fast
             result = fn(self._store, *args)
             if isinstance(result, (list, tuple)):
                 result = result[0] if result else 0
@@ -638,22 +777,7 @@ class WasmChipRuntime:
             return handle
 
         def vx_pin_read(handle: int) -> int:
-            if not (0 <= handle < len(self._pins)):
-                return 0
-            p = self._pins[handle]
-            # Prefer the live QEMU value when wired & a reader is available.
-            if p["gpio"] is not None and self._pin_reader is not None:
-                try:
-                    return self._pin_reader(p["gpio"]) & 1
-                except Exception:
-                    pass
-            # No board GPIO: the net level is the pin level, so a chip reads
-            # what another chip on the same net last drove.
-            if p["net"] is not None and self._net_bus is not None:
-                level = self._net_bus.level(p["net"])
-                if level is not None:
-                    return level & 1
-            return p["value"] & 1
+            return self.pin_level(handle)
 
         def vx_pin_write(handle: int, value: int) -> None:
             if not (0 <= handle < len(self._pins)):
@@ -1180,7 +1304,49 @@ class WasmChipRuntime:
         self._call_indirect(idx, self.uart_config["user_data"], byte & 0xFF)
         self._flush_stdout()
 
+    # ── Pins ────────────────────────────────────────────────────────────────
+    def pin_level(self, handle: int) -> int:
+        """The level on one of the chip's own pins, as vx_pin_read sees it.
+
+        A method rather than a closure because the SPI bus needs the same
+        answer for the chip's select line (spi_cs_active below), and two
+        readings of one pin that can disagree is the whole disease this
+        project exists to cure.
+        """
+        if not (0 <= handle < len(self._pins)):
+            return 0
+        p = self._pins[handle]
+        # Prefer the live QEMU value when wired & a reader is available.
+        if p["gpio"] is not None and self._pin_reader is not None:
+            try:
+                return self._pin_reader(p["gpio"]) & 1
+            except Exception:
+                pass
+        # No board GPIO: the net level is the pin level, so a chip reads
+        # what another chip on the same net last drove.
+        if p["net"] is not None and self._net_bus is not None:
+            level = self._net_bus.level(p["net"])
+            if level is not None:
+                return level & 1
+        return p["value"] & 1
+
     # ── SPI hook (chip ← firmware) ───────────────────────────────────────────
+    def spi_cs_active(self) -> bool:
+        """Whether this chip's select line is asserted right now.
+
+        velxio-chip.h states the contract: the bus HONOURS `cfg.cs`, so the
+        chip is clocked only while that pin is low, and a chip that set cs to
+        -1 has no select line and is always on the bus (a 74HC595). The level
+        comes from pin_level, so a select wired to a board GPIO follows the
+        guest and one on a chip net follows whatever drives that net.
+        """
+        if not self.spi_config:
+            return False
+        handle = int(self.spi_config.get("cs", -1))
+        if handle < 0:
+            return True
+        return self.pin_level(handle) == 0
+
     def spi_transfer_byte(self, mosi: int) -> int:
         """Called by the worker when the firmware clocks one SPI byte.
         Returns the byte the chip put in its MISO buffer at the current position;
@@ -1191,10 +1357,12 @@ class WasmChipRuntime:
             return 0xFF
         if self._spi_buffer_pos >= self._spi_buffer_count:
             return 0xFF
-        # Read MISO byte (chip's pre-filled response)
-        miso_byte = self._read_bytes(self._spi_buffer_ptr + self._spi_buffer_pos, 1)[0]
-        # Overwrite with master's MOSI byte
-        self._write_bytes(self._spi_buffer_ptr + self._spi_buffer_pos, bytes([mosi & 0xFF]))
+        # One byte in and one byte out of the chip's armed buffer, straight
+        # through the cached view: this is the per-byte path (see _mem_view).
+        view = self._mem_view()
+        off = self._spi_buffer_ptr + self._spi_buffer_pos
+        miso_byte = view[off]          # the chip's pre-filled response
+        view[off] = mosi & 0xFF        # what the master sent, for on_done
         self._spi_buffer_pos += 1
         if self._spi_buffer_pos >= self._spi_buffer_count:
             # Transfer complete — fire on_done with the buffer the chip prepared.

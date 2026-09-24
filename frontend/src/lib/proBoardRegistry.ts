@@ -59,7 +59,17 @@ export interface ProBoardSimulator {
  * That is why the board's properties panel offers the same upload panel a card
  * component gets, and why the run path builds the card image either way.
  */
-export type BuiltInSdSlot = { bus: 'spi'; csPin: number } | { bus: 'sdmmc' };
+export type BuiltInSdSlot =
+  /**
+   * A slot on an SPI bus. The chip select is what puts the card panel on the
+   * board's context menu; the other three wires are the same hardware fact and
+   * say WHICH bus the slot is on, which is what a host outside this tab needs
+   * to be told (project board-buses-2026-09, F4). A board whose builtins
+   * already register the slot themselves may leave them out.
+   */
+  | { bus: 'spi'; csPin: number; sck?: number; mosi?: number; miso?: number }
+  /** A slot on the chip's own SDMMC host: no bus to share, no select to gate. */
+  | { bus: 'sdmmc' };
 
 export interface ProBoardDef {
   /** The board id — behaves like a BoardKind everywhere at runtime. */

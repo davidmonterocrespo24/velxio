@@ -22,6 +22,12 @@
 
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { attachSpiDevice, type SpiDevice } from '../buses';
+import {
+  loadSdBusChip,
+  SdSpiCard,
+  sdCardRemoteModel,
+  sdSpiFabricDevice,
+} from './sdSpiCard';
 import { requestLine, releaseLineGap } from '../line/requestLine';
 import { VirtualDS1307, VirtualBMP280, VirtualDS3231, VirtualPCF8574 } from '../I2CBusManager';
 import type { I2CDevice } from '../I2CBusManager';
@@ -986,58 +992,44 @@ PartSimulationRegistry.register('ir-remote', {
 // ─── MicroSD Card ─────────────────────────────────────────────────────────────
 
 /**
- * MicroSD card — generic SD-over-SPI device with a real backing store.
+ * MicroSD card: the canvas part of the generic SD-over-SPI card.
  *
  * A responder on the bus fabric: it is on the bus its SCK/DI/DO/CS wires put
  * it on, whatever board and whatever engine, and it only ever sees the frames
  * clocked while its own chip select is active.
  *
- * Implements the SD v2 / SDHC command set the SD.h / SdFat libraries use, so it
- * works generically with any card configuration (not a one-card hack):
- *   - Init/info: CMD0, CMD8 (R7), CMD55+ACMD41, CMD58 (OCR, CCS=1 SDHC),
- *     CMD9 (CSD v2 reflecting SD_CARD_BYTES), CMD10 (CID), CMD13, CMD16.
- *   - Read:  CMD17 (single), CMD18 (multiple, until CMD12) — served from store.
- *   - Write: CMD24 (single), CMD25 (multiple, until stop token 0xFD) — the data
- *     block that follows the command is captured and stored.
- *
- * Addressing: the card advertises SDHC (CCS=1), so CMD17/24 args are BLOCK
- * indices (not byte offsets). Backing store is a sparse Map of 512-byte sectors.
- *
- * An optional pre-built FAT image can be injected via element.sdImageData (the
- * file-upload / auto-copy feature lands files there). The response queue drains
- * one byte per SPI transfer; with nothing to say the card leaves MISO alone and
- * the line reads its idle level.
+ * The protocol is NOT here. One model serves this part, a board's built-in
+ * slot and the portable artifact a remote worker runs
+ * (`parts/sdSpiCard.ts` and `buses/models/microsd.c`), because three
+ * hand-kept copies of it had already drifted apart and each drift was a card
+ * that mounted on one engine and not another. What this part owns is the
+ * interface: the image the project's files are baked into
+ * (`element.sdImageData`), the reader the card panel lists them through, and
+ * the pad names the fabric walks the wires from.
  */
-const SD_BLOCK_SIZE = 512;
 // Fixed card capacity (mirrors Wokwi's "no size attribute" model). The backing
 // store is SPARSE — only written/loaded blocks allocate — so the advertised
 // capacity is free in RAM. Adjustable here; not exposed to the user.
 const SD_CARD_BYTES = 64 * 1024 * 1024; // 64 MB
-const SD_C_SIZE = Math.floor(SD_CARD_BYTES / (512 * 1024)) - 1; // CSD v2 C_SIZE
 
 PartSimulationRegistry.register('microsd-card', {
   attachEvents: (element, _simulator, _getPin, componentId) => {
     const el = element as any;
 
-    // ── Backing store: sparse map of blockIndex -> 512-byte sector ──────────
-    const store = new Map<number, Uint8Array>();
-    const readBlock = (idx: number): Uint8Array => store.get(idx) ?? new Uint8Array(SD_BLOCK_SIZE); // unwritten = zeros
-    const writeBlock = (idx: number, data: ArrayLike<number>): void => {
-      const blk = new Uint8Array(SD_BLOCK_SIZE);
-      blk.set(Array.from(data).slice(0, SD_BLOCK_SIZE));
-      store.set(idx, blk);
-    };
+    // The card model is shared with a board's built-in slot and with the
+    // portable model a remote worker runs, so a fix lands in one place
+    // (project board-buses-2026-09, F4). This part is the INTERFACE: the image
+    // the user's files are baked into, the panel that lists them, and the pins
+    // the silkscreen prints.
+    const card = new SdSpiCard(null, SD_CARD_BYTES);
 
-    // How big the card was handed to us: the dump below pads back to it, so a
-    // FAT parser reading the card sees the whole volume and not just the
-    // blocks somebody touched.
+    // Optional pre-built FAT image (DynamicComponent sets element.sdImageData
+    // from the project's files plus the panel's uploads). How big it was is
+    // what the dump pads back to, so a FAT parser reading the card sees the
+    // whole volume and not just the blocks somebody touched.
     let imageBytes = 0;
-
-    // Optional pre-built FAT image (Phase 2 sets element.sdImageData). Loaded
-    // into the store block-by-block so the firmware can mount + read it.
-    (() => {
+    {
       const raw = el.sdImageData;
-      if (!raw) return;
       const bytes: Uint8Array | null =
         raw instanceof Uint8Array
           ? raw
@@ -1046,292 +1038,32 @@ PartSimulationRegistry.register('microsd-card', {
             : Array.isArray(raw)
               ? Uint8Array.from(raw)
               : null;
-      if (!bytes) return;
-      imageBytes = bytes.length;
-      for (let i = 0; i * SD_BLOCK_SIZE < bytes.length; i++) {
-        const slice = bytes.subarray(i * SD_BLOCK_SIZE, (i + 1) * SD_BLOCK_SIZE);
-        // Skip all-zero blocks so the store stays sparse (they read back as
-        // zeros anyway) — a multi-MB FAT image only allocates its used blocks.
-        if (slice.some((b) => b !== 0)) writeBlock(i, slice);
+      if (bytes) {
+        imageBytes = bytes.length;
+        card.loadImage(bytes);
       }
-    })();
-
-    // ── 16-byte CSD (v2.0, high-capacity) reflecting SD_CARD_BYTES ──────────
-    const buildCSD = (): number[] => [
-      0x40,
-      0x0e,
-      0x00,
-      0x32,
-      0x5b,
-      0x59,
-      0x00,
-      (SD_C_SIZE >> 16) & 0x3f,
-      (SD_C_SIZE >> 8) & 0xff,
-      SD_C_SIZE & 0xff,
-      0x7f,
-      0x80,
-      0x0a,
-      0x40,
-      0x00,
-      0x01,
-    ];
-    // ── 16-byte CID (manufacturer info; values are cosmetic) ────────────────
-    const buildCID = (): number[] => [
-      0x01,
-      0x56,
-      0x58,
-      0x56,
-      0x45,
-      0x4c,
-      0x58,
-      0x53, // mfr, "VX", "VELXS"
-      0x10,
-      0x00,
-      0x00,
-      0x00,
-      0x01,
-      0x01,
-      0x60,
-      0x01,
-    ];
-
-    // ── SD SPI protocol state machine ───────────────────────────────────────
-    const respQueue: number[] = [];
-    let cmdBuf: number[] = [];
-    let expectingAcmd = false;
-    // Phases: 'cmd' (idle/command), and the write data path after CMD24/25.
-    let phase: 'cmd' | 'wait-token' | 'recv-data' | 'recv-crc' = 'cmd';
-    let dataBuf: number[] = [];
-    let crcLeft = 0;
-    let writeAddr = 0;
-    let multiWrite = false;
-    // CMD18 continuous read: keep streaming blocks until CMD12.
-    let multiRead = false;
-    let readAddr = 0;
-
-    /** Queue a data block as the firmware reads it: token + 512 bytes + CRC. */
-    const pushDataBlock = (bytes: ArrayLike<number>): void => {
-      respQueue.push(0xfe); // start-block token
-      for (let i = 0; i < SD_BLOCK_SIZE; i++) respQueue.push((bytes as any)[i] ?? 0);
-      respQueue.push(0xff, 0xff); // CRC (ignored by SPI mode)
-    };
-    /** Queue R1 + a short (<=16 byte) data block (CSD/CID). */
-    const pushShortData = (bytes: number[]): void => {
-      respQueue.push(0x00, 0xfe, ...bytes, 0xff, 0xff);
-    };
-
-    const processCmd = (raw: number[]): void => {
-      const cmd = raw[0] & 0x3f;
-      const arg = ((raw[1] << 24) | (raw[2] << 16) | (raw[3] << 8) | raw[4]) >>> 0;
-      const isAcmd = expectingAcmd;
-      expectingAcmd = false;
-      // N_CR: a card never answers on the byte right after the command. The
-      // spec allows 1 to 8 fill bytes there and real cards take at least one,
-      // so SdFat (the SD.h of arduino-pico) simply throws that byte away
-      // before it starts polling for R1. With no fill at all it threw R1
-      // away, and no Pico sketch using SD.h could mount this card
-      // (evidence/matrix-2026-09-22-prod.json, microsd-ncr-zero-vs-sdfat).
-      // The libraries that poll from the first byte (Arduino SD on AVR,
-      // ESP-IDF sd_diskio) skip it as the idle byte it is.
-      respQueue.push(0xff);
-
-      if (isAcmd) {
-        if (cmd === 41) {
-          respQueue.push(0x00);
-          return;
-        } // ACMD41 — ready
-        if (cmd === 13) {
-          respQueue.push(0x00, 0x00);
-          return;
-        } // ACMD13 SD status (R2)
-        // fall through for other ACMDs
-      }
-
-      switch (cmd) {
-        case 0:
-          respQueue.push(0x01);
-          break; // GO_IDLE -> idle
-        case 8:
-          respQueue.push(0x01, 0x00, 0x00, 0x01, 0xaa);
-          break; // SEND_IF_COND (R7)
-        case 9:
-          pushShortData(buildCSD());
-          break; // SEND_CSD
-        case 10:
-          pushShortData(buildCID());
-          break; // SEND_CID
-        case 12:
-          multiRead = false;
-          respQueue.push(0x00, 0x00, 0xff);
-          break; // STOP_TRANSMISSION
-        case 13:
-          respQueue.push(0x00, 0x00);
-          break; // SEND_STATUS (R2)
-        case 16:
-          respQueue.push(0x00);
-          break; // SET_BLOCKLEN (fixed 512)
-        // Standard-capacity (SDSC) byte addressing: CMD17/18/24/25 args are BYTE
-        // offsets (block*512), not block indices. The Arduino SD library uses
-        // this even when the card advertises SDHC, so we present SDSC (CMD58
-        // CCS=0) and translate `arg >> 9` -> block. SDSC covers up to 2 GB,
-        // plenty for our small card; every SD library supports it.
-        case 17:
-          respQueue.push(0x00);
-          pushDataBlock(readBlock(arg >> 9));
-          break; // READ_SINGLE
-        case 18: // READ_MULTIPLE — stream until CMD12
-          respQueue.push(0x00);
-          readAddr = arg >> 9;
-          multiRead = true;
-          pushDataBlock(readBlock(readAddr));
-          readAddr++;
-          break;
-        case 24: // WRITE_SINGLE — data block follows
-          respQueue.push(0x00);
-          writeAddr = arg >> 9;
-          multiWrite = false;
-          phase = 'wait-token';
-          break;
-        case 25: // WRITE_MULTIPLE — data blocks follow until stop token
-          respQueue.push(0x00);
-          writeAddr = arg >> 9;
-          multiWrite = true;
-          phase = 'wait-token';
-          break;
-        case 55:
-          respQueue.push(0x01);
-          expectingAcmd = true;
-          break; // APP_CMD prefix
-        case 58:
-          respQueue.push(0x00, 0x80, 0xff, 0x80, 0x00);
-          break; // READ_OCR (powered, CCS=0 SDSC)
-        default:
-          respQueue.push(0x00); // accept unhandled commands
-      }
-    };
-
-    /**
-     * One frame while the card is selected. Full-duplex: the MISO shifted out
-     * for THIS frame was prepared by earlier bytes, so answer FIRST (from the
-     * queue as it stood before this byte) and only THEN consume the MOSI byte
-     * to prepare what comes next. Answering after processing broke SD.begin().
-     */
-    const frame = (byte: number): number => {
-      const miso = respQueue.length > 0 ? respQueue.shift()! : 0xff;
-
-      switch (phase) {
-        case 'cmd':
-          if (cmdBuf.length === 0 && (byte & 0xc0) === 0x40) {
-            cmdBuf = [byte]; // command start (bit7=0, bit6=1)
-          } else if (cmdBuf.length > 0) {
-            cmdBuf.push(byte);
-            if (cmdBuf.length === 6) {
-              processCmd(cmdBuf);
-              cmdBuf = [];
-            }
-          } else if (multiRead && respQueue.length === 0) {
-            // Continuous read: refill the next block while the host clocks 0xFF.
-            pushDataBlock(readBlock(readAddr));
-            readAddr++;
-          }
-          break;
-        case 'wait-token':
-          if (byte === 0xfe || byte === 0xfc) {
-            phase = 'recv-data';
-            dataBuf = [];
-          } else if (byte === 0xfd) {
-            multiWrite = false;
-            phase = 'cmd';
-            respQueue.push(0x00);
-          }
-          // else 0xFF gap — keep waiting
-          break;
-        case 'recv-data':
-          dataBuf.push(byte);
-          if (dataBuf.length === SD_BLOCK_SIZE) {
-            phase = 'recv-crc';
-            crcLeft = 2;
-          }
-          break;
-        case 'recv-crc':
-          if (--crcLeft === 0) {
-            writeBlock(writeAddr, dataBuf);
-            writeAddr++;
-            respQueue.push(0x05); // data-response: accepted
-            phase = multiWrite ? 'wait-token' : 'cmd';
-          }
-          break;
-      }
-      return miso;
-    };
-
-    /**
-     * CS went high: the command frame being clocked in cannot be finished by
-     * bytes meant for the next chip, and a reply nobody stayed to read is
-     * gone. That is ALL a real card forgets here. A multiple-block transfer
-     * survives chip select on purpose: SdFat's SharedSpiCard (the SD.h of
-     * arduino-pico, and of every board whose bus is shared) releases CS
-     * between writeStart / writeData / writeStop and between readStart /
-     * readData / readStop, and the card is expected to still be in its data
-     * phase when the host comes back. Clearing `phase` here made the 0xFC
-     * token of the next block land in the command parser, which then read 512
-     * bytes of user data as commands. The APP_CMD flag of a CMD55 survives
-     * too: it belongs to the next command, not to this transaction, and
-     * SdFat deselects between the two.
-     */
-    const endFrame = (): void => {
-      cmdBuf = [];
-      respQueue.length = 0;
-    };
-
-    /** The MCU restarted: no transfer of any kind is in flight any more. */
-    const resetProtocol = (): void => {
-      endFrame();
-      dataBuf = [];
-      phase = 'cmd';
-      multiRead = false;
-      multiWrite = false;
-      expectingAcmd = false;
-    };
-
-    const device: SpiDevice = {
-      transfer: (byte: number): number => frame(byte),
-      // What the card will shift out on the next frame, for a bit-banged
-      // master that reads MISO bit by bit before the byte is in: the queue is
-      // already the answer it has prepared, so there is nothing to compute.
-      peekMiso: (): number => (respQueue.length > 0 ? respQueue[0] : 0xff),
-      deselect: endFrame,
-      // Stop/Run resets the MCU, not the card: the image and everything
-      // written to it stay, exactly as they do on a board whose reset button
-      // never cuts the card's power. Only the transfer in flight is gone.
-      boardReset: resetProtocol,
-    };
-
-    /**
-     * The card's contents RIGHT NOW: the image it was built with plus every
-     * block the guest has written since. This is what the SD panel lists, and
-     * it has to come from here: the card the guest talks to is this model, on
-     * whatever engine, and the only other copy of it (the SdSpiCard a pro
-     * bridge builds) exists only for a board with a built-in slot.
-     *
-     * Padded back to the original image size so a FAT parser sees the whole
-     * volume even when the tail blocks were never written; null when there is
-     * no card image at all, which the panel reads as "nothing mounted yet".
-     */
-    const dumpImage = (): Uint8Array | null => {
-      let top = Math.ceil(imageBytes / SD_BLOCK_SIZE);
-      for (const idx of store.keys()) top = Math.max(top, idx + 1);
-      if (top <= 0) return null;
-      const out = new Uint8Array(top * SD_BLOCK_SIZE);
-      for (const [idx, blk] of store) out.set(blk, idx * SD_BLOCK_SIZE);
-      return out;
-    };
+    }
 
     const owner = componentId ?? (el?.id as string) ?? 'microsd-card';
     // The panel asks by owner. `fromPart` says this card is a component on the
     // canvas, so a panel opened on the card itself finds it without being told
     // which component it is.
-    const unpublish = registerSdImageReader(owner, dumpImage, { fromPart: true });
+    const unpublish = registerSdImageReader(
+      owner,
+      () => {
+        const image = card.dumpImage(imageBytes);
+        // Nothing mounted yet reads as no card, which is what the panel shows
+        // for a slot it has never seen a byte from.
+        return image.length > 0 ? image : null;
+      },
+      { fromPart: true },
+    );
+
+    // The card is also a RESPONDER on a board whose CPU is in a QEMU worker,
+    // and there it has to run beside the guest: the worker reads MISO for a
+    // byte before this tab has seen the byte (D-004). Start the fetch of the
+    // portable model now; the map is published again when the bytes land.
+    loadSdBusChip();
 
     const handle = attachSpiDevice(
       {
@@ -1343,14 +1075,15 @@ PartSimulationRegistry.register('microsd-card', {
         // CS (pin 1, DAT3) carries the card's own pull-up, so a card whose CS
         // nothing drives reads as deselected and stays quiet.
         csWhenFloating: 'deselected',
+        remoteModel: () => sdCardRemoteModel(card, imageBytes),
       },
-      device,
+      sdSpiFabricDevice(card),
     );
 
     return () => {
       handle.dispose();
       unpublish();
-      resetProtocol();
+      card.setCs(false);
     };
   },
 });

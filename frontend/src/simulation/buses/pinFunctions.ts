@@ -77,6 +77,24 @@ export function functionsOfPin(boardKind: string, pin: number): PinFunction[] {
   return TABLES.get(boardKind)?.pins[pin] ?? [];
 }
 
+/**
+ * The SPI controller the board's core binds the Arduino `SPI` object to.
+ *
+ * A board whose master runs in a backend worker gets ONE controller port in
+ * the tab, because the worker reports ONE stream of bytes and cannot say which
+ * peripheral clocked them. This picks the peripheral a sketch that just says
+ * `SPI.begin()` is using, which is the one the pins of a wired-up canvas land
+ * on. Claiming a port for a second controller would be inventing what the
+ * engine does not report (decisions.md D-008).
+ */
+export function arduinoSpiController(boardKind: string): ControllerDef | undefined {
+  const controllers = TABLES.get(boardKind)?.controllers ?? [];
+  return (
+    controllers.find((c) => c.bus === 'spi' && c.arduino?.includes('SPI')) ??
+    controllers.find((c) => c.bus === 'spi')
+  );
+}
+
 /** The controller definition for (bus, unit) on a board, if the table has it. */
 export function controllerOf(
   boardKind: string,

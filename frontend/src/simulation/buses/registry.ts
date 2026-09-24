@@ -46,6 +46,30 @@ interface SpiEntry {
 
 export type DiagnosticListener = (d: BusDiagnostic) => void;
 
+/**
+ * One responder of the bus map the tab sends a remote worker (project
+ * board-buses-2026-09, F4-SPEC "Protocolo"). Field names are the wire's, which
+ * is Python's, because this object is serialised straight into the command.
+ */
+export interface RemoteSpiMapEntry {
+  owner: string;
+  /** The controller this device is on, or null when the tab cannot tell. */
+  bus_id: number | null;
+  cs:
+    | { kind: 'pin'; gpio: number; active_low: boolean }
+    | { kind: 'hw'; index: number; gpio: number; active_low: boolean }
+    | { kind: 'const'; active: boolean }
+    | { kind: 'none' };
+  model: {
+    wasm_b64: string;
+    pin_map: Record<string, number>;
+    attrs: Record<string, number>;
+    blobs: Record<string, string>;
+  };
+}
+
+export type SpiMapListener = (boardId: string) => void;
+
 const NO_RESOLVER: NetResolver = {
   resolve: () => ({ kind: 'floating' }),
   boardKind: () => undefined,
@@ -59,6 +83,7 @@ export class BusRegistry {
   private readonly spi = new Map<string, SpiEntry>();
   private readonly diagListeners = new Set<DiagnosticListener>();
   private readonly seenDiag = new Set<string>();
+  private readonly mapListeners = new Set<SpiMapListener>();
 
   // ── Circuit ───────────────────────────────────────────────────────────────
 
@@ -223,6 +248,7 @@ export class BusRegistry {
     bus.add(e.member);
     fabric.memberAdded(bus);
     this.watch(e);
+    this.spiMapChanged(board);
   }
 
   private unplace(e: SpiEntry): void {
@@ -233,9 +259,11 @@ export class BusRegistry {
       e.bus.remove(e.member.owner);
       e.fabric?.releaseIfEmpty(e.bus);
     }
+    const board = e.bus?.boardId ?? null;
     e.bus = null;
     e.fabric = null;
     e.key = '';
+    if (board !== null) this.spiMapChanged(board);
   }
 
   private csSource(desc: SpiDeviceDescriptor, board: string): CsSource {
@@ -308,6 +336,106 @@ export class BusRegistry {
     for (const e of this.spi.values()) if (e.fabric === f) this.watch(e);
   }
 
+  // ── The bus map a remote worker needs ─────────────────────────────────────
+
+  /**
+   * Every responder on `boardId` that carries a portable model, with the chip
+   * select the circuit gives it.
+   *
+   * Only responders travel. A sink (a display, an e-paper panel) stays in the
+   * tab: it never drives MISO, so nothing waits for it, and the worker
+   * forwards it the bytes instead. A responder with no portable model is left
+   * out here and reported by its bus (`bus-remote-responder-missing`) the
+   * moment it is selected, rather than shipped as an entry the worker would
+   * have to guess at.
+   */
+  remoteSpiMap(boardId: string): RemoteSpiMapEntry[] {
+    const out: RemoteSpiMapEntry[] = [];
+    for (const e of this.spi.values()) {
+      if (!e.bus || e.bus.boardId !== boardId || !e.fabric) continue;
+      const model = e.desc.remoteModel?.();
+      if (!model) continue;
+      const ctl = e.fabric.controllerOfBus(e.bus.sckPin);
+      out.push({
+        owner: e.desc.owner,
+        bus_id: ctl ? ctl.unit : null,
+        cs: this.remoteCs(e),
+        model: {
+          wasm_b64: model.wasmB64,
+          pin_map: { ...this.remotePinMap(e), ...(model.pinMap ?? {}) },
+          attrs: model.attrs ?? {},
+          blobs: model.blobs ?? {},
+        },
+      });
+    }
+    return out;
+  }
+
+  /**
+   * The bus pins the circuit gave this device, under the pad names the model
+   * declares (the part registers with the chip's own pad names, so the two are
+   * the same string). The worker needs them for the model's own pin watches:
+   * the card ends its command frame on CS rising, and without a pin map that
+   * watch is registered against a pad the host cannot move. A model's explicit
+   * `pinMap` wins, so a leg the circuit does not name (an interrupt output)
+   * still travels.
+   */
+  private remotePinMap(e: SpiEntry): Record<string, number> {
+    const out: Record<string, number> = {};
+    const put = (pin: DevicePin | undefined, gpio: number | undefined): void => {
+      if (typeof pin !== 'string' || gpio === undefined) return;
+      out[pin] = gpio;
+    };
+    put(e.desc.pins.sck, e.bus?.sckPin);
+    put(e.desc.pins.mosi, e.member.mosiPin);
+    put(e.desc.pins.miso, e.member.misoPin);
+    put(e.desc.pins.cs, e.cs.kind === 'pin' ? e.cs.pin : undefined);
+    return out;
+  }
+
+  private remoteCs(e: SpiEntry): RemoteSpiMapEntry['cs'] {
+    const activeLow = (e.desc.csActive ?? 'low') === 'low';
+    if (e.cs.kind === 'none') return { kind: 'none' };
+    if (e.cs.kind === 'const') return { kind: 'const', active: e.cs.active };
+    // A pad the SPI peripheral drives itself never moves in the worker's GPIO
+    // table, so it travels as the peripheral's own CS index instead.
+    const hw = e.fabric?.hardwareCsIndex(e.cs.pin) ?? null;
+    // The pad number travels with the index: the worker never sees a GPIO
+    // edge for it, so it is the only way a model that watches its own select
+    // line can be told the line moved.
+    if (hw !== null) return { kind: 'hw', index: hw, gpio: e.cs.pin, active_low: activeLow };
+    return { kind: 'pin', gpio: e.cs.pin, active_low: activeLow };
+  }
+
+  /**
+   * A portable model that was not there when the maps were built has arrived
+   * (the artifact is fetched, so the first map of a page is usually built
+   * without it). Publish every board's map again: a device carries its model
+   * only from `remoteModel()`, so this is the moment the worker can stop
+   * reading an idle bus.
+   */
+  spiModelsChanged(): void {
+    const boards = new Set<string>();
+    for (const e of this.spi.values()) if (e.bus) boards.add(e.bus.boardId);
+    for (const id of boards) this.spiMapChanged(id);
+  }
+
+  /** Called after the map of `boardId` could have changed. */
+  onSpiMapChange(listener: SpiMapListener): () => void {
+    this.mapListeners.add(listener);
+    return () => this.mapListeners.delete(listener);
+  }
+
+  private spiMapChanged(boardId: string): void {
+    for (const l of this.mapListeners) {
+      try {
+        l(boardId);
+      } catch {
+        /* a broken listener must not break the bus */
+      }
+    }
+  }
+
   // ── Diagnostics ───────────────────────────────────────────────────────────
 
   onDiagnostic(listener: DiagnosticListener): () => void {
@@ -347,6 +475,7 @@ export class BusRegistry {
     for (const owner of Array.from(this.spi.keys())) this.detachSpi(owner);
     for (const id of Array.from(this.fabrics.keys())) this.dropFabric(id);
     this.seenDiag.clear();
+    this.mapListeners.clear();
     this.resolver = NO_RESOLVER;
   }
 }

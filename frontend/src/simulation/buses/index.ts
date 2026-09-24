@@ -9,7 +9,22 @@
 
 export * from './types';
 export * from './pinFunctions';
-export { BusRegistry, busRegistry, type DiagnosticListener } from './registry';
+export {
+  BusRegistry,
+  busRegistry,
+  type DiagnosticListener,
+  type RemoteSpiMapEntry,
+  type SpiMapListener,
+} from './registry';
+export {
+  busChipB64,
+  bytesToBase64,
+  loadBusChip,
+  primeBusChip,
+  resetBusChipsForTest,
+} from './busChips';
+export { RemoteSpiPort, type RemoteSpiPortOptions } from './remotePort';
+export { RemoteSpiLane } from './remoteLane';
 export { BoardBusFabric } from './fabric';
 export { SpiBus, reverseBits, type SpiMember } from './spiBus';
 export { SoftSpiDecoder } from './softSpi';
@@ -19,8 +34,14 @@ export { boardPinsFromPinManager } from './boardPins';
 // Every OSS board's pin function table registers on import (the overlay
 // registers its own boards when it installs them).
 import './boardPinTables';
+import { setBusChipLoadListener } from './busChips';
 import { busRegistry } from './registry';
 import type { BusHandle, SpiDevice, SpiDeviceDescriptor } from './types';
+
+// A model's artifact is fetched, so the map a remote board published on the
+// first membership change was built before the bytes arrived. Wiring the two
+// here keeps busChips.ts free of any import from the registry.
+setBusChipLoadListener(() => busRegistry.spiModelsChanged());
 
 /**
  * Put an SPI device on the bus its wiring says it is on. The handle's

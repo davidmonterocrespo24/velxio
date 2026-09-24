@@ -146,6 +146,10 @@ export class Stm32Bridge {
         data: {
           board: this.boardKind,
           sensors: this._pendingSensors,
+          // Who is on the SPI bus, with the firmware rather than after it:
+          // the guest can clock its first byte before a later command would
+          // arrive (project board-buses-2026-09, F4).
+          bus_map: { spi: this._busMap },
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
         },
       });
@@ -371,6 +375,19 @@ export class Stm32Bridge {
     this._pendingSensors = this._pendingSensors.filter((s) => s['pin'] !== pin);
     this._send({ type: 'stm32_sensor_detach', data: { pin } });
   }
+
+  /**
+   * Who is on this board's SPI bus and how each one is selected (project
+   * board-buses-2026-09, F4). The whole map travels every time, so a device
+   * the user deleted is gone by being absent; the last one is replayed at the
+   * next start, because the worker begins with an empty bus.
+   */
+  sendBusMap(spi: unknown[]): void {
+    this._busMap = spi;
+    if (this._connected) this._send({ type: 'stm32_bus_map', data: { spi } });
+  }
+
+  private _busMap: unknown[] = [];
 
   private _send(payload: unknown): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {

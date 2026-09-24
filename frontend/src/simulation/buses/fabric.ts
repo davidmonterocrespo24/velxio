@@ -192,8 +192,11 @@ export class BoardBusFabric {
         });
       }
       const port = slot.port;
-      bus.controller = { name: port.name, config: () => port.config() };
+      bus.controller = { name: port.name, config: () => port.config(), remote: port.remote };
       this.checkWiring(slot, bus);
+      // The controller is only known now, and whether it is remote decides
+      // whether a selected responder here is a problem worth naming.
+      bus.reportRemoteGaps();
     }
   }
 
@@ -247,6 +250,37 @@ export class BoardBusFabric {
   /** Called by the registry after it adds a member, so wiring is checked now. */
   memberAdded(bus: SpiBus): void {
     this.checkWiring(null, bus);
+  }
+
+  /**
+   * Which controller serves the bus on `sckPin`, and whether it is remote.
+   * The bus map the tab sends a worker names the controller per responder, so
+   * a device on the second SPI peripheral is not answered by the first.
+   */
+  controllerOfBus(sckPin: number): { unit: number; remote: boolean } | null {
+    for (const slot of this.slots) {
+      if (slot.sck !== sckPin) continue;
+      return { unit: slot.port.unit, remote: slot.port.remote === true };
+    }
+    return null;
+  }
+
+  /**
+   * The index of the hardware chip select routed to `pin`, if a controller
+   * drives that pad itself.
+   *
+   * It matters for the bus map: QEMU never moves a GPIO for a pad the SPI
+   * peripheral owns, so a worker that looked the level up in its pin table
+   * would find the chip permanently deselected. The worker takes the level
+   * from its own CS events instead, and this is how it learns which device
+   * those events belong to.
+   */
+  hardwareCsIndex(pin: number): number | null {
+    for (const slot of this.slots) {
+      const idx = slot.cs.indexOf(pin);
+      if (idx >= 0) return idx;
+    }
+    return null;
   }
 
   // ── Levels (chip select) ──────────────────────────────────────────────────

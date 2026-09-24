@@ -51,7 +51,7 @@ import { STM32_LED } from '../components/velxio-components/Stm32BluePillElement'
 import { useEditorStore } from './useEditorStore';
 import { fingerprintSources } from '../utils/sourceFingerprint';
 import { useVfsStore } from './useVfsStore';
-import { buildProjectSdImage, decodeSdFiles, bytesToB64 } from '../utils/sdCardFiles';
+import { b64ToBytes, buildProjectSdImage, decodeSdFiles, bytesToB64 } from '../utils/sdCardFiles';
 import {
   autoWireColor,
   DEFAULT_WIRE_COLOR,
@@ -93,7 +93,18 @@ import {
 import { SINGLE_WIRE_SENSOR_MODELS } from '../simulation/sensorModels';
 import type { LineSupport } from '../simulation/line/LineHost';
 import { traceBoardGpio } from '../simulation/PinTrace';
-import { busRegistry, createStoreNetResolver } from '../simulation/buses';
+import {
+  attachSpiDevice,
+  busRegistry,
+  createStoreNetResolver,
+  RemoteSpiLane,
+} from '../simulation/buses';
+import {
+  loadSdBusChip,
+  SdSpiCard,
+  sdCardRemoteModel,
+  sdSpiFabricDevice,
+} from '../simulation/parts/sdSpiCard';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
 
 // ── Sensor pre-registration ──────────────────────────────────────────────────
@@ -210,10 +221,28 @@ export class Esp32BridgeShim {
    */
   private ws2812Sinks = new Map<number, (pixels: Ws2812Pixel[]) => void>();
 
+  /**
+   * The board's SPI lane when the firmware runs in a backend worker (project
+   * board-buses-2026-09, F4): the controller port the worker's bytes arrive
+   * on, and the bus map that goes the other way. Built for every ESP32 board
+   * and used only when the bridge has no ports of its own, which is exactly
+   * when the CPU is not in this tab.
+   */
+  private readonly remoteLane: RemoteSpiLane;
+
   constructor(bridge: Esp32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
+    this.remoteLane = new RemoteSpiLane(bridge.boardId, bridge.boardKind, (spi) =>
+      (bridge as unknown as { sendBusMap?: (m: unknown[]) => void }).sendBusMap?.(spi),
+    );
+    // The worker's MOSI bytes, and the chip selects the SPI peripheral drives
+    // itself. They arrive in order with the pin edges around them, so the
+    // fabric arbitrates them with the same information a local engine gives
+    // it. What a device here answers goes nowhere: see RemoteSpiPort.
+    bridge.onSpiBatch = (mosi) => this.remoteLane.port?.deliver(mosi);
+    bridge.onSpiCsChange = (csIdx, low) => this.remoteLane.port?.hardwareCs(csIdx, low);
 
     // Wire the write-forwarding path: when the backend ProxySlave emits
     // a completed write transaction (one full STOP-bounded master phase
@@ -287,6 +316,137 @@ export class Esp32BridgeShim {
     const b = this.bridge as unknown as { hostsCustomChips?: () => boolean };
     return typeof b.hostsCustomChips === 'function' ? b.hostsCustomChips() !== false : true;
   }
+
+  /** Send the worker the board's SPI bus map, for a board whose firmware runs
+   *  there. A board running in this tab has no worker and its bridge has no
+   *  sendBusMap, so this is a no-op for it. */
+  pushBusMap(): void {
+    this.remoteLane.pushMap();
+  }
+
+  /**
+   * The board's OWN microSD slot, on the bus fabric (project
+   * board-buses-2026-09, F4).
+   *
+   * A slot soldered to the board is a device of the bus like any canvas card:
+   * it is on the bus its clock pin is on, and it only answers while its own
+   * chip select is low, which is what lets the panel and the card share the
+   * other three wires. Until F4 the QEMU worker was handed the image in its
+   * start config and served it from a Python card of its own
+   * (`esp32_sd_slave.py`), a third hand-kept copy of the same protocol; now
+   * the slot travels in the bus map like everything else and the portable
+   * model answers beside the guest.
+   *
+   * The card object stays here regardless, because it is what the SD panel
+   * lists: the worker relays back every MOSI byte it clocks, so this copy
+   * follows the same writes the hosted model applies.
+   */
+  syncBuiltinSdCard(): void {
+    // Only for a board whose CPU is NOT in this tab. An in-browser engine puts
+    // the same slot on the bus itself, under the same owner, and two cards
+    // built from two images racing for one owner is precisely the attach-order
+    // bug this project exists to remove.
+    if (this.bridgeHasOwnPorts()) {
+      this.sdHandle?.();
+      this.sdHandle = null;
+      this.sdCard = null;
+      this.sdImageBytes = 0;
+      return;
+    }
+    const slot = getProBoard(this.bridge.boardKind)?.builtInSd;
+    const pins =
+      slot && slot.bus === 'spi' && slot.sck !== undefined
+        ? { sck: slot.sck, mosi: slot.mosi, miso: slot.miso, cs: slot.csPin }
+        : null;
+    const b64 = this.bridge.sdImageB64;
+    if (!pins || !b64) {
+      this.sdHandle?.();
+      this.sdHandle = null;
+      this.sdCard = null;
+      this.sdImageBytes = 0;
+      return;
+    }
+    if (!this.sdCard) {
+      try {
+        const image = b64ToBytes(b64);
+        this.sdImageBytes = image.length;
+        this.sdCard = new SdSpiCard(image);
+      } catch (e) {
+        console.warn('[microsd] the board slot image could not be read', e);
+        return;
+      }
+      this.sdCard.setCs(false);
+    }
+    const card = this.sdCard;
+    const bytes = this.sdImageBytes;
+    const boardId = this.bridge.boardId;
+    loadSdBusChip();
+    this.sdHandle?.();
+    const unpublish = registerSdImageReader(boardId, () => {
+      const image = card.dumpImage(bytes);
+      return image.length > 0 ? image : null;
+    });
+    // The owner is the one the overlay's own built-in registration uses, so a
+    // board that switches between the in-browser engine and QEMU replaces the
+    // slot instead of ending up with two cards answering one bus.
+    const handle = attachSpiDevice(
+      {
+        owner: `builtin:${boardId}:sd`,
+        pins: {
+          sck: { kind: 'board', boardId, pin: pins.sck },
+          ...(pins.mosi === undefined
+            ? {}
+            : { mosi: { kind: 'board' as const, boardId, pin: pins.mosi } }),
+          ...(pins.miso === undefined
+            ? {}
+            : { miso: { kind: 'board' as const, boardId, pin: pins.miso } }),
+          cs: { kind: 'board', boardId, pin: pins.cs },
+        },
+        // SD cards clock on modes 0 and 3, and CS (DAT3) carries the card's
+        // own pull-up: a slot whose select the guest has not driven yet reads
+        // as deselected and stays quiet.
+        modes: [0, 3],
+        csWhenFloating: 'deselected',
+        remoteModel: () => {
+          const model = sdCardRemoteModel(card, bytes);
+          if (!model) return null;
+          // A built-in names BOARD pins, not pad names, so the map the model's
+          // own chip-select watch needs is spelled out here.
+          const pinMap: Record<string, number> = { SCK: pins.sck, CS: pins.cs };
+          if (pins.mosi !== undefined) pinMap.DI = pins.mosi;
+          if (pins.miso !== undefined) pinMap.DO = pins.miso;
+          return { ...model, pinMap };
+        },
+      },
+      sdSpiFabricDevice(card),
+    );
+    this.sdHandle = () => {
+      handle.dispose();
+      unpublish();
+    };
+  }
+
+  /** True when the engine behind this shim runs in the tab and publishes its
+   *  own controller ports; false for the QEMU lane. */
+  private bridgeHasOwnPorts(): boolean {
+    const bridge = this.bridge as unknown as {
+      getBusBinding?: (pins: unknown) => unknown | null;
+    };
+    if (typeof bridge.getBusBinding !== 'function') return false;
+    try {
+      return bridge.getBusBinding({
+        onPinChange: () => () => {},
+        peekPinState: () => null,
+        driveInput: () => {},
+      }) != null;
+    } catch {
+      return false;
+    }
+  }
+
+  private sdCard: SdSpiCard | null = null;
+  private sdHandle: (() => void) | null = null;
+  private sdImageBytes = 0;
 
   /** One byte into the guest's UART RX; the custom-chip bridge (avrUartTx)
    *  calls this for a browser-hosted chip's vx_uart_write on CHIP_UART. */
@@ -516,17 +676,18 @@ export class Esp32BridgeShim {
 
   // The shim has no SPI channel of its own (project board-buses-2026-09, F3).
   // A part is on this board's SPI because its pins are on a controller's nets,
-  // and the in-browser engines answer each frame from their fabric port. The
-  // QEMU bridge's own onSpiByte / setSpiResponse seam is still there and still
-  // reaches nobody: F4 mirrors the fabric into the worker.
+  // and the in-browser engines answer each frame from their fabric port. A
+  // QEMU board answers from the worker's own copy of the same bus (F4), fed by
+  // the map this shim sends.
 
   /**
    * The bus fabric's binding for this board (project board-buses-2026-09).
    * The pins are this shim's PinManager. The SPI controller ports come from
    * the bridge when it has them: the in-browser engines, through the overlay's
    * delegating bridge, which keeps the same ports across every run. A QEMU
-   * bridge has none until F4, so the fabric knows the board's pins and clocks
-   * nothing from it. An MCU reset the bridge reports reaches the fabric after
+   * bridge has none of its own, so it gets the REMOTE port instead (F4): the
+   * worker's bytes reach the tab's devices through it, and the responders that
+   * have to answer travel the other way, as the bus map. An MCU reset the bridge reports reaches the fabric after
    * the board's pins were reset, so a chip select reads as undriven until the
    * rebooted firmware drives it again.
    */
@@ -542,7 +703,7 @@ export class Esp32BridgeShim {
       ) => import('../simulation/buses').EngineBinding | null;
     };
     const binding = typeof bridge.getBusBinding === 'function' ? bridge.getBusBinding(pins) : null;
-    if (!binding) return { pins, spi: [] };
+    if (!binding) return this.remoteLane.binding(pins);
     return {
       ...binding,
       setResetHandler: (handler) =>
@@ -998,10 +1159,19 @@ class Stm32BridgeShim {
   private i2cBusInstance: I2CBusManager;
   private _i2cTransactionListeners = new Map<number, (data: number[]) => void>();
 
+  /** The board's SPI lane: the STM32 runs in a backend QEMU worker, so its
+   *  controller port is fed by the worker's batches and its responders travel
+   *  there as a bus map (project board-buses-2026-09, F4). */
+  private readonly remoteLane: RemoteSpiLane;
+
   constructor(bridge: Stm32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
+    this.remoteLane = new RemoteSpiLane(bridge.boardId, bridge.boardKind, (spi) =>
+      bridge.sendBusMap(spi),
+    );
+    bridge.onSpiBatch = (mosi) => this.remoteLane.port?.deliver(mosi);
   }
 
   // ── Lifecycle stubs (the store drives the real bridge via getStm32Bridge) ──
@@ -1091,6 +1261,11 @@ class Stm32BridgeShim {
     this.bridge.sendSensorDetach(pin);
   }
 
+  /** Send the worker the board's SPI bus map (project board-buses-2026-09). */
+  pushBusMap(): void {
+    this.remoteLane.pushMap();
+  }
+
   /** Expose the bridge so SPI/ePaper parts can subscribe to backend frames. */
   getBridge(): Stm32Bridge {
     return this.bridge;
@@ -1098,19 +1273,18 @@ class Stm32BridgeShim {
 
   /**
    * The bus fabric's binding for this board (project board-buses-2026-09):
-   * its pins only. The STM32 runs in the backend QEMU worker, whose SPI
-   * controllers get their ports in F4, so the fabric knows the board and
-   * clocks nothing from it yet.
+   * its pins, and the remote SPI port the backend worker feeds (F4). The
+   * bytes the guest clocked arrive as batches and are pushed into the fabric
+   * here; a device that has to ANSWER travels the other way instead, as a
+   * portable model in the bus map, because nothing in this tab can answer a
+   * byte the guest clocked before the batch was even sent.
    */
   getBusBinding(): import('../simulation/buses').EngineBinding {
-    return {
-      pins: {
-        onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
-        peekPinState: (pin) => this.pinManager.peekPinState(pin),
-        driveInput: (pin, level) => this.setPinState(pin, level),
-      },
-      spi: [],
-    };
+    return this.remoteLane.binding({
+      onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
+      peekPinState: (pin) => this.pinManager.peekPinState(pin),
+      driveInput: (pin, level) => this.setPinState(pin, level),
+    });
   }
 
   // ── I2C write-only device relay (SSD1306, PCF8574) ────────────────────────
@@ -1138,10 +1312,6 @@ class Stm32BridgeShim {
     this.i2cBusInstance.removeDevice(addr);
   }
 
-  // No SPI channel here either (project board-buses-2026-09, F3). STM32 runs
-  // SPI in the backend and its MOSI bytes arrive batched over `spi_batch`;
-  // the bridge's onSpiBatch seam is still there and still reaches nobody,
-  // because this board has no fabric port yet. F4 gives it one.
 }
 
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
@@ -3042,33 +3212,20 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           const hasWifi = (board.hasWifi ?? false) || sketchUsesWifi(boardFiles);
           esp32Bridge.wifiEnabled = hasWifi;
 
-          // microSD — if a card is on the canvas, build a FAT16 image (project
-          // files, plus any paid binary uploads stored on the part) and hand
-          // it to the bridge so the QEMU worker can attach it as an SD-over-SPI
-          // slave. No card -> clear any stale image from a previous run.
+          // microSD: the BOARD's own slot gets its image here, because it has
+          // no component on the canvas to carry one. A card the user dropped
+          // on the canvas builds its own image in the part and reaches its bus
+          // through its own wires, so nothing about it belongs on the bridge.
+          //
+          // Until F4 this also shipped the image to the QEMU worker (`sd_card`
+          // in the start config) so a Python card of its own could serve it -
+          // a third hand-kept copy of the SD protocol. It does not any more:
+          // the slot is a device of the bus fabric like everything else and
+          // travels in the bus map, where ONE portable model answers beside
+          // the guest (project board-buses-2026-09, D-004).
           const sdCard = components.find((c) => c.metadataId === 'microsd-card');
-          // Overlay-registered boards can declare a BUILT-IN microSD slot:
-          // attach it even without a card component. A slot on the chip's own
-          // SDMMC controller (the P4's) has no chip select — only a slot that
-          // shares an SPI bus needs one, and only that one can be gated.
           const builtInSd = getProBoard(board.boardKind)?.builtInSd;
-          const builtInSdCs = builtInSd?.bus === 'spi' ? builtInSd.csPin : undefined;
-          // Which GPIO deselects the card. A card on the canvas is gated by
-          // the CS pin the user WIRED — the same walk the sensors above use,
-          // so a CS that reaches the board through a breadboard strip counts.
-          // Chip select is not a formality on this bus: a real card holds MISO
-          // in high-Z until its CS goes low, which is the only reason a
-          // display and a card can share SCK/MOSI/MISO at all. Leaving a
-          // standalone card permanently selected made it answer the display's
-          // pixel stream, and the screen went blank the moment a card was
-          // dropped on the canvas (issue #343) — with no wiring that could
-          // avoid it.
-          // An unwired CS keeps the old always-selected behaviour: on real
-          // hardware that pin would float and nothing would work, but there
-          // are saved projects that never wired it and do work here, and a
-          // card nobody shares a bus with is harmed by nothing.
-          const wiredSdCs = sdCard ? traceBoardGpio(traceState, sdCard.id, 'CS', boardId) : null;
-          if (sdCard || builtInSd !== undefined) {
+          if (builtInSd !== undefined) {
             try {
               // Uploads come from the card component when one is on the
               // canvas, else from the BOARD's own slot (board.sdFiles - the
@@ -3078,16 +3235,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                 : decodeSdFiles(board.sdFiles);
               const image = buildProjectSdImage(useEditorStore.getState().files, uploaded);
               esp32Bridge.sdImageB64 = bytesToB64(image);
-              esp32Bridge.sdCsPin = sdCard ? (wiredSdCs ?? undefined) : builtInSdCs;
             } catch (e) {
               console.warn('[microsd] SD image build failed:', e);
               esp32Bridge.sdImageB64 = undefined;
-              esp32Bridge.sdCsPin = undefined;
             }
           } else {
             esp32Bridge.sdImageB64 = undefined;
-            esp32Bridge.sdCsPin = undefined;
           }
+          // The slot only reaches the bus through the shim, which owns the
+          // card object the panel lists and the model the worker runs.
+          (
+            simulatorMap.get(boardId) as { syncBuiltinSdCard?: () => void } | undefined
+          )?.syncBuiltinSdCard?.();
 
           // Ensure firmware is loaded into the bridge (handles page-refresh case
           // where _pendingFirmware is lost but compiledProgram is still in store).
@@ -4655,6 +4814,15 @@ busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState(
     });
   });
 }
+// A board whose firmware runs in a backend worker has to tell it who is on
+// its SPI bus, and again whenever that changes (project board-buses-2026-09,
+// F4). One listener for the page, resolved through the simulator map, because
+// a shim is rebuilt whenever the bridge behind it is and a subscription taken
+// by each one would outlive every one of them.
+busRegistry.onSpiMapChange((boardId) => {
+  const sim = simulatorMap.get(boardId) as { pushBusMap?: () => void } | undefined;
+  sim?.pushBusMap?.();
+});
 busRegistry.onDiagnostic((d) => {
   const st = useSimulatorStore.getState();
   appendSimulatorNote(d.boardId ?? st.activeBoardId ?? INITIAL_BOARD_ID, d.message);

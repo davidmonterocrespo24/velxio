@@ -112,22 +112,24 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                 firmware_b64 = msg_data.get('firmware_b64')
                 sensors      = msg_data.get('sensors', [])
                 wifi_enabled = bool(msg_data.get('wifi_enabled', False))
-                sd_card      = msg_data.get('sd_card')  # {'image_b64': ...} when a microSD is wired
+                # Who is on the board's SPI bus and how each one is selected
+                # (project board-buses-2026-09, F4). It rides with the start so
+                # the worker knows the bus before the guest clocks a byte.
+                bus_map      = msg_data.get('bus_map') or {}
                 fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
                 lib_available = _use_lib()
 
                 # Allocate a host port for WiFi hostfwd if WiFi is enabled
                 wifi_hostfwd_port = _find_free_port() if wifi_enabled else 0
 
-                sd_kb = round(len(sd_card['image_b64']) * 0.75 / 1024) if sd_card and sd_card.get('image_b64') else 0
-                logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s sensors=%d wifi=%s hostfwd=%d sd=%dKB',
+                logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s sensors=%d wifi=%s hostfwd=%d spi_map=%d',
                             client_id, board, fw_size_kb, lib_available, len(sensors),
-                            wifi_enabled, wifi_hostfwd_port, sd_kb)
+                            wifi_enabled, wifi_hostfwd_port, len(bus_map.get('spi') or []))
                 if lib_available:
                     await esp_lib_manager.start_instance(
                         client_id, board, qemu_callback, firmware_b64, sensors,
                         wifi_enabled=wifi_enabled, wifi_hostfwd_port=wifi_hostfwd_port,
-                        sd_card=sd_card)
+                        bus_map=bus_map)
                 else:
                     logger.warning('[%s] libqemu-xtensa not available — using subprocess fallback', client_id)
                     esp_qemu_manager.start_instance(
@@ -218,12 +220,15 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                 if _use_lib():
                     esp_lib_manager.set_i2c_response(client_id, addr, resp)
 
-            # ── ESP32 SPI device simulation ───────────────────────────────
-            elif msg_type == 'esp32_spi_response':
-                # {response: int} — byte to return as MISO
-                resp = int(msg_data.get('response', 0xFF))
+            # ── ESP32 SPI bus membership ──────────────────────────────────
+            elif msg_type == 'esp32_bus_map':
+                # {spi: [{owner, bus_id, cs, model}, ...]}: the tab's whole
+                # view of the board's SPI bus, resent on every membership
+                # change (project board-buses-2026-09, F4). It replaced
+                # esp32_spi_response, one socket message per MISO byte for a
+                # byte the guest had already clocked.
                 if _use_lib():
-                    esp_lib_manager.set_spi_response(client_id, resp)
+                    esp_lib_manager.set_bus_map(client_id, msg_data.get('spi') or [])
 
             # ── ESP32 UART 1 / 2 input ────────────────────────────────────
             elif msg_type == 'esp32_uart1_input':

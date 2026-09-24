@@ -8,16 +8,18 @@ at the ctypes boundary only (fixtures/board_buses_worker/fake_libqemu.py): the
 worker's own ctypes callbacks are registered with it, and the test plays the
 guest by calling them the way the C side does (per-byte picsimlab_spi_event,
 write-only picsimlab_spi_event_batch, picsimlab_write_pin, picsimlab_i2c_event).
-Every device model is the real one: the worker's SdSpiSlave, Ssd168xEpaperSlave,
+Every device model is the real one: the portable microSD, Ssd168xEpaperSlave,
 MPU6050/DS3231/BMP280 slaves, and custom chips compiled with the production
 chip flags (fixtures/board_buses_worker/*.c, rebuilt by build.sh) running in the
 worker's WasmChipRuntime.
 
 Convention (project/board-buses-2026-09/TESTS.md): each test states the
-hardware-faithful behaviour. A finding that reproduces is marked
+hardware-faithful behaviour. A finding that still reproduces is marked
 `xfail(strict=True)` (the pytest it.fails: an unexpected pass fails the run)
 next to a `setup` test that proves the rig, the models and the wiring work in
-the configuration that does not trip the finding.
+the configuration that does not trip the finding. When the finding is fixed
+the marker comes off and the case becomes its regression guard; the `setup`
+sibling stays, because it is what keeps the guard honest.
 
 Wiring used throughout (ESP32 DevKit, VSPI): SCK 18, MISO 19, MOSI 23.
 TFT CS 15 / DC 2, microSD CS 4, SPI chips CS 5 and 17, e-paper CS 25 / DC 26 /
@@ -90,7 +92,30 @@ EPAPER = {
     'dc_pin': EPD_DC, 'cs_pin': EPD_CS, 'rst_pin': EPD_RST, 'busy_pin': EPD_BUSY,
 }
 
-SD_CARD = {'image_b64': base64.b64encode(bytes(4096)).decode('ascii'), 'cs_pin': SD_CS}
+# The microSD as the tab sends it: the REAL portable model
+# (frontend/public/bus-chips/microsd.wasm, built from buses/models/microsd.c),
+# with the card image as its named blob. Before F4 the worker was handed the
+# image in its start config and served it from a Python card of its own; that
+# third copy of the protocol is gone, so a card here is a bus-map entry like
+# any other responder.
+MICROSD_WASM = (
+    Path(__file__).resolve().parents[3]
+    / 'frontend' / 'public' / 'bus-chips' / 'microsd.wasm'
+)
+
+
+def sd_entry(cs_gpio: int = SD_CS, image: bytes = bytes(4096)) -> dict:
+    return {
+        'owner': 'sd1',
+        'bus_id': None,
+        'cs': {'kind': 'pin', 'gpio': cs_gpio, 'active_low': True},
+        'model': {
+            'wasm_b64': base64.b64encode(MICROSD_WASM.read_bytes()).decode('ascii'),
+            'pin_map': {'SCK': SCK, 'DI': MOSI, 'DO': MISO, 'CS': cs_gpio},
+            'attrs': {},
+            'blobs': {'card': base64.b64encode(image).decode('ascii')},
+        },
+    }
 
 
 def sd_cmd(idx: int, arg: int = 0) -> list[int]:
@@ -103,15 +128,15 @@ def sd_cmd(idx: int, arg: int = 0) -> list[int]:
 class Worker:
     """One esp32_worker.py child process with libqemu stubbed at ctypes."""
 
-    def __init__(self, tmp_path: Path, sensors=(), sd_card=None) -> None:
+    def __init__(self, tmp_path: Path, sensors=(), bus_map=None) -> None:
         cfg = {
             'lib_path': str(tmp_path / 'libqemu-xtensa.so'),
             'firmware_b64': base64.b64encode(b'\x00' * 64).decode('ascii'),
             'machine': 'esp32-picsimlab',
             'sensors': list(sensors),
         }
-        if sd_card:
-            cfg['sd_card'] = sd_card
+        if bus_map:
+            cfg['bus_map'] = bus_map
         ctl_r, self._ctl_w = os.pipe()
         self._rep_r, rep_w = os.pipe()
         env = {**os.environ, 'BB_CTL_IN': str(ctl_r), 'BB_CTL_OUT': str(rep_w),
@@ -170,8 +195,12 @@ class Worker:
     def pin(self, gpio: int, level: int) -> None:
         self.guest('pin', slot=gpio + 1, value=level)
 
-    def spi(self, data: list[int]) -> list[int]:
-        return self.guest('spi', bytes=list(data))['miso']
+    def spi(self, data: list[int], bus: int = 0) -> list[int]:
+        return self.guest('spi', bus=bus, bytes=list(data))['miso']
+
+    def cs(self, index: int, level: int, bus: int = 0) -> None:
+        """A chip-select edge the SPI peripheral drives itself (op 0x01)."""
+        self.guest('cs', bus=bus, cs=index, level=level)
 
     def batch(self, data: list[int]) -> None:
         self.guest('batch', bytes=list(data))
@@ -273,8 +302,14 @@ def _clock_tft(w: Worker) -> None:
 # ── qemu-worker-chip-spi-swallows-bus ────────────────────────────────────────
 
 class TestChipSwallowsBus:
-    """esp32_worker.py _on_spi_event / _on_spi_batch: the first custom chip
-    that called vx_spi_attach returns for every byte, selected or not."""
+    """esp32_worker.py _on_spi_event / _on_spi_batch: who answers a byte, and
+    who else still hears it.
+
+    The finding was that the first custom chip that called vx_spi_attach
+    returned for EVERY byte, selected or not, and returned before the batch
+    that feeds the browser. F4 replaced that walk with one chip-select table
+    (`_spi_answer`), so these cases are the regression guard for it.
+    """
 
     def test_setup_probe_chip_answers_its_own_transaction(self, worker):
         """qemu-worker-chip-spi-swallows-bus setup: the chip loads in the
@@ -291,14 +326,17 @@ class TestChipSwallowsBus:
         """qemu-worker-chip-spi-swallows-bus setup: with no chip, the TFT bytes
         (per byte and bulk) reach the browser, the card answers CMD0 and the
         e-paper latches a frame, all in this same rig."""
-        w = worker(sensors=[EPAPER], sd_card=SD_CARD)
+        w = worker(sensors=[EPAPER], bus_map={'spi': [sd_entry()]})
         w.pin(SD_CS, 1)
         w.pin(EPD_CS, 1)
         _clock_tft(w)
         assert w.spi_stream() == bytes(CASET_CMD + CASET_DATA + PIXELS)
 
         w.pin(SD_CS, 0)
-        assert w.spi(sd_cmd(0) + [0xFF])[6] == 0x01
+        # R1 lands at offset 7, behind its N_CR fill byte. The Python card this
+        # replaced answered at offset 6, where ESP-IDF's fixed sdspi_hw_cmd_t
+        # layout cannot see it (see buses/models/microsd.c).
+        assert w.spi(sd_cmd(0) + [0xFF, 0xFF])[7] == 0x01
         w.pin(SD_CS, 1)
 
         w.pin(EPD_CS, 0)
@@ -307,7 +345,6 @@ class TestChipSwallowsBus:
         w.pin(EPD_CS, 1)
         assert w.wait_for(lambda: bool(w.events('epaper_update')))
 
-    @pytest.mark.xfail(strict=True, reason='qemu-worker-chip-spi-swallows-bus: reproduced')
     def test_deselected_chip_leaves_per_byte_tft_traffic_on_the_bus(self, worker):
         """qemu-worker-chip-spi-swallows-bus: with the chip's CS high, the
         single-byte TFT commands still reach the browser's display."""
@@ -322,7 +359,6 @@ class TestChipSwallowsBus:
         w.flush()
         assert w.spi_stream() == bytes(CASET_CMD + CASET_DATA)
 
-    @pytest.mark.xfail(strict=True, reason='qemu-worker-chip-spi-swallows-bus: reproduced')
     def test_deselected_chip_leaves_bulk_tft_traffic_on_the_bus(self, worker):
         """qemu-worker-chip-spi-swallows-bus: with the chip's CS high, a bulk
         pixel write (the batch path) still reaches the browser's display."""
@@ -335,17 +371,18 @@ class TestChipSwallowsBus:
         w.flush()
         assert w.spi_stream() == bytes(PIXELS)
 
-    @pytest.mark.xfail(strict=True, reason='qemu-worker-chip-spi-swallows-bus: reproduced')
     def test_deselected_chip_leaves_the_sd_card_answering(self, worker):
         """qemu-worker-chip-spi-swallows-bus: with the chip's CS high and the
         card's CS low, SD.begin()'s CMD0 gets the card's R1 idle (0x01)."""
-        w = worker(sensors=[spi_chip(400, CHIP_A_CS, 0xA0, 'probe-a')], sd_card=SD_CARD)
+        w = worker(
+            sensors=[spi_chip(400, CHIP_A_CS, 0xA0, 'probe-a')],
+            bus_map={'spi': [sd_entry()]},
+        )
         w.pin(CHIP_A_CS, 1)
         w.pin(SD_CS, 0)
-        r = w.spi(sd_cmd(0) + [0xFF])
-        assert r[6] == 0x01, f'CMD0 answered {r}'
+        r = w.spi(sd_cmd(0) + [0xFF, 0xFF])
+        assert r[7] == 0x01, f'CMD0 answered {r}'
 
-    @pytest.mark.xfail(strict=True, reason='qemu-worker-chip-spi-swallows-bus: reproduced')
     def test_deselected_chip_leaves_the_epaper_latching(self, worker):
         """qemu-worker-chip-spi-swallows-bus: with the chip's CS high and the
         panel's CS low, MASTER_ACTIVATION (0x20) latches an e-paper frame."""
@@ -369,7 +406,6 @@ class TestChipSwallowsBus:
         w.pin(CHIP_B_CS, 1)
         assert w.wait_for(lambda: any(t.startswith('probe b0 rx=') for t in w.chip_log()))
 
-    @pytest.mark.xfail(strict=True, reason='qemu-worker-chip-spi-swallows-bus: reproduced')
     def test_second_chip_answers_when_it_is_the_selected_one(self, worker):
         """qemu-worker-chip-spi-swallows-bus: two SPI chips on one bus, the
         second selected: MISO is the second chip's and it hears the bytes."""
@@ -388,9 +424,9 @@ class TestChipSwallowsBus:
 
 class Xpt2046StandIn:
     """What a browser-side XPT2046 answers per byte (12-bit, 8-bit command then
-    16 clocks), the answer the pro touch part hands to completeTransfer. It
-    stands in for the tab on the far side of the WebSocket: the part itself is
-    TypeScript, the thing under test is the worker's MISO path."""
+    16 clocks). It stands in for the tab on the far side of the WebSocket: it
+    is the answer a part in the browser WOULD give, and the point of the cases
+    below is that nothing in the tab can give it in time."""
 
     def __init__(self, x: int) -> None:
         self.x = x
@@ -407,48 +443,88 @@ class Xpt2046StandIn:
 
 TOUCH_X = 1234                          # 0x4D2
 TOUCH_X_BYTES = [0x26, 0x90]            # what the two bytes after 0xD0 carry
+READ_X = [0xD0, 0x00, 0x00]
+
+
+def touch_entry(cs: int = TOUCH_CS, x: int = TOUCH_X, owner: str = 'touch1',
+                bus_id=None) -> dict:
+    """The bus-map entry the tab sends for a touch controller: its chip select
+    and its portable model (fixtures/board_buses_worker/touch-probe.c)."""
+    return {
+        'owner': owner,
+        'bus_id': bus_id,
+        'cs': {'kind': 'pin', 'gpio': cs, 'active_low': True},
+        'model': {
+            'wasm_b64': _wasm('touch-probe'),
+            'pin_map': {'CS': cs, 'SCK': SCK, 'MOSI': MOSI, 'MISO': MISO},
+            'attrs': {'x': x},
+            'blobs': {},
+        },
+    }
 
 
 class TestTouchAsyncMiso:
-    """A browser part that ANSWERS on the ESP32 QEMU engine: the worker returns
-    _spi_response[0] when the byte is clocked, and the browser only sees the
-    byte afterwards (spi_batch), so its answer is applied to some later byte."""
+    """touch-qemu-async-miso, qemu-shim-miso-ws-per-byte: a part that ANSWERS
+    on a QEMU board.
 
-    def _read_x(self, w: Worker, touch: Xpt2046StandIn) -> tuple[list[int], bytes]:
-        """getTouch()'s X read, one byte per guest op. Between two bytes the
-        stand-in gets the byte, answers it through set_spi_response exactly as
-        Esp32BridgeShim.spi.completeTransfer does, and the worker applies the
-        answer before the next byte is clocked: the fastest a tab can be."""
+    Before F4 the worker returned a global `_spi_response[0]` for every byte
+    and the tab only saw the byte afterwards (`spi_batch`), so the tab's answer
+    landed on some later byte. F4 moves the responder to where the master is:
+    the tab sends the chip's portable model in the bus map and the worker runs
+    it, so the answer is for the byte being clocked.
+    """
+
+    def _read_x(self, w: Worker) -> tuple[list[int], bytes]:
+        """getTouch()'s X read, one byte per guest op, as the driver does it."""
+        w.pin(TOUCH_CS, 1)
         w.pin(TOUCH_CS, 0)
         miso: list[int] = []
-        seen = 0
-        for b in [0xD0, 0x00, 0x00]:
+        for b in READ_X:
             miso += w.spi([b])
-            assert w.wait_for(lambda: len(w.spi_stream()) > seen, 3.0), 'byte never reached the tab'
-            new = w.spi_stream()[seen:]
-            seen += len(new)
-            for v in touch.answers(new):
-                w.send({'cmd': 'set_spi_response', 'response': v})
-            w.sync()
         w.pin(TOUCH_CS, 1)
+        w.flush()
         return miso, w.spi_stream()
 
-    def test_setup_the_transaction_reaches_the_tab_and_the_stand_in_answers_it(self, worker):
-        """touch-qemu-async-miso, qemu-shim-miso-ws-per-byte setup: the X read
-        reaches the browser in order, and the stand-in's answer for it is the
-        XPT2046's (0x00 during the command, then the 12-bit X)."""
+    def test_setup_a_browser_side_answer_could_only_ever_be_late(self, worker):
+        """touch-qemu-async-miso setup: with no model in the bus map the
+        transaction still reaches the tab in order, and the answer a part there
+        would give is the XPT2046's - it just arrives after the guest has
+        clocked the bytes it was for. This is the rig, and the reason the fix
+        is not "forward the answer faster"."""
         w = worker()
-        _, stream = self._read_x(w, Xpt2046StandIn(TOUCH_X))
-        assert stream == bytes([0xD0, 0x00, 0x00])
+        miso, stream = self._read_x(w)
+        assert stream == bytes(READ_X)
         assert Xpt2046StandIn(TOUCH_X).answers(stream) == [0x00] + TOUCH_X_BYTES
+        assert miso == [0xFF, 0xFF, 0xFF], 'an unanswered bus reads its idle level'
 
-    @pytest.mark.xfail(strict=True, reason='touch-qemu-async-miso: reproduced')
     def test_guest_reads_the_touch_coordinate_on_the_bytes_after_the_command(self, worker):
-        """touch-qemu-async-miso, qemu-shim-miso-ws-per-byte: the guest reads
-        X in the two bytes after 0xD0, as it does from a real XPT2046."""
-        w = worker()
-        miso, _ = self._read_x(w, Xpt2046StandIn(TOUCH_X))
+        """touch-qemu-async-miso, qemu-shim-miso-ws-per-byte: with the model in
+        the bus map, the guest reads X in the two bytes after 0xD0, as it does
+        from a real XPT2046."""
+        w = worker(bus_map={'spi': [touch_entry()]})
+        assert 'touch probe ready' in w.chip_log()
+        miso, stream = self._read_x(w)
         assert miso[1:] == TOUCH_X_BYTES, f'guest read {[hex(v) for v in miso]}'
+        assert stream == bytes(READ_X), 'the sinks in the tab still get the traffic'
+
+    def test_a_map_sent_after_the_start_replaces_the_bus(self, worker):
+        """The map is resent whenever membership changes, so a part dropped on
+        the canvas mid-run answers without a restart."""
+        w = worker()
+        w.send({'cmd': 'bus_map', 'spi': [touch_entry()]})
+        w.sync()
+        assert w.wait_for(lambda: 'touch probe ready' in w.chip_log(), 3.0)
+        miso, _ = self._read_x(w)
+        assert miso[1:] == TOUCH_X_BYTES
+
+    def test_an_empty_map_takes_the_responder_off_the_bus(self, worker):
+        """A device the user deleted is gone by being ABSENT from the next
+        map: there is no per-device removal message to lose."""
+        w = worker(bus_map={'spi': [touch_entry()]})
+        assert self._read_x(w)[0][1:] == TOUCH_X_BYTES
+        w.send({'cmd': 'bus_map', 'spi': []})
+        w.sync()
+        assert self._read_x(w)[0] == [0xFF, 0xFF, 0xFF]
 
 
 # ── worker-i2c-slaves-ignore-bus-id ──────────────────────────────────────────

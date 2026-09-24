@@ -89,6 +89,39 @@ export interface SpiDeviceDescriptor {
   modes?: SpiMode[];
   /** Bit order the chip shifts in. Default 'msb'. */
   bitOrder?: BitOrder;
+  /**
+   * The chip as a portable model, for a board whose master is not in this tab
+   * (project board-buses-2026-09, F4). A QEMU worker asks for MISO
+   * synchronously, so a responder that only exists here answers a byte the
+   * guest clocked long ago. The fabric ships this model to the worker instead
+   * and the model answers beside the guest; the device object above stays the
+   * tab's copy (it paints, it collects the user's input).
+   *
+   * Returns null while the part has nothing to send - the bytes are not
+   * loaded yet, or the chip has no portable model at all. On a remote lane a
+   * selected responder in that state is reported
+   * (`bus-remote-responder-missing`) rather than left half working, so this is
+   * deliberately synchronous: a model that arrives after the guest has started
+   * clocking is the same late answer this whole design exists to avoid.
+   */
+  remoteModel?(): RemoteSpiModel | null;
+}
+
+/**
+ * What the worker needs to run a responder next to the guest: the same shape
+ * a custom chip is shipped with, because it is the same runtime
+ * (`wasm_chip_runtime.py`, `ChipRuntime.ts`).
+ */
+export interface RemoteSpiModel {
+  /** The compiled chip, base64. */
+  wasmB64: string;
+  /** Chip pin name -> board GPIO. The fabric fills the bus pins it resolved;
+   *  a model with extra legs (an interrupt output) adds them here. */
+  pinMap?: Record<string, number>;
+  /** vx_attr values, by name. */
+  attrs?: Record<string, number>;
+  /** Named byte storage (the SD card image), base64 per name. */
+  blobs?: Record<string, string>;
 }
 
 export interface SpiDevice {
@@ -149,6 +182,12 @@ export interface SpiControllerPort {
   readonly unit: number;
   /** Datasheet name, for diagnostics. */
   readonly name: string;
+  /**
+   * True when the master runs outside this tab (a QEMU worker). The bus reads
+   * it to know that a responder here cannot answer in time, and says so once
+   * instead of letting the guest read a byte meant for an earlier one.
+   */
+  readonly remote?: boolean;
   /**
    * The fabric installs the frame handler here. The adapter calls it exactly
    * once per frame the controller clocks and hands the returned MISO to the
