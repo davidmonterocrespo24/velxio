@@ -234,8 +234,16 @@ export class Esp32BridgeShim {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
-    this.remoteLane = new RemoteSpiLane(bridge.boardId, bridge.boardKind, (spi) =>
-      (bridge as unknown as { sendBusMap?: (m: unknown[]) => void }).sendBusMap?.(spi),
+    this.remoteLane = new RemoteSpiLane(
+      bridge.boardId,
+      bridge.boardKind,
+      (spi) => (bridge as unknown as { sendBusMap?: (m: unknown[]) => void }).sendBusMap?.(spi),
+      (owner, attrs) =>
+        (
+          bridge as unknown as {
+            sendBusAttrs?: (o: string, a: Record<string, number>) => void;
+          }
+        ).sendBusAttrs?.(owner, attrs),
     );
     // The worker's MOSI bytes, and the chip selects the SPI peripheral drives
     // itself. They arrive in order with the pin edges around them, so the
@@ -322,6 +330,12 @@ export class Esp32BridgeShim {
    *  sendBusMap, so this is a no-op for it. */
   pushBusMap(): void {
     this.remoteLane.pushMap();
+  }
+
+  /** A responder's live inputs, for the worker that hosts its model. Same
+   *  no-op rule as pushBusMap for a board running in this tab. */
+  pushBusAttrs(owner: string, attrs: Record<string, number>): void {
+    this.remoteLane.pushAttrs(owner, attrs);
   }
 
   /**
@@ -1168,8 +1182,11 @@ class Stm32BridgeShim {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
-    this.remoteLane = new RemoteSpiLane(bridge.boardId, bridge.boardKind, (spi) =>
-      bridge.sendBusMap(spi),
+    this.remoteLane = new RemoteSpiLane(
+      bridge.boardId,
+      bridge.boardKind,
+      (spi) => bridge.sendBusMap(spi),
+      (owner, attrs) => bridge.sendBusAttrs(owner, attrs),
     );
     bridge.onSpiBatch = (mosi) => this.remoteLane.port?.deliver(mosi);
   }
@@ -1264,6 +1281,11 @@ class Stm32BridgeShim {
   /** Send the worker the board's SPI bus map (project board-buses-2026-09). */
   pushBusMap(): void {
     this.remoteLane.pushMap();
+  }
+
+  /** A responder's live inputs, for the worker that hosts its model. */
+  pushBusAttrs(owner: string, attrs: Record<string, number>): void {
+    this.remoteLane.pushAttrs(owner, attrs);
   }
 
   /** Expose the bridge so SPI/ePaper parts can subscribe to backend frames. */
@@ -4822,6 +4844,16 @@ busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState(
 busRegistry.onSpiMapChange((boardId) => {
   const sim = simulatorMap.get(boardId) as { pushBusMap?: () => void } | undefined;
   sim?.pushBusMap?.();
+});
+// Between maps, a hosted responder's live inputs (a finger, a slider, the
+// circuit solve) go to the same host on their own, keyed by owner. A board
+// running in this tab has no pushBusAttrs: its devices read those inputs
+// directly.
+busRegistry.onSpiAttrsChange((boardId, owner, attrs) => {
+  const sim = simulatorMap.get(boardId) as
+    | { pushBusAttrs?: (o: string, a: Record<string, number>) => void }
+    | undefined;
+  sim?.pushBusAttrs?.(owner, attrs);
 });
 busRegistry.onDiagnostic((d) => {
   const st = useSimulatorStore.getState();

@@ -16,6 +16,7 @@ stdin  line 2+: JSON commands
                {"cmd": "uart_send",        "uart": N,      "data": "<base64>"}
                {"cmd": "set_i2c_response", "addr": N,      "response": V}
                {"cmd": "bus_map",          "spi": [{"owner","bus_id","cs","model"}]}
+               {"cmd": "bus_attrs",        "owner": "...", "attrs": {name: number}}
                {"cmd": "stop"}
 
 stdout        : JSON event lines (one per line, flushed immediately)
@@ -2077,6 +2078,32 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         _spi_population_changed()
         _log(f'[bus_map] {len(models)} portable SPI responder(s) hosted here')
 
+    def _apply_spi_bus_attrs(owner: str, attrs) -> None:
+        """One hosted responder's live inputs (`bus_attrs`, project
+        board-buses-2026-09, F4): the finger on a touch panel, a temperature
+        slider, the voltage the tab's circuit solve put on an ADC channel.
+
+        The same update_attrs a custom chip's live controls reach through
+        `sensor_update`; only the key differs, because a bus-map model is
+        known by its owner and has no sensor pin. The model is not rebuilt:
+        vx_attr_read reads the store on every call, so the guest's next byte
+        sees the value. An owner nobody hosts (an update that overtook its
+        map) is dropped, and the map that follows carries the same values.
+        """
+        if not isinstance(attrs, dict):
+            return
+        values = {str(k): float(v) for k, v in attrs.items()
+                  if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        if not values:
+            return
+        for r in _spi_models:
+            if r.get('owner') == owner and r.get('runtime') is not None:
+                try:
+                    r['runtime'].update_attrs(values)
+                except Exception as e:  # noqa: BLE001
+                    _log(f'[bus_attrs] {owner}: update failed: {e!r}')
+                return
+
     def _on_spi_event(bus_id: int, event: int) -> int:
         """Synchronous — must return immediately; called from QEMU thread.
 
@@ -2788,6 +2815,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             # replaced set_spi_response, which answered a byte the guest had
             # already clocked.
             _apply_spi_bus_map(cmd.get('spi') or [])
+
+        elif c == 'bus_attrs':
+            # Live inputs of one responder the map put here, between two maps.
+            _apply_spi_bus_attrs(str(cmd.get('owner') or ''), cmd.get('attrs'))
 
         elif c == 'sensor_attach':
             gpio = int(cmd['pin'])

@@ -14,6 +14,7 @@
  *     { type: 'esp32_adc_set',      data: { channel: number, millivolts: number } }
  *     { type: 'esp32_i2c_response', data: { addr: number, response: number } }
  *     { type: 'esp32_bus_map',       data: { spi: BusMapEntry[] } }
+ *     { type: 'esp32_bus_attrs',     data: { owner: string, attrs: Record<string, number> } }
  *     { type: 'esp32_sensor_attach', data: { sensor_type: string, pin: number, ... } }
  *     { type: 'esp32_sensor_update', data: { pin: number, ... } }
  *     { type: 'esp32_sensor_detach', data: { pin: number } }
@@ -979,6 +980,20 @@ export class Esp32Bridge {
 
   /** The last map, replayed after a reconnect: the worker starts empty. */
   private _busMap: unknown[] = [];
+
+  /**
+   * One hosted responder's live inputs (project board-buses-2026-09, F4): the
+   * worker applies them to the model it built from the map, through the same
+   * `update_attrs` a custom chip's sliders reach. The stored map takes them
+   * too, so the next start replays what the user sees now and not what the
+   * part showed when the map was built.
+   */
+  sendBusAttrs(owner: string, attrs: Record<string, number>): void {
+    for (const e of this._busMap as Array<{ owner?: string; model?: { attrs?: object } }>) {
+      if (e?.owner === owner && e.model) e.model.attrs = { ...(e.model.attrs ?? {}), ...attrs };
+    }
+    if (this._connected) this._send({ type: 'esp32_bus_attrs', data: { owner, attrs } });
+  }
 
   // ── Generic sensor protocol offloading ────────────────────────────────────
   // Sensors call these to delegate their protocol to the backend QEMU.

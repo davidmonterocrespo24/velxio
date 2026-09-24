@@ -166,6 +166,20 @@ typedef int32_t vx_spi;
  * `on_done` fires after every `count` bytes received via vx_spi_start():
  *   - Before the call, `buffer` contains the chip's outgoing MISO bytes.
  *   - After the call, `buffer` contains the master's MOSI bytes received.
+ *
+ * `on_exchange` is optional (leave it 0, as a designated initializer does).
+ * The prefilled buffer above has to be written before the chip has seen the
+ * byte it answers, so a chip whose answer depends on bits of the SAME byte
+ * cannot give it: the MCP3008 puts result bits in the byte that carries the
+ * configuration deciding them, and through the buffer alone the most common
+ * framing (spidev's [1, 0x80 | ch << 4, 0]) loses the top two bits of every
+ * reading. A chip that sets it is handed each byte a controller exchanges
+ * whole and returns the MISO for THAT byte, so it can shift the bits through
+ * in order, as the silicon does. The buffer still serves a master that reads
+ * MISO before its byte is in (a bit-banged one), so a chip that sets this
+ * keeps a transfer armed as well. Every host that understands the field uses
+ * it; the field used to be reserved, so an older chip leaves it 0 and keeps
+ * the buffer contract unchanged.
  */
 typedef struct {
   vx_pin   sck;
@@ -175,7 +189,8 @@ typedef struct {
   uint32_t mode;     /* 0..3 (SPI mode) */
   void   (*on_done)(void* user_data, uint8_t* buffer, uint32_t count);
   void*    user_data;
-  uint32_t reserved[8];
+  uint8_t (*on_exchange)(void* user_data, uint8_t mosi);
+  uint32_t reserved[7];
 } vx_spi_config;
 
 _Static_assert(sizeof(vx_spi_config) == 60, "vx_spi_config must be 60 bytes");

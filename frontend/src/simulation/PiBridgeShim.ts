@@ -530,7 +530,36 @@ export class PiBridgeShim {
     this.busMapKey = this.mapKeyOf(topology);
     this.lastRegs.clear();
     for (const dev of topology.i2c) if (dev.regs !== null) this.lastRegs.set(dev.addr, dev.regs);
+    // The responders with a portable model, which the backend runs beside the
+    // guest by chip enable instead of asking this tab once per transfer
+    // (project board-buses-2026-09, F4). Built here and not in busTopology():
+    // that one runs on every 250 ms tick, and a map carries each model's
+    // artifact and an SD card's whole image. Membership changes reach this
+    // through pushBusMap, which the store calls when the registry says so.
+    topology.spi.responders = this.boundToFabric() ? busRegistry.remoteSpiMap(this.boardId) : [];
     (this.bridge as Partial<RaspberryPi3Bridge>).sendBusTopology?.(topology);
+  }
+
+  /**
+   * The registry says who is on this board's SPI changed (the store routes
+   * every board's map change here, as it does for the QEMU MCU shims). Only
+   * while a relaying backend is listening: before `bus_relay` there is nobody
+   * to tell, and startBusSync publishes the whole map when it arrives.
+   */
+  pushBusMap(): void {
+    if (this.busTimer === null) return;
+    this.publishBusTopology();
+  }
+
+  /**
+   * A hosted responder's live inputs changed (the finger, the slider, the
+   * circuit solve). The backend applies them to the model it runs for that
+   * owner; a map published later carries them too, so nothing is lost while
+   * no relay is listening.
+   */
+  pushBusAttrs(owner: string, attrs: Record<string, number>): void {
+    if (this.busTimer === null) return;
+    (this.bridge as Partial<RaspberryPi3Bridge>).sendBusAttrs?.(owner, attrs);
   }
 
   private busTick(): void {
@@ -562,12 +591,17 @@ export class PiBridgeShim {
     return this.fabricHasSpiDevices();
   }
 
-  private fabricHasSpiDevices(): boolean {
-    // Only a bound board has a fabric to ask (asking creates one otherwise),
-    // and only the page's fabric holding THIS binding speaks for it.
+  /** Whether the page's fabric for this board holds THIS shim's binding. */
+  private boundToFabric(): boolean {
+    // Only a bound board has a fabric to ask (asking creates one otherwise).
     if (!this.resetHandler) return false;
+    return busRegistry.fabric(this.boardId).pins === this.busBinding.pins;
+  }
+
+  private fabricHasSpiDevices(): boolean {
+    // Only the page's fabric holding THIS binding speaks for it.
+    if (!this.boundToFabric()) return false;
     const fabric = busRegistry.fabric(this.boardId);
-    if (fabric.pins !== this.busBinding.pins) return false;
     return this.spiPorts.some(
       (p) => p.pins !== null && (fabric.spiBuses.get(p.pins.sck)?.size ?? 0) > 0,
     );

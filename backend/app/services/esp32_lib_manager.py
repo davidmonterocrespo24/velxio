@@ -454,6 +454,16 @@ class EspLibManager:
         if inst and inst.running and inst.process.returncode is None:
             self._write_cmd(inst, {'cmd': 'bus_map', 'spi': spi})
 
+    def set_bus_attrs(self, client_id: str, owner: str, attrs: dict) -> None:
+        """One hosted responder's live inputs, between two maps (the finger,
+        the slider, the circuit solve). The model keeps running in the worker;
+        only its attributes move, through the same update_attrs a custom
+        chip's live controls use."""
+        with self._instances_lock:
+            inst = self._instances.get(client_id)
+        if inst and inst.running and inst.process.returncode is None:
+            self._write_cmd(inst, {'cmd': 'bus_attrs', 'owner': owner, 'attrs': attrs})
+
     # ── Generic sensor protocol offloading ──────────────────────────────────
 
     def sensor_attach(self, client_id: str, sensor_type: str, pin: int,

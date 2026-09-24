@@ -23,10 +23,22 @@ export class RemoteSpiLane {
 
   private readonly boardId: string;
   private readonly send: (spi: RemoteSpiMapEntry[]) => void;
+  private readonly sendAttrs: ((owner: string, attrs: Record<string, number>) => void) | null;
 
-  constructor(boardId: string, boardKind: string, send: (spi: RemoteSpiMapEntry[]) => void) {
+  /**
+   * `sendAttrs` carries a device's live inputs between maps (`bus_attrs`): the
+   * map says who is on the bus and ships each model once, this says what the
+   * finger, the slider or the circuit solve changed since, in a few bytes.
+   */
+  constructor(
+    boardId: string,
+    boardKind: string,
+    send: (spi: RemoteSpiMapEntry[]) => void,
+    sendAttrs?: (owner: string, attrs: Record<string, number>) => void,
+  ) {
     this.boardId = boardId;
     this.send = send;
+    this.sendAttrs = sendAttrs ?? null;
     const def = arduinoSpiController(boardKind);
     this.port = def ? new RemoteSpiPort({ unit: def.unit, name: def.name }) : null;
   }
@@ -47,6 +59,18 @@ export class RemoteSpiLane {
       this.send(busRegistry.remoteSpiMap(this.boardId));
     } catch (e) {
       console.warn(`[RemoteSpiLane:${this.boardId}] the bus map could not be sent`, e);
+    }
+  }
+
+  /**
+   * One device's live inputs changed. Routed like the map, by the store, for
+   * the same reason: a lane does not subscribe itself.
+   */
+  pushAttrs(owner: string, attrs: Record<string, number>): void {
+    try {
+      this.sendAttrs?.(owner, attrs);
+    } catch (e) {
+      console.warn(`[RemoteSpiLane:${this.boardId}] live inputs of ${owner} could not be sent`, e);
     }
   }
 }

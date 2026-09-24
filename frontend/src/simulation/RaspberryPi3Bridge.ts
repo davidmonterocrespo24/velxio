@@ -44,6 +44,7 @@
  */
 
 import { getTabSessionId } from './Esp32Bridge';
+import type { RemoteSpiMapEntry } from './buses/registry';
 
 /**
  * What the board publishes to the backend about its bus (`pi_bus_topology`).
@@ -54,7 +55,13 @@ import { getTabSessionId } from './Esp32Bridge';
 export interface PiBusTopology {
   version: 1;
   i2c: Array<{ bus: number; addr: number; regs: string | null }>;
-  spi: { attached: boolean };
+  /**
+   * `responders` are the SPI devices with a portable model (the bus map an
+   * ESP32 or STM32 worker gets, entry for entry): the backend runs them beside
+   * the guest, by chip enable, and answers their transfers without asking this
+   * tab (project board-buses-2026-09, F4). Absent = none.
+   */
+  spi: { attached: boolean; responders?: RemoteSpiMapEntry[] };
 }
 
 const API_BASE = (): string => {
@@ -478,6 +485,12 @@ export class RaspberryPi3Bridge {
    * answer the guest from (`pi_bus_topology`). */
   sendBusTopology(topology: PiBusTopology): void {
     this._send({ type: 'pi_bus_topology', data: topology });
+  }
+
+  /** A hosted SPI responder's live inputs changed (`pi_bus_attrs`): the
+   *  backend applies them to the model it runs for `owner`. */
+  sendBusAttrs(owner: string, attrs: Record<string, number>): void {
+    this._send({ type: 'pi_bus_attrs', data: { owner, attrs } });
   }
 
   /** A register-file device's registers changed (`pi_bus_regs`). */

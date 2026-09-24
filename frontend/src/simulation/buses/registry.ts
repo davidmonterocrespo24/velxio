@@ -70,6 +70,9 @@ export interface RemoteSpiMapEntry {
 
 export type SpiMapListener = (boardId: string) => void;
 
+/** A placed device's live inputs changed: `attrs` is the whole set, now. */
+export type SpiAttrsListener = (boardId: string, owner: string, attrs: Record<string, number>) => void;
+
 const NO_RESOLVER: NetResolver = {
   resolve: () => ({ kind: 'floating' }),
   boardKind: () => undefined,
@@ -84,6 +87,16 @@ export class BusRegistry {
   private readonly diagListeners = new Set<DiagnosticListener>();
   private readonly seenDiag = new Set<string>();
   private readonly mapListeners = new Set<SpiMapListener>();
+  private readonly attrListeners = new Set<SpiAttrsListener>();
+  /**
+   * What each remote host was last told a device's live inputs are, by owner,
+   * as a key. A pointer move that lands on the same values, or a circuit solve
+   * that did not move this chip's nets, sends nothing. A map carries the
+   * inputs too, so publishing one resets this to what it carried: otherwise a
+   * value that went A (sent), B (only in a map), A again would be skipped as
+   * "already sent" while the host holds B.
+   */
+  private readonly sentAttrs = new Map<string, string>();
 
   // ── Circuit ───────────────────────────────────────────────────────────────
 
@@ -185,6 +198,9 @@ export class BusRegistry {
         disposed = true;
         if (this.spi.get(desc.owner) === entry) this.detachSpi(desc.owner);
       },
+      attrsChanged: () => {
+        if (!disposed && this.spi.get(desc.owner) === entry) this.spiAttrsChanged(entry);
+      },
     };
   }
 
@@ -193,6 +209,35 @@ export class BusRegistry {
     if (!e) return;
     this.unplace(e);
     this.spi.delete(owner);
+    this.sentAttrs.delete(owner);
+  }
+
+  /**
+   * Tell the host of this device's portable model its inputs now. Only a
+   * device that is on a bus and HAS a model is anywhere a host could run it;
+   * the listener (the store) decides whether that bus's board is remote at
+   * all, since only it knows which simulator holds the board.
+   */
+  private spiAttrsChanged(e: SpiEntry): void {
+    if (!e.bus || !e.desc.remoteAttrs) return;
+    if (!e.desc.remoteModel?.()) return;
+    const attrs = e.desc.remoteAttrs();
+    const key = attrsKey(attrs);
+    if (this.sentAttrs.get(e.desc.owner) === key) return;
+    this.sentAttrs.set(e.desc.owner, key);
+    for (const l of this.attrListeners) {
+      try {
+        l(e.bus.boardId, e.desc.owner, attrs);
+      } catch {
+        /* a broken listener must not break the bus */
+      }
+    }
+  }
+
+  /** Called with a device's new live inputs (see `BusHandle.attrsChanged`). */
+  onSpiAttrsChange(listener: SpiAttrsListener): () => void {
+    this.attrListeners.add(listener);
+    return () => this.attrListeners.delete(listener);
   }
 
   private ref(desc: SpiDeviceDescriptor, pin: DevicePin): PinRef {
@@ -356,6 +401,11 @@ export class BusRegistry {
       const model = e.desc.remoteModel?.();
       if (!model) continue;
       const ctl = e.fabric.controllerOfBus(e.bus.sckPin);
+      // The live inputs as they are NOW, so a host that builds the model from
+      // this map starts from what the user sees, not from the defaults.
+      const live = e.desc.remoteAttrs?.();
+      const attrs = { ...(model.attrs ?? {}), ...(live ?? {}) };
+      if (live) this.sentAttrs.set(e.desc.owner, attrsKey(live));
       out.push({
         owner: e.desc.owner,
         bus_id: ctl ? ctl.unit : null,
@@ -363,7 +413,7 @@ export class BusRegistry {
         model: {
           wasm_b64: model.wasmB64,
           pin_map: { ...this.remotePinMap(e), ...(model.pinMap ?? {}) },
-          attrs: model.attrs ?? {},
+          attrs,
           blobs: model.blobs ?? {},
         },
       });
@@ -476,8 +526,19 @@ export class BusRegistry {
     for (const id of Array.from(this.fabrics.keys())) this.dropFabric(id);
     this.seenDiag.clear();
     this.mapListeners.clear();
+    this.attrListeners.clear();
+    this.sentAttrs.clear();
     this.resolver = NO_RESOLVER;
   }
+}
+
+/** A stable identity for a set of attribute values, whatever order the part
+ *  built them in. */
+function attrsKey(attrs: Record<string, number>): string {
+  return Object.keys(attrs)
+    .sort()
+    .map((k) => `${k}=${attrs[k]}`)
+    .join('|');
 }
 
 /** The registry of the page. */

@@ -369,7 +369,8 @@ typedef struct {
   uint32_t mode;        /* 0..3 */
   void   (*on_done)(void* user_data, uint8_t* buffer, uint32_t count);
   void*    user_data;
-  uint32_t reserved[8];
+  uint8_t (*on_exchange)(void* user_data, uint8_t mosi);  /* optional, 0 = none */
+  uint32_t reserved[7];
 } vx_spi_config;
 _Static_assert(sizeof(vx_spi_config) == 60, "vx_spi_config must be 60 bytes");
 ```
@@ -392,6 +393,34 @@ void   vx_spi_stop  (vx_spi s);
    - the chip's `buf[i]` (its MISO data) is shifted out to the master
 4. After N bytes, `on_done(buf, N)` fires. `buf` now contains the N MOSI
    bytes the master sent.
+
+### Answering inside the same byte (`on_exchange`)
+
+The buffer is written before the chip has seen the byte it answers, so the
+best a buffer can do is answer one byte behind the question. Most chips never
+notice: they answer a command in the bytes after it. A chip whose answer
+depends on bits of the SAME byte cannot be right that way. The MCP3008 is the
+example: spidev's framing `[1, 0x80 | ch << 4, 0]` puts the top two result
+bits in the byte that carries the channel number, and through the buffer
+alone they come out of the previous state.
+
+Set `on_exchange` and the host hands the chip every byte a hardware controller
+exchanges whole, and takes its return value as the MISO for THAT byte. Shift
+the bits through in order and each output bit depends only on the input bits
+before it, as on silicon:
+
+```c
+static uint8_t on_exchange(void* ud, uint8_t mosi) {
+  chip_state_t* s = ud;
+  uint8_t miso = clock_byte(s, mosi);  /* 8 clocks, DIN in, DOUT out */
+  arm_lookahead(s);                    /* vx_spi_start with the next byte */
+  return miso;
+}
+```
+
+Keep a transfer armed as well: a bit-banged master reads MISO before its byte
+is in, and it reads the buffer. The field used to be reserved, so a chip that
+leaves it 0 keeps the buffer contract exactly as described above.
 
 ### Re-arming
 

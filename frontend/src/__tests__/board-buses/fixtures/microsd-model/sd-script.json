@@ -454,11 +454,11 @@
           ]
         },
         {
-          "why": "CMD18 streams: sector 0 arrives, and the card refills with the next sector as soon as the first block's CRC has gone out, so the second start token follows it with no command in between",
+          "why": "CMD18 streams: sector 0 arrives, and the card refills with the next sector as soon as the first block's CRC has gone out, so the second start token follows it with no command in between. The host reads that second block to its CRC and stops there, as every driver does",
           "mosi": [
             "5200000000e1"
           ],
-          "clock": 1040,
+          "clock": 1032,
           "expect": [
             {
               "at": 8,
@@ -479,11 +479,19 @@
             {
               "at": 524,
               "is": "25262728292a2b2c"
+            },
+            {
+              "at": 1028,
+              "is": "1d1e1f2021222324"
+            },
+            {
+              "at": 1036,
+              "is": "ffff"
             }
           ]
         },
         {
-          "why": "CMD12 stops the stream: the queued remainder is flushed, so R1b lands at offset 7 and no block data trails it",
+          "why": "CMD12 on the byte after a CRC stops the stream: the block the card had already queued is flushed, so R1b lands at offset 7 and no block data trails it",
           "mosi": [
             "4c0000000061"
           ],
@@ -507,6 +515,108 @@
             },
             {
               "at": 10,
+              "is": "ff"
+            }
+          ]
+        },
+        {
+          "why": "the stop holds: after R1b the card is idle, and the 0xFF the host keeps clocking does not start another block",
+          "clock": 520,
+          "expect": [
+            {
+              "at": 0,
+              "is": "ffffffffffffffffffffffffffffffff"
+            },
+            {
+              "at": 504,
+              "is": "ffffffffffffffffffffffffffffffff"
+            }
+          ]
+        },
+        {
+          "why": "a stream that is released between blocks resumes at the next block, not the one after it. MicroPython's sdcard.py lets go of the card after EVERY block of a CMD18 (readinto ends in cs(1)); here sector 3 is read to its CRC",
+          "mosi": [
+            "520000060095"
+          ],
+          "clock": 517,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "fe"
+            },
+            {
+              "at": 9,
+              "is": "6f70717273747576"
+            },
+            {
+              "at": 521,
+              "is": "ffff"
+            }
+          ]
+        },
+        {
+          "why": "the host lets go of the bus at the block boundary",
+          "cs": "high"
+        },
+        {
+          "why": "and comes back",
+          "cs": "low"
+        },
+        {
+          "why": "the next block is sector 4: the one the card had queued but never clocked out is served, not skipped",
+          "clock": 515,
+          "expect": [
+            {
+              "at": 0,
+              "is": "fe"
+            },
+            {
+              "at": 1,
+              "is": "9495969798999a9b9c9d9e9fa0a1a2a3"
+            },
+            {
+              "at": 497,
+              "is": "8485868788898a8b8c8d8e8f90919293"
+            },
+            {
+              "at": 513,
+              "is": "ffff"
+            }
+          ]
+        },
+        {
+          "why": "released again, the way readinto ends",
+          "cs": "high"
+        },
+        {
+          "why": "and the stop comes on a fresh selection",
+          "cs": "low"
+        },
+        {
+          "why": "CMD12 at that boundary is still heard: R1b at offset 7",
+          "mosi": [
+            "4c0000000061"
+          ],
+          "clock": 8,
+          "expect": [
+            {
+              "at": 6,
+              "is": "ff"
+            },
+            {
+              "at": 7,
+              "is": "00"
+            },
+            {
+              "at": 8,
+              "is": "00"
+            },
+            {
+              "at": 9,
               "is": "ff"
             }
           ]

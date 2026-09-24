@@ -64,8 +64,8 @@
 #define RESP_CAP    2048u
 #define RESP_MASK   (RESP_CAP - 1u)
 /* The longest run handed over in one transfer. A data block is 1 + 512 + 2
- * bytes plus the R1 and fill in front of it, so this covers the whole of the
- * one answer that is worth batching and nothing has to be split. */
+ * bytes plus the R1 and fill in front of it, so this covers the whole of a
+ * single-block answer, and of a streamed block's body, without a split. */
 #define ARM_MAX     520u
 
 /* Data-response tokens (the byte that follows a written block). */
@@ -118,6 +118,11 @@ static struct {
   bool multi_write;
   bool multi_read;
   uint32_t read_block;
+  /* A streamed read sits at a block boundary: the next block is queued, its
+   * start token is the only byte handed out, and no clock has taken it yet.
+   * This is the one point where CMD12 arrives (see arm()), and the one point
+   * where a host that lets go of the bus has not been served that block. */
+  bool at_edge;
 
   uint8_t scratch[SECTOR];
 } card;
@@ -341,10 +346,10 @@ static void process_cmd(void) {
       push_short(reg, 16);
       break;
     case 12: /* STOP_TRANSMISSION, ends CMD18 */
-      /* The continuous-read refill has the next block queued behind the one
-       * the host is reading. Flush it, or the R1b lands after 515 bytes of
-       * data the host never asked for. The fill byte goes back in because the
-       * flush dropped the one the frame had just queued. */
+      /* The stream had the next block queued, and the command arrived on its
+       * start token (see arm()). Flush it, or the R1b lands after 515 bytes
+       * of data the host never asked for. The fill byte goes back in because
+       * the flush dropped the one the frame had just queued. */
       card.multi_read = false;
       resp_clear();
       resp_push(0xFF);
@@ -423,11 +428,9 @@ static void consume(uint8_t mosi) {
         if ((mosi & 0xC0u) == 0x40u) {
           card.cmd[0] = mosi; /* a command starts with bit7 = 0, bit6 = 1 */
           card.cmd_len = 1u;
-        } else if (card.multi_read && resp_empty()) {
-          /* Continuous read: the host is clocking 0xFF for the next block. */
-          push_sector(card.read_block);
-          card.read_block++;
         }
+        /* Anything else is the 0xFF a host clocks while it waits. The next
+         * block of a streamed read is queued by arm(), not here: see there. */
       } else {
         card.cmd[card.cmd_len++] = mosi;
         if (card.cmd_len == 6u) {
@@ -470,12 +473,58 @@ static void consume(uint8_t mosi) {
  *  ahead of the clock is the byte this buffer holds. */
 static void arm(void) {
   if (card.sectors == 0u) return; /* empty slot: nothing drives MISO */
-  /* A streamed read is the one answer the host is allowed to interrupt: it
-   * sends CMD12 when it has had enough, and the card flushes what is still
-   * queued so R1b arrives right behind the command. A run already handed over
-   * cannot be flushed, so CMD18 keeps the byte-at-a-time arming and only the
-   * single-block answers are batched. */
-  const uint32_t cap = card.multi_read ? 1u : ARM_MAX;
+
+  /* A streamed read that has run dry queues its next block here, the moment
+   * the previous CRC has gone out, so the start token follows the CRC with no
+   * gap (the table checks it at offset 523). */
+  if (card.multi_read && resp_empty() && card.cmd_len == 0u &&
+      card.phase == PH_CMD) {
+    push_sector(card.read_block);
+    card.read_block++;
+    card.at_edge = true;
+  }
+
+  /* How far ahead the card may commit. A run already handed over cannot be
+   * taken back, so a run must never cover a byte the host could turn into
+   * CMD12, whose R1b has to land 7 bytes after the command's first byte.
+   * Where that can happen was settled against the spec and the drivers
+   * (project board-buses-2026-09, evidence/sd-host-cost-2026-09-24-cmd18-
+   * boundary.json has the cost on either side of the decision):
+   *
+   *   The SD Physical Layer spec (Simplified 6.00, 4.3.3 and 7.2.3) lets a
+   *   host stop a read ANY time, the transfer ending after the command's end
+   *   bit. No driver this project runs does. Each reads a block to its last
+   *   CRC byte and sends CMD12 on the very next byte:
+   *     ESP-IDF 5.5 sdspi_host.c start_command_read_blocks: the last block is
+   *       received with receive_extra_bytes = 2, the CRC only (line 821), then
+   *       STOP_TRANSMISSION (line 865);
+   *     SdFat 2.3.0 SdSpiCard.cpp readData clocks both CRC bytes even with
+   *       CRC off (lines 385-393), and readStop / syncDevice send CMD12 only
+   *       between readData calls;
+   *     arduino-esp32 3.3.10 sd_diskio.cpp sdReadBytes ends on transfer16 of
+   *       the CRC (line 222), then sdReadSectors sends STOP_TRANSMISSION
+   *       (line 289);
+   *     MicroPython's sdcard.py readinto clocks the two CRC bytes before
+   *       releasing the card, and readblocks sends cmd(12) after the loop.
+   *   Arduino SD.h (Sd2Card, AVR and RP2040) never issues CMD18 at all.
+   *
+   * So the byte right after a CRC is the one place a stop arrives. The card
+   * hands out the next block's start token ALONE there (at_edge), and the
+   * rest of the block (payload and CRC) in one run once the host has clocked
+   * the token as data. A command that started on the token gets its remaining
+   * bytes answered one command at a time, so CMD12 is heard on its sixth byte
+   * and R1b lands at offset 7, as before. That is two calls into this module
+   * per streamed sector where there were 515.
+   *
+   * What this gives up, said here rather than left to be found: a host that
+   * sent CMD12 in the MIDDLE of a payload would get its R1b after the block's
+   * CRC instead of 7 bytes after the command, and a polling host would read
+   * payload bytes as R1. The spec permits that host; none of the drivers
+   * above is one. */
+  uint32_t cap = ARM_MAX;
+  if (card.at_edge) cap = 1u;
+  else if (card.multi_read && card.cmd_len > 0u) cap = 6u - card.cmd_len;
+
   uint32_t n = 0u;
   while (!resp_empty() && n < cap) {
     card.armed[n++] = card.resp[card.head];
@@ -510,6 +559,15 @@ static void arm(void) {
 static void end_frame(void) {
   card.cmd_len = 0u;
   resp_clear();
+  /* A streamed block whose start token no clock has taken was never served,
+   * so the flush above must not count it as read. MicroPython's sdcard.py
+   * releases the card after EVERY block of a CMD18 and comes back for the
+   * next; without this rewind it would get the block after the one it asked
+   * for. arm() queues the same block again. */
+  if (card.at_edge) {
+    card.read_block--;
+    card.at_edge = false;
+  }
 }
 
 static void on_done(void* ud, uint8_t* buffer, uint32_t count) {
@@ -524,6 +582,9 @@ static void on_done(void* ud, uint8_t* buffer, uint32_t count) {
   /* Every MOSI byte of the run, in order. Their answers were decided before
    * the run went out, which is what a queued response IS; what these bytes
    * decide is the NEXT one, and arm() below is where that lands. */
+  /* A run that completes at the edge was the start token alone: the host
+   * clocked it, so the block is now being served. */
+  card.at_edge = false;
   for (uint32_t i = 0u; i < count; i++) consume(buffer[i]);
   arm();
 }

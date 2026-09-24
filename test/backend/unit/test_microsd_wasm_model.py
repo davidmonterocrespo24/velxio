@@ -125,3 +125,40 @@ def test_a_slot_with_no_card_image_drives_nothing():
     host, bad = run("empty")
     assert bad == []
     assert host.rt.blob_bytes("card") is None
+
+
+def test_a_streamed_sector_costs_two_calls_into_the_model():
+    # The cost of a CMD18 in the worker is the number of times the runtime
+    # calls into wasm, because each call is an FFI round trip (~30 us beside a
+    # QEMU guest) and the rest is a copy. Until 2026-09-24 the card handed a
+    # stream out one byte per call, 515 per sector and 150x the Python card it
+    # replaced (project/board-buses-2026-09/evidence/sd-host-cost-*.json). Now
+    # it hands out the start token alone, where a driver's CMD12 lands, and the
+    # body and CRC in one run. The table proves that answer is RIGHT; this
+    # proves it stayed CHEAP, which the table cannot see.
+    host = WorkerHost(TABLE["scripts"]["sdsc"])
+    host.select(True)
+    frame = bytes.fromhex("5200000000" + "ff")      # CMD18 from byte address 0
+    for b in frame:
+        host.transfer(b)
+    for _ in range(2 + 515):                         # fill, R1, the first block
+        host.transfer(0xFF)
+    calls = 0
+    inner = host.rt._call_indirect
+
+    def counting(*args):
+        nonlocal calls
+        calls += 1
+        return inner(*args)
+
+    host.rt._call_indirect = counting
+    sectors = 8
+    got = bytearray()
+    for _ in range(sectors):
+        block = bytes(host.transfer(0xFF) for _ in range(515))
+        assert block[0] == 0xFE
+        got += block[1:513]
+    # The data is the next eight sectors of the card, so a cheap stream that
+    # served the wrong bytes fails here rather than passing on a count.
+    assert bytes(got) == CARD[512:512 * (1 + sectors)]
+    assert calls == 2 * sectors, f"{calls} calls for {sectors} streamed sectors"

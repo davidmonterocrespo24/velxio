@@ -610,3 +610,114 @@ describe('Raspberry Pi SPI and the backend relay', () => {
     }
   });
 });
+
+// ── Responders the relay hosts (F4) ─────────────────────────────────────────
+
+describe('Raspberry Pi SPI: the responders the relay runs beside the guest', () => {
+  /** A shim on the page's registry, with a bridge that records what it sends. */
+  function relayed() {
+    const sent: Array<{ type: string; data: unknown }> = [];
+    const bridge = {
+      sendBusTopology: (t: unknown) => sent.push({ type: 'topology', data: t }),
+      sendBusAttrs: (owner: string, attrs: unknown) =>
+        sent.push({ type: 'attrs', data: { owner, attrs } }),
+    };
+    const pm = new PinManager();
+    const shim = new PiBridgeShim({
+      boardId: 'pi-host',
+      boardKind: 'raspberry-pi-4',
+      bridge: bridge as never,
+      pinManager: pm,
+      boardState: () => undefined,
+    });
+    const circuit = new Circuit('pi-host', 'raspberry-pi-4');
+    busRegistry.setResolver(circuit);
+    busRegistry.bindEngine('pi-host', shim.getBusBinding());
+    // What the store does for a board in its simulator map; this shim is not
+    // in it, so the route is made here and nothing else is.
+    const unroute = busRegistry.onSpiAttrsChange((b, o, a) => {
+      if (b === 'pi-host') shim.pushBusAttrs(o, a);
+    });
+    let level = 1;
+    circuit.wireSpi('adc', SPI0_CE0);
+    const handle = busRegistry.attachSpi(
+      {
+        owner: 'adc',
+        pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' },
+        remoteModel: () => ({ wasmB64: 'AGFzbQEAAAA=' }),
+        remoteAttrs: () => ({ level }),
+      },
+      new Chip(() => 0),
+    );
+    const topologies = () =>
+      sent.filter((m) => m.type === 'topology').map((m) => m.data as {
+        spi: { responders?: Array<{ owner: string; cs: unknown; model: { attrs: unknown } }> };
+      });
+    const done = () => {
+      unroute();
+      shim.stopBusSync();
+      handle.dispose();
+      busRegistry.unbindBoard('pi-host');
+      busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState()));
+    };
+    return {
+      shim,
+      sent,
+      topologies,
+      done,
+      move(v: number) {
+        level = v;
+        handle.attrsChanged();
+      },
+    };
+  }
+
+  it('publishes each responder with a model, on the chip enable the relay places it by', () => {
+    const r = relayed();
+    try {
+      r.shim.startBusSync();
+      const responders = r.topologies().at(-1)!.spi.responders!;
+      expect(responders.map((e) => e.owner)).toEqual(['adc']);
+      expect(responders[0].cs).toEqual({ kind: 'hw', index: 0, gpio: 8, active_low: true });
+      expect(responders[0].model.attrs).toEqual({ level: 1 });
+    } finally {
+      r.done();
+    }
+  });
+
+  it('sends a moved input only while a relay listens', () => {
+    const r = relayed();
+    try {
+      r.move(2);
+      expect(r.sent.filter((m) => m.type === 'attrs'), 'no relay yet').toEqual([]);
+      r.shim.startBusSync();
+      expect(r.topologies().at(-1)!.spi.responders![0].model.attrs, 'the map carries it').toEqual({
+        level: 2,
+      });
+      r.move(3);
+      expect(r.sent.filter((m) => m.type === 'attrs').map((m) => m.data)).toEqual([
+        { owner: 'adc', attrs: { level: 3 } },
+      ]);
+      r.shim.stopBusSync();
+      r.move(4);
+      expect(r.sent.filter((m) => m.type === 'attrs')).toHaveLength(1);
+    } finally {
+      r.done();
+    }
+  });
+
+  it('republishes the topology when membership changes, only while a relay listens', () => {
+    const r = relayed();
+    try {
+      r.shim.startBusSync();
+      const before = r.topologies().length;
+      (r.shim as unknown as { pushBusMap(): void }).pushBusMap();
+      expect(r.topologies().length).toBe(before + 1);
+      r.shim.stopBusSync();
+      (r.shim as unknown as { pushBusMap(): void }).pushBusMap();
+      expect(r.topologies().length).toBe(before + 1);
+    } finally {
+      r.done();
+    }
+  });
+});

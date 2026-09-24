@@ -89,11 +89,11 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             if msg_type in (
                 'start_pi', 'stop_pi', 'serial_input', 'gpio_in', 'pin_change',
                 'pi_sensor_state', 'pi_uart_rx', 'pi_attach_slave', 'pi_detach_slave',
-                'pi_bus_reply', 'pi_bus_topology', 'pi_bus_regs',
+                'pi_bus_reply', 'pi_bus_topology', 'pi_bus_regs', 'pi_bus_attrs',
                 'pi_sensor_attach', 'pi_sensor_update', 'pi_sensor_detach',
                 'start_stm32', 'stop_stm32', 'stm32_load_firmware', 'stm32_gpio_in',
                 'stm32_serial_input', 'stm32_sensor_attach', 'stm32_sensor_update',
-                'stm32_sensor_detach',
+                'stm32_sensor_detach', 'stm32_bus_map', 'stm32_bus_attrs',
             ):
                 handled = await dispatch_ws_sim_message(
                     websocket, client_id, msg_type, msg_data, qemu_callback,
@@ -229,6 +229,14 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                 # byte the guest had already clocked.
                 if _use_lib():
                     esp_lib_manager.set_bus_map(client_id, msg_data.get('spi') or [])
+
+            elif msg_type == 'esp32_bus_attrs':
+                # {owner, attrs}: one hosted responder's live inputs between
+                # two maps. A map carries every model's artifact, so a finger
+                # dragged across a touch panel cannot travel as maps.
+                if _use_lib():
+                    esp_lib_manager.set_bus_attrs(
+                        client_id, str(msg_data.get('owner') or ''), msg_data.get('attrs') or {})
 
             # ── ESP32 UART 1 / 2 input ────────────────────────────────────
             elif msg_type == 'esp32_uart1_input':

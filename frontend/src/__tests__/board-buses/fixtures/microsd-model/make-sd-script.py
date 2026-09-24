@@ -264,20 +264,76 @@ def sdsc_steps() -> list:
          "mosi": [cmd(41, 0x40000000)], "clock": 4,
          "expect": [{"at": 7, "is": "00"}]},
 
+        # Where the stop lands. Until 2026-09-24 this step clocked 1040 bytes,
+        # which stops 8 bytes INTO the third block, and the next one asked the
+        # card to honour CMD12 there. The spec allows that host (SD Physical
+        # Layer Simplified 6.00, 4.3.3: "The data transfer stops after the end
+        # bit of the stop command", which 7.2.3 applies to SPI mode), but no
+        # driver the product runs is one: each reads a block to its last CRC
+        # byte and sends CMD12 on the next byte.
+        #   ESP-IDF 5.5 sdspi_host.c start_command_read_blocks: the last block
+        #     is received with receive_extra_bytes = 2, the CRC only (l. 821),
+        #     then STOP_TRANSMISSION (l. 865).
+        #   SdFat 2.3.0 SdSpiCard.cpp readData clocks both CRC bytes even with
+        #     CRC off (l. 385-393); readStop sends CMD12 between readData calls.
+        #   arduino-esp32 3.3.10 sd_diskio.cpp sdReadBytes ends on transfer16
+        #     of the CRC (l. 222), then sdReadSectors stops (l. 289).
+        #   MicroPython sdcard.py readinto clocks the CRC, then readblocks
+        #     sends cmd(12).
+        # The mid-block contract is what forced the card to hand a stream out
+        # one byte per call (150x the Python card it replaced,
+        # project/board-buses-2026-09/evidence/sd-host-cost-*.json), so the
+        # table now pins the boundary the drivers use, and the rows after
+        # this one prove the stop is still heard there.
         {"why": "CMD18 streams: sector 0 arrives, and the card refills with the "
                 "next sector as soon as the first block's CRC has gone out, so "
-                "the second start token follows it with no command in between",
-         "mosi": [cmd(18, 0)], "clock": 1040,
+                "the second start token follows it with no command in between. "
+                "The host reads that second block to its CRC and stops there, "
+                "as every driver does",
+         "mosi": [cmd(18, 0)], "clock": 1032,
          "expect": [{"at": 8, "is": "fe"}, {"at": 9, "is": sector_hex(0, 0, 8)},
                     {"at": 521, "is": "ffff"},
-                    {"at": 523, "is": "fe"}, {"at": 524, "is": sector_hex(1, 0, 8)}]},
+                    {"at": 523, "is": "fe"}, {"at": 524, "is": sector_hex(1, 0, 8)},
+                    {"at": 524 + 504, "is": sector_hex(1, 504, 8)},
+                    {"at": 1036, "is": "ffff"}]},
 
-        {"why": "CMD12 stops the stream: the queued remainder is flushed, so R1b "
-                "lands at offset 7 and no block data trails it",
+        {"why": "CMD12 on the byte after a CRC stops the stream: the block the "
+                "card had already queued is flushed, so R1b lands at offset 7 "
+                "and no block data trails it",
          "mosi": [cmd(12)], "clock": 8,
          "expect": [{"at": 6, "is": "ff"}, {"at": 7, "is": "00"},
                     {"at": 8, "is": "00"}, {"at": 9, "is": "ff"},
                     {"at": 10, "is": "ff"}]},
+
+        {"why": "the stop holds: after R1b the card is idle, and the 0xFF the "
+                "host keeps clocking does not start another block",
+         "clock": 520,
+         "expect": [{"at": 0, "is": "ff" * 16}, {"at": 504, "is": "ff" * 16}]},
+
+        {"why": f"a stream that is released between blocks resumes at the "
+                "next block, not the one after it. MicroPython's sdcard.py "
+                "lets go of the card after EVERY block of a CMD18 "
+                f"(readinto ends in cs(1)); here sector {READ_SECTOR} is read "
+                "to its CRC",
+         "mosi": [cmd(18, READ_SECTOR * SECTOR)], "clock": 517,
+         "expect": [{"at": 7, "is": "00"}, {"at": 8, "is": "fe"},
+                    {"at": 9, "is": sector_hex(READ_SECTOR, 0, 8)},
+                    {"at": 521, "is": "ffff"}]},
+        {"why": "the host lets go of the bus at the block boundary", "cs": "high"},
+        {"why": "and comes back", "cs": "low"},
+        {"why": f"the next block is sector {READ_SECTOR + 1}: the one the card "
+                "had queued but never clocked out is served, not skipped",
+         "clock": 515,
+         "expect": [{"at": 0, "is": "fe"},
+                    {"at": 1, "is": sector_hex(READ_SECTOR + 1, 0, 16)},
+                    {"at": 1 + 496, "is": sector_hex(READ_SECTOR + 1, 496, 16)},
+                    {"at": 513, "is": "ffff"}]},
+        {"why": "released again, the way readinto ends", "cs": "high"},
+        {"why": "and the stop comes on a fresh selection", "cs": "low"},
+        {"why": "CMD12 at that boundary is still heard: R1b at offset 7",
+         "mosi": [cmd(12)], "clock": 8,
+         "expect": [{"at": 6, "is": "ff"}, {"at": 7, "is": "00"},
+                    {"at": 8, "is": "00"}, {"at": 9, "is": "ff"}]},
 
         {"why": "chip select released", "cs": "high"},
 

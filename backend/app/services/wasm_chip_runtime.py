@@ -106,8 +106,9 @@ _UART_CONFIG_FMT = "<IIIIII"      # 24 bytes (ignore reserved trailer)
 #   offset 16 : mode         (uint32_t)
 #   offset 20 : on_done      (function index)
 #   offset 24 : user_data    (uint32_t)
-#   offset 28 : reserved[8]  (32 bytes — ignored)
-_SPI_CONFIG_FMT = "<IIIIIII"      # 28 bytes (ignore reserved trailer)
+#   offset 28 : on_exchange  (function index, 0 = none; was reserved[0])
+#   offset 32 : reserved[7]  (28 bytes, ignored)
+_SPI_CONFIG_FMT = "<IIIIIIII"     # 32 bytes (ignore reserved trailer)
 
 
 class ChipNetBus:
@@ -618,10 +619,11 @@ class WasmChipRuntime:
 
     def _read_spi_config(self, ptr: int) -> dict:
         raw = self._read_bytes(ptr, struct.calcsize(_SPI_CONFIG_FMT))
-        sck, mosi, miso, cs, mode, on_done, user_data = struct.unpack(_SPI_CONFIG_FMT, raw)
+        sck, mosi, miso, cs, mode, on_done, user_data, on_exchange = \
+            struct.unpack(_SPI_CONFIG_FMT, raw)
         return {
             "sck": sck, "mosi": mosi, "miso": miso, "cs": cs, "mode": mode,
-            "on_done": on_done, "user_data": user_data,
+            "on_done": on_done, "user_data": user_data, "on_exchange": on_exchange,
         }
 
     def _call_indirect(self, idx: int, *args: int) -> int:
@@ -1353,7 +1355,20 @@ class WasmChipRuntime:
         overwrites that buffer slot with `mosi` so the chip's `on_done` callback
         sees what the master sent.
         """
-        if not self.spi_config or self._spi_buffer_count == 0:
+        if not self.spi_config:
+            return 0xFF
+        # A chip that answers each byte as it arrives (velxio-chip.h,
+        # `on_exchange`) is asked here and nothing else runs: the worker and the
+        # Pi host always hand over a whole byte, so the buffer below is only
+        # the look-ahead a bit-banged master in the tab reads, and consuming it
+        # as well would run the chip's frame twice.
+        on_exchange = self.spi_config.get("on_exchange", 0)
+        if on_exchange:
+            miso_byte = self._call_indirect(
+                on_exchange, self.spi_config["user_data"], mosi & 0xFF) & 0xFF
+            self._flush_stdout()
+            return miso_byte
+        if self._spi_buffer_count == 0:
             return 0xFF
         if self._spi_buffer_pos >= self._spi_buffer_count:
             return 0xFF

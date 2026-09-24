@@ -54,6 +54,8 @@ interface SpiConfig {
   mode: number;
   on_done: number;
   user_data: number;
+  /** velxio-chip.h `on_exchange`: 0 when the chip answers from its buffer. */
+  on_exchange: number;
 }
 
 function readI2CConfig(memory: WebAssembly.Memory, ptr: number): I2CConfig {
@@ -92,6 +94,9 @@ function readSpiConfig(memory: WebAssembly.Memory, ptr: number): SpiConfig {
     mode:      dv.getUint32(ptr + 16, true),
     on_done:   dv.getUint32(ptr + 20, true),
     user_data: dv.getUint32(ptr + 24, true),
+    // The first word of what used to be `reserved[8]`, so a chip built before
+    // the field existed reads 0 here and keeps the buffer contract.
+    on_exchange: dv.getUint32(ptr + 28, true),
   };
 }
 
@@ -963,7 +968,10 @@ export class ChipInstance {
         // selected. What gates the bytes on this side is the chip's own arming
         // (vx_spi_start / vx_spi_stop), the documented Wokwi-compatible
         // contract, which the chip drives from its own pin watch.
-        transfer: (mosi) => (drivesMiso ? entry.device.transfer(mosi) : this._spiSink(entry, mosi)),
+        transfer: (mosi) =>
+          drivesMiso
+            ? this._spiExchange(entry, mosi) ?? entry.device.transfer(mosi)
+            : this._spiSink(entry, mosi),
         peekMiso: () => (drivesMiso ? entry.device.peek() : null),
         // The MCU reset: the transaction in flight is over, as it is when CS
         // is released. Protocol state only: the chip's own data is its own.
@@ -972,9 +980,37 @@ export class ChipInstance {
     );
   }
 
+  /**
+   * A chip that answers each byte as it arrives (velxio-chip.h `on_exchange`)
+   * is asked here, with the whole byte, and its answer is the MISO for THAT
+   * byte. Undefined when the chip has no such callback, so the buffer contract
+   * applies. The armed buffer is left alone on purpose: it is the look-ahead
+   * `peekMiso` serves a bit-banged master, and the chip refreshes it itself.
+   * The Python host does the same (wasm_chip_runtime.spi_transfer_byte), so a
+   * chip answers the same bytes in the tab, in a QEMU worker and beside a
+   * Linux guest.
+   */
+  private _spiExchange(entry: SpiEntry, mosi: number): number | undefined {
+    const idx = entry.cfg.on_exchange;
+    if (!idx) return undefined;
+    const table = this.exports?.__indirect_function_table as WebAssembly.Table | undefined;
+    const fn = table?.get(idx) as ((ud: number, b: number) => number) | null;
+    if (!fn) return undefined;
+    let miso = 0xff;
+    try {
+      miso = fn(entry.cfg.user_data, mosi & 0xff) & 0xff;
+    } catch {
+      /* a chip that traps leaves the line at its idle level */
+    }
+    this.wasi.flush();
+    return miso;
+  }
+
   /** A handle with no MISO pin receives the master's bytes and drives nothing. */
   private _spiSink(entry: SpiEntry, mosi: number): null {
-    entry.device.transfer(mosi);
+    // A chip that takes its bytes through `on_exchange` takes them that way
+    // whether or not its MISO leg is wired; only the answer is dropped.
+    if (this._spiExchange(entry, mosi) === undefined) entry.device.transfer(mosi);
     return null;
   }
 

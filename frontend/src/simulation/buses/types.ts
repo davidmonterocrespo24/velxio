@@ -105,6 +105,19 @@ export interface SpiDeviceDescriptor {
    * clocking is the same late answer this whole design exists to avoid.
    */
   remoteModel?(): RemoteSpiModel | null;
+  /**
+   * The model's LIVE inputs, read now: the finger on the glass, the voltage
+   * the circuit solve put on a channel, a temperature slider. They are the
+   * model's attributes (vx_attr_read), so the same names a map entry carries in
+   * `model.attrs`, and they win over those when both are present.
+   *
+   * Separate from `remoteModel()` because they travel separately: the map goes
+   * once per membership change and carries the whole artifact, while these go
+   * every time the part calls `BusHandle.attrsChanged()`, as a message a few
+   * dozen bytes long. A drag of a finger re-sending the map would push the
+   * artifact (and an SD card's whole image) at the pointer's rate.
+   */
+  remoteAttrs?(): Record<string, number>;
 }
 
 /**
@@ -278,4 +291,12 @@ export interface BusDiagnostic {
 /** A registration handle: dispose() takes the device off its bus, by identity. */
 export interface BusHandle {
   dispose(): void;
+  /**
+   * The device's live inputs (`remoteAttrs()`) may have changed. On a board
+   * whose master runs outside the tab the new values go to the host that runs
+   * the device's portable model; anywhere else, and when nothing changed since
+   * the last send, this does nothing. Cheap enough to call on every pointer
+   * move and every circuit solve.
+   */
+  attrsChanged(): void;
 }
