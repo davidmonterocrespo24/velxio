@@ -142,6 +142,28 @@ export class SdSpiCard {
     }
   }
 
+  /**
+   * Put `data` at byte `offset`, as the model beside a remote guest wrote it
+   * (`bus_blob`). The span is whatever the model touched, so it may start or
+   * end inside a sector.
+   */
+  writeBytes(offset: number, data: Uint8Array): void {
+    let done = 0;
+    while (done < data.length) {
+      const at = offset + done;
+      const idx = Math.floor(at / BLOCK);
+      const within = at - idx * BLOCK;
+      const n = Math.min(BLOCK - within, data.length - done);
+      let blk = this.store.get(idx);
+      if (!blk) {
+        blk = new Uint8Array(BLOCK);
+        this.store.set(idx, blk);
+      }
+      blk.set(data.subarray(done, done + n), within);
+      done += n;
+    }
+  }
+
   /** Reassemble the card's CURRENT contents (initial image + every write the
    *  guest made) into a flat image. `minBytes` pads the dump to at least the
    *  original volume size so a FAT parser sees the full filesystem even when
@@ -483,14 +505,26 @@ export function loadSdBusChip(): void {
  * sectors somebody touched.
  *
  * The image is the card's CURRENT contents rather than the one it was built
- * with: the tab sees every byte the guest clocks (the remote port relays them)
- * so a map published after a write carries what was written.
+ * with: the worker sends back every span its model writes
+ * ({@link sdCardRemoteBlobWrite}), so a map published after a write carries
+ * what was written.
  *
  * Null while the artifact has not arrived, and null for a card with no image
  * at all: there is nothing for the model to serve, it would drive nothing, and
  * the bus says so once rather than shipping an entry the worker has to guess
  * at.
  */
+/**
+ * The half of the remote card that comes back: the worker sends the span its
+ * model wrote (`bus_blob`) and this lands it on the tab's card, the one the
+ * panel lists and the next map ships. Only the blob the model calls `card`.
+ */
+export function sdCardRemoteBlobWrite(card: SdSpiCard): (name: string, offset: number, data: Uint8Array) => void {
+  return (name, offset, data) => {
+    if (name === 'card') card.writeBytes(offset, data);
+  };
+}
+
 export function sdCardRemoteModel(card: SdSpiCard, minBytes = 0): RemoteSpiModel | null {
   const wasmB64 = busChipB64(SD_BUS_CHIP);
   if (!wasmB64) return null;

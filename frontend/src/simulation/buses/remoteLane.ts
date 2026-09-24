@@ -13,7 +13,7 @@
  */
 
 import { arduinoSpiController } from './pinFunctions';
-import { busRegistry, type RemoteSpiMapEntry } from './registry';
+import { busRegistry, type RemoteSpiMapEntry, type RemoteSpiSinksEntry } from './registry';
 import { RemoteSpiPort } from './remotePort';
 import type { BoardPins, EngineBinding } from './types';
 
@@ -22,7 +22,7 @@ export class RemoteSpiLane {
   readonly port: RemoteSpiPort | null;
 
   private readonly boardId: string;
-  private readonly send: (spi: RemoteSpiMapEntry[]) => void;
+  private readonly send: (spi: Array<RemoteSpiMapEntry | RemoteSpiSinksEntry>) => void;
   private readonly sendAttrs: ((owner: string, attrs: Record<string, number>) => void) | null;
 
   /**
@@ -33,7 +33,7 @@ export class RemoteSpiLane {
   constructor(
     boardId: string,
     boardKind: string,
-    send: (spi: RemoteSpiMapEntry[]) => void,
+    send: (spi: Array<RemoteSpiMapEntry | RemoteSpiSinksEntry>) => void,
     sendAttrs?: (owner: string, attrs: Record<string, number>) => void,
   ) {
     this.boardId = boardId;
@@ -56,9 +56,20 @@ export class RemoteSpiLane {
    */
   pushMap(): void {
     try {
-      this.send(busRegistry.remoteSpiMap(this.boardId));
+      this.send(busRegistry.remoteSpiPublication(this.boardId));
     } catch (e) {
       console.warn(`[RemoteSpiLane:${this.boardId}] the bus map could not be sent`, e);
+    }
+  }
+
+  /**
+   * The worker says a hosted model wrote `data` at `offset` of blob `name`
+   * (`bus_blob`): the guest saved something on the card, and the tab's copy
+   * no longer sees the bytes that did it.
+   */
+  applyBlob(owner: string, name: string, offset: number, data: Uint8Array): void {
+    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, data)) {
+      console.warn(`[RemoteSpiLane:${this.boardId}] nobody here takes the span ${owner}/${name}@${offset}`);
     }
   }
 

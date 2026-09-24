@@ -106,6 +106,16 @@ export interface SpiDeviceDescriptor {
    */
   remoteModel?(): RemoteSpiModel | null;
   /**
+   * The tab still needs the bytes clocked under this device's select when a
+   * worker hosts its model: the model only answers MISO, and what the master
+   * WRITES is decoded here. A panel that answers its id (M5GFX's board probe)
+   * and is otherwise a display is the case: hosted for the id, a sink for the
+   * pixels. Without this a hosted responder counts as fully served by the
+   * worker, which then keeps its bytes to itself (RemoteSpiSinksEntry) and the
+   * screen stays dark while the id reads right.
+   */
+  remoteKeepsTabCopy?: boolean;
+  /**
    * The model's LIVE inputs, read now: the finger on the glass, the voltage
    * the circuit solve put on a channel, a temperature slider. They are the
    * model's attributes (vx_attr_read), so the same names a map entry carries in
@@ -118,6 +128,19 @@ export interface SpiDeviceDescriptor {
    * artifact (and an SD card's whole image) at the pointer's rate.
    */
   remoteAttrs?(): Record<string, number>;
+  /**
+   * The hosted model wrote into one of its named blobs (the guest saved a
+   * file on the card): `data` now sits at `offset` of blob `name`. The tab's
+   * copy is what the SD panel lists and what the next map ships back, so it
+   * has to follow. It used to follow by decoding the relayed bytes; the worker
+   * now keeps a transaction no sink can see to itself (F4-SPEC, "Worker, por
+   * byte", step 3) and sends the written span instead (`bus_blob`).
+   *
+   * A device whose model carries blobs and does NOT implement this is treated
+   * as a sink, so its bytes keep being relayed: without either path its copy
+   * would silently fall behind what the guest wrote.
+   */
+  remoteBlobWrite?(name: string, offset: number, data: Uint8Array): void;
 }
 
 /**
@@ -131,6 +154,15 @@ export interface RemoteSpiModel {
   /** Chip pin name -> board GPIO. The fabric fills the bus pins it resolved;
    *  a model with extra legs (an interrupt output) adds them here. */
   pinMap?: Record<string, number>;
+  /**
+   * The chip's own pad name for each bus signal, when the part registers
+   * under different names. A card inside a shield registers the shield's pads
+   * (D8, D10, D9, D2) because that is what the circuit resolves, while the
+   * model watches its select under the chip's name (CS). Without this the
+   * watch is registered against a pad the host never moves and the card
+   * never ends a command frame.
+   */
+  chipPads?: Partial<Record<'sck' | 'mosi' | 'miso' | 'cs', string>>;
   /** vx_attr values, by name. */
   attrs?: Record<string, number>;
   /** Named byte storage (the SD card image), base64 per name. */
@@ -138,6 +170,23 @@ export interface RemoteSpiModel {
 }
 
 export interface SpiDevice {
+  /**
+   * True when this model never drives MISO, in any state: a display that is
+   * only ever written to. Whether a device ANSWERS is a fact about the model,
+   * not about the silkscreen. A real ILI9341 has an SDO leg, and a user who
+   * wires it is wiring something real, but a model that implements no read
+   * command leaves that leg in high impedance for the whole run.
+   *
+   * The bus asks this, not "does the descriptor name a MISO pin", whenever it
+   * needs to know if the device is a responder: it then never counts the
+   * device as a MISO driver, never reports it as a responder a remote lane
+   * cannot host (`bus-remote-responder-missing`), and never tells the user to
+   * wire a MISO the model would not use. The wiring checks that compare where
+   * the leg lands with the controller's pins still apply: a crossed wire is a
+   * crossed wire. Leave it out for anything that can answer; the default is
+   * the safe one, since a responder mistaken for a sink reads idle silently.
+   */
+  readonly writeOnly?: boolean;
   /** Chip select went active: a transaction starts. */
   select?(): void;
   /** Chip select went inactive: the real chip resets its frame state here. */

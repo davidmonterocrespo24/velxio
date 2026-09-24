@@ -103,6 +103,11 @@ class FakeLibQemu:
         if kind == 'pin':
             cbs.picsimlab_write_pin(int(op['slot']), int(op['value']))
             return {}
+        if kind == 'dir':
+            # A pad's direction: 1 output, 0 input (pinMode), as esp32_gpio.c
+            # reports it through picsimlab_dir_pin.
+            cbs.picsimlab_dir_pin(int(op['slot']), int(op['value']))
+            return {}
         if kind == 'spi':
             bus = int(op.get('bus', 0))
             return {'miso': [int(cbs.picsimlab_spi_event(bus, (b & 0xFF) << 8))

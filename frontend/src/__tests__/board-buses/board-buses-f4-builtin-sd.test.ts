@@ -123,6 +123,36 @@ describe("a board's own microSD slot on a QEMU board", () => {
     ).toBe(true);
   });
 
+  it('takes back what the model wrote, so the panel and the next map see it', () => {
+    // The worker keeps a card transaction no sink can see to itself and sends
+    // the written span instead; the slot is then no sink either.
+    primeBusChip('microsd', new Uint8Array(WASM));
+    const { id, bridge, sim } = board();
+    bridge.sdImageB64 = Buffer.from(new Uint8Array(1024).fill(7)).toString('base64');
+    sim.syncBuiltinSdCard!();
+    expect(busRegistry.remoteSpiPublication(id).at(-1)).toEqual({ sinks: { all: false, cs: [] } });
+
+    const ws = ScriptedSocket.last!;
+    ws.onmessage!({
+      data: JSON.stringify({
+        type: 'system',
+        data: {
+          event: 'bus_blob',
+          owner: `builtin:${id}:sd`,
+          name: 'card',
+          offset: 510,
+          data: Buffer.from([0xa1, 0xa2, 0xa3, 0xa4]).toString('base64'),
+        },
+      }),
+    });
+    const card = new Uint8Array(
+      Buffer.from(busRegistry.remoteSpiMap(id)[0].model.blobs.card, 'base64'),
+    );
+    expect([...card.slice(508, 516)], 'across the sector boundary').toEqual([
+      7, 7, 0xa1, 0xa2, 0xa3, 0xa4, 7, 7,
+    ]);
+  });
+
   it('leaves the slot to the engine when the CPU runs in this tab', () => {
     // An in-browser engine puts the same slot on the bus under the same owner,
     // from its own card. Two cards built from two images racing for one owner

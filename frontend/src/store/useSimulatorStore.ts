@@ -102,6 +102,7 @@ import {
 import {
   loadSdBusChip,
   SdSpiCard,
+  sdCardRemoteBlobWrite,
   sdCardRemoteModel,
   sdSpiFabricDevice,
 } from '../simulation/parts/sdSpiCard';
@@ -251,6 +252,10 @@ export class Esp32BridgeShim {
     // it. What a device here answers goes nowhere: see RemoteSpiPort.
     bridge.onSpiBatch = (mosi) => this.remoteLane.port?.deliver(mosi);
     bridge.onSpiCsChange = (csIdx, low) => this.remoteLane.port?.hardwareCs(csIdx, low);
+    // What a hosted model wrote (the guest saved to the card) comes back as a
+    // span, because the worker keeps the bytes no sink here can see.
+    bridge.onBusBlob = (owner, name, offset, data) =>
+      this.remoteLane.applyBlob(owner, name, offset, data);
 
     // Wire the write-forwarding path: when the backend ProxySlave emits
     // a completed write transaction (one full STOP-bounded master phase
@@ -352,8 +357,8 @@ export class Esp32BridgeShim {
    * model answers beside the guest.
    *
    * The card object stays here regardless, because it is what the SD panel
-   * lists: the worker relays back every MOSI byte it clocks, so this copy
-   * follows the same writes the hosted model applies.
+   * lists: the worker sends back every span the hosted model writes
+   * (`bus_blob`), so this copy follows the guest's writes.
    */
   syncBuiltinSdCard(): void {
     // Only for a board whose CPU is NOT in this tab. An in-browser engine puts
@@ -431,6 +436,7 @@ export class Esp32BridgeShim {
           if (pins.miso !== undefined) pinMap.DO = pins.miso;
           return { ...model, pinMap };
         },
+        remoteBlobWrite: sdCardRemoteBlobWrite(card),
       },
       sdSpiFabricDevice(card),
     );
@@ -2287,6 +2293,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // prints it at Run, exactly like one the browser made itself.
         bridge.onSystemEvent = (event, data) => {
           if (event === 'sensor_refused') shim.noteSensorRefused(data);
+          else if (event === 'bus_blob') shim.applyBusBlob(data);
         };
         const disconnected = bridge.onDisconnected;
         bridge.onDisconnected = () => {

@@ -111,10 +111,29 @@ describe('the canvas microSD as a remote responder', () => {
     expect(busRegistry.remoteSpiMap(BOARD)).toHaveLength(1);
   });
 
+  it('takes the span the worker says the model wrote, and is no sink', () => {
+    // The worker keeps a card transaction no sink can see to itself (F4-SPEC,
+    // "Worker, por byte", step 3) and sends what the model wrote as a span.
+    // The card has to take it, or the panel and the next map would forget the
+    // guest's file; and because it takes it, the card's bytes need not be
+    // relayed, so it is not listed among the sinks.
+    primeBusChip('microsd', new Uint8Array(WASM));
+    attachCard(new Uint8Array(2048));
+    expect(busRegistry.remoteSpiPublication(BOARD).at(-1)).toEqual({ sinks: { all: false, cs: [] } });
+
+    const span = new Uint8Array(512).fill(0x5c);
+    expect(busRegistry.applyRemoteBlob(BOARD, CARD, 'card', 1024, span)).toBe(true);
+    const blob = b64ToBytes(busRegistry.remoteSpiMap(BOARD)[0].model.blobs.card);
+    expect(blob.slice(1024, 1536).every((b) => b === 0x5c), 'the written sector').toBe(true);
+    expect(blob.slice(512, 1024).every((b) => b === 0), 'and nothing else').toBe(true);
+    expect(busRegistry.applyRemoteBlob('esp32-2', CARD, 'card', 0, span), 'another board').toBe(false);
+  });
+
   it('sends what is on the card NOW, not the image it was built with', () => {
-    // The worker relays every MOSI byte back, so this tab's copy follows the
-    // guest's writes; a map published afterwards has to carry them, or a
-    // rewire would hand the guest back a card that forgot what it wrote.
+    // Whatever wrote it (the worker's span above, or the bytes themselves on
+    // a board the worker still relays for), a map published afterwards has to
+    // carry it, or a rewire would hand the guest back a card that forgot what
+    // it wrote.
     primeBusChip('microsd', new Uint8Array(WASM));
     attachCard(new Uint8Array(1024));
 

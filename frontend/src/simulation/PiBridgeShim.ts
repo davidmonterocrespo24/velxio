@@ -750,6 +750,33 @@ export class PiBridgeShim {
   }
 
   /**
+   * A responder the relay hosts wrote into its storage (`bus_blob`): the guest
+   * saved something on a card. The span lands on the tab's copy, which is
+   * what the SD panel lists and what the next Run builds the card from; the
+   * relay keeps its own model across republishes, so without this the guest's
+   * file lives only until the guest stops.
+   */
+  applyBusBlob(data: Record<string, unknown>): boolean {
+    const b64 = typeof data['data'] === 'string' ? data['data'] : '';
+    let bytes: Uint8Array;
+    try {
+      const bin = atob(b64);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } catch {
+      return false;
+    }
+    const owner = String(data['owner'] ?? '');
+    const name = String(data['name'] ?? '');
+    const offset = Number(data['offset'] ?? 0);
+    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, bytes)) {
+      console.warn(`[PiBridgeShim:${this.boardId}] nobody here takes the span ${owner}/${name}@${offset}`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * A refusal the host sent back after taking the sensor (`sensor_refused`).
    * Filed against the component that asked, so the circuit check prints it
    * exactly like a refusal made in the browser.

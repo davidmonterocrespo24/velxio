@@ -342,6 +342,11 @@ class WasmChipRuntime:
         # See _mem_view / _call_indirect: both caches are dropped whenever wasm
         # runs, which is the only thing that can invalidate them.
         self._mem_view_cache = None
+        # A Python copy of a long armed SPI buffer (see spi_transfer_byte) and
+        # the first position whose MOSI it holds and wasm memory does not yet.
+        # Written back before wasm runs, by the same hook that drops the view.
+        self._spi_cache: bytearray | None = None
+        self._spi_cache_lo = 0
         self._fn_cache: dict[int, object] = {}
         self._fast_cache: dict[int, object] = {}
 
@@ -554,7 +559,46 @@ class WasmChipRuntime:
         return view
 
     def _drop_mem_view(self) -> None:
+        # Wasm is about to run: the chip must find in its buffer every MOSI
+        # byte the master has clocked so far, and may rewrite what is left.
+        if self._spi_cache is not None:
+            self._spi_sync()
         self._mem_view_cache = None
+
+    # A buffer at least this long is served from a Python copy. Every byte
+    # through the ctypes view costs a read and a write across it, which for
+    # a streamed card sector (one 514-byte buffer) was most of the model's
+    # price in the worker; a copy costs one memmove each way. A short buffer
+    # (a command byte, a register) is cheaper to serve in place.
+    _SPI_CACHE_MIN = 16
+
+    def _spi_cached_frame_done(self, miso_byte: int) -> int:
+        """The last byte of a buffer served from the copy. on_done runs wasm,
+        which writes the copy back first (_drop_mem_view), so the chip sees
+        the whole frame, exactly as it does for a buffer served in place."""
+        cfg = self.spi_config or {}
+        on_done = cfg.get("on_done", 0)
+        if on_done:
+            self._call_indirect(on_done, cfg["user_data"], self._spi_buffer_ptr,
+                                self._spi_buffer_count)
+        else:
+            self._spi_sync()
+        self._flush_stdout()
+        return miso_byte
+
+    def _spi_sync(self) -> None:
+        """Put the MOSI bytes the cached buffer took back into wasm memory and
+        forget the copy: after wasm runs, the chip may have re-armed or
+        rewritten the rest of it."""
+        cache = self._spi_cache
+        self._spi_cache = None
+        if cache is None:
+            return
+        lo, hi = self._spi_cache_lo, min(self._spi_buffer_pos, len(cache))
+        if hi > lo:
+            view = self._mem_view()
+            ctypes.memmove(ctypes.addressof(view) + self._spi_buffer_ptr + lo,
+                           bytes(cache[lo:hi]), hi - lo)
 
     def _read_cstring(self, ptr: int) -> str:
         if ptr == 0:
@@ -911,11 +955,14 @@ class WasmChipRuntime:
             return 0
 
         def vx_spi_start(_handle: int, buf_ptr: int, count: int) -> None:
+            # Called from inside wasm, so any copy was already written back.
+            self._spi_cache = None
             self._spi_buffer_ptr = buf_ptr
             self._spi_buffer_count = count
             self._spi_buffer_pos = 0
 
         def vx_spi_stop(_handle: int) -> None:
+            self._spi_cache = None
             # Fire on_done with what we have so far.
             if self.spi_config and self.spi_config["on_done"] and self._spi_buffer_count > 0:
                 self._call_indirect(
@@ -1186,6 +1233,16 @@ class WasmChipRuntime:
         with self._blob_lock:
             return bytes(blob)
 
+    def blob_span(self, name: str, lo: int, hi: int) -> bytes | None:
+        """Bytes [lo, hi) of a named blob. What a host sends back after a
+        write is the span the chip touched; copying the whole card image to
+        slice a sector out of it would cost megabytes per write."""
+        blob = self._blobs.get(name)
+        if blob is None:
+            return None
+        with self._blob_lock:
+            return bytes(blob[max(0, lo):max(0, hi)])
+
     def take_blob_dirty(self) -> dict[str, tuple[int, int]]:
         """The byte spans [lo, hi) the chip wrote since the last call, and
         clears them. A card image is megabytes, so what goes back to the panel
@@ -1355,40 +1412,65 @@ class WasmChipRuntime:
         overwrites that buffer slot with `mosi` so the chip's `on_done` callback
         sees what the master sent.
         """
-        if not self.spi_config:
+        # The per-byte path of every responder a worker hosts: a streamed card
+        # read comes through here 515 times a sector, so each attribute is
+        # read once into a local and the buffer state is written back once.
+        #
+        # A copy exists only while a long buffer is armed and part-way through
+        # (it is made below and dropped by vx_spi_start, vx_spi_stop and
+        # whenever wasm runs), so the middle of a sector needs no other check.
+        cache = self._spi_cache
+        if cache is not None:
+            pos = self._spi_buffer_pos
+            miso_byte = cache[pos]
+            cache[pos] = mosi & 0xFF
+            pos += 1
+            self._spi_buffer_pos = pos
+            if pos < self._spi_buffer_count:
+                return miso_byte
+            return self._spi_cached_frame_done(miso_byte)
+        cfg = self.spi_config
+        if not cfg:
             return 0xFF
         # A chip that answers each byte as it arrives (velxio-chip.h,
         # `on_exchange`) is asked here and nothing else runs: the worker and the
         # Pi host always hand over a whole byte, so the buffer below is only
         # the look-ahead a bit-banged master in the tab reads, and consuming it
         # as well would run the chip's frame twice.
-        on_exchange = self.spi_config.get("on_exchange", 0)
+        on_exchange = cfg.get("on_exchange", 0)
         if on_exchange:
-            miso_byte = self._call_indirect(
-                on_exchange, self.spi_config["user_data"], mosi & 0xFF) & 0xFF
+            miso_byte = self._call_indirect(on_exchange, cfg["user_data"], mosi & 0xFF) & 0xFF
             self._flush_stdout()
             return miso_byte
-        if self._spi_buffer_count == 0:
+        pos = self._spi_buffer_pos
+        count = self._spi_buffer_count
+        if pos >= count:
+            # Nothing armed (count 0), or the armed buffer is used up.
             return 0xFF
-        if self._spi_buffer_pos >= self._spi_buffer_count:
-            return 0xFF
+        if count - pos >= self._SPI_CACHE_MIN:
+            view = self._mem_view()
+            cache = self._spi_cache = bytearray(
+                ctypes.string_at(ctypes.addressof(view) + self._spi_buffer_ptr, count))
+            self._spi_cache_lo = pos
+            miso_byte = cache[pos]
+            cache[pos] = mosi & 0xFF
+            self._spi_buffer_pos = pos + 1
+            return miso_byte
         # One byte in and one byte out of the chip's armed buffer, straight
-        # through the cached view: this is the per-byte path (see _mem_view).
-        view = self._mem_view()
-        off = self._spi_buffer_ptr + self._spi_buffer_pos
+        # through the cached view (see _mem_view).
+        view = self._mem_view_cache
+        if view is None:
+            view = self._mem_view()
+        off = self._spi_buffer_ptr + pos
         miso_byte = view[off]          # the chip's pre-filled response
         view[off] = mosi & 0xFF        # what the master sent, for on_done
-        self._spi_buffer_pos += 1
-        if self._spi_buffer_pos >= self._spi_buffer_count:
+        pos += 1
+        self._spi_buffer_pos = pos
+        if pos >= count:
             # Transfer complete — fire on_done with the buffer the chip prepared.
-            on_done = self.spi_config.get("on_done", 0)
+            on_done = cfg.get("on_done", 0)
             if on_done:
-                self._call_indirect(
-                    on_done,
-                    self.spi_config["user_data"],
-                    self._spi_buffer_ptr,
-                    self._spi_buffer_count,
-                )
+                self._call_indirect(on_done, cfg["user_data"], self._spi_buffer_ptr, count)
             self._flush_stdout()
             # Reset; the chip's on_done may have called vx_spi_start again.
             # If it didn't, future bytes return 0xff until it re-arms.

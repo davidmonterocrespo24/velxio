@@ -60,8 +60,19 @@ class ScriptedSocket {
 vi.stubGlobal('WebSocket', ScriptedSocket);
 
 import { useSimulatorStore, getBoardSimulator, getEsp32Bridge } from '../../store/useSimulatorStore';
-import { attachSpiDevice, busRegistry, isBusCapable } from '../../simulation/buses';
-import type { BusDiagnostic, EngineBinding, RemoteSpiMapEntry } from '../../simulation/buses';
+import {
+  attachSpiDevice,
+  busRegistry,
+  createStoreNetResolver,
+  isBusCapable,
+} from '../../simulation/buses';
+import { SYNTHETIC_CHIP_PIN_BASE } from '../../simulation/customChips/syntheticPins';
+import type {
+  BusDiagnostic,
+  EngineBinding,
+  RemoteSpiMapEntry,
+  RemoteSpiSinksEntry,
+} from '../../simulation/buses';
 
 // VSPI on an ESP32 DevKit, and the pad the peripheral uses as its own CS0.
 const ESP32_SPI = { SCK: 'D18', MOSI: 'D23', MISO: 'D19' };
@@ -114,10 +125,18 @@ const WASM_B64 = 'AGFzbQEAAAA='; // the 8-byte WASM header; the tab never runs i
 function device(
   boardId: string,
   owner: string,
-  opts: { cs?: number | null; remote?: boolean; sink?: boolean } = {},
+  opts: {
+    cs?: number | null;
+    remote?: boolean;
+    sink?: boolean;
+    /** The model's blob writes can come back (`remoteBlobWrite`). */
+    blobWrite?: boolean;
+    csActive?: 'low' | 'high';
+  } = {},
 ) {
   const cs = opts.cs === undefined ? GPIO_CS : opts.cs;
   const seen: number[] = [];
+  const blobs: Array<{ name: string; offset: number; data: number[] }> = [];
   const pads: Record<string, string> = { ...ESP32_SPI };
   if (cs !== null) pads.CS = `D${cs}`;
   wire(boardId, owner, pads);
@@ -130,6 +149,13 @@ function device(
         ...(opts.sink ? {} : { miso: 'MISO' }),
         ...(cs === null ? {} : { cs: 'CS' }),
       },
+      ...(opts.csActive ? { csActive: opts.csActive } : {}),
+      ...(opts.blobWrite
+        ? {
+            remoteBlobWrite: (name: string, offset: number, data: Uint8Array) =>
+              blobs.push({ name, offset, data: [...data] }),
+          }
+        : {}),
       ...(opts.remote
         ? {
             remoteModel: () => ({
@@ -149,21 +175,47 @@ function device(
     },
   );
   cleanups.push(() => handle.dispose());
-  return { seen };
+  return { seen, blobs };
+}
+
+/** A write-only device whose select is wired to a rail pad of the board. */
+function tiedDevice(boardId: string, owner: string, railPad: string): void {
+  wire(boardId, owner, { SCK: ESP32_SPI.SCK, MOSI: ESP32_SPI.MOSI, CS: railPad });
+  const handle = attachSpiDevice(
+    { owner, pins: { sck: 'SCK', mosi: 'MOSI', cs: 'CS' } },
+    { transfer: () => null },
+  );
+  cleanups.push(() => handle.dispose());
 }
 
 const b64 = (bytes: number[]) => Buffer.from(bytes).toString('base64');
 
-function maps(ws: ScriptedSocket): RemoteSpiMapEntry[][] {
-  const out: RemoteSpiMapEntry[][] = [];
+type Published = Array<RemoteSpiMapEntry | RemoteSpiSinksEntry>;
+
+function published(ws: ScriptedSocket): Published[] {
+  const out: Published[] = [];
   for (const m of ws.sent) {
     if (m.type === 'start_esp32') {
-      out.push(((m.data?.bus_map as { spi?: RemoteSpiMapEntry[] })?.spi ?? []) as RemoteSpiMapEntry[]);
+      out.push(((m.data?.bus_map as { spi?: Published })?.spi ?? []) as Published);
     } else if (m.type === 'esp32_bus_map') {
-      out.push((m.data?.spi ?? []) as RemoteSpiMapEntry[]);
+      out.push((m.data?.spi ?? []) as Published);
     }
   }
   return out;
+}
+
+/** The responders of every map sent, in order (the entries with an owner). */
+function maps(ws: ScriptedSocket): RemoteSpiMapEntry[][] {
+  return published(ws).map((p) => p.filter((e): e is RemoteSpiMapEntry => 'owner' in e));
+}
+
+/** The sinks entry of the last map sent. */
+function lastSinks(ws: ScriptedSocket): RemoteSpiSinksEntry['sinks'] {
+  const last = published(ws).at(-1) ?? [];
+  const entries = last.filter((e): e is RemoteSpiSinksEntry => 'sinks' in e);
+  expect(entries, 'one sinks entry per map').toHaveLength(1);
+  expect(last.at(-1), 'and it is the last one').toBe(entries[0]);
+  return entries[0].sinks;
 }
 
 function collectDiagnostics(): BusDiagnostic[] {
@@ -228,7 +280,13 @@ describe('QEMU lane: the bus map the tab sends', () => {
     const ws = ScriptedSocket.last!;
     ws.open();
     const start = ws.sent.find((m) => m.type === 'start_esp32');
-    expect((start!.data!.bus_map as { spi: unknown[] }).spi).toHaveLength(1);
+    const spi = (start!.data!.bus_map as { spi: Published }).spi;
+    expect(spi.filter((e) => 'owner' in e)).toHaveLength(1);
+    // The sinks ride with it too. This card cannot take its writes back, so
+    // it is one of them (see "counts a hosted model whose blob...").
+    expect(spi.at(-1)).toEqual({
+      sinks: { all: false, cs: [{ kind: 'pin', gpio: GPIO_CS, active_low: true }] },
+    });
   });
 
   it('names the owner, the controller, the chip select and the model', () => {
@@ -312,6 +370,133 @@ describe('QEMU lane: the bus map the tab sends', () => {
     expect(maps(ws).at(-1)!.map((e) => e.owner)).toEqual(['sd1']);
     while (cleanups.length) cleanups.pop()!();
     expect(maps(ws).at(-1), 'a device that left is gone by being absent').toEqual([]);
+  });
+});
+
+// ── The sinks: what the worker relays ──────────────────────────────────────
+//
+// The worker answers every byte beside the guest and relays to the tab only
+// what a device kept HERE could be selected for (F4-SPEC, "Worker, por byte",
+// step 3). The tab is the only side that knows those devices, so the map ends
+// with their chip selects. The property is one-sided: a byte relayed for
+// nobody costs time, a byte withheld from a display is a wrong picture, so
+// every select the worker could not follow must turn the saving off.
+
+describe('QEMU lane: the sinks the map lists', () => {
+  it('names a display beside a card by its own select, and not the card', () => {
+    const { id, ws } = qemuBoard();
+    device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    device(id, 'tft1', { cs: GPIO_CS, sink: true });
+    expect(maps(ws).at(-1)!.map((e) => e.owner)).toEqual(['sd1']);
+    expect(lastSinks(ws)).toEqual({
+      all: false,
+      cs: [{ kind: 'pin', gpio: GPIO_CS, active_low: true }],
+    });
+  });
+
+  it('names a display on the peripheral select by index AND pad', () => {
+    // The worker has to consider both: the tab believes the GPIO until it
+    // hears from the peripheral.
+    const { id, ws } = qemuBoard();
+    device(id, 'tft1', { cs: HW_CS_PAD, sink: true });
+    expect(lastSinks(ws).cs).toEqual([{ kind: 'hw', index: 0, gpio: HW_CS_PAD, active_low: true }]);
+  });
+
+  it('keeps an active-high select with its polarity', () => {
+    const { id, ws } = qemuBoard();
+    device(id, 'tft1', { cs: GPIO_CS, sink: true, csActive: 'high' });
+    expect(lastSinks(ws).cs).toEqual([{ kind: 'pin', gpio: GPIO_CS, active_low: false }]);
+  });
+
+  it('counts a responder with no portable model as a sink: it still decodes here', () => {
+    const { id, ws } = qemuBoard();
+    device(id, 'touch1', { cs: 4 });
+    expect(lastSinks(ws).cs).toEqual([{ kind: 'pin', gpio: 4, active_low: true }]);
+  });
+
+  it('counts a hosted model whose blob cannot come back as a sink', () => {
+    // Its copy here follows the guest's writes only through the relayed
+    // bytes, so withholding them would lose what the guest wrote.
+    const { id, ws } = qemuBoard();
+    device(id, 'sd1', { cs: 4, remote: true });
+    expect(maps(ws).at(-1)!.map((e) => e.owner)).toEqual(['sd1']);
+    expect(lastSinks(ws).cs).toEqual([{ kind: 'pin', gpio: 4, active_low: true }]);
+  });
+
+  it('says `all` for a sink with no select line: it is always listening', () => {
+    const { id, ws } = qemuBoard();
+    device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    device(id, 'latch1', { cs: null, sink: true });
+    expect(lastSinks(ws)).toEqual({ all: true, cs: [] });
+  });
+
+  it('says `all` for a sink whose select is tied active', () => {
+    const { id, ws } = qemuBoard();
+    tiedDevice(id, 'tft1', 'GND.1');
+    expect(lastSinks(ws)).toEqual({ all: true, cs: [] });
+  });
+
+  it('says `all` for a sink whose select a chip on the canvas drives', () => {
+    // A custom chip (or a decoder) between the board and the display's CS:
+    // the level lives on a chip net the worker never sees, so it cannot tell
+    // when the display listens.
+    const { id, ws } = qemuBoard();
+    const store = createStoreNetResolver(() => useSimulatorStore.getState() as never);
+    busRegistry.setResolver({
+      boards: () => store.boards(),
+      boardKind: (b) => store.boardKind(b),
+      resolve: (ref) =>
+        ref.kind === 'component' && ref.componentId === 'tft1' && ref.pinName === 'CS'
+          ? { kind: 'chip', boardId: id, pin: SYNTHETIC_CHIP_PIN_BASE + 3 }
+          : store.resolve(ref),
+    });
+    cleanups.push(() => busRegistry.setResolver(store));
+    device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    device(id, 'tft1', { cs: GPIO_CS, sink: true });
+    expect(lastSinks(ws)).toEqual({ all: true, cs: [] });
+  });
+
+  it('leaves out a sink whose select is tied inactive: the fabric never selects it', () => {
+    const { id, ws } = qemuBoard();
+    tiedDevice(id, 'tft1', '3V3');
+    expect(lastSinks(ws)).toEqual({ all: false, cs: [] });
+  });
+
+  it('lists the same select once, and follows a device that leaves', () => {
+    const { id, ws } = qemuBoard();
+    device(id, 'tft1', { cs: GPIO_CS, sink: true });
+    device(id, 'tft2', { cs: GPIO_CS, sink: true });
+    expect(lastSinks(ws).cs).toHaveLength(1);
+    while (cleanups.length) cleanups.pop()!();
+    expect(lastSinks(ws)).toEqual({ all: false, cs: [] });
+  });
+
+  it('delivers exactly the relayed bytes to the display when the card is quiet', () => {
+    // What the worker relays under the list is what the display decodes: the
+    // tab's fabric still arbitrates by chip select on this side.
+    const { id, ws } = qemuBoard();
+    device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    const tft = device(id, 'tft1', { cs: GPIO_CS, sink: true });
+    ws.receive('gpio_change', { pin: 4, state: 1 });
+    ws.receive('gpio_change', { pin: GPIO_CS, state: 0 });
+    ws.receive('spi_batch', { b64: b64([0x2a, 0x00, 0xef]) });
+    expect(tft.seen).toEqual([0x2a, 0x00, 0xef]);
+  });
+});
+
+describe('QEMU lane: what a hosted model wrote comes back', () => {
+  it('hands a bus_blob span to the device that shipped the blob', () => {
+    const { id, ws } = qemuBoard();
+    const sd = device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    ws.receive('system', { event: 'bus_blob', owner: 'sd1', name: 'card', offset: 1536, data: b64([1, 2, 3]) });
+    expect(sd.blobs).toEqual([{ name: 'card', offset: 1536, data: [1, 2, 3] }]);
+  });
+
+  it('ignores a span for an owner that is not on this board', () => {
+    const { id, ws } = qemuBoard();
+    const sd = device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    ws.receive('system', { event: 'bus_blob', owner: 'sd9', name: 'card', offset: 0, data: b64([9]) });
+    expect(sd.blobs).toEqual([]);
   });
 });
 

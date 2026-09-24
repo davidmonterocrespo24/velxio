@@ -19,6 +19,7 @@ import type {
   EngineBinding,
   NetResolver,
   PinRef,
+  RemoteSpiModel,
   ResolvedPin,
   SpiDevice,
   SpiDeviceDescriptor,
@@ -28,7 +29,9 @@ import { isBusCapable } from './types';
 /** Where a device's chip select comes from, once resolved. */
 type CsSource =
   | { kind: 'none' }
-  | { kind: 'pin'; pin: number }
+  /** `viaChip`: the line is driven by a chip on the canvas, not by the board,
+   *  so a remote worker has no level for it (see remoteSinks). */
+  | { kind: 'pin'; pin: number; viaChip?: boolean }
   | { kind: 'const'; active: boolean };
 
 interface SpiEntry {
@@ -66,6 +69,22 @@ export interface RemoteSpiMapEntry {
     attrs: Record<string, number>;
     blobs: Record<string, string>;
   };
+}
+
+/**
+ * The last entry of a published map: the chip selects of every device the tab
+ * KEEPS on that board (displays, e-paper, a responder with no portable model),
+ * so the worker relays a byte only while one of them could be selected
+ * (F4-SPEC, "Worker, por byte", step 3). `all` says some device's select is
+ * one the worker cannot follow, and then every byte goes.
+ *
+ * Carried inside the `spi` list rather than beside it so that nothing between
+ * the tab and the worker has to learn a new field: a worker that does not know
+ * it skips an entry with no model, and one that does not receive it relays
+ * everything, which is what it did before.
+ */
+export interface RemoteSpiSinksEntry {
+  sinks: { all: boolean; cs: Array<RemoteSpiMapEntry['cs']> };
 }
 
 export type SpiMapListener = (boardId: string) => void;
@@ -264,10 +283,12 @@ export class BusRegistry {
       p.kind === 'board' && p.boardId === board ? p.pin : undefined;
     const mosi = onBoard(this.resolve(desc, desc.pins.mosi));
     const miso = onBoard(this.resolve(desc, desc.pins.miso));
-    if (desc.pins.miso !== undefined && miso === undefined) {
+    if (desc.pins.miso !== undefined && miso === undefined && !e.device.writeOnly) {
       // The chip has a data-out leg and it reaches nothing on this board, so it
       // cannot answer. Silence here reads as a dead chip, which is exactly the
-      // wiring mistake worth naming.
+      // wiring mistake worth naming. Not for a write-only model: leaving its
+      // SDO open is how most panels are wired, and "wire it or the chip never
+      // answers" would be advice about an answer that does not exist.
       this.emit({
         code: 'spi-wiring',
         bus: 'spi',
@@ -329,7 +350,7 @@ export class BusRegistry {
         });
         return this.floating(desc, board);
       case 'chip':
-        return { kind: 'pin', pin: cs.pin };
+        return { kind: 'pin', pin: cs.pin, viaChip: true };
       case 'rail':
         return { kind: 'const', active: (cs.rail === 'gnd') === activeLow };
       default:
@@ -412,7 +433,7 @@ export class BusRegistry {
         cs: this.remoteCs(e),
         model: {
           wasm_b64: model.wasmB64,
-          pin_map: { ...this.remotePinMap(e), ...(model.pinMap ?? {}) },
+          pin_map: { ...this.remotePinMap(e, model.chipPads), ...(model.pinMap ?? {}) },
           attrs,
           blobs: model.blobs ?? {},
         },
@@ -422,24 +443,100 @@ export class BusRegistry {
   }
 
   /**
+   * What a remote worker is sent: the responders it hosts, then the sinks the
+   * tab keeps (see RemoteSpiSinksEntry).
+   */
+  remoteSpiPublication(boardId: string): Array<RemoteSpiMapEntry | RemoteSpiSinksEntry> {
+    const map = this.remoteSpiMap(boardId);
+    return [...map, this.remoteSinks(boardId, map)];
+  }
+
+  /**
+   * Every device on `boardId` the worker does NOT host, by the select it
+   * would be clocked under.
+   *
+   * The rule is one-sided on purpose. A sink that misses a byte decodes the
+   * wrong picture, while a byte relayed for nobody only costs time, so
+   * anything the worker cannot read a level for turns the saving off rather
+   * than guess: no select line, a select tied active, a select a chip on the
+   * canvas drives. A select tied inactive is left out, because the fabric
+   * never selects that device either. A hosted responder whose model carries
+   * blobs but cannot take the written spans back (`remoteBlobWrite`) stays a
+   * sink, since the relayed bytes are the only way its copy follows the guest,
+   * and so does one whose descriptor says the tab decodes its writes
+   * (`remoteKeepsTabCopy`).
+   */
+  private remoteSinks(boardId: string, hosted: RemoteSpiMapEntry[]): RemoteSpiSinksEntry {
+    const hostedOwners = new Set<string>();
+    for (const h of hosted) {
+      const desc = this.spi.get(h.owner)?.desc;
+      // A model that answers for a device the tab still decodes (a panel's id
+      // beside its pixels) leaves that device a sink as well.
+      if (desc?.remoteKeepsTabCopy) continue;
+      const hasBlobs = Object.keys(h.model.blobs ?? {}).length > 0;
+      if (!hasBlobs || desc?.remoteBlobWrite) hostedOwners.add(h.owner);
+    }
+    const cs: Array<RemoteSpiMapEntry['cs']> = [];
+    const seen = new Set<string>();
+    let all = false;
+    for (const e of this.spi.values()) {
+      if (!e.bus || e.bus.boardId !== boardId || !e.fabric) continue;
+      if (hostedOwners.has(e.desc.owner)) continue;
+      if (e.cs.kind === 'none' || (e.cs.kind === 'const' && e.cs.active)) all = true;
+      else if (e.cs.kind === 'pin') {
+        if (e.cs.viaChip) {
+          all = true;
+          continue;
+        }
+        const c = this.remoteCs(e);
+        const key = JSON.stringify(c);
+        if (!seen.has(key)) {
+          seen.add(key);
+          cs.push(c);
+        }
+      }
+    }
+    return { sinks: { all, cs: all ? [] : cs } };
+  }
+
+  /**
+   * A hosted model wrote into a blob (`bus_blob` from the worker): hand the
+   * span to the device the map was built from. False when nobody here takes
+   * it, which the caller can only log: the owner left the board, or it is not
+   * a device that ships blobs.
+   */
+  applyRemoteBlob(boardId: string, owner: string, name: string, offset: number, data: Uint8Array): boolean {
+    const e = this.spi.get(owner);
+    if (!e || !e.bus || e.bus.boardId !== boardId || !e.desc.remoteBlobWrite) return false;
+    try {
+      e.desc.remoteBlobWrite(name, offset, data);
+    } catch (err) {
+      console.warn(`[busRegistry] ${owner}: a written span could not be applied`, err);
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * The bus pins the circuit gave this device, under the pad names the model
    * declares (the part registers with the chip's own pad names, so the two are
    * the same string). The worker needs them for the model's own pin watches:
    * the card ends its command frame on CS rising, and without a pin map that
    * watch is registered against a pad the host cannot move. A model's explicit
    * `pinMap` wins, so a leg the circuit does not name (an interrupt output)
-   * still travels.
+   * still travels. A part whose pads are not the chip's (a card inside a
+   * shield) names the chip's pads in `chipPads`, and those are used instead.
    */
-  private remotePinMap(e: SpiEntry): Record<string, number> {
+  private remotePinMap(e: SpiEntry, chipPads?: RemoteSpiModel['chipPads']): Record<string, number> {
     const out: Record<string, number> = {};
     const put = (pin: DevicePin | undefined, gpio: number | undefined): void => {
       if (typeof pin !== 'string' || gpio === undefined) return;
       out[pin] = gpio;
     };
-    put(e.desc.pins.sck, e.bus?.sckPin);
-    put(e.desc.pins.mosi, e.member.mosiPin);
-    put(e.desc.pins.miso, e.member.misoPin);
-    put(e.desc.pins.cs, e.cs.kind === 'pin' ? e.cs.pin : undefined);
+    put(chipPads?.sck ?? e.desc.pins.sck, e.bus?.sckPin);
+    put(chipPads?.mosi ?? e.desc.pins.mosi, e.member.mosiPin);
+    put(chipPads?.miso ?? e.desc.pins.miso, e.member.misoPin);
+    put(chipPads?.cs ?? e.desc.pins.cs, e.cs.kind === 'pin' ? e.cs.pin : undefined);
     return out;
   }
 

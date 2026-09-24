@@ -14,6 +14,7 @@ export {
   busRegistry,
   type DiagnosticListener,
   type RemoteSpiMapEntry,
+  type RemoteSpiSinksEntry,
   type SpiAttrsListener,
   type SpiMapListener,
 } from './registry';

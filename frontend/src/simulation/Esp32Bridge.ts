@@ -35,6 +35,8 @@
  *     { type: 'spi_event',        data: { bus: number, event: number } }
  *     { type: 'chip_net',      data: { net: string, level: 0 | 1, ts: number } }
  *     { type: 'system',        data: { event: string, ... } }
+ *       event 'bus_blob': { owner, name, offset, data (base64) }, a span a
+ *       hosted model wrote into its named storage (the card image)
  *     { type: 'error',         data: { message: string } }
  */
 
@@ -321,6 +323,12 @@ export class Esp32Bridge {
    * `csIdx` is the index of the CS pin within the SPI bus (0-3 typical),
    * `low` is true when CS goes LOW (slave selected), false when HIGH. */
   onSpiCsChange: ((csIdx: number, low: boolean) => void) | null = null;
+  /**
+   * A model the worker hosts wrote `data` at `offset` of its blob `name` (the
+   * guest saved to the card). The worker keeps the bytes of a transaction no
+   * sink here can see, so this is how the tab's copy of the card follows.
+   */
+  onBusBlob: ((owner: string, name: string, offset: number, data: Uint8Array) => void) | null = null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   onError: ((msg: string) => void) | null = null;
@@ -704,6 +712,20 @@ export class Esp32Bridge {
         }
         case 'system': {
           const evt = msg.data.event as string;
+          // Before the log line: a card write is a sector of base64 per event.
+          if (evt === 'bus_blob') {
+            const b64 = typeof msg.data.data === 'string' ? msg.data.data : '';
+            const bin = atob(b64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            this.onBusBlob?.(
+              String(msg.data.owner ?? ''),
+              String(msg.data.name ?? ''),
+              Number(msg.data.offset ?? 0),
+              bytes,
+            );
+            break;
+          }
           console.log(`[Esp32Bridge:${this.boardId}] system event: ${evt}`, msg.data);
           if (evt === 'crash') {
             this.onCrash?.(msg.data);

@@ -815,8 +815,26 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     _spi_resp:   list = []        # every responder on the bus, in one list
     _spi_sel:    list = []        # the selected ones; recomputed on CS edges
     _spi_any_bus_id = [False]     # does any entry name one controller?
+    # The byte function of the ONE selected model, when that is the whole
+    # answer (one selected, no controller to tell apart): a streamed card read
+    # is 515 callbacks a sector, and each layer of _spi_answer costs as much
+    # as the card itself. None sends the byte through _spi_answer.
+    _spi_one: list = [None]
     _hw_cs: dict[int, bool] = {}  # hardware chip-select index -> asserted
     _spi_diag_seen: set = set()
+    # What the tab LISTENS to. A byte goes into the batch for the browser only
+    # if some sink there could be selected while it is clocked (F4-SPEC,
+    # "Worker, por byte", step 3). The tab lists the chip selects of every
+    # device it keeps (`sinks` entry of the map); until a map says so, and
+    # whenever it says it cannot tell, everything is forwarded, which is what
+    # the worker did before it knew. `_spi_forward` is kept on edges, like the
+    # selection, so the per-byte cost is one list lookup.
+    _spi_sinks: list = []         # chip selects of the tab's sinks
+    _spi_sinks_known = [False]    # did the last map list them all?
+    _spi_forward = [True]         # does the byte being clocked reach the tab?
+    _pin_dir: dict[int, int] = {}  # last direction the guest reported (1 = output)
+    _blob_drain_lock = threading.Lock()
+    _blob_drain_hook: list = [None]  # _drain_blob_writes, once it exists
 
     # Custom-chip runtimes that registered their respective protocols at chip_setup.
     # Mutated when sensor_type=='custom-chip' is processed in initial_sensors.
@@ -1557,6 +1575,12 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 if _dht22_trigger(sensor).on_direction(direction == 1):
                     _dht22_arm(gpio, slot, sensor, 'input release')
         gpio = int(_PINMAP[slot]) if 1 <= slot <= _GPIO_COUNT else slot
+        if direction in (0, 1):
+            _pin_dir[gpio] = direction
+            # A sink's select released to an input is one this side can no
+            # longer read (see _sink_may_be_selected).
+            if _spi_sinks_known[0]:
+                _recompute_spi_forward()
         _emit({'type': 'gpio_dir', 'pin': gpio, 'dir': direction})
 
     def _on_uart_tx(uart_id: int, byte_val: int) -> None:
@@ -1791,6 +1815,12 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 break
             with _spi_buf_lock:
                 _flush_spi_batch_locked()
+            # A model whose select never moves (tied to a rail, or none) has
+            # no deselect edge to send its writes on. Through the hook: this
+            # thread starts before the drain is defined further down.
+            drain = _blob_drain_hook[0]
+            if drain is not None:
+                drain()
 
     threading.Thread(
         target=_spi_flush_timer_loop, daemon=True,
@@ -1891,6 +1921,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         )
         out['runtime'] = rt
         out['cs'] = cs
+        # Always a byte 0-255, never None: safe to call with nothing around it.
+        out['fast'] = rt.spi_transfer_byte
         return out
 
     def _chip_responder(rt) -> dict:
@@ -1933,6 +1965,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     def _recompute_spi_selection() -> None:
         """The selected set, kept on chip-select edges rather than looked up
         per byte: the per-byte cost stays one call to one device (D-007)."""
+        prev = _spi_sel[:]
         sel = []
         for r in _spi_resp:
             try:
@@ -1941,6 +1974,96 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             except Exception as e:  # noqa: BLE001
                 _log(f'[spi] selection check failed for {r["owner"]}: {e!r}')
         _spi_sel[:] = sel
+        _spi_one[0] = (sel[0].get('fast') if len(sel) == 1 and not _spi_any_bus_id[0]
+                       else None)
+        _recompute_spi_forward()
+        # A model just let go of the bus: whatever it wrote into its storage
+        # during that transaction goes back to the tab now, because the tab no
+        # longer sees the bytes that wrote it (see _spi_forward).
+        for r in prev:
+            if r.get('runtime') is not None and not any(r is x for x in sel):
+                _drain_blob_writes()
+                break
+
+    def _sink_may_be_selected(cs: dict) -> bool:
+        """Could the tab's fabric hold this sink selected right now?
+
+        The answer may be a false yes (a byte forwarded that nobody decodes
+        costs only time) but never a false no (a byte a display needed is gone
+        for good). So a level the guest never wrote, or a pad it released to
+        an input, counts as selected: the tab then reads the pull or whatever
+        another part drives, and this side cannot see either. A pad a
+        controller also drives as its own chip select is selected if EITHER
+        the GPIO or that controller's CS says so, because which of the two the
+        tab believes depends on which one it heard from last.
+        """
+        kind = cs.get('kind')
+        if kind not in ('pin', 'hw'):
+            return True
+        gpio = cs.get('gpio')
+        if gpio is None:
+            return True
+        g = int(gpio)
+        level = _pin_state.get(g)
+        if level is None or _pin_dir.get(g) == 0:
+            return True
+        if (level == 0) == bool(cs.get('active_low', True)):
+            return True
+        return kind == 'hw' and bool(_hw_cs.get(int(cs.get('index', 0)), False))
+
+    def _recompute_spi_forward() -> None:
+        if not _spi_sinks_known[0]:
+            _spi_forward[0] = True
+            return
+        for cs in _spi_sinks:
+            if _sink_may_be_selected(cs):
+                _spi_forward[0] = True
+                return
+        _spi_forward[0] = False
+
+    def _apply_spi_sinks(entry) -> None:
+        """The `sinks` entry of a map: `{"all": bool, "cs": [cs, ...]}`.
+        `all` is the tab saying some device it keeps has a select this side
+        cannot follow (none, a rail, a line another part drives), so every
+        byte has to go."""
+        info = entry.get('sinks') if isinstance(entry, dict) else None
+        if not isinstance(info, dict) or info.get('all', True):
+            _spi_sinks[:] = []
+            _spi_sinks_known[0] = False
+            return
+        _spi_sinks[:] = [c for c in (info.get('cs') or []) if isinstance(c, dict)]
+        _spi_sinks_known[0] = True
+
+    def _drain_blob_writes() -> None:
+        """Send the tab the spans the hosted models wrote into their named
+        storage (the card image), as `bus_blob`, the event the Pi relay sends.
+
+        The tab owns the file a blob came from: its card is what the SD panel
+        lists and what the next map ships back here. It used to follow the
+        guest's writes by decoding the relayed bytes; the bytes of a
+        transaction no sink can see are not relayed any more, so the writes
+        travel instead. The lock makes a later drain read later data AND queue
+        its event later, whichever thread runs it, so the tab can never apply
+        an older copy of a span over a newer one."""
+        if not _spi_models or _stopped.is_set():
+            return
+        with _blob_drain_lock:
+            for r in _spi_models:
+                rt = r.get('runtime')
+                if rt is None:
+                    continue
+                try:
+                    dirty = rt.take_blob_dirty()
+                    for name, (lo, hi) in dirty.items():
+                        data = rt.blob_span(name, lo, hi)
+                        if data:
+                            _emit({'type': 'system', 'event': 'bus_blob',
+                                   'owner': r['owner'], 'name': name, 'offset': lo,
+                                   'data': base64.b64encode(data).decode('ascii')})
+                except Exception as e:  # noqa: BLE001
+                    _log(f'[spi] {r["owner"]}: blob drain failed: {e!r}')
+
+    _blob_drain_hook[0] = _drain_blob_writes
 
     def _spi_population_changed() -> None:
         _rebuild_spi_responders()
@@ -2036,6 +2159,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             if rt not in _chip_timer_runtimes:
                 _chip_timer_runtimes.append(rt)
 
+        # What the old models wrote and the tab has not heard yet goes first:
+        # the map that follows is built from the tab's copy.
+        _drain_blob_writes()
         # Retire the models of the previous map before building the new one,
         # or a device the user deleted keeps its watches and its timers.
         for old in _spi_models:
@@ -2045,7 +2171,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     lst.remove(rt)
 
         models: list = []
+        _apply_spi_sinks(None)
         for entry in entries or []:
+            if isinstance(entry, dict) and 'sinks' in entry:
+                _apply_spi_sinks(entry)
+                continue
             model = entry.get('model') or {}
             wasm_b64 = model.get('wasm_b64') or ''
             owner = str(entry.get('owner') or 'responder')
@@ -2116,10 +2246,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                                                                   (op = 0x01)
 
         The byte's MISO is the bus table's answer (_spi_answer), and the byte
-        also joins the batch going to the browser: the worker does not know
-        what SINKS the tab has, so it forwards the traffic and the tab's own
-        fabric decides by chip select, with the CS and D/C edges it already
-        receives in order around it.
+        also joins the batch going to the browser when a sink there could be
+        selected (_spi_forward); the tab's own fabric then decides by chip
+        select, with the CS and D/C edges it already receives in order around
+        it. A card read the tab has no sink for stays here: relaying it cost
+        as much as the card itself.
         """
         op   = event & 0xFF
         mosi = (event >> 8) & 0xFF
@@ -2140,8 +2271,18 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             _emit({'type': 'spi_event', 'bus': bus_id, 'event': event})
             return SPI_IDLE_MISO
 
-        miso = _spi_answer(bus_id, mosi)
-        if _stopped.is_set():
+        one = _spi_one[0]
+        if one is not None:
+            try:
+                miso = one(mosi)
+            except Exception as e:  # noqa: BLE001
+                _log(f'[spi] {_spi_sel[0]["owner"] if _spi_sel else "?"} raised on a byte: {e!r}')
+                miso = SPI_IDLE_MISO
+        else:
+            miso = _spi_answer(bus_id, mosi)
+        # The cheap test first: a byte the tab does not get needs no word from
+        # _stopped (a method call per byte, and every sector is 515 of them).
+        if not _spi_forward[0] or _stopped.is_set():
             return miso
         with _spi_buf_lock:
             _spi_byte_buf.append(mosi)
@@ -2162,6 +2303,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         except Exception:
             return
         _spi_feed_block(bus_id, data)
+        if not _spi_forward[0]:
+            return
         with _spi_buf_lock:
             _spi_byte_buf.extend(data)
             if len(_spi_byte_buf) >= _SPI_BATCH_FLUSH_AT:

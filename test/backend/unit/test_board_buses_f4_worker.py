@@ -286,6 +286,16 @@ class TestBusId:
         assert w.spi([0x00], bus=0) == [0xA0]
         assert w.spi([0x00], bus=1) == [0xB0]
 
+    def test_the_only_selected_responder_is_still_deaf_to_the_other_controller(self, worker):
+        # One selected model is served by a shortcut that skips the table (a
+        # streamed card sector is 515 bytes of it). The shortcut must not skip
+        # the controller check with it: this chip is on bus 1 and hears
+        # nothing clocked on bus 0.
+        w = worker(bus_map={'spi': [probe_entry('b', pin_cs(CHIP_B_CS), 0xB0, bus_id=1)]})
+        select(w, CHIP_B_CS)
+        assert w.spi([0x00], bus=0) == [0xFF]
+        assert w.spi([0x00], bus=1) == [0xB0]
+
     def test_two_responders_on_different_controllers_are_not_a_contention(self, worker):
         """Both are selected, but a byte on one controller never reaches the
         other's chip, so there is nothing to fight over."""

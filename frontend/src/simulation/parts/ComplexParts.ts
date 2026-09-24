@@ -1294,6 +1294,14 @@ const ili9341Simulation: PartSimulationLogic = {
     const handle = attachSpiDevice(
       { owner, pins: { sck: 'SCK', mosi: 'MOSI', miso: 'MISO', cs: 'CS' } },
       {
+        // The panel's SDO leg is real and stays declared, so a wire on it is
+        // checked like any other. This model implements no read command
+        // (RDDID, RDDST, RAMRD), so that leg never leaves high impedance, and
+        // saying so is what keeps a TFT sharing its bus with a card or a
+        // touch controller from being reported as a responder the QEMU
+        // worker cannot host. A model that grows reads drops this, and then
+        // needs a portable model of its own for the remote lanes.
+        writeOnly: true,
         transfer: (value: number) => {
           feed(value);
           return null;

@@ -26,11 +26,13 @@ import type {
 
 export type DiagnosticSink = (d: BusDiagnostic) => void;
 
-/** A device drives MISO only if its MISO pin reaches this board's net: a chip
- *  whose data-out leg is not wired (a 74HC595's QH) leaves the line alone, as
- *  it does on the bench. A device that declares no MISO pin at all answers
- *  null anyway. */
+/** A device drives MISO only if its model ever answers and its MISO pin
+ *  reaches this board's net: a chip whose data-out leg is not wired (a
+ *  74HC595's QH) leaves the line alone, as it does on the bench, and so does a
+ *  write-only model whose leg IS wired (an ILI9341 panel with SDO connected).
+ *  A device that declares no MISO pin at all answers null anyway. */
 function drives(m: SpiMember): boolean {
+  if (m.device.writeOnly) return false;
   return m.desc.pins.miso === undefined ? false : m.misoPin !== undefined;
 }
 
