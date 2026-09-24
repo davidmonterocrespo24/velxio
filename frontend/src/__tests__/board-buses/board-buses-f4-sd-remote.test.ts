@@ -23,7 +23,7 @@ import { PartSimulationRegistry } from '../../simulation/parts/PartSimulationReg
 import '../../simulation/parts/ProtocolParts';
 import { busRegistry, primeBusChip, resetBusChipsForTest } from '../../simulation/buses';
 import type { NetResolver } from '../../simulation/buses';
-import { sdSpiFabricDevice } from '../../simulation/parts/sdSpiCard';
+import { SdSpiCard, sdSpiFabricDevice } from '../../simulation/parts/sdSpiCard';
 
 const BOARD = 'esp32-1';
 const CARD = 'sd-1';
@@ -153,5 +153,63 @@ describe('the canvas microSD as a remote responder', () => {
 
     const blob = b64ToBytes(busRegistry.remoteSpiMap(BOARD)[0].model.blobs.card);
     expect(blob.slice(512, 1024).every((b) => b === 0xa5), 'the written sector').toBe(true);
+  });
+
+  // A host KEEPS the model it runs while the card's identity holds, because
+  // its copy is newer than the one a map carries: the guest's writes reach
+  // this tab later, as spans, and a map published in between used to rebuild
+  // the card from the older copy (STATUS.md, F4, the worker race). So the map
+  // names the image, and the name has to change exactly when the card does.
+
+  it('names the image it carries, and a guest write does not rename it', () => {
+    primeBusChip('microsd', new Uint8Array(WASM));
+    attachCard(new Uint8Array(2048));
+    const first = busRegistry.remoteSpiMap(BOARD)[0].model.blob_ids;
+    expect(Object.keys(first)).toEqual(['card']);
+    expect(first.card).toMatch(/\S/);
+
+    expect(busRegistry.applyRemoteBlob(BOARD, CARD, 'card', 512, new Uint8Array(512).fill(9))).toBe(true);
+    expect(busRegistry.remoteSpiMap(BOARD)[0].model.blob_ids).toEqual(first);
+  });
+
+  it('a card attached again with the same files is a different image', () => {
+    // A rewire of the card's own pins, or a new Run, builds the card again from
+    // the project's files: a new card in the slot, which the host must load
+    // rather than keep the old one with the old guest's writes on it.
+    primeBusChip('microsd', new Uint8Array(WASM));
+    const image = new Uint8Array(2048).fill(3);
+    attachCard(image);
+    const first = busRegistry.remoteSpiMap(BOARD)[0].model.blob_ids.card;
+    for (const c of cleanups.splice(0).reverse()) c();
+    attachCard(image);
+    const second = busRegistry.remoteSpiMap(BOARD)[0].model.blob_ids.card;
+    expect(second).not.toBe(first);
+  });
+
+  it('loading another image into the same card renames it', () => {
+    // Every caller builds a new card for a new image today; this is the rule
+    // for the first one that reloads a card in place.
+    const card = new SdSpiCard(new Uint8Array(512).fill(1));
+    const before = card.imageId;
+    card.loadImage(new Uint8Array(512).fill(2));
+    expect(card.imageId).not.toBe(before);
+  });
+
+  it('drops a span written to an image it no longer holds', () => {
+    // The host drains the OLD card (its last sector) while this tab is
+    // already on a new one. Landing it would put the old card's file on the
+    // new card, in the panel and in every map after.
+    primeBusChip('microsd', new Uint8Array(WASM));
+    attachCard(new Uint8Array(2048));
+    const current = busRegistry.remoteSpiMap(BOARD)[0].model.blob_ids.card;
+    const span = new Uint8Array(512).fill(0x5c);
+
+    busRegistry.applyRemoteBlob(BOARD, CARD, 'card', 1024, span, 'some-older-card');
+    let blob = b64ToBytes(busRegistry.remoteSpiMap(BOARD)[0].model.blobs.card);
+    expect(blob.slice(1024, 1536).every((b) => b === 0), 'the stale span stayed out').toBe(true);
+
+    busRegistry.applyRemoteBlob(BOARD, CARD, 'card', 1024, span, current);
+    blob = b64ToBytes(busRegistry.remoteSpiMap(BOARD)[0].model.blobs.card);
+    expect(blob.slice(1024, 1536).every((b) => b === 0x5c), 'its own span lands').toBe(true);
   });
 });

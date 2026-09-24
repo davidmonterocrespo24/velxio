@@ -67,8 +67,8 @@ export class RemoteSpiLane {
    * (`bus_blob`): the guest saved something on the card, and the tab's copy
    * no longer sees the bytes that did it.
    */
-  applyBlob(owner: string, name: string, offset: number, data: Uint8Array): void {
-    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, data)) {
+  applyBlob(owner: string, name: string, offset: number, data: Uint8Array, blobId?: string): void {
+    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, data, blobId)) {
       console.warn(`[RemoteSpiLane:${this.boardId}] nobody here takes the span ${owner}/${name}@${offset}`);
     }
   }

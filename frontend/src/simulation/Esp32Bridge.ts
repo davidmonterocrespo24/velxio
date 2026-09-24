@@ -328,7 +328,8 @@ export class Esp32Bridge {
    * guest saved to the card). The worker keeps the bytes of a transaction no
    * sink here can see, so this is how the tab's copy of the card follows.
    */
-  onBusBlob: ((owner: string, name: string, offset: number, data: Uint8Array) => void) | null = null;
+  onBusBlob: ((owner: string, name: string, offset: number, data: Uint8Array, blobId?: string) => void) | null =
+    null;
   onConnected: (() => void) | null = null;
   onDisconnected: (() => void) | null = null;
   onError: ((msg: string) => void) | null = null;
@@ -723,6 +724,7 @@ export class Esp32Bridge {
               String(msg.data.name ?? ''),
               Number(msg.data.offset ?? 0),
               bytes,
+              typeof msg.data.blob_id === 'string' ? msg.data.blob_id : undefined,
             );
             break;
           }

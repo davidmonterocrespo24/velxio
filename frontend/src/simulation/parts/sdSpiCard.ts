@@ -60,6 +60,18 @@ import type { RemoteSpiModel, SpiDevice } from '../buses/types';
 
 const BLOCK = 512;
 
+/**
+ * Names for card images, unique for the life of the page. The prefix keeps
+ * two page loads from minting the same name, which matters because a host
+ * compares them: a worker that sees the name it already runs keeps its card.
+ */
+const IMAGE_ID_PREFIX = Date.now().toString(36);
+let imageSeq = 0;
+function nextImageId(): string {
+  imageSeq += 1;
+  return `${IMAGE_ID_PREFIX}-${imageSeq}`;
+}
+
 type Phase = 'cmd' | 'wait-token' | 'recv-data' | 'recv-crc';
 
 /** CRC-16-CCITT (poly 0x1021, init 0x0000) - the SD data-block CRC. */
@@ -101,6 +113,17 @@ export class SdSpiCard {
    *  wired has no bus to share and answers everything, as it always did. */
   private cs = true;
 
+  /**
+   * Which image this card holds, as far as a remote host is concerned. A
+   * host that runs the card beside a QEMU guest KEEPS its copy across bus
+   * maps while this is unchanged, because its copy is newer than the one a
+   * map carries (the guest's writes reach this tab later, as spans). So it
+   * changes when a different image is loaded and never when a guest write
+   * lands ({@link writeBytes}): a card swapped by the user must replace the
+   * host's, and a card that is merely behind must not.
+   */
+  imageId = nextImageId();
+
   constructor(image?: Uint8Array | null, cardBytes = 64 * 1024 * 1024) {
     this.cSize = Math.floor(cardBytes / (512 * 1024)) - 1;
     if (image) this.loadImage(image);
@@ -131,6 +154,7 @@ export class SdSpiCard {
   // ── Backing store ─────────────────────────────────────────────────────────
 
   loadImage(image: Uint8Array): void {
+    this.imageId = nextImageId();
     for (let i = 0; i * BLOCK < image.length; i++) {
       const chunk = image.subarray(i * BLOCK, (i + 1) * BLOCK);
       if (chunk.some((b) => b !== 0)) {
@@ -519,9 +543,17 @@ export function loadSdBusChip(): void {
  * model wrote (`bus_blob`) and this lands it on the tab's card, the one the
  * panel lists and the next map ships. Only the blob the model calls `card`.
  */
-export function sdCardRemoteBlobWrite(card: SdSpiCard): (name: string, offset: number, data: Uint8Array) => void {
-  return (name, offset, data) => {
-    if (name === 'card') card.writeBytes(offset, data);
+export function sdCardRemoteBlobWrite(
+  card: SdSpiCard,
+): (name: string, offset: number, data: Uint8Array, blobId?: string) => void {
+  return (name, offset, data, blobId) => {
+    if (name !== 'card') return;
+    // A span written to an image this card no longer holds: the host drained
+    // the old card while the tab was already loading a new one. Landing it
+    // here would put the old card's sector on the new card. A host that names
+    // no image (older) is trusted, as before.
+    if (blobId !== undefined && blobId !== card.imageId) return;
+    card.writeBytes(offset, data);
   };
 }
 
@@ -530,5 +562,5 @@ export function sdCardRemoteModel(card: SdSpiCard, minBytes = 0): RemoteSpiModel
   if (!wasmB64) return null;
   const image = card.dumpImage(minBytes);
   if (image.length === 0) return null;
-  return { wasmB64, blobs: { card: bytesToBase64(image) } };
+  return { wasmB64, blobs: { card: bytesToBase64(image) }, blobIds: { card: card.imageId } };
 }

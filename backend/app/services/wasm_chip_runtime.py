@@ -25,7 +25,9 @@ Out of scope (raise NotImplementedError):
 """
 from __future__ import annotations
 
+import hashlib
 import heapq
+import json
 import struct
 import threading
 import time
@@ -264,6 +266,57 @@ def decode_blobs(raw: dict | None) -> dict[str, bytes]:
             except Exception:
                 continue
     return out
+
+
+def hosted_model_identity(model: dict, cs=None, bus_id=None) -> str:
+    """What makes a hosted bus model the SAME device across two bus maps.
+
+    Every host (the ESP32 and STM32 workers, the Pi's responder set) rebuilds
+    its models from the map the tab publishes on each membership change, and
+    the map carries each model's blobs as the TAB last knew them. The card a
+    guest has been writing to is newer than that copy until the written spans
+    (`bus_blob`) reach the tab, so rebuilding a card from a republished map
+    undoes whatever the guest wrote in between. A host keeps the running
+    instance when this value has not changed.
+
+    In: the wasm bytes, the select (`cs`, `bus_id`, the Pi's `cs_pin`) and the
+    pin map, because a different artifact or a different wiring is a
+    different device. Out: live attributes, which have their own channel
+    (`bus_attrs`) and are applied to a kept model, and the blob CONTENTS,
+    which are exactly what the race makes stale.
+
+    What a blob stands for is in: `blob_ids` is the tab naming the image it
+    loaded, and it changes when the user loads another card and never when a
+    guest write lands on the same one. That is the only way a host can tell
+    "the tab is behind" from "the tab swapped the card"; both look like
+    different bytes. A map that names no id (a page older than the ids) falls
+    back to the contents, which can never serve a card the user replaced, at
+    the price of the old race for that page only.
+    """
+    digest = hashlib.sha256()
+
+    def part(value) -> None:
+        digest.update(json.dumps(value, sort_keys=True, default=str).encode('utf-8'))
+        digest.update(b'\x00')
+
+    part(str(model.get('wasm_b64') or ''))
+    part(cs)
+    part(bus_id)
+    part(str(model.get('cs_pin') or ''))
+    pins = model.get('pin_map')
+    part({str(k): v for k, v in pins.items()} if isinstance(pins, dict) else {})
+    blobs = model.get('blobs') if isinstance(model.get('blobs'), dict) else {}
+    ids = model.get('blob_ids') if isinstance(model.get('blob_ids'), dict) else {}
+    lineage = {}
+    for name in sorted({str(n) for n in blobs} | {str(n) for n in ids}):
+        if ids.get(name):
+            lineage[name] = 'id:' + str(ids[name])
+        else:
+            raw = blobs.get(name)
+            data = raw.encode('ascii', 'ignore') if isinstance(raw, str) else bytes(raw or b'')
+            lineage[name] = 'sha256:' + hashlib.sha256(data).hexdigest()
+    part(lineage)
+    return digest.hexdigest()
 
 
 class WasmChipRuntime:

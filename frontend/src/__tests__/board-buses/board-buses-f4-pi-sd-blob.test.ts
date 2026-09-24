@@ -139,6 +139,27 @@ describe('a Pi-hosted card hands its writes back to the tab', () => {
     expect(blob.slice(0, 1024).every((b) => b === 0), 'and nothing before it').toBe(true);
   });
 
+  it('a span for an image the card no longer holds is dropped, its own lands', () => {
+    // The relay names the image its model was loaded from. A span from a card
+    // the tab has since replaced must not land on the new one.
+    const { id, card, bridge } = piWithCard(new Uint8Array(2048));
+    const entry = busRegistry.remoteSpiMap(id).find((e: RemoteSpiMapEntry) => e.owner === card)!;
+    const span = (fill: number, blobId: string) => ({
+      event: 'bus_blob',
+      owner: card,
+      bus: 0,
+      cs: 0,
+      name: 'card',
+      offset: 1024,
+      data: Buffer.from(new Uint8Array(512).fill(fill)).toString('base64'),
+      blob_id: blobId,
+    });
+    bridge.onSystemEvent!('bus_blob', span(0x11, 'an-older-card'));
+    expect(hostedCard(id, card).slice(1024, 1536).every((b) => b === 0), 'stale span').toBe(true);
+    bridge.onSystemEvent!('bus_blob', span(0x22, entry.model.blob_ids.card));
+    expect(hostedCard(id, card).slice(1024, 1536).every((b) => b === 0x22), 'own span').toBe(true);
+  });
+
   it('a span for a card that left the board is dropped without throwing', () => {
     const { id, card, bridge } = piWithCard(new Uint8Array(1024));
     expect(() =>

@@ -140,7 +140,7 @@ export interface SpiDeviceDescriptor {
    * as a sink, so its bytes keep being relayed: without either path its copy
    * would silently fall behind what the guest wrote.
    */
-  remoteBlobWrite?(name: string, offset: number, data: Uint8Array): void;
+  remoteBlobWrite?(name: string, offset: number, data: Uint8Array, blobId?: string): void;
 }
 
 /**
@@ -167,6 +167,16 @@ export interface RemoteSpiModel {
   attrs?: Record<string, number>;
   /** Named byte storage (the SD card image), base64 per name. */
   blobs?: Record<string, string>;
+  /**
+   * Which image each blob is, by name: changes when the part loads a
+   * different one, never when the guest writes to it. A host keeps a running
+   * model across maps while its identity (artifact, select, pins, these ids)
+   * holds, because its copy of the blob is newer than the map's; see
+   * `hosted_model_identity` in wasm_chip_runtime.py. A blob with no id is
+   * compared by content, which cannot tell a card that is behind from a card
+   * that was swapped.
+   */
+  blobIds?: Record<string, string>;
 }
 
 export interface SpiDevice {

@@ -254,8 +254,8 @@ export class Esp32BridgeShim {
     bridge.onSpiCsChange = (csIdx, low) => this.remoteLane.port?.hardwareCs(csIdx, low);
     // What a hosted model wrote (the guest saved to the card) comes back as a
     // span, because the worker keeps the bytes no sink here can see.
-    bridge.onBusBlob = (owner, name, offset, data) =>
-      this.remoteLane.applyBlob(owner, name, offset, data);
+    bridge.onBusBlob = (owner, name, offset, data, blobId) =>
+      this.remoteLane.applyBlob(owner, name, offset, data, blobId);
 
     // Wire the write-forwarding path: when the backend ProxySlave emits
     // a completed write transaction (one full STOP-bounded master phase

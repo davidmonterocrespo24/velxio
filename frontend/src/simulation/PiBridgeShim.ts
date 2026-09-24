@@ -769,7 +769,8 @@ export class PiBridgeShim {
     const owner = String(data['owner'] ?? '');
     const name = String(data['name'] ?? '');
     const offset = Number(data['offset'] ?? 0);
-    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, bytes)) {
+    const blobId = typeof data['blob_id'] === 'string' ? data['blob_id'] : undefined;
+    if (!busRegistry.applyRemoteBlob(this.boardId, owner, name, offset, bytes, blobId)) {
       console.warn(`[PiBridgeShim:${this.boardId}] nobody here takes the span ${owner}/${name}@${offset}`);
       return false;
     }

@@ -136,7 +136,7 @@ function device(
 ) {
   const cs = opts.cs === undefined ? GPIO_CS : opts.cs;
   const seen: number[] = [];
-  const blobs: Array<{ name: string; offset: number; data: number[] }> = [];
+  const blobs: Array<{ name: string; offset: number; data: number[]; blobId?: string }> = [];
   const pads: Record<string, string> = { ...ESP32_SPI };
   if (cs !== null) pads.CS = `D${cs}`;
   wire(boardId, owner, pads);
@@ -152,8 +152,8 @@ function device(
       ...(opts.csActive ? { csActive: opts.csActive } : {}),
       ...(opts.blobWrite
         ? {
-            remoteBlobWrite: (name: string, offset: number, data: Uint8Array) =>
-              blobs.push({ name, offset, data: [...data] }),
+            remoteBlobWrite: (name: string, offset: number, data: Uint8Array, blobId?: string) =>
+              blobs.push({ name, offset, data: [...data], ...(blobId === undefined ? {} : { blobId }) }),
           }
         : {}),
       ...(opts.remote
@@ -163,6 +163,7 @@ function device(
               pinMap: { CS: cs ?? -1, SCK: ESP32_PIN.SCK },
               attrs: { gain: 2 },
               blobs: { card: 'AAEC' },
+              blobIds: { card: 'img-a' },
             }),
           }
         : {}),
@@ -310,6 +311,9 @@ describe('QEMU lane: the bus map the tab sends', () => {
       },
       attrs: { gain: 2 },
       blobs: { card: 'AAEC' },
+      // Which image the blob is: a host keeps its running model while this
+      // holds, and replaces it when the part loads another card.
+      blob_ids: { card: 'img-a' },
     });
   });
 
@@ -490,6 +494,17 @@ describe('QEMU lane: what a hosted model wrote comes back', () => {
     const sd = device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
     ws.receive('system', { event: 'bus_blob', owner: 'sd1', name: 'card', offset: 1536, data: b64([1, 2, 3]) });
     expect(sd.blobs).toEqual([{ name: 'card', offset: 1536, data: [1, 2, 3] }]);
+  });
+
+  it('passes on which image the span was written to', () => {
+    // The device drops a span meant for a card it has since replaced; the
+    // worker's `blob_id` is how it can tell.
+    const { id, ws } = qemuBoard();
+    const sd = device(id, 'sd1', { cs: 4, remote: true, blobWrite: true });
+    ws.receive('system', {
+      event: 'bus_blob', owner: 'sd1', name: 'card', offset: 0, data: b64([7]), blob_id: 'img-3',
+    });
+    expect(sd.blobs).toEqual([{ name: 'card', offset: 0, data: [7], blobId: 'img-3' }]);
   });
 
   it('ignores a span for an owner that is not on this board', () => {

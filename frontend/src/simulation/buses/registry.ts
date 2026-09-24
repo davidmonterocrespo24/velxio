@@ -68,6 +68,7 @@ export interface RemoteSpiMapEntry {
     pin_map: Record<string, number>;
     attrs: Record<string, number>;
     blobs: Record<string, string>;
+    blob_ids: Record<string, string>;
   };
 }
 
@@ -436,6 +437,7 @@ export class BusRegistry {
           pin_map: { ...this.remotePinMap(e, model.chipPads), ...(model.pinMap ?? {}) },
           attrs,
           blobs: model.blobs ?? {},
+          blob_ids: model.blobIds ?? {},
         },
       });
     }
@@ -505,11 +507,18 @@ export class BusRegistry {
    * it, which the caller can only log: the owner left the board, or it is not
    * a device that ships blobs.
    */
-  applyRemoteBlob(boardId: string, owner: string, name: string, offset: number, data: Uint8Array): boolean {
+  applyRemoteBlob(
+    boardId: string,
+    owner: string,
+    name: string,
+    offset: number,
+    data: Uint8Array,
+    blobId?: string,
+  ): boolean {
     const e = this.spi.get(owner);
     if (!e || !e.bus || e.bus.boardId !== boardId || !e.desc.remoteBlobWrite) return false;
     try {
-      e.desc.remoteBlobWrite(name, offset, data);
+      e.desc.remoteBlobWrite(name, offset, data, blobId);
     } catch (err) {
       console.warn(`[busRegistry] ${owner}: a written span could not be applied`, err);
       return false;

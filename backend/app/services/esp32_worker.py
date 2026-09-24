@@ -168,14 +168,15 @@ _CHIP_RUNTIME_API: list = []
 
 
 def _chip_runtime_api():
-    """(WasmChipRuntime, decode_blobs), or (None, None) when the runtime is
-    not importable here. Cached: a bus map arrives on every membership
-    change and loading wasmtime again per call is not free."""
+    """(WasmChipRuntime, decode_blobs, hosted_model_identity), or three Nones
+    when the runtime is not importable here. Cached: a bus map arrives on
+    every membership change and loading wasmtime again per call is not free."""
     if _CHIP_RUNTIME_API:
         return _CHIP_RUNTIME_API[0]
     try:
         from app.services.wasm_chip_runtime import (  # type: ignore[import-not-found]
             WasmChipRuntime as _RT, decode_blobs as _blobs,
+            hosted_model_identity as _ident,
         )
     except ImportError:
         try:
@@ -187,10 +188,11 @@ def _chip_runtime_api():
             _sys_rt.modules.setdefault('app.services.wasm_chip_runtime', _mod_rt)
             _spec_rt.loader.exec_module(_mod_rt)  # type: ignore[union-attr]
             _RT, _blobs = _mod_rt.WasmChipRuntime, _mod_rt.decode_blobs
+            _ident = _mod_rt.hosted_model_identity
         except Exception as _e:  # noqa: BLE001
             _log(f'[bus_map] no WASM chip runtime here: {_e!r}')
-            _RT, _blobs = None, None
-    _CHIP_RUNTIME_API.append((_RT, _blobs))
+            _RT, _blobs, _ident = None, None, None
+    _CHIP_RUNTIME_API.append((_RT, _blobs, _ident))
     return _CHIP_RUNTIME_API[0]
 
 
@@ -2057,9 +2059,13 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     for name, (lo, hi) in dirty.items():
                         data = rt.blob_span(name, lo, hi)
                         if data:
-                            _emit({'type': 'system', 'event': 'bus_blob',
-                                   'owner': r['owner'], 'name': name, 'offset': lo,
-                                   'data': base64.b64encode(data).decode('ascii')})
+                            ev = {'type': 'system', 'event': 'bus_blob',
+                                  'owner': r['owner'], 'name': name, 'offset': lo,
+                                  'data': base64.b64encode(data).decode('ascii')}
+                            blob_id = (r.get('blob_ids') or {}).get(name)
+                            if blob_id:
+                                ev['blob_id'] = blob_id
+                            _emit(ev)
                 except Exception as e:  # noqa: BLE001
                     _log(f'[spi] {r["owner"]}: blob drain failed: {e!r}')
 
@@ -2142,12 +2148,21 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         that left is gone by being absent rather than by a second message
         nobody can be sure arrived.
 
+        A device that is still there and still the same device (same artifact,
+        same select, same pins, same card image: `hosted_model_identity`) is
+        KEPT, instance and all, and only takes the map's attributes. The map
+        carries each blob as the tab last knew it, and the card the guest has
+        been writing to is newer than that until its spans reach the tab: a
+        wire moved elsewhere on the canvas in that window used to rebuild the
+        card from the older copy and silently undo the write. The Pi host has
+        kept its models this way from the start (pi_spi_responders.py).
+
         A model gets the same plumbing a custom chip gets: its pin map, so its
         own vx_pin_watch on the select line fires (the microSD ends its
         command frame on CS rising), a reader and a writer for the board pins
         it is wired to (the XPT2046 drives PENIRQ), and the timer scheduler.
         """
-        WasmChipRuntime, decode_blobs = _chip_runtime_api()
+        WasmChipRuntime, decode_blobs, model_identity = _chip_runtime_api()
 
         def _map_pin_writer(gpio: int, value: int, _lib=lib):
             _lib.qemu_picsimlab_set_pin(gpio + 1, value)
@@ -2159,16 +2174,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             if rt not in _chip_timer_runtimes:
                 _chip_timer_runtimes.append(rt)
 
-        # What the old models wrote and the tab has not heard yet goes first:
-        # the map that follows is built from the tab's copy.
+        # What the old models wrote and the tab has not heard yet goes first.
+        # A kept model would send it on its next deselect anyway; a dropped one
+        # has no other chance.
         _drain_blob_writes()
-        # Retire the models of the previous map before building the new one,
-        # or a device the user deleted keeps its watches and its timers.
-        for old in _spi_models:
-            rt = old.get('runtime')
-            for lst in (_chip_pin_watch_runtimes, _chip_timer_runtimes):
-                while rt in lst:
-                    lst.remove(rt)
+        previous = {r['owner']: r for r in _spi_models if r.get('runtime') is not None}
 
         models: list = []
         _apply_spi_sinks(None)
@@ -2181,6 +2191,19 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             owner = str(entry.get('owner') or 'responder')
             if not wasm_b64 or WasmChipRuntime is None:
                 _log(f'[bus_map] {owner}: no portable model, not hosted here')
+                continue
+            identity = model_identity(model, entry.get('cs'), entry.get('bus_id'))
+            old = previous.get(owner)
+            if old is not None and old.get('identity') == identity \
+                    and not any(m['owner'] == owner for m in models):
+                attrs = {str(k): float(v) for k, v in (model.get('attrs') or {}).items()
+                         if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                if attrs:
+                    try:
+                        old['runtime'].update_attrs(attrs)
+                    except Exception as e:  # noqa: BLE001
+                        _log(f'[bus_map] {owner}: attrs on a kept model failed: {e!r}')
+                models.append(old)
                 continue
             try:
                 runtime = WasmChipRuntime(
@@ -2203,7 +2226,25 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 continue
             if runtime.has_pin_watches():
                 _chip_pin_watch_runtimes.append(runtime)
-            models.append(_model_responder(entry, runtime))
+            r = _model_responder(entry, runtime)
+            r['identity'] = identity
+            # Which image the spans this instance writes belong to. The tab
+            # drops a span meant for a card it has since replaced, or the old
+            # card's last sector would land on the new one.
+            r['blob_ids'] = {str(k): str(v) for k, v in
+                             (model.get('blob_ids') or {}).items() if v}
+            models.append(r)
+        # Retire only what did not survive, or a device the user deleted keeps
+        # its watches and its timers. A kept model keeps both: its pending
+        # timer is part of the state that must not be thrown away.
+        kept = {id(r['runtime']) for r in models if r.get('runtime') is not None}
+        for old in previous.values():
+            rt = old.get('runtime')
+            if id(rt) in kept:
+                continue
+            for lst in (_chip_pin_watch_runtimes, _chip_timer_runtimes):
+                while rt in lst:
+                    lst.remove(rt)
         _spi_models[:] = models
         _spi_population_changed()
         _log(f'[bus_map] {len(models)} portable SPI responder(s) hosted here')
