@@ -77,6 +77,7 @@ const ESP32_C3_KINDS: ReadonlySet<BoardKind> = new Set([
   'esp32-c3',
   'xiao-esp32-c3',
   'aitewinrobot-esp32c3-supermini',
+  'cyd-esp32-2424s012',
 ]);
 
 const ESP32_XTENSA_KINDS: ReadonlySet<BoardKind> = new Set([
