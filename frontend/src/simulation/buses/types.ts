@@ -281,6 +281,83 @@ export interface SpiControllerPort {
   setRoutingChangeHandler?(handler: (() => void) | null): void;
 }
 
+// ── I2C ─────────────────────────────────────────────────────────────────────
+
+export interface I2cTargetDescriptor {
+  /** Identity, as for SPI: the component id, or 'builtin:<boardId>:<name>'. */
+  owner: string;
+  /** Component whose pin names `pins` refers to. Defaults to `owner`. */
+  componentId?: string;
+  pins: { scl: DevicePin; sda: DevicePin };
+  /**
+   * Every 7-bit address the chip answers (an LCD with a separate backlight
+   * controller answers two). They all belong to this one registration and all
+   * leave with its handle.
+   */
+  addresses: number[];
+}
+
+/**
+ * A chip on an I2C bus. The fabric only calls it for traffic addressed to it:
+ * start() for every START or repeated START that names one of its addresses,
+ * write()/read() while it is the addressed target, and stop() once per STOP
+ * after it took part in the transaction.
+ */
+export interface I2cTarget {
+  /** Address phase for one of this chip's addresses. Return the ACK. */
+  start(address: number, read: boolean): boolean;
+  /** A data byte from the controller. Return the ACK. */
+  write(byte: number): boolean;
+  /** The next byte the controller clocks out of the chip. */
+  read(): number;
+  /** STOP on the bus. */
+  stop(): void;
+  /** The MCU was reset (Stop/Run, reset, reload). Protocol state, not data. */
+  boardReset?(): void;
+}
+
+/**
+ * What an I2C controller port calls, once per bus event the SoC produces.
+ * Implemented by the fabric; a port never talks to a target itself.
+ */
+export interface I2cTransactionHandler {
+  /** START (or repeated START) plus the address byte. Returns the address ACK. */
+  start(address: number, read: boolean): boolean;
+  /** One data byte written by the controller. Returns the data ACK. */
+  write(byte: number): boolean;
+  /** One data byte read by the controller. 0xFF when nobody drives SDA. */
+  read(): number;
+  stop(): void;
+}
+
+/** Pins an I2C controller is routed to right now, when the engine knows it. */
+export interface I2cRouting {
+  sda?: number;
+  scl?: number;
+}
+
+/**
+ * The engine's side of one I2C controller. Like the SPI port: created ONCE per
+ * board by the engine adapter, kept across every rebuild of the SoC.
+ */
+export interface I2cControllerPort {
+  readonly bus: 'i2c';
+  /** The SoC's index for this controller (matches the pin function table). */
+  readonly unit: number;
+  /** Datasheet name, for diagnostics ('TWI', 'I2C1', 'TWIM0'). */
+  readonly name: string;
+  /**
+   * The fabric installs the handler here. The adapter calls it for every
+   * START, byte and STOP the controller puts on the wire and hands the result
+   * to the engine exactly once, synchronously, for THAT event.
+   */
+  setTransactionHandler(handler: I2cTransactionHandler | null): void;
+  /** Live routing, or 'static' when the pins are fixed by the board table. */
+  routing(): I2cRouting | 'static';
+  /** Routing changed (the sketch moved the pins): the fabric recomputes. */
+  setRoutingChangeHandler?(handler: (() => void) | null): void;
+}
+
 // ── Engine binding ──────────────────────────────────────────────────────────
 
 /** The minimal pin surface the fabric needs from a board. */
@@ -305,6 +382,12 @@ export interface BoardPins {
 export interface EngineBinding {
   pins: BoardPins;
   spi: SpiControllerPort[];
+  /**
+   * Every I2C controller of the SoC. Optional only while the engines move
+   * over (F5): an engine that leaves it out has no hardware I2C on the fabric,
+   * and its I2C pins are served by the software decoder alone.
+   */
+  i2c?: I2cControllerPort[];
   /** MCU reset notifications (Stop/Run, reset, reload). */
   setResetHandler?(handler: (() => void) | null): void;
 }
@@ -334,6 +417,7 @@ export type BusDiagnosticCode =
   | 'spi-no-controller'
   | 'spi-cross-board'
   | 'i2c-address-conflict'
+  | 'i2c-wiring'
   | 'uart-baud-mismatch'
   | 'uart-tx-contention'
   | 'bus-remote-responder-missing';

@@ -13,7 +13,7 @@
  *     { type: 'esp32_gpio_in',      data: { pin: number, state: 0 | 1 } }
  *     { type: 'esp32_adc_set',      data: { channel: number, millivolts: number } }
  *     { type: 'esp32_i2c_response', data: { addr: number, response: number } }
- *     { type: 'esp32_bus_map',       data: { spi: BusMapEntry[] } }
+ *     { type: 'esp32_bus_map',       data: { spi?: BusMapEntry[], i2c?: I2cMapEntry[] } }
  *     { type: 'esp32_bus_attrs',     data: { owner: string, attrs: Record<string, number> } }
  *     { type: 'esp32_sensor_attach', data: { sensor_type: string, pin: number, ... } }
  *     { type: 'esp32_sensor_update', data: { pin: number, ... } }
@@ -490,7 +490,7 @@ export class Esp32Bridge {
           // worker has to know who is on the bus before the guest clocks its
           // first byte, and a command sent after the start would race the
           // boot.
-          bus_map: { spi: this._busMap },
+          bus_map: this.startBusMap(),
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
           sensors: this._pendingSensors,
           wifi_enabled: this.wifiEnabled,
@@ -997,13 +997,50 @@ export class Esp32Bridge {
    * for a byte the guest had already clocked: the worker applied it to
    * whatever byte it happened to be clocking when it arrived.
    */
-  sendBusMap(spi: unknown[]): void {
+  sendBusMap(spi: unknown[], i2c?: unknown[]): void {
     this._busMap = spi;
-    if (this._connected) this._send({ type: 'esp32_bus_map', data: { spi } });
+    if (i2c) this._busMapI2c = i2c;
+    if (this._connected) {
+      this._send({ type: 'esp32_bus_map', data: i2c ? { spi, i2c } : { spi } });
+    }
   }
+
+  /**
+   * The I2C half of the map alone (project board-buses-2026-09, F5): which
+   * controller each I2C target the fabric placed is on. Sent by itself when
+   * only I2C membership changed, so the SPI half, with every hosted model's
+   * artifact and card image, does not travel again for nothing; the worker
+   * leaves a half that is absent as it has it.
+   */
+  sendI2cBusMap(i2c: unknown[]): void {
+    this._busMapI2c = i2c;
+    if (this._connected) this._send({ type: 'esp32_bus_map', data: { i2c } });
+  }
+
+  /**
+   * Asked when the start config is built, for the I2C half as the fabric has
+   * it NOW. The map is otherwise pushed on membership changes, and one may
+   * never have happened before the first Run. An `on` name on purpose: the
+   * overlay's delegating bridge forwards every `on*` field to the bridge it
+   * builds per Run, so the question reaches the one that opens the socket.
+   */
+  onBusMapRequest: (() => { i2c?: unknown[] } | null) | null = null;
 
   /** The last map, replayed after a reconnect: the worker starts empty. */
   private _busMap: unknown[] = [];
+  /** The last I2C half, or null when none was ever given (a worker then keeps
+   *  every I2C target on every controller, as before F5). */
+  private _busMapI2c: unknown[] | null = null;
+
+  private startBusMap(): { spi: unknown[]; i2c?: unknown[] } {
+    try {
+      const fresh = this.onBusMapRequest?.();
+      if (fresh?.i2c) this._busMapI2c = fresh.i2c;
+    } catch (e) {
+      console.warn(`[Esp32Bridge:${this.boardId}] the I2C map could not be built`, e);
+    }
+    return this._busMapI2c ? { spi: this._busMap, i2c: this._busMapI2c } : { spi: this._busMap };
+  }
 
   /**
    * One hosted responder's live inputs (project board-buses-2026-09, F4): the

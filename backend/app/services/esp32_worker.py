@@ -15,7 +15,8 @@ stdin  line 2+: JSON commands
                {"cmd": "set_adc_waveform", "channel": N,   "samples_u12_b64": "<base64-LE-uint16>", "period_ns": P}
                {"cmd": "uart_send",        "uart": N,      "data": "<base64>"}
                {"cmd": "set_i2c_response", "addr": N,      "response": V}
-               {"cmd": "bus_map",          "spi": [{"owner","bus_id","cs","model"}]}
+               {"cmd": "bus_map",          "spi": [{"owner","bus_id","cs","model"}],
+                                           "i2c": [{"owner","bus_id","sda","scl","addresses"}, {"unplaced": [...]}]}
                {"cmd": "bus_attrs",        "owner": "...", "attrs": {name: number}}
                {"cmd": "stop"}
 
@@ -131,6 +132,25 @@ except ImportError:
     _DS3231Slave  = _mod.DS3231Slave   # type: ignore[assignment]
     _I2CWriteSink = _mod.I2CWriteSink  # type: ignore[assignment]
     _ProxySlave   = _mod.ProxySlave    # type: ignore[assignment]
+
+# The table those slaves answer from, by (controller, address) and removed by
+# identity (project board-buses-2026-09, F5). Same fallback dance.
+try:
+    from app.services.i2c_bus_table import (
+        I2cBusTable as _I2cBusTable,
+        NOT_ROUTED as _I2C_NOT_ROUTED,
+        owner_of as _i2c_owner_of,
+    )
+except ImportError:
+    import importlib.util, pathlib, sys as _sys
+    _here = pathlib.Path(__file__).parent
+    _spec = importlib.util.spec_from_file_location('i2c_bus_table', _here / 'i2c_bus_table.py')
+    _mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+    _sys.modules['i2c_bus_table'] = _mod
+    _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+    _I2cBusTable = _mod.I2cBusTable        # type: ignore[assignment]
+    _I2C_NOT_ROUTED = _mod.NOT_ROUTED      # type: ignore[assignment]
+    _i2c_owner_of = _mod.owner_of          # type: ignore[assignment]
 
 # SPI slaves (Phase 1: SSD168x ePaper). Same fallback dance — when the worker
 # runs as a subprocess from backend/ the package import won't resolve.
@@ -800,7 +820,22 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     _init_done     = threading.Event()      # set when qemu_init() returns
     _sensors_ready = threading.Event()      # set after pre-registering initial sensors
     _i2c_responses: dict[int, int] = {}     # 7-bit addr → response byte (simple)
-    _i2c_slaves:    dict = {}               # 7-bit addr → I2C slave/sink instance
+    # Every I2C slave/sink this worker hosts, by (controller, address), each
+    # registered under an identity and removed by it (project board-buses-2026-09,
+    # F5). It replaced a dict keyed by address alone, which made Wire and Wire1
+    # one bus and let the cleanup of one device evict another at its address.
+    # A sensor record registers under ('sensor', pin); the cross-board proxy
+    # under ('proxy', addr), since the tab installs and removes it by address.
+    _i2c_table = _I2cBusTable(emit=lambda ev: _emit(ev) if not _stopped.is_set() else None,
+                              resolve_bus=lambda sda: _resolve_i2c_bus(sda))
+
+    def _i2c_add(gpio: int, record: dict, slave, addr: int) -> None:
+        """Put a sensor record's slave on the bus under the record's pin, the
+        identity the tab detaches it by. The record's owner links it to the
+        tab's bus map, and a `bus` field on the record names its controller
+        for a caller that knows it directly."""
+        _i2c_table.add(('sensor', int(gpio)), slave, [addr],
+                       owner=_i2c_owner_of(record), bus=record.get('bus'))
     # ── SPI bus (project board-buses-2026-09, F4) ─────────────────────────
     # QEMU asks for the MISO of every byte synchronously and cannot wait for
     # the tab, so everything that DRIVES MISO runs here, beside the guest. The
@@ -901,6 +936,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             SIG_LEDC_HS_CH0_OUT_IDX,
             SIG_LEDC_LS_CH_LAST,
             rmt_signal_base,
+            i2c_sda_signals,
         )
     except ImportError:
         import importlib.util as _ilu, pathlib as _pl
@@ -915,8 +951,34 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         SIG_LEDC_HS_CH0_OUT_IDX = sys.modules['esp32_signals'].SIG_LEDC_HS_CH0_OUT_IDX
         SIG_LEDC_LS_CH_LAST = sys.modules['esp32_signals'].SIG_LEDC_LS_CH_LAST
         rmt_signal_base = sys.modules['esp32_signals'].rmt_signal_base
+        i2c_sda_signals = sys.modules['esp32_signals'].i2c_sda_signals
     _signal_router = SignalRouter()
     _rmt_sig_base = rmt_signal_base(machine)
+    _i2c_sda_sig = i2c_sda_signals(machine)
+
+    def _resolve_i2c_bus(sda: int) -> int | None:
+        """Which I2C controller the guest routed to pad `sda` right now.
+
+        The tab names the controller of a target when its static table can,
+        and sends the pad when it cannot (an ESP32's Wire1 has no default pins:
+        `Wire1.begin(25, 26)` is all there is). The matrix is the only place
+        that answer exists, so it is read here, per address phase: the sketch
+        may call begin() with other pins at any time. None when the matrix
+        cannot be read (an older libqemu), which the table treats as "any
+        controller", the behaviour before F5; NOT_ROUTED when it can and no
+        controller drives that pad.
+        """
+        if not _i2c_sda_sig or sda < 0 or sda >= _GPIO_COUNT:
+            return None
+        try:
+            out_sel_ptr = lib.qemu_picsimlab_get_internals(2)
+            if not out_sel_ptr:
+                return None
+            out_sel = (ctypes.c_uint32 * _GPIO_COUNT).from_address(out_sel_ptr)
+            unit = _i2c_sda_sig.get(int(out_sel[sda]) & 0x1FF)
+        except Exception:  # noqa: BLE001 - an iothread callback never raises
+            return None
+        return _I2C_NOT_ROUTED if unit is None else unit
 
     def _gpio_for_rmt_channel(channel: int) -> int | None:
         """Which GPIO an RMT TX channel is routed to, or None.
@@ -1699,13 +1761,16 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
     def _on_i2c_event(bus_id: int, addr: int, event: int) -> int:
         """Synchronous — must return immediately; called from QEMU thread."""
-        slave = _i2c_slaves.get(addr)
+        # The targets on THIS controller at this address. One is the common
+        # case and answers directly; several are arbitrated like the wire.
+        found = _i2c_table.targets(bus_id, addr)
+        slave = found[0].slave if found else None
         op    = event & 0xFF
         data  = (event >> 8) & 0xFF
         op_name = _I2C_OP_NAME.get(op, f'0x{op:02x}')
 
         if slave is not None:
-            result  = slave.handle_event(event)
+            result  = _i2c_table.event(bus_id, addr, event, found)
             reg_ptr = getattr(slave, 'reg_ptr', 0)
 
             # Build descriptive annotation
@@ -1744,7 +1809,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             return result
 
         _log(f'I2C bus={bus_id} addr=0x{addr:02x} event=0x{event:04x} op={op_name} '
-             f'NO_SLAVE registered={list(_i2c_slaves.keys())}')
+             f'NO_SLAVE registered={_i2c_table.addresses()}')
         resp = _i2c_responses.get(addr, 0)
         if not _stopped.is_set():
             _emit({'type': 'i2c_event', 'bus': bus_id, 'addr': addr,
@@ -2437,7 +2502,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         """Load the chip in `s` (a custom-chip sensor record) into this worker
         and hook it to QEMU's live peripherals. Fills `sensor_data` with the
         runtime and, for an I2C chip, its slave and address."""
-        del gpio  # the slot is the caller's key; the chip itself is pinless
+        # `gpio` is the caller's key for this record, and the identity the
+        # chip's I2C target is registered and removed under.
         # User-supplied chip compiled to WASM. The runtime loads the
         # binary in this same Python process so I2C callbacks fire
         # synchronously when QEMU calls _on_i2c_event — same fidelity
@@ -2558,7 +2624,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
                 if runtime.i2c_address is not None:
                     slave = WasmChipI2CSlave(runtime.i2c_address, runtime)
-                    _i2c_slaves[runtime.i2c_address] = slave
+                    _i2c_add(gpio, s, slave, runtime.i2c_address)
                     sensor_data['i2c_addr'] = runtime.i2c_address
                     sensor_data['slave']    = slave
                     _log(f"[custom-chip] I2C slave registered at 0x{runtime.i2c_address:02x}")
@@ -2585,7 +2651,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
     def _detach_custom_chip_sensor(sensor_data: dict) -> None:
         """Undo _attach_custom_chip_sensor for a chip removed from the canvas.
-        The I2C slave is popped by the caller (the generic `i2c_addr` rule)."""
+        The I2C target leaves with the caller's generic rule, by the record's
+        pin."""
         rt = sensor_data.get('runtime')
         if rt is None:
             return
@@ -2625,7 +2692,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             elif sensor_type == 'mpu6050':
                 i2c_addr = int(s.get('addr', 0x68))
                 slave = _MPU6050Slave(i2c_addr)
-                _i2c_slaves[i2c_addr] = slave
+                _i2c_add(gpio, s, slave, i2c_addr)
                 sensor_data['i2c_addr'] = i2c_addr
                 sensor_data['slave'] = slave
             elif sensor_type == 'bmp280':
@@ -2633,13 +2700,13 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 slave = _BMP280Slave(i2c_addr)
                 if 'temperature' in s: slave.update(float(s['temperature']), slave._press_hpa)
                 if 'pressure'    in s: slave.update(slave._temp_c, float(s['pressure']))
-                _i2c_slaves[i2c_addr] = slave
+                _i2c_add(gpio, s, slave, i2c_addr)
                 sensor_data['i2c_addr'] = i2c_addr
                 sensor_data['slave'] = slave
             elif sensor_type in ('ds1307', 'ds3231'):
                 i2c_addr = int(s.get('addr', 0x68))
                 slave = _DS3231Slave() if sensor_type == 'ds3231' else _DS1307Slave()
-                _i2c_slaves[i2c_addr] = slave
+                _i2c_add(gpio, s, slave, i2c_addr)
                 sensor_data['i2c_addr'] = i2c_addr
                 sensor_data['slave'] = slave
             elif sensor_type == 'epaper-ssd168x':
@@ -2773,14 +2840,14 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 default_addr = 0x3C if sensor_type == 'ssd1306' else 0x27
                 i2c_addr = int(s.get('addr', default_addr))
                 sink = _I2CWriteSink(i2c_addr, _emit)
-                _i2c_slaves[i2c_addr] = sink
+                _i2c_add(gpio, s, sink, i2c_addr)
                 sensor_data['i2c_addr'] = i2c_addr
                 sensor_data['slave'] = sink
             elif sensor_type == 'custom-chip':
                 _attach_custom_chip_sensor(gpio, s, sensor_data)
             _sensors[gpio] = sensor_data
     _sensors_ready.set()
-    _log(f'_i2c_slaves registered: {list(_i2c_slaves.keys())}')
+    _log(f'I2C targets registered: {_i2c_table.addresses()}')
 
     # Now that the initial components are registered, build the SPI bus table
     # and tell QEMU whether to forward CS toggles (only devices that watch
@@ -2789,6 +2856,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     # announced: the guest can clock its first byte the moment anything thinks
     # the board is up (project board-buses-2026-09, F4).
     _apply_spi_bus_map((cfg.get('bus_map') or {}).get('spi') or [])
+    # And which I2C controller each target the tab placed is on (F5).
+    _i2c_table.apply_map((cfg.get('bus_map') or {}).get('i2c'))
     _emit({'type': 'system', 'event': 'booted'})
     _log(f'QEMU started: machine={machine} firmware={firmware_path}')
     _log(f'QEMU args: {[a.decode() for a in args_list]}')
@@ -2998,7 +3067,13 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             # it wants hosted here (project board-buses-2026-09, F4). It
             # replaced set_spi_response, which answered a byte the guest had
             # already clocked.
-            _apply_spi_bus_map(cmd.get('spi') or [])
+            # A map that carries only the I2C half (F5: an I2C membership
+            # change) leaves the SPI table, models and all, as it is.
+            if 'spi' in cmd:
+                _apply_spi_bus_map(cmd.get('spi') or [])
+            # Same transport for I2C (F5): which controller each target the
+            # fabric placed is on. A map with no `i2c` key leaves it as it was.
+            _i2c_table.apply_map(cmd.get('i2c'))
 
         elif c == 'bus_attrs':
             # Live inputs of one responder the map put here, between two maps.
@@ -3009,6 +3084,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             sensor_type = cmd.get('sensor_type', '')
             refuse_unmodelled_line_sensor(cmd)
             with _sensors_lock:
+                # The record replaces whatever was on this pin; an I2C target
+                # it registered goes with it, whatever the new one is.
+                _i2c_table.remove(('sensor', gpio))
                 sensor_data: dict = {
                     'type': sensor_type,
                     **{k: v for k, v in cmd.items()
@@ -3031,19 +3109,19 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 elif sensor_type == 'mpu6050':
                     i2c_addr = int(cmd.get('addr', 0x68))
                     slave = _MPU6050Slave(i2c_addr)
-                    _i2c_slaves[i2c_addr] = slave
+                    _i2c_add(gpio, cmd, slave, i2c_addr)
                     sensor_data['i2c_addr'] = i2c_addr
                     sensor_data['slave'] = slave
                 elif sensor_type == 'bmp280':
                     i2c_addr = int(cmd.get('addr', 0x76))
                     slave = _BMP280Slave(i2c_addr)
-                    _i2c_slaves[i2c_addr] = slave
+                    _i2c_add(gpio, cmd, slave, i2c_addr)
                     sensor_data['i2c_addr'] = i2c_addr
                     sensor_data['slave'] = slave
                 elif sensor_type in ('ds1307', 'ds3231'):
                     i2c_addr = int(cmd.get('addr', 0x68))
                     slave = _DS3231Slave() if sensor_type == 'ds3231' else _DS1307Slave()
-                    _i2c_slaves[i2c_addr] = slave
+                    _i2c_add(gpio, cmd, slave, i2c_addr)
                     sensor_data['i2c_addr'] = i2c_addr
                     sensor_data['slave'] = slave
                 elif sensor_type == 'custom-chip':
@@ -3052,7 +3130,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     default_addr = 0x3C if sensor_type == 'ssd1306' else 0x27
                     i2c_addr = int(cmd.get('addr', default_addr))
                     sink = _I2CWriteSink(i2c_addr, _emit)
-                    _i2c_slaves[i2c_addr] = sink
+                    _i2c_add(gpio, cmd, sink, i2c_addr)
                     sensor_data['i2c_addr'] = i2c_addr
                     sensor_data['slave'] = sink
                 elif sensor_type == 'epaper-ssd168x':
@@ -3230,8 +3308,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     _keypad_uninstall(sensor)
                 if sensor and sensor.get('type') == 'custom-chip':
                     _detach_custom_chip_sensor(sensor)
-                if sensor and 'i2c_addr' in sensor:
-                    _i2c_slaves.pop(sensor['i2c_addr'], None)
+                # By identity, the record's pin: a second device at the same
+                # address (the same sensor on the other controller) stays.
+                _i2c_table.remove(('sensor', gpio))
                 if sensor and 'epaper_component_id' in sensor:
                     cid = sensor['epaper_component_id']
                     _epaper_slaves.pop(cid, None)
@@ -3256,7 +3335,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             # frontend then replays the byte sequence on the actual
             # peer I2CDevice so its state (PCF8574 latch, SSD1306
             # GDDRAM, memory device registers …) stays in sync.
-            _i2c_slaves[i2c_addr] = _ProxySlave(i2c_addr, regs, emit_fn=_emit)
+            _i2c_table.add(('proxy', i2c_addr), _ProxySlave(i2c_addr, regs, emit_fn=_emit),
+                           [i2c_addr])
             _log(f'proxy_i2c registered at 0x{i2c_addr:02x} ({len(regs)} bytes)')
 
         elif c == 'proxy_i2c_update':
@@ -3266,14 +3346,14 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             except Exception as exc:
                 _log(f'proxy_i2c_update: bad base64: {exc}')
                 regs = b''
-            slave = _i2c_slaves.get(i2c_addr)
+            slave = _i2c_table.get(('proxy', i2c_addr))
             if slave is not None and hasattr(slave, 'update_registers'):
                 slave.update_registers(regs)
                 _log(f'proxy_i2c updated at 0x{i2c_addr:02x} ({len(regs)} bytes)')
 
         elif c == 'proxy_i2c_unregister':
             i2c_addr = int(cmd.get('addr', 0)) & 0x7F
-            popped = _i2c_slaves.pop(i2c_addr, None)
+            popped = _i2c_table.remove(('proxy', i2c_addr))
             if popped is not None:
                 _log(f'proxy_i2c unregistered at 0x{i2c_addr:02x}')
 

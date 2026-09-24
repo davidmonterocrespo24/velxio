@@ -588,7 +588,12 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // Interconnect can install cross-board bridges and parts can
     // register devices BEFORE the firmware loads.  The real AVRTWI
     // takes over via `i2cBus.attachMaster(twi)` inside loadHex.
-    this.i2cBus = new I2CBusManager(nullI2CMaster());
+    // On the ATmegas it is also the TWI's controller port (getBusBinding),
+    // with the pins the board table fixes.
+    this.i2cBus = new I2CBusManager(nullI2CMaster(), {
+      unit: 0,
+      name: boardVariant === 'tiny85' ? 'USI' : 'TWI',
+    });
     // Seed the input register to the pull's resting level the instant the
     // firmware enables it (INPUT_PULLUP -> HIGH). Real silicon does this in
     // nanoseconds; without the seed, digitalRead returned 0 from pinMode
@@ -1398,12 +1403,24 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * the fabric and no place to put its MISO. Bit-banged buses (shiftOut,
    * software SPI) reach the fabric through its software-bus decoder instead,
    * on this board as on any other.
+   *
+   * I2C is the TWI on the ATmegas: the I2CBusManager is its controller port
+   * (unit 0, pins fixed by the board table), made once and re-pointed at
+   * every new AVRTWI. The ATtiny85 reports no I2C controller either, for the
+   * same reason as SPI and one more: its USI in two-wire mode IS the pins.
+   * TinyWireM shifts every bit out through PORTB, so the board's PB0/PB2
+   * carry the whole transaction as edges, and the fabric's software decoder
+   * already reads it there (and answers with SDA held low, which is what the
+   * USI samples). A port fed from those same edges would hand every target
+   * each transaction twice. UsiI2cBridge keeps serving the devices that
+   * still register through addI2CDevice until they move to the fabric.
    */
   getBusBinding(): EngineBinding {
     if (!this.busBinding) {
       this.busBinding = {
         pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.setPinState(pin, level)),
         spi: this.spiPort ? [this.spiPort] : [],
+        i2c: this.boardVariant === 'tiny85' ? [] : [this.i2cBus],
         setResetHandler: (handler) => {
           this.busResetHandler = handler;
         },

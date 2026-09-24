@@ -60,12 +60,10 @@ FLUSH_PIN = 32
 BARRIER_PIN = 900
 
 # The field a sensor record uses to say which I2C controller (Wire = 0,
-# Wire1 = 1) its SDA/SCL are wired to. No record carries it today: the fix for
-# worker-i2c-slaves-ignore-bus-id proposes adding it (frontend) and honouring
-# it (worker). Kept in one place so the fix can rename it. If the fix instead
-# sends the SDA/SCL pins and resolves the controller in the worker (the GPIO
-# matrix decides it at run time on an ESP32), give these records the pins and
-# drive the matrix callback here; a rename is then not enough.
+# Wire1 = 1) its SDA/SCL are wired to. F5 honours it (app/services/
+# i2c_bus_table.py) beside the tab's bus map, which names the controller per
+# owner, or the SDA pad for the worker to resolve against the GPIO matrix
+# (test_board_buses_f5_worker_i2c.py covers the map and the matrix).
 I2C_BUS_KEY = 'bus'
 
 # picsimlab I2C ops (hw/i2c/picsimlab_i2c.c, esp32_i2c_slaves.py)
@@ -542,7 +540,8 @@ def ds3231(pin: int, bus: int) -> dict:
 
 
 class TestI2cSlavesPerBus:
-    """esp32_worker.py _on_i2c_event: one slave per address, bus_id unused."""
+    """esp32_worker.py _on_i2c_event: one slave per address, bus_id unused.
+    Closed by F5 (the worker's I2cBusTable); these are its regression guards."""
 
     def test_setup_each_device_answers_alone(self, worker):
         """worker-i2c-slaves-ignore-bus-id setup: an MPU6050 on Wire answers
@@ -552,7 +551,6 @@ class TestI2cSlavesPerBus:
         w2 = worker(sensors=[ds3231(269, 1)])
         assert w2.read_reg(1, 0x68, DS3231_TEMP_MSB) == (0, 25)
 
-    @pytest.mark.xfail(strict=True, reason='worker-i2c-slaves-ignore-bus-id: reproduced')
     def test_same_address_on_wire_and_wire1_are_two_devices(self, worker):
         """worker-i2c-slaves-ignore-bus-id: an MPU6050 on Wire and a DS3231 on
         Wire1, both at 0x68, each answer on their own bus."""
@@ -560,7 +558,6 @@ class TestI2cSlavesPerBus:
         assert w.read_reg(0, 0x68, MPU_WHO_AM_I) == (0, 0x68)
         assert w.read_reg(1, 0x68, DS3231_TEMP_MSB) == (0, 25)
 
-    @pytest.mark.xfail(strict=True, reason='worker-i2c-slaves-ignore-bus-id: reproduced')
     def test_device_on_wire1_does_not_ack_on_wire(self, worker):
         """worker-i2c-slaves-ignore-bus-id: a BMP280 wired to Wire1 only is not
         on Wire, so Wire's address probe at 0x76 is NACKed."""
@@ -568,7 +565,6 @@ class TestI2cSlavesPerBus:
         assert w.i2c(1, 0x76, [I2C_START_SEND, I2C_FINISH])[0] == 0      # ACK on its bus
         assert w.i2c(0, 0x76, [I2C_START_SEND, I2C_FINISH])[0] != 0, 'Wire probe ACKed'
 
-    @pytest.mark.xfail(strict=True, reason='worker-i2c-slaves-ignore-bus-id: reproduced')
     def test_removing_one_of_two_same_address_devices_keeps_the_other(self, worker):
         """worker-i2c-slaves-ignore-bus-id: two MPU6050 at 0x68, one per bus;
         deleting the Wire1 one leaves the Wire one answering."""

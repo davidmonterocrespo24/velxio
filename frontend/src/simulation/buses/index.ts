@@ -30,6 +30,8 @@ export { RemoteSpiLane } from './remoteLane';
 export { BoardBusFabric } from './fabric';
 export { SpiBus, reverseBits, type SpiMember } from './spiBus';
 export { SoftSpiDecoder } from './softSpi';
+export { I2cBus, type I2cMember } from './i2cBus';
+export { SoftI2cDecoder } from './softI2c';
 export { createStoreNetResolver, railOf } from './storeResolver';
 export { boardPinsFromPinManager } from './boardPins';
 
@@ -38,7 +40,13 @@ export { boardPinsFromPinManager } from './boardPins';
 import './boardPinTables';
 import { setBusChipLoadListener } from './busChips';
 import { busRegistry } from './registry';
-import type { BusHandle, SpiDevice, SpiDeviceDescriptor } from './types';
+import type {
+  BusHandle,
+  I2cTarget,
+  I2cTargetDescriptor,
+  SpiDevice,
+  SpiDeviceDescriptor,
+} from './types';
 
 // A model's artifact is fetched, so the map a remote board published on the
 // first membership change was built before the bytes arrived. Wiring the two
@@ -52,4 +60,15 @@ setBusChipLoadListener(() => busRegistry.spiModelsChanged());
  */
 export function attachSpiDevice(desc: SpiDeviceDescriptor, device: SpiDevice): BusHandle {
   return busRegistry.attachSpi(desc, device);
+}
+
+/**
+ * Put an I2C target on the bus its SDA net is on. A target whose SDA or SCL
+ * does not reach a board is not on any bus and says why (`i2c-wiring`). The
+ * handle's dispose() takes it off, with every one of its addresses, by
+ * identity: never by address, so it cannot evict another part that answers at
+ * the same one.
+ */
+export function attachI2cTarget(desc: I2cTargetDescriptor, target: I2cTarget): BusHandle {
+  return busRegistry.attachI2c(desc, target);
 }

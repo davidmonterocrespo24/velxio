@@ -11,12 +11,25 @@
  * port feeds the bus its SCK is routed to right now; the software decoder
  * feeds the same bus from pin edges. A controller routed to a pin no device
  * listens on clocks into the idle line, as a real one would.
+ *
+ * I2C is the same shape keyed by the SDA net: a controller feeds the bus its
+ * SDA is routed to, and a software decoder watches the bus's SDA and SCL. Wire
+ * and Wire1 are two buses exactly when their pins are two nets.
  */
 
+import { I2cBus } from './i2cBus';
 import { controllerOf } from './pinFunctions';
+import { SoftI2cDecoder } from './softI2c';
 import { SoftSpiDecoder } from './softSpi';
 import { SpiBus, type DiagnosticSink } from './spiBus';
-import type { BoardPins, EngineBinding, SpiControllerPort, SpiRouting } from './types';
+import type {
+  BoardPins,
+  EngineBinding,
+  I2cControllerPort,
+  I2cRouting,
+  SpiControllerPort,
+  SpiRouting,
+} from './types';
 
 interface PortSlot {
   port: SpiControllerPort;
@@ -27,6 +40,13 @@ interface PortSlot {
   cs: Array<number | undefined>;
 }
 
+interface I2cSlot {
+  port: I2cControllerPort;
+  bus: I2cBus | null;
+  sda?: number;
+  scl?: number;
+}
+
 const firstPin = (v: number | number[] | undefined): number | undefined =>
   Array.isArray(v) ? v[0] : v;
 
@@ -34,6 +54,9 @@ export class BoardBusFabric {
   readonly spiBuses = new Map<number, SpiBus>();
   private readonly decoders = new Map<number, SoftSpiDecoder>();
   private slots: PortSlot[] = [];
+  readonly i2cBuses = new Map<number, I2cBus>();
+  private readonly i2cDecoders = new Map<number, SoftI2cDecoder>();
+  private i2cSlots: I2cSlot[] = [];
   private binding: EngineBinding | null = null;
   /** Pin level forced by a controller's hardware chip select (true = high). */
   private readonly hwLevel = new Map<number, boolean>();
@@ -78,6 +101,20 @@ export class BoardBusFabric {
         port.setRoutingChangeHandler?.(() => this.route());
       }
       for (const bus of this.spiBuses.values()) this.ensureDecoder(bus);
+      this.i2cSlots = (binding.i2c ?? []).map((port) => ({ port, bus: null }));
+      for (const slot of this.i2cSlots) {
+        // The slot's bus is looked up per event, so a controller the sketch
+        // moves to other pins (or a bus that appears later) is followed
+        // without re-installing anything. No bus = nothing on those pins:
+        // every address NACKs and a read sees the pull-up.
+        slot.port.setTransactionHandler({
+          start: (address, read) => (slot.bus ? slot.bus.start(address, read) : false),
+          write: (byte) => (slot.bus ? slot.bus.write(byte) : false),
+          read: () => (slot.bus ? slot.bus.read() : 0xff),
+          stop: () => slot.bus?.stop(),
+        });
+        slot.port.setRoutingChangeHandler?.(() => this.route());
+      }
     }
     this.route();
     // Chip-select watches live on the board's pins, which just changed.
@@ -97,18 +134,27 @@ export class BoardBusFabric {
       slot.port.setHardwareCsHandler?.(null);
       slot.port.setRoutingChangeHandler?.(null);
     }
+    for (const slot of this.i2cSlots) {
+      slot.port.setTransactionHandler(null);
+      slot.port.setRoutingChangeHandler?.(null);
+    }
     this.binding?.setResetHandler?.(null);
     this.slots = [];
+    this.i2cSlots = [];
     for (const d of this.decoders.values()) d.dispose();
     this.decoders.clear();
+    for (const d of this.i2cDecoders.values()) d.dispose();
+    this.i2cDecoders.clear();
     this.hwLevel.clear();
     for (const bus of this.spiBuses.values()) bus.controller = null;
+    for (const bus of this.i2cBuses.values()) bus.controllerName = null;
   }
 
   dispose(): void {
     this.releaseBinding();
     this.binding = null;
     this.spiBuses.clear();
+    this.i2cBuses.clear();
     this.hwWatchers.clear();
     this.resetListeners.clear();
     this.bindListeners.clear();
@@ -143,6 +189,91 @@ export class BoardBusFabric {
     const pins = this.pins;
     if (!pins || this.decoders.has(bus.sckPin)) return;
     this.decoders.set(bus.sckPin, new SoftSpiDecoder(pins, bus));
+  }
+
+  /** The I2C bus on this SDA net, created on first use. */
+  i2cBusFor(sdaPin: number): I2cBus {
+    let bus = this.i2cBuses.get(sdaPin);
+    if (!bus) {
+      bus = new I2cBus(this.boardId, sdaPin, this.report);
+      this.i2cBuses.set(sdaPin, bus);
+      this.route();
+    }
+    return bus;
+  }
+
+  /**
+   * The registry added or removed a target on `bus`: the clock line may have
+   * changed (a bus with no controller is clocked where its targets' SCL is),
+   * and an empty bus goes away.
+   */
+  i2cMembershipChanged(bus: I2cBus): void {
+    if (this.i2cBuses.get(bus.sdaPin) !== bus) return;
+    if (bus.size === 0) {
+      this.i2cBuses.delete(bus.sdaPin);
+      this.i2cDecoders.get(bus.sdaPin)?.dispose();
+      this.i2cDecoders.delete(bus.sdaPin);
+      this.route();
+      return;
+    }
+    this.clockI2c(bus);
+    this.checkI2cWiring(bus);
+  }
+
+  /**
+   * Decide the bus's clock line and keep its software decoder on it. A
+   * routed controller defines it; otherwise the SCL most of its targets share
+   * (lowest pin on a tie), so the answer never depends on attach order.
+   */
+  private clockI2c(bus: I2cBus): void {
+    let scl: number | undefined;
+    for (const slot of this.i2cSlots) {
+      if (slot.bus === bus && slot.scl !== undefined) {
+        scl = slot.scl;
+        break;
+      }
+    }
+    if (scl === undefined) {
+      const votes = new Map<number, number>();
+      for (const m of bus.members.values()) votes.set(m.sclPin, (votes.get(m.sclPin) ?? 0) + 1);
+      let best = -1;
+      for (const [pin, n] of votes) {
+        if (scl === undefined || n > best || (n === best && pin < scl)) {
+          scl = pin;
+          best = n;
+        }
+      }
+    }
+    if (bus.sclPin !== scl) bus.setClock(scl);
+    else bus.reindex();
+    const pins = this.pins;
+    const dec = this.i2cDecoders.get(bus.sdaPin);
+    if (dec && (dec.sclPin !== scl || !pins)) {
+      dec.dispose();
+      this.i2cDecoders.delete(bus.sdaPin);
+    }
+    if (pins && scl !== undefined && !this.i2cDecoders.has(bus.sdaPin)) {
+      this.i2cDecoders.set(bus.sdaPin, new SoftI2cDecoder(pins, bus, scl));
+    }
+  }
+
+  /** SDA and SCL swapped against a controller is the classic I2C wiring mistake. */
+  private checkI2cWiring(bus: I2cBus): void {
+    for (const m of bus.members.values()) {
+      for (const slot of this.i2cSlots) {
+        if (slot.sda === m.sclPin && slot.scl === bus.sdaPin) {
+          this.report({
+            code: 'i2c-wiring',
+            bus: 'i2c',
+            boardId: this.boardId,
+            owners: [m.owner],
+            message:
+              `${m.owner}: SDA and SCL are crossed (its SDA is on pin ${bus.sdaPin}, which ` +
+              `${slot.port.name} uses as SCL). Swap the two wires.`,
+          });
+        }
+      }
+    }
   }
 
   // ── Controller routing ────────────────────────────────────────────────────
@@ -197,6 +328,45 @@ export class BoardBusFabric {
       // The controller is only known now, and whether it is remote decides
       // whether a selected responder here is a problem worth naming.
       bus.reportRemoteGaps();
+    }
+    this.routeI2c();
+  }
+
+  private i2cRoutingOf(slot: I2cSlot): void {
+    const r: I2cRouting | 'static' = slot.port.routing();
+    if (r === 'static') {
+      const kind = this.kind();
+      const def = kind ? controllerOf(kind, 'i2c', slot.port.unit) : undefined;
+      slot.sda = firstPin(def?.defaultPins.sda);
+      slot.scl = firstPin(def?.defaultPins.scl);
+    } else {
+      slot.sda = r.sda;
+      slot.scl = r.scl;
+    }
+  }
+
+  /** Point every I2C controller at the bus on the SDA net it is routed to. */
+  private routeI2c(): void {
+    for (const bus of this.i2cBuses.values()) bus.controllerName = null;
+    for (const slot of this.i2cSlots) {
+      this.i2cRoutingOf(slot);
+      const bus = slot.sda !== undefined ? (this.i2cBuses.get(slot.sda) ?? null) : null;
+      slot.bus = bus;
+      if (!bus) continue;
+      if (bus.controllerName) {
+        this.report({
+          code: 'i2c-wiring',
+          bus: 'i2c',
+          boardId: this.boardId,
+          owners: [],
+          message: `${bus.controllerName} and ${slot.port.name} are both routed to SDA pin ${bus.sdaPin}.`,
+        });
+      }
+      bus.controllerName = slot.port.name;
+    }
+    for (const bus of this.i2cBuses.values()) {
+      this.clockI2c(bus);
+      this.checkI2cWiring(bus);
     }
   }
 
@@ -345,6 +515,8 @@ export class BoardBusFabric {
   private onMcuReset(): void {
     this.hwLevel.clear();
     for (const bus of this.spiBuses.values()) bus.boardReset();
+    for (const d of this.i2cDecoders.values()) d.restart();
+    for (const bus of this.i2cBuses.values()) bus.boardReset();
     for (const cb of this.resetListeners) cb();
   }
 }

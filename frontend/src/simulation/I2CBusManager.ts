@@ -13,9 +13,25 @@
  * boards are wired together.  This lets two physical-style boards
  * exchange I2C transactions without requiring slave-mode emulation
  * inside avr8js / rp2040js (neither library supports it natively).
+ *
+ * It is also the engine's I2C controller port for the bus fabric (project
+ * board-buses-2026-09, F5): one manager per hardware controller, created with
+ * the simulator and kept across every rebuild of the SoC (`attachMaster`
+ * re-points it at the new peripheral), so the fabric's transaction handler
+ * installed once keeps hearing the controller after a reset, a Stop/Run or a
+ * firmware reload. Every START, byte and STOP the controller puts on the wire
+ * reaches that handler exactly once.
+ *
+ * The device map below is the transition bridge for parts that still call
+ * `addI2CDevice` (the F2 facade pattern, for I2C): it sits on the same wire as
+ * the fabric's targets, so the two combine the way open-drain lines do. The
+ * address is ACKed if either side ACKs, a written byte goes to both, and a read
+ * is the AND of both. A device that answers alone reads exactly as before.
+ * The map goes away once the last caller registers through the fabric.
  */
 
 import type { AVRTWI, TWIEventHandler } from 'avr8js';
+import type { I2cControllerPort, I2cRouting, I2cTransactionHandler } from './buses/types';
 
 // ── Virtual I2C device interface ────────────────────────────────────────────
 
@@ -51,9 +67,27 @@ export interface I2CMaster {
   completeRead(value: number): void;
 }
 
+/** Who this manager is as a controller port of the fabric. */
+export interface I2CControllerOptions {
+  /** The SoC's index for the controller (the pin function table's unit). Default 0. */
+  unit?: number;
+  /** Datasheet name, for diagnostics. Default `I2C<unit>`. */
+  name?: string;
+  /**
+   * Where the controller's SDA and SCL are right now (funcsel on the RP2040
+   * family), or 'static' when the board table fixes them (the ATmega TWI).
+   * Default 'static'.
+   */
+  routing?: () => I2cRouting | 'static';
+}
+
 // ── I2C Bus Manager (implements TWIEventHandler for avr8js) ────────────────
 
-export class I2CBusManager implements TWIEventHandler {
+export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
+  readonly bus = 'i2c' as const;
+  readonly unit: number;
+  readonly name: string;
+
   private devices: Map<number, I2CDevice> = new Map();
   private activeDevice: I2CDevice | null = null;
   private writeMode = true;
@@ -65,6 +99,16 @@ export class I2CBusManager implements TWIEventHandler {
   /** When this bus is acting as the target of an external peer's master, this holds the addressed device. */
   private externalActiveDevice: I2CDevice | null = null;
 
+  private master: I2CMaster;
+  private readonly route: () => I2cRouting | 'static';
+  /** The fabric's side of the wire, installed by the board's fabric. */
+  private handler: I2cTransactionHandler | null = null;
+  private routingChangeHandler: (() => void) | null = null;
+  /** The fabric ACKed the current address phase: its bytes go through it. */
+  private fabricActive = false;
+  /** The fabric heard a START since the last STOP, so it is owed that STOP. */
+  private fabricOpen = false;
+
   /**
    * Construct a bus bound to an `I2CMaster`.  For backward
    * compatibility, if the master has a settable `eventHandler`
@@ -73,7 +117,11 @@ export class I2CBusManager implements TWIEventHandler {
    * peripherals with per-callback wiring (RPI2C), the caller is
    * responsible for routing each master event into the bus's methods.
    */
-  constructor(private master: I2CMaster) {
+  constructor(master: I2CMaster, controller: I2CControllerOptions = {}) {
+    this.master = master;
+    this.unit = controller.unit ?? 0;
+    this.name = controller.name ?? `I2C${this.unit}`;
+    this.route = controller.routing ?? (() => 'static');
     this.bindEventHandler(master);
   }
 
@@ -97,15 +145,45 @@ export class I2CBusManager implements TWIEventHandler {
    * device registration can happen before firmware loads) and the
    * real MCU peripheral becomes available later (e.g. after loadHex).
    * Local devices and bridges are preserved.
+   *
+   * A new master is a new SoC: whatever transaction the old one had open
+   * went with it, so nothing of it is carried into the next START.
    */
   attachMaster(master: I2CMaster): void {
     this.master = master;
+    this.activeDevice = null;
+    this.activeExternal = null;
+    this.fabricActive = false;
+    this.fabricOpen = false;
     this.bindEventHandler(master);
   }
 
   /** Backward-compat accessor for the underlying AVRTWI, when constructed from one. */
   get twi(): AVRTWI {
     return this.master as AVRTWI;
+  }
+
+  // ── Controller port (bus fabric) ────────────────────────────────────────
+
+  setTransactionHandler(handler: I2cTransactionHandler | null): void {
+    // A handler installed mid-transaction never saw its START: it owes
+    // nothing to the next STOP and gets no bytes until the next address phase.
+    this.handler = handler;
+    this.fabricActive = false;
+    this.fabricOpen = false;
+  }
+
+  routing(): I2cRouting | 'static' {
+    return this.route();
+  }
+
+  setRoutingChangeHandler(handler: (() => void) | null): void {
+    this.routingChangeHandler = handler;
+  }
+
+  /** The simulator saw the controller move to other pads (a funcsel write). */
+  routingChanged(): void {
+    this.routingChangeHandler?.();
   }
 
   /** Register a virtual I2C device on the bus */
@@ -169,6 +247,12 @@ export class I2CBusManager implements TWIEventHandler {
   }
 
   stop(): void {
+    // Everything is settled before completeStop: an RP2040 starts its next
+    // queued transaction from inside that call.
+    const owed = this.fabricOpen ? this.handler : null;
+    this.fabricOpen = false;
+    this.fabricActive = false;
+    owed?.stop();
     if (this.activeExternal) {
       this.activeExternal.handleExternalStop();
       this.activeExternal = null;
@@ -180,15 +264,25 @@ export class I2CBusManager implements TWIEventHandler {
   }
 
   connectToSlave(addr: number, write: boolean): void {
+    this.writeMode = write;
+    // 0. The fabric's targets: the address phase reaches them first, and
+    //    whatever they answer is only half of the wire (see the class doc).
+    const h = this.handler;
+    this.fabricActive = false;
+    if (h) {
+      this.fabricOpen = true;
+      this.fabricActive = h.start(addr, !write);
+    }
     // 1. Local devices win — fastest path and what single-board sketches expect.
     const local = this.devices.get(addr);
     if (local) {
       this.activeDevice = local;
       this.activeExternal = null;
-      this.writeMode = write;
       this.master.completeConnect(true);
       return;
     }
+    this.activeDevice = null;
+    this.activeExternal = null;
     // 2. Walk the bridge graph (BFS) until a peer ACKs `addr`.  The
     //    visited Set starts with `this` so we don't bounce back into
     //    ourselves through a peer that has us in its own bridge list.
@@ -199,38 +293,39 @@ export class I2CBusManager implements TWIEventHandler {
       if (visited.has(bridge)) continue;
       if (bridge.handleExternalConnect(addr, write, visited)) {
         this.activeExternal = bridge;
-        this.activeDevice = null;
-        this.writeMode = write;
         this.master.completeConnect(true);
         return;
       }
     }
-    // 3. NACK — no device anywhere in the topology knows this address.
-    this.activeDevice = null;
-    this.activeExternal = null;
-    this.master.completeConnect(false);
+    // 3. Nobody on the legacy side: the fabric's ACK is the whole answer, a
+    //    NACK when no target anywhere knows this address.
+    this.master.completeConnect(this.fabricActive);
   }
 
   writeByte(value: number): void {
+    // Every addressed side takes the byte; either one pulling SDA low ACKs it.
+    let ack = false;
+    if (this.fabricActive && this.handler) ack = this.handler.write(value);
     if (this.activeDevice) {
-      this.master.completeWrite(this.activeDevice.writeByte(value));
+      if (this.activeDevice.writeByte(value)) ack = true;
     } else if (this.activeExternal) {
-      this.master.completeWrite(this.activeExternal.handleExternalWrite(value));
-    } else {
-      this.master.completeWrite(false);
+      if (this.activeExternal.handleExternalWrite(value)) ack = true;
     }
+    this.master.completeWrite(ack);
   }
 
   readByte(_ack: boolean): void {
+    // Open-drain: a bit reads 1 only if nobody pulls it low, and a side that
+    // is not addressed leaves the line to the pull-up.
+    let value = 0xff;
+    if (this.fabricActive && this.handler) value &= this.handler.read();
     if (this.activeDevice) {
-      this.master.completeRead(this.activeDevice.readByte());
+      value &= this.activeDevice.readByte();
     } else if (this.activeExternal) {
-      this.master.completeRead(this.activeExternal.handleExternalRead());
-    } else {
-      this.master.completeRead(0xff);
+      value &= this.activeExternal.handleExternalRead();
     }
+    this.master.completeRead(value & 0xff);
   }
-
   // ── External-master inbound handlers (called by a bridged peer bus) ────
 
   /**

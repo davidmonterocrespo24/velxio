@@ -14,6 +14,7 @@ the worker's registered callbacks the way the C side does:
   bulk SPI       picsimlab_spi_event_batch(0, buf, len), write-only (hw/ssi/esp32_spi.c)
   GPIO output    picsimlab_write_pin(slot, level), slot = gpio + 1 on ESP32
   I2C            picsimlab_i2c_event(bus, addr, op | data << 8) -> ack / data
+  GPIO matrix    qemu_picsimlab_get_internals(2) -> the pads' OUT_SEL words
 
 The test sends one JSON op per line on a control pipe (BB_CTL_IN) and reads
 one JSON reply per op (BB_CTL_OUT). Symbols the real library may lack
@@ -52,7 +53,11 @@ class FakeLibQemu:
         self.qemu_init = _Fn(lambda _argc, _argv, _envp: 0)
         self.qemu_main_loop = _Fn(self._guest_loop)
         self.qemu_system_shutdown_request = _Fn(lambda _cause: self._shutdown.set())
-        self.qemu_picsimlab_get_internals = _Fn(lambda _idx: 0)
+        # The GPIO matrix's output selects (QEMU_INTERNAL index 2), one word per
+        # pad. None until a test routes a signal (op 'matrix'): until then the
+        # worker reads what an older libqemu gives it, a null pointer.
+        self._out_sel = None
+        self.qemu_picsimlab_get_internals = _Fn(self._internals)
         self.qemu_picsimlab_set_pin = _Fn(lambda slot, v: self._record('set_pin', slot, v))
         self.qemu_picsimlab_set_apin = _Fn(lambda ch, v: self._record('set_apin', ch, v))
         self.qemu_picsimlab_enable_spi_cs_events = _Fn(
@@ -69,6 +74,11 @@ class FakeLibQemu:
         with self._calls_cv:
             self._calls.append([name, *[int(a) if isinstance(a, int) else a for a in args]])
             self._calls_cv.notify_all()
+
+    def _internals(self, idx: int) -> int:
+        if idx == 2 and self._out_sel is not None:
+            return ctypes.addressof(self._out_sel)
+        return 0
 
     # ── the guest ───────────────────────────────────────────────────────────
     def _guest_loop(self) -> None:
@@ -125,6 +135,14 @@ class FakeLibQemu:
             bus, addr = int(op['bus']), int(op['addr'])
             return {'ret': [int(cbs.picsimlab_i2c_event(bus, addr, int(ev)))
                             for ev in op['events']]}
+        if kind == 'matrix':
+            # GPIO_FUNCn_OUT_SEL: {gpio: signal}; every other pad is a plain
+            # GPIO output (signal 256), as after reset.
+            if self._out_sel is None:
+                self._out_sel = (ctypes.c_uint32 * 64)(*([256] * 64))
+            for gpio, sig in op['out_sel'].items():
+                self._out_sel[int(gpio)] = int(sig)
+            return {}
         if kind == 'wait':
             want = op['call']
             with self._calls_cv:

@@ -8,15 +8,22 @@
  * device between buses without anyone re-attaching, and it re-watches chip
  * selects when a board's engine is bound again. Nothing depends on the order
  * devices registered in.
+ *
+ * I2C targets live in the same registry with the same rules: registered once
+ * by their own pin names, placed on the bus of their SDA net, moved when the
+ * circuit changes, removed by the identity of their handle.
  */
 
 import { BoardBusFabric } from './fabric';
+import type { I2cBus, I2cMember } from './i2cBus';
 import type { SpiBus, SpiMember } from './spiBus';
 import type {
   BusDiagnostic,
   BusHandle,
   DevicePin,
   EngineBinding,
+  I2cTarget,
+  I2cTargetDescriptor,
   NetResolver,
   PinRef,
   RemoteSpiModel,
@@ -45,6 +52,17 @@ interface SpiEntry {
   /** Identity of the placement, to skip no-op recomputes. */
   key: string;
   unwatch: (() => void) | null;
+}
+
+interface I2cEntry {
+  desc: I2cTargetDescriptor;
+  target: I2cTarget;
+  /** Addresses as the bus indexes them: 7-bit, deduplicated. */
+  addresses: number[];
+  member: I2cMember | null;
+  fabric: BoardBusFabric | null;
+  bus: I2cBus | null;
+  key: string;
 }
 
 export type DiagnosticListener = (d: BusDiagnostic) => void;
@@ -104,6 +122,7 @@ export class BusRegistry {
   private readonly fabrics = new Map<string, BoardBusFabric>();
   private readonly fabricHooks = new Map<string, Array<() => void>>();
   private readonly spi = new Map<string, SpiEntry>();
+  private readonly i2c = new Map<string, I2cEntry>();
   private readonly diagListeners = new Set<DiagnosticListener>();
   private readonly seenDiag = new Set<string>();
   private readonly mapListeners = new Set<SpiMapListener>();
@@ -132,6 +151,7 @@ export class BusRegistry {
       if (!present.has(id) && !f.bound) this.dropFabric(id);
     }
     for (const e of this.spi.values()) this.place(e);
+    for (const e of this.i2c.values()) this.placeI2c(e);
   }
 
   // ── Boards ────────────────────────────────────────────────────────────────
@@ -177,6 +197,7 @@ export class BusRegistry {
     const f = this.fabrics.get(boardId);
     if (!f) return;
     for (const e of this.spi.values()) if (e.fabric === f) this.unplace(e);
+    for (const e of this.i2c.values()) if (e.fabric === f) this.unplaceI2c(e);
     for (const off of this.fabricHooks.get(boardId) ?? []) off();
     this.fabricHooks.delete(boardId);
     f.dispose();
@@ -403,6 +424,105 @@ export class BusRegistry {
     for (const e of this.spi.values()) if (e.fabric === f) this.watch(e);
   }
 
+  // ── I2C targets ───────────────────────────────────────────────────────────
+
+  /**
+   * Put an I2C target on the bus its SDA net is. As with SPI, registering an
+   * owner that already exists replaces it. A chip with several addresses
+   * registers them all in ONE descriptor: they are one identity, and they
+   * leave together when its handle is disposed.
+   */
+  attachI2c(desc: I2cTargetDescriptor, target: I2cTarget): BusHandle {
+    this.i2c.get(desc.owner) && this.detachI2c(desc.owner);
+    const addresses: number[] = [];
+    for (const a of desc.addresses) {
+      if (Number.isInteger(a) && a >= 0 && a <= 0x7f && !addresses.includes(a)) addresses.push(a);
+    }
+    const entry: I2cEntry = { desc, target, addresses, member: null, fabric: null, bus: null, key: '' };
+    this.i2c.set(desc.owner, entry);
+    this.placeI2c(entry);
+    let disposed = false;
+    return {
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        // By identity: a stale handle never removes the owner's newer registration.
+        if (this.i2c.get(desc.owner) === entry) this.detachI2c(desc.owner);
+      },
+      // I2C targets carry no portable model yet (F5-SPEC, out of scope).
+      attrsChanged: () => {},
+    };
+  }
+
+  private detachI2c(owner: string): void {
+    const e = this.i2c.get(owner);
+    if (!e) return;
+    this.unplaceI2c(e);
+    this.i2c.delete(owner);
+  }
+
+  private placeI2c(e: I2cEntry): void {
+    const { desc } = e;
+    const ref = (pin: DevicePin): PinRef =>
+      typeof pin === 'string'
+        ? { kind: 'component', componentId: desc.componentId ?? desc.owner, pinName: pin }
+        : pin;
+    const sda = this.resolver.resolve(ref(desc.pins.sda));
+    const scl = this.resolver.resolve(ref(desc.pins.scl));
+    if (sda.kind !== 'board' || scl.kind !== 'board' || sda.boardId !== scl.boardId) {
+      if (e.key !== '') this.unplaceI2c(e);
+      // Today's engines ACK a chip whether or not it is wired; on the bench it
+      // is silent, and silence with no reason reads as a dead chip.
+      const board = sda.kind === 'board' ? sda.boardId : scl.kind === 'board' ? scl.boardId : null;
+      this.emit({
+        code: 'i2c-wiring',
+        bus: 'i2c',
+        boardId: board,
+        owners: [desc.owner],
+        message:
+          sda.kind === 'board' && scl.kind === 'board'
+            ? `${desc.owner}: its SDA goes to ${sda.boardId} and its SCL to ${scl.boardId}; ` +
+              `a chip can only be on one board's bus, so it does not answer.`
+            : `${desc.owner}: its SDA ${describePin(sda)} and its SCL ${describePin(scl)}, so the ` +
+              `chip does not answer. Wire both to the board's I2C pins (or to any two GPIOs for ` +
+              `software I2C).`,
+      });
+      return;
+    }
+    const board = sda.boardId;
+    const key = `${board}|${sda.pin}|${scl.pin}`;
+    if (key === e.key && e.bus) return;
+    this.unplaceI2c(e);
+    const fabric = this.fabric(board);
+    const bus = fabric.i2cBusFor(sda.pin);
+    const member: I2cMember = {
+      owner: desc.owner,
+      desc,
+      target: e.target,
+      addresses: e.addresses,
+      sclPin: scl.pin,
+      clocked: false,
+    };
+    e.member = member;
+    e.fabric = fabric;
+    e.bus = bus;
+    e.key = key;
+    bus.add(member);
+    fabric.i2cMembershipChanged(bus);
+  }
+
+  private unplaceI2c(e: I2cEntry): void {
+    const { bus, fabric } = e;
+    if (bus) {
+      bus.remove(e.desc.owner);
+      fabric?.i2cMembershipChanged(bus);
+    }
+    e.member = null;
+    e.bus = null;
+    e.fabric = null;
+    e.key = '';
+  }
+
   // ── The bus map a remote worker needs ─────────────────────────────────────
 
   /**
@@ -626,15 +746,37 @@ export class BusRegistry {
     return { boardId: e.bus.boardId, sckPin: e.bus.sckPin, selected: e.member.selected };
   }
 
+  /** Where each I2C target sits right now. */
+  i2cPlacement(owner: string): { boardId: string; sdaPin: number; sclPin: number; clocked: boolean } | null {
+    const e = this.i2c.get(owner);
+    if (!e || !e.bus || !e.member) return null;
+    return { boardId: e.bus.boardId, sdaPin: e.bus.sdaPin, sclPin: e.member.sclPin, clocked: e.member.clocked };
+  }
+
   /** Drop everything. Tests only. */
   clear(): void {
     for (const owner of Array.from(this.spi.keys())) this.detachSpi(owner);
+    for (const owner of Array.from(this.i2c.keys())) this.detachI2c(owner);
     for (const id of Array.from(this.fabrics.keys())) this.dropFabric(id);
     this.seenDiag.clear();
     this.mapListeners.clear();
     this.attrListeners.clear();
     this.sentAttrs.clear();
     this.resolver = NO_RESOLVER;
+  }
+}
+
+/** Where a pin went, in words, for a wiring diagnostic. */
+function describePin(p: ResolvedPin): string {
+  switch (p.kind) {
+    case 'board':
+      return `is on pin ${p.pin} of ${p.boardId}`;
+    case 'rail':
+      return p.rail === 'gnd' ? 'is tied to GND' : 'is tied to a supply rail';
+    case 'chip':
+      return 'goes to another chip, not to a board';
+    default:
+      return 'is not connected';
   }
 }
 

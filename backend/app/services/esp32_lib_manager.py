@@ -442,17 +442,26 @@ class EspLibManager:
             self._write_cmd(inst, {'cmd': 'set_i2c_response', 'addr': addr,
                                    'response': response_byte & 0xFF})
 
-    def set_bus_map(self, client_id: str, spi: list) -> None:
-        """Replace the worker's view of who is on the board's SPI bus.
+    def set_bus_map(self, client_id: str, spi: list | None, i2c: list | None = None) -> None:
+        """Replace the worker's view of who is on the board's SPI bus, and,
+        when the tab sends it, which I2C controller each target is on.
 
         The tab sends the whole map on every membership change, so a device
         the user deleted is gone by being absent. It replaced
         set_spi_response, which sent one MISO byte for a byte the guest had
-        already clocked (project board-buses-2026-09, F4)."""
+        already clocked (project board-buses-2026-09, F4). `i2c` is F5's half;
+        None (a tab that predates it) leaves the worker's I2C placement alone,
+        and so does a None `spi` for the SPI half: an I2C membership change
+        does not re-ship every SPI model's artifact and card image."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:
-            self._write_cmd(inst, {'cmd': 'bus_map', 'spi': spi})
+            cmd: dict = {'cmd': 'bus_map'}
+            if spi is not None:
+                cmd['spi'] = spi
+            if i2c is not None:
+                cmd['i2c'] = i2c
+            self._write_cmd(inst, cmd)
 
     def set_bus_attrs(self, client_id: str, owner: str, attrs: dict) -> None:
         """One hosted responder's live inputs, between two maps (the finger,

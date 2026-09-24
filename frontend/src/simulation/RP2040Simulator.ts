@@ -19,6 +19,7 @@ import type {
   SpiControllerPort,
   SpiMode,
   SpiRouting,
+  I2cRouting,
 } from './buses/types';
 import { boardPinsFromPinManager } from './buses/boardPins';
 
@@ -251,6 +252,13 @@ type RpAlarm = ReturnType<RP2040['clock']['createAlarm']>;
 
 /** GPIO function select F1: the pad belongs to SPI0 or SPI1 (datasheet 2.19.2). */
 const FUNCSEL_SPI = 1;
+/**
+ * GPIO function select F3: the pad belongs to I2C0 or I2C1. Even GPIOs carry
+ * SDA and odd ones SCL, and the controller alternates every two pads: I2C0 on
+ * GPIO 0-1, 4-5, 8-9..., I2C1 on 2-3, 6-7... (bit 1 of the GPIO number; the
+ * same table as boardPinTables/rp2040.ts).
+ */
+const FUNCSEL_I2C = 3;
 /** rp2040js keys its peripheral map by address >> 14 << 2: IO_BANK0 at 0x40014000. */
 const IO_BANK0_KEY = 0x40014;
 /** GPIOn_CTRL is the word at 8n + 4 of IO_BANK0, up to GPIO29. */
@@ -277,6 +285,38 @@ const SPI_PAD_SIGNAL = ['miso', 'cs', 'sck', 'mosi'] as const;
 function frameBits(spi: RpSpi): number {
   const bits = spi.dataBits;
   return bits >= 4 ? bits : 8;
+}
+
+/** DW_apb_i2c IC_RAW_INTR_STAT and its TX_EMPTY bit. */
+const IC_RAW_INTR_STAT = 0x34;
+const IC_INTR_TX_EMPTY = 1 << 4;
+/** Controllers whose TX_EMPTY already reads as a level (patched, or a fixed engine). */
+const levelledTxEmpty = new WeakSet<object>();
+
+/**
+ * Make IC_RAW_INTR_STAT.TX_EMPTY read as the level the datasheet describes:
+ * high whenever the TX FIFO is at or below IC_TX_TL. rp2040js (1.3.2) only
+ * sets it as an event after it processes a command, and an address NACK
+ * flushes the FIFO without processing the queued byte, so the bit never rose:
+ * pico-sdk's i2c_write_blocking polls it before looking at TX_ABRT, and every
+ * Wire write to an absent address sat out the whole Wire timeout and reported
+ * 5 (timeout) instead of 2 (address NACK). The engine completes every command
+ * synchronously, so a FIFO at the threshold is also a shift register at rest.
+ * Only the raw status read by polling code is widened; the interrupt line is
+ * the engine's own. The same fix RP2350Simulator applies to rp2350js <= 1.1.0,
+ * and feature-detected the same way: an idle controller must read it high.
+ */
+function levelTxEmpty(i2c: RPI2C): void {
+  if (levelledTxEmpty.has(i2c)) return;
+  levelledTxEmpty.add(i2c);
+  if (i2c.readUint32(IC_RAW_INTR_STAT) & IC_INTR_TX_EMPTY) return;
+  const peek = i2c as unknown as { txFIFO: { itemCount: number }; txThreshold: number };
+  const read = i2c.readUint32.bind(i2c);
+  i2c.readUint32 = (offset: number): number => {
+    const v = read(offset);
+    if (offset === IC_RAW_INTR_STAT && peek.txFIFO.itemCount <= peek.txThreshold) return v | IC_INTR_TX_EMPTY;
+    return v;
+  };
 }
 
 /**
@@ -415,8 +455,19 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   private spiCsAlarms: [RpAlarm | null, RpAlarm | null] = [null, null];
   private busResetHandler: (() => void) | null = null;
   private readonly busBinding: EngineBinding;
+  /**
+   * Pads a bus target is holding low right now (an I2C ACK or a 0 bit on SDA,
+   * a software-SPI MISO). Open-drain: while a target pulls a line low, the pad's
+   * own pull-up cannot raise it, so the guest reconfiguring the pin (the
+   * master letting SDA go for the ACK slot) must not seed the pull's level
+   * over it. See the pull branch of setupGpioListeners.
+   */
+  private readonly busHeldLow = new Set<number>();
+  /** Where each I2C controller's SDA and SCL are right now, from the pads' funcsel. */
+  private i2cRouting: [I2cRouting, I2cRouting] = [{}, {}];
+  private i2cRoutingKey: [string, string] = ['', ''];
 
-  /** The bus fabric's view of this board: pins, both SPI controllers, MCU resets. */
+  /** The bus fabric's view of this board: pins, both SPI and both I2C controllers, MCU resets. */
   getBusBinding(): EngineBinding {
     return this.busBinding;
   }
@@ -509,6 +560,31 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   }
 
   /**
+   * Where I2C `unit` is routed now: every pad whose funcsel is F3 on that
+   * controller. Wire and Wire1 are told apart by this and nothing else, so a
+   * board whose Wire is I2C1 (the XIAO RP2040) puts its bus on the right pads
+   * without the fabric knowing the variant.
+   */
+  private refreshI2cRouting(unit: 0 | 1): void {
+    const mcu = this.rp2040;
+    const r: I2cRouting = {};
+    if (mcu) {
+      for (let g = 0; g < mcu.gpio.length; g++) {
+        if (((g >> 1) & 1) !== unit || mcu.gpio[g].functionSelect !== FUNCSEL_I2C) continue;
+        // Two pads on one signal are one wire to the controller; the lowest
+        // stands for it, as for SPI.
+        if ((g & 1) === 0) r.sda = r.sda ?? g;
+        else r.scl = r.scl ?? g;
+      }
+    }
+    const key = `${r.sda}|${r.scl}`;
+    if (key === this.i2cRoutingKey[unit]) return;
+    this.i2cRouting[unit] = r;
+    this.i2cRoutingKey[unit] = key;
+    this.i2cBuses[unit].routingChanged();
+  }
+
+  /**
    * Point a freshly built SoC's controllers at the ports. Called by every path
    * that creates an RP2040, so the port bound before is the one the new SoC
    * clocks into: a device never has to re-attach, and no path installs a
@@ -533,7 +609,9 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
       io.writeUint32 = (offset: number, value: number): void => {
         write(offset, value);
         if (offset <= GPIO_CTRL_LAST && (offset & 4) !== 0 && this.rp2040 === mcu) {
-          this.refreshSpiRouting(((offset >>> 3) >> 3) & 1 ? 1 : 0);
+          const gpio = offset >>> 3;
+          this.refreshSpiRouting((gpio >> 3) & 1 ? 1 : 0);
+          this.refreshI2cRouting((gpio >> 1) & 1 ? 1 : 0);
         }
       };
     }
@@ -546,9 +624,14 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
    * F2-SPEC orders it. Routing starts over from the new SoC's funcsel.
    */
   private busMcuReset(): void {
+    // The new SoC's pads start undriven; whatever a bus target still holds is
+    // put back by the target itself (the fabric restarts its decoders below).
+    this.busHeldLow.clear();
     this.pinManager.hardResetPinStates();
     this.refreshSpiRouting(0);
     this.refreshSpiRouting(1);
+    this.refreshI2cRouting(0);
+    this.refreshI2cRouting(1);
     this.busResetHandler?.();
   }
 
@@ -579,14 +662,20 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
 
   constructor(pinManager: PinManager) {
     this.pinManager = pinManager;
-    this.i2cBuses = [new I2CBusManager(nullI2CMaster()), new I2CBusManager(nullI2CMaster())];
+    // Each manager is also that controller's port for the bus fabric, with
+    // its routing read from funcsel.
+    this.i2cBuses = [
+      new I2CBusManager(nullI2CMaster(), { unit: 0, name: 'I2C0', routing: () => this.i2cRouting[0] }),
+      new I2CBusManager(nullI2CMaster(), { unit: 1, name: 'I2C1', routing: () => this.i2cRouting[1] }),
+    ];
     this.spiPorts = [
       new RpSpiPort(0, () => this.rp2040?.spi[0] ?? null, () => this.spiRouting[0]),
       new RpSpiPort(1, () => this.rp2040?.spi[1] ?? null, () => this.spiRouting[1]),
     ];
     this.busBinding = {
-      pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.setPinState(pin, level)),
+      pins: boardPinsFromPinManager(this.pinManager, (pin, level) => this.busDriveInput(pin, level)),
       spi: this.spiPorts,
+      i2c: this.i2cBuses,
       setResetHandler: (handler) => {
         this.busResetHandler = handler;
       },
@@ -1172,6 +1261,17 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     const busManager = this.i2cBuses[bus];
     busManager.attachMaster(i2c);
     wireRpI2cToBus(i2c, busManager);
+    levelTxEmpty(i2c);
+  }
+
+  /**
+   * The fabric's driveInput: a bus target pulling a pad low or letting it go.
+   * Remembered while it is low, so the pad's pull does not overwrite it.
+   */
+  private busDriveInput(pin: number, level: boolean): void {
+    if (level) this.busHeldLow.delete(pin);
+    else this.busHeldLow.add(pin);
+    this.setPinState(pin, level);
   }
 
   private setupGpioListeners(): void {
@@ -1215,7 +1315,12 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
           // Through setPinState, not gpio.setInputValue: the scope has to see
           // this baseline too, or a channel probed on a pulled input stays
           // empty until something in the circuit moves it.
-          if (pull === 1) this.setPinState(pin, true);
+          //
+          // Except under a bus target holding the line low: a weak pull-up
+          // loses to it, as on the wire. Without this the master letting SDA
+          // go for the ACK slot erased the ACK it was about to read.
+          if (this.busHeldLow.has(pin)) this.setPinState(pin, false);
+          else if (pull === 1) this.setPinState(pin, true);
           else if (pull === 2) this.setPinState(pin, false);
           requestElectricalResolve();
           // The pad was RELEASED. This is the event the level channel above

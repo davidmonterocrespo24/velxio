@@ -99,6 +99,7 @@ import {
   createStoreNetResolver,
   RemoteSpiLane,
 } from '../simulation/buses';
+import { RemoteI2cLane } from '../simulation/buses/remoteI2c';
 import {
   loadSdBusChip,
   SdSpiCard,
@@ -230,15 +231,25 @@ export class Esp32BridgeShim {
    * when the CPU is not in this tab.
    */
   private readonly remoteLane: RemoteSpiLane;
+  /**
+   * The same board's I2C, for the same worker (F5): its controllers as ports
+   * for the fabric, and the half of the bus map that says which controller
+   * each I2C target is on. It travels with the SPI half on the same message.
+   */
+  private readonly i2cLane: RemoteI2cLane;
 
   constructor(bridge: Esp32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
+    this.i2cLane = new RemoteI2cLane(bridge.boardId, bridge.boardKind);
     this.remoteLane = new RemoteSpiLane(
       bridge.boardId,
       bridge.boardKind,
-      (spi) => (bridge as unknown as { sendBusMap?: (m: unknown[]) => void }).sendBusMap?.(spi),
+      (spi) =>
+        (
+          bridge as unknown as { sendBusMap?: (m: unknown[], i2c?: unknown[]) => void }
+        ).sendBusMap?.(spi, this.i2cLane.poll().i2c),
       (owner, attrs) =>
         (
           bridge as unknown as {
@@ -256,6 +267,11 @@ export class Esp32BridgeShim {
     // span, because the worker keeps the bytes no sink here can see.
     bridge.onBusBlob = (owner, name, offset, data, blobId) =>
       this.remoteLane.applyBlob(owner, name, offset, data, blobId);
+    // The start config asks for the I2C half as it is when the socket opens:
+    // a first Run may come before any membership change pushed one.
+    (bridge as unknown as { onBusMapRequest?: unknown }).onBusMapRequest = () => ({
+      i2c: this.i2cLane.poll().i2c,
+    });
 
     // Wire the write-forwarding path: when the backend ProxySlave emits
     // a completed write transaction (one full STOP-bounded master phase
@@ -335,6 +351,19 @@ export class Esp32BridgeShim {
    *  sendBusMap, so this is a no-op for it. */
   pushBusMap(): void {
     this.remoteLane.pushMap();
+  }
+
+  /**
+   * Send the I2C half of the map alone when it changed since the last one
+   * (F5). The registry announces SPI membership changes and nothing for I2C
+   * yet, so this runs after a part registers or drops a sensor record, the
+   * moment an I2C part mounts or leaves; a wire moved mid-run reaches the
+   * worker with the next map. Same no-op rule as pushBusMap.
+   */
+  pushI2cMap(): void {
+    const { i2c, changed } = this.i2cLane.poll();
+    if (!changed) return;
+    (this.bridge as unknown as { sendI2cBusMap?: (m: unknown[]) => void }).sendI2cBusMap?.(i2c);
   }
 
   /** A responder's live inputs, for the worker that hosts its model. Same
@@ -669,6 +698,9 @@ export class Esp32BridgeShim {
 
   registerSensor(type: string, pin: number, properties: Record<string, unknown>): boolean {
     this.bridge.sendSensorAttach(type, pin, properties);
+    // An I2C part registers its target with the fabric in the same attach,
+    // before or after this call: look once both are done.
+    queueMicrotask(() => this.pushI2cMap());
     return true; // backend handles the protocol
   }
 
@@ -723,7 +755,7 @@ export class Esp32BridgeShim {
       ) => import('../simulation/buses').EngineBinding | null;
     };
     const binding = typeof bridge.getBusBinding === 'function' ? bridge.getBusBinding(pins) : null;
-    if (!binding) return this.remoteLane.binding(pins);
+    if (!binding) return { ...this.remoteLane.binding(pins), i2c: this.i2cLane.ports };
     return {
       ...binding,
       setResetHandler: (handler) =>
@@ -742,6 +774,7 @@ export class Esp32BridgeShim {
   }
   unregisterSensor(pin: number): void {
     this.bridge.sendSensorDetach(pin);
+    queueMicrotask(() => this.pushI2cMap());
   }
 
   // ── I2C write-only device relay (SSD1306, PCF8574) ───────────────────────
@@ -1183,18 +1216,23 @@ class Stm32BridgeShim {
    *  controller port is fed by the worker's batches and its responders travel
    *  there as a bus map (project board-buses-2026-09, F4). */
   private readonly remoteLane: RemoteSpiLane;
+  /** Its I2C controllers and the I2C half of the same map (F5); see
+   *  Esp32BridgeShim.i2cLane. */
+  private readonly i2cLane: RemoteI2cLane;
 
   constructor(bridge: Stm32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
     this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
+    this.i2cLane = new RemoteI2cLane(bridge.boardId, bridge.boardKind);
     this.remoteLane = new RemoteSpiLane(
       bridge.boardId,
       bridge.boardKind,
-      (spi) => bridge.sendBusMap(spi),
+      (spi) => bridge.sendBusMap(spi, this.i2cLane.poll().i2c),
       (owner, attrs) => bridge.sendBusAttrs(owner, attrs),
     );
     bridge.onSpiBatch = (mosi) => this.remoteLane.port?.deliver(mosi);
+    bridge.onBusMapRequest = () => ({ i2c: this.i2cLane.poll().i2c });
   }
 
   // ── Lifecycle stubs (the store drives the real bridge via getStm32Bridge) ──
@@ -1275,6 +1313,8 @@ class Stm32BridgeShim {
   // ── Generic sensor registration (delegated to the backend QEMU worker) ──
   registerSensor(type: string, pin: number, properties: Record<string, unknown>): boolean {
     this.bridge.sendSensorAttach(type, pin, properties);
+    // See Esp32BridgeShim.registerSensor.
+    queueMicrotask(() => this.pushI2cMap());
     return true;
   }
   updateSensor(pin: number, properties: Record<string, unknown>): void {
@@ -1282,11 +1322,22 @@ class Stm32BridgeShim {
   }
   unregisterSensor(pin: number): void {
     this.bridge.sendSensorDetach(pin);
+    queueMicrotask(() => this.pushI2cMap());
   }
 
   /** Send the worker the board's SPI bus map (project board-buses-2026-09). */
   pushBusMap(): void {
     this.remoteLane.pushMap();
+  }
+
+  /** The I2C half alone, when it changed (F5); see Esp32BridgeShim.pushI2cMap. */
+  pushI2cMap(): void {
+    const { i2c, changed } = this.i2cLane.poll();
+    // Optional for the same reason as on the ESP32 shim: this runs from a
+    // microtask after a sensor attach, so a bridge without the seam (an older
+    // bridge, or a test double) must not turn into an uncaught exception there.
+    if (changed)
+      (this.bridge as unknown as { sendI2cBusMap?: (m: unknown[]) => void }).sendI2cBusMap?.(i2c);
   }
 
   /** A responder's live inputs, for the worker that hosts its model. */
@@ -1308,11 +1359,14 @@ class Stm32BridgeShim {
    * byte the guest clocked before the batch was even sent.
    */
   getBusBinding(): import('../simulation/buses').EngineBinding {
-    return this.remoteLane.binding({
-      onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
-      peekPinState: (pin) => this.pinManager.peekPinState(pin),
-      driveInput: (pin, level) => this.setPinState(pin, level),
-    });
+    return {
+      ...this.remoteLane.binding({
+        onPinChange: (pin, cb) => this.pinManager.onPinChange(pin, cb),
+        peekPinState: (pin) => this.pinManager.peekPinState(pin),
+        driveInput: (pin, level) => this.setPinState(pin, level),
+      }),
+      i2c: this.i2cLane.ports,
+    };
   }
 
   // ── I2C write-only device relay (SSD1306, PCF8574) ────────────────────────

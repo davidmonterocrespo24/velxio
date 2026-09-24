@@ -227,8 +227,13 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                 # change (project board-buses-2026-09, F4). It replaced
                 # esp32_spi_response, one socket message per MISO byte for a
                 # byte the guest had already clocked.
+                # F5 adds `i2c`: which controller each I2C target is on.
+                # A half that is absent is left as the worker has it.
                 if _use_lib():
-                    esp_lib_manager.set_bus_map(client_id, msg_data.get('spi') or [])
+                    spi_map, i2c_map = msg_data.get('spi'), msg_data.get('i2c')
+                    esp_lib_manager.set_bus_map(client_id,
+                                                spi_map if isinstance(spi_map, list) else None,
+                                                i2c_map if isinstance(i2c_map, list) else None)
 
             elif msg_type == 'esp32_bus_attrs':
                 # {owner, attrs}: one hosted responder's live inputs between

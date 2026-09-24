@@ -149,7 +149,7 @@ export class Stm32Bridge {
           // Who is on the SPI bus, with the firmware rather than after it:
           // the guest can clock its first byte before a later command would
           // arrive (project board-buses-2026-09, F4).
-          bus_map: { spi: this._busMap },
+          bus_map: this.startBusMap(),
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
         },
       });
@@ -382,12 +382,36 @@ export class Stm32Bridge {
    * the user deleted is gone by being absent; the last one is replayed at the
    * next start, because the worker begins with an empty bus.
    */
-  sendBusMap(spi: unknown[]): void {
+  sendBusMap(spi: unknown[], i2c?: unknown[]): void {
     this._busMap = spi;
-    if (this._connected) this._send({ type: 'stm32_bus_map', data: { spi } });
+    if (i2c) this._busMapI2c = i2c;
+    if (this._connected) {
+      this._send({ type: 'stm32_bus_map', data: i2c ? { spi, i2c } : { spi } });
+    }
   }
 
+  /** The I2C half alone (F5); see Esp32Bridge.sendI2cBusMap. */
+  sendI2cBusMap(i2c: unknown[]): void {
+    this._busMapI2c = i2c;
+    if (this._connected) this._send({ type: 'stm32_bus_map', data: { i2c } });
+  }
+
+  /** Asked for the I2C half as the fabric has it when the start config is
+   *  built; see Esp32Bridge.onBusMapRequest. */
+  onBusMapRequest: (() => { i2c?: unknown[] } | null) | null = null;
+
   private _busMap: unknown[] = [];
+  private _busMapI2c: unknown[] | null = null;
+
+  private startBusMap(): { spi: unknown[]; i2c?: unknown[] } {
+    try {
+      const fresh = this.onBusMapRequest?.();
+      if (fresh?.i2c) this._busMapI2c = fresh.i2c;
+    } catch (e) {
+      console.warn(`[Stm32Bridge:${this.boardId}] the I2C map could not be built`, e);
+    }
+    return this._busMapI2c ? { spi: this._busMap, i2c: this._busMapI2c } : { spi: this._busMap };
+  }
 
   /**
    * One hosted responder's live inputs (project board-buses-2026-09, F4): the

@@ -63,6 +63,29 @@ def rmt_signal_base(machine: str) -> int | None:
     return RMT_SIG_OUT0_IDX_BY_CHIP['esp32']
 
 
+# I2CEXTn_SDA_OUT_IDX per chip, by controller (ESP-IDF
+# components/soc/<chip>/include/soc/gpio_sig_map.h). The worker reads which
+# controller a pad carries off the matrix, because on these chips any GPIO can
+# be SDA: `Wire1.begin(25, 26)` is the whole of Wire1's pin assignment, and the
+# tab has no table that could say it (project board-buses-2026-09, F5).
+I2C_SDA_OUT_IDX_BY_CHIP = {
+    'esp32': {30: 0, 96: 1},
+    'esp32-s3': {90: 0, 92: 1},
+    'esp32-c3': {54: 0},
+}
+
+
+def i2c_sda_signals(machine: str) -> dict[int, int]:
+    """Matrix signal id -> I2C controller, for the chip a machine string names."""
+    if not machine:
+        return {}
+    if 'c3' in machine:
+        return I2C_SDA_OUT_IDX_BY_CHIP['esp32-c3']
+    if 's3' in machine:
+        return I2C_SDA_OUT_IDX_BY_CHIP['esp32-s3']
+    return I2C_SDA_OUT_IDX_BY_CHIP['esp32']
+
+
 def ledc_signal_for_channel(channel: int) -> int:
     """Map a velxio-style unified LEDC channel index (0..15) to its
     GPIO Matrix signal source id.
