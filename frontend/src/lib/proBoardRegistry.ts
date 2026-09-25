@@ -170,8 +170,8 @@ export interface ProBoardDef {
    *  argument is the store's PinManager instance. */
   createSimulator?: (pm: unknown) => ProBoardSimulator;
   /** Load compiled firmware into a createSimulator() instance at run time —
-   *  the overlay owns the whole sequence (PIO attach, binary load, demo I2C
-   *  devices, ...). `program` is the compiled artifact exactly as the store
+   *  the overlay owns the whole sequence (PIO attach, binary load, the
+   *  board's own I2C chips, ...). `program` is the compiled artifact exactly as the store
    *  holds it (base64/hex string, same value RP2040Simulator.loadBinary gets). */
   loadFirmware?: (
     sim: ProBoardSimulator,

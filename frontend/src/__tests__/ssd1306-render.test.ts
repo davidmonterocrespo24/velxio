@@ -10,9 +10,13 @@
  * el.renderFrame() (non-existent) instead of el.imageData / el.redraw().
  */
 
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
+import { busRegistry } from '../simulation/buses';
+import type { I2cTransactionHandler } from '../simulation/buses';
 import '../simulation/parts/ProtocolParts';
+
+afterEach(() => busRegistry.clear());
 
 // ─── Polyfill ImageData for Node/Vitest (no browser) ─────────────────────────
 
@@ -53,13 +57,64 @@ function makeOLEDElement() {
   } as unknown as HTMLElement & { imageData: ImageData; redraw: ReturnType<typeof vi.fn> };
 }
 
-/** Build a minimal AVR simulator stub that supports addI2CDevice. */
+/**
+ * A board with one I2C controller, the OLED's DATA/CLK wired to its SDA/SCL
+ * (the panel is on the bus its wiring says, project board-buses-2026-09 F5).
+ * `_devices[0]` is the MASTER's view of the panel at 0x3C: each writeByte is
+ * a byte on the wire, opening a write transaction when none is open, and
+ * stop() is the STOP. The mocked I2CBusManager used to hand the device
+ * itself over; the bytes, and what the panel draws from them, are the same.
+ */
 function makeSim() {
-  const devices: any[] = [];
+  let bus: I2cTransactionHandler | null = null;
+  busRegistry.setResolver({
+    resolve: (ref) =>
+      ref.kind === 'board'
+        ? { kind: 'board', boardId: ref.boardId, pin: ref.pin }
+        : ref.pinName === 'DATA'
+          ? { kind: 'board', boardId: 'uno', pin: 18 }
+          : ref.pinName === 'CLK'
+            ? { kind: 'board', boardId: 'uno', pin: 19 }
+            : { kind: 'floating' },
+    boardKind: () => 'arduino-uno',
+    boards: () => ['uno'],
+  });
+  busRegistry.bindEngine('uno', {
+    pins: { onPinChange: () => () => {}, peekPinState: () => undefined },
+    spi: [],
+    i2c: [
+      {
+        bus: 'i2c',
+        unit: 0,
+        name: 'TWI',
+        setTransactionHandler: (h) => {
+          bus = h;
+        },
+        routing: () => ({ sda: 18, scl: 19 }),
+      },
+    ],
+  });
+  let open = false;
+  const master = {
+    address: 0x3c,
+    writeByte(b: number): boolean {
+      if (!open) open = bus!.start(0x3c, false);
+      return bus!.write(b);
+    },
+    readByte(): number {
+      bus!.start(0x3c, true);
+      open = true;
+      return bus!.read();
+    },
+    stop(): void {
+      open = false;
+      bus!.stop();
+    },
+  };
   return {
-    addI2CDevice: vi.fn((d: any) => devices.push(d)),
-    i2cBus: { removeDevice: vi.fn() },
-    _devices: devices,
+    get _devices() {
+      return busRegistry.i2cPlacement('oled') ? [master] : [];
+    },
   };
 }
 
@@ -92,18 +147,17 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
     expect(PartSimulationRegistry.get('ssd1306')).toBeDefined();
   });
 
-  it('creates a VirtualSSD1306 device at address 0x3C', () => {
+  it('puts a VirtualSSD1306 on the bus at address 0x3C', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
-    expect(sim.addI2CDevice).toHaveBeenCalledOnce();
-    expect(sim._devices[0].address).toBe(0x3c);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
+    expect(busRegistry.fabric('uno').i2cBuses.get(18)?.targetsAt(0x3c).map((m) => m.owner)).toEqual(['oled']);
   });
 
   it('calls element.redraw() after a STOP', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     // Simple data write — fill first byte
@@ -115,7 +169,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   it('renders a fully-lit column 0 of page 0 (0xFF → top 8 pixels lit)', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     // Set horizontal addressing, col 0–127, page 0–7
@@ -149,7 +203,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   it('renders an unlit pixel as black (RGB = 0)', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07]);
@@ -172,7 +226,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   it('page addressing (Tiny4kOLED): 0xB0+page / 0x00-0x1F col, no 0x20, cursor persists across data streams', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     // Page-addressing setCursor: page 1, column 8 (col high nibble = 0x10,
@@ -202,7 +256,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   it('fills all 1024 GDDRAM bytes via horizontal addressing', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     sendCommandStream(device, [0x20, 0x00, 0x21, 0x00, 0x7f, 0x22, 0x00, 0x07]);
@@ -212,8 +266,9 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
     for (let i = 0; i < 1024; i++) data.push(i % 2 === 0 ? 0xaa : 0x55);
     sendDataStream(device, data);
 
-    // Spot-check: page 7, col 127 = index 7*128+127 = 1023
-    expect(device.buffer[1023]).toBe(0x55);
+    // Spot-check: page 7, col 127 = 0x55, so row 56 lit and row 57 dark.
+    const at = (row: number) => el.imageData.data[(row * 128 + 127) * 4];
+    expect([at(56) > 0, at(57) > 0]).toEqual([true, false]);
 
     // All 128*64 pixels must have alpha=255
     const px = el.imageData.data;
@@ -236,7 +291,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
     } as unknown as HTMLElement;
 
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     expect(() => sendDataStream(device, [0xff])).not.toThrow();
@@ -245,7 +300,7 @@ describe('SSD1306 — ImageData rendering (syncElement fix)', () => {
   it('Adafruit SSD1306 init sequence: processes multi-byte commands without crashing', () => {
     const el = makeOLEDElement();
     const sim = makeSim();
-    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null);
+    PartSimulationRegistry.get('ssd1306')!.attachEvents!(el, sim as any, () => null, 'oled');
     const device = sim._devices[0];
 
     // Minimal Adafruit init (from Adafruit_SSD1306.cpp begin())

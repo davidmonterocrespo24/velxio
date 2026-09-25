@@ -4,9 +4,9 @@
 //   USART0_UDRE  buffered Serial   (Mega vector 26, word 0x34)
 //   TWI          Wire              (Mega vector 39, word 0x4E)
 //
-// The DS1307 at 0x68 is the demo device the store puts on every AVR bus at
-// load time. A vector that lands on an unused slot jumps to __bad_interrupt,
-// which restarts the sketch: BOOT then shows up more than once.
+// The DS1307 at 0x68 is a part the test wires to SDA/SCL (20/21). A vector
+// that lands on an unused slot jumps to __bad_interrupt, which restarts the
+// sketch: BOOT then shows up more than once.
 //
 // Serial protocol (115200): BOOT, TWI:OK|FAIL, T:1..T:5 (20 ms apart), DONE.
 //

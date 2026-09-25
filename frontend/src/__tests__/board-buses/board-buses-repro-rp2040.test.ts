@@ -652,7 +652,7 @@ describe('RP2040 I2C: a chip answers on the controller its SDA/SCL are wired to'
     expect(board.out()).toContain('WIRE1:NACK');
   });
 
-  it.fails('rp2040-i2c-bus0-hardcoded: a chip on GP26/GP27 answers on Wire1 (I2C1), not on Wire', async () => {
+  it('rp2040-i2c-bus0-hardcoded: a chip on GP26/GP27 answers on Wire1 (I2C1), not on Wire', async () => {
     const board = boot('rp2040-i2c-wire1');
     await attachChip(board.sim, 'chip-i2c', 'i2c-beef.wasm', I2C_CHIP_PINS, { SDA: 26, SCL: 27 }).ready;
     untilDone(board);
@@ -680,7 +680,7 @@ describe('RP2040 I2C: a chip answers on the controller its SDA/SCL are wired to'
     chip.dispose();
   });
 
-  it.fails(
+  it(
     'rp2040-i2c-bus0-hardcoded: on the XIAO RP2040 a chip on the Grove I2C socket (D4/D5 = GP6/GP7) answers on Wire',
     async () => {
       const board = boot('rp2040-xiao-i2c');

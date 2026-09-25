@@ -17,15 +17,8 @@ import { ExternalPinScopeFeed } from '../simulation/externalPinScope';
 import { SignalRouter } from '../simulation/SignalRouter';
 import { requestElectricalResolve } from '../simulation/spice/electricalResolveHook';
 import { ledcSignalForChannel } from '../simulation/esp32-signals';
-import {
-  VirtualDS1307,
-  VirtualTempSensor,
-  I2CMemoryDevice,
-  I2CBusManager,
-  nullI2CMaster,
-} from '../simulation/I2CBusManager';
+import { I2CBusManager, nullI2CMaster } from '../simulation/I2CBusManager';
 import type { I2CDevice } from '../simulation/I2CBusManager';
-import type { RP2040I2CDevice } from '../simulation/RP2040Simulator';
 import type { Wire, WireInProgress, WireEndpoint } from '../types/wire';
 import type { BoardKind, BoardInstance, LanguageMode, WifiStatus } from '../types/board';
 import {
@@ -100,6 +93,7 @@ import {
   RemoteSpiLane,
 } from '../simulation/buses';
 import { RemoteI2cLane } from '../simulation/buses/remoteI2c';
+import { i2cPartWorkerPin } from '../simulation/parts/i2cPart';
 import {
   loadSdBusChip,
   SdSpiCard,
@@ -117,8 +111,9 @@ import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
 const SENSOR_COMPONENT_MAP = SINGLE_WIRE_SENSOR_MODELS;
 
 // ── I2C sensor pre-registration ───────────────────────────────────────────────
-// I2C sensors use virtual pins (200 + i2c_addr) instead of real GPIO pins.
-// They are identified by I2C address and do not need wire-resolution.
+// An I2C sensor's worker record is keyed by a slot of its own component
+// (i2cPartWorkerPin), not by a GPIO, and carries the component as its owner:
+// the bus map the tab sends names the controller each owner is wired to.
 // `addrProp` is the component property that overrides the default address.
 const I2C_SENSOR_MAP: Record<
   string,
@@ -355,10 +350,11 @@ export class Esp32BridgeShim {
 
   /**
    * Send the I2C half of the map alone when it changed since the last one
-   * (F5). The registry announces SPI membership changes and nothing for I2C
-   * yet, so this runs after a part registers or drops a sensor record, the
-   * moment an I2C part mounts or leaves; a wire moved mid-run reaches the
-   * worker with the next map. Same no-op rule as pushBusMap.
+   * (F5). It runs whenever the registry says this board's I2C membership may
+   * have changed (onI2cMapChange: a target placed or gone, a wire moved
+   * mid-run) and after a part registers or drops a sensor record; the lane
+   * compares, so a call that changes nothing sends nothing. Same no-op rule
+   * as pushBusMap.
    */
   pushI2cMap(): void {
     const { i2c, changed } = this.i2cLane.poll();
@@ -2743,19 +2739,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         const sim = getBoardSimulator(boardId);
         if (sim && !isPiBoardKind(board.boardKind)) {
           try {
+            // Only the firmware goes in. The I2C bus holds what the canvas
+            // wires to it and nothing else: a DS1307, a sensor and an EEPROM
+            // used to be added here on every load, answering on a bus with
+            // no parts and colliding with any real part at 0x48/0x50/0x68,
+            // including one on a board that is not the active one (D-010).
             if (sim instanceof AVRSimulator) {
               sim.loadHex(program);
-              sim.addI2CDevice(new VirtualDS1307());
-              sim.addI2CDevice(new VirtualTempSensor());
-              sim.addI2CDevice(new I2CMemoryDevice(0x50));
             } else if (sim instanceof RP2040Simulator) {
               sim.loadBinary(program);
-              sim.addI2CDevice(new VirtualDS1307() as RP2040I2CDevice);
-              sim.addI2CDevice(new VirtualTempSensor() as RP2040I2CDevice);
-              sim.addI2CDevice(new I2CMemoryDevice(0x50) as RP2040I2CDevice);
             } else if (isProBoardSimulator(sim)) {
               // Overlay-registered board: the overlay owns the whole load
-              // sequence (PIO/peripheral attach, binary format, demo devices).
+              // sequence (PIO/peripheral attach, binary format, board devices).
               getProBoard(board.boardKind)?.loadFirmware?.(sim, program, {
                 boardKind: board.boardKind,
                 boardId,
@@ -3236,8 +3231,16 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             sensors.push(props);
           }
 
-          // Pre-register I2C sensors (virtual pin = 200 + i2c_addr, no wire resolution needed)
-          for (const comp of components) {
+          // Pre-register I2C sensors under the record each part registers
+          // (its own worker slot, its owner), so the two merge into one and
+          // the worker places it by the bus map. Only for a worker: an
+          // in-browser engine answers the part from the bus fabric, and a
+          // record there would add a responder at the address whatever the
+          // wiring says.
+          const workerI2c =
+            (esp32Bridge as unknown as { hostsCustomChips?: () => boolean }).hostsCustomChips?.() !==
+            false;
+          for (const comp of workerI2c ? components : []) {
             const i2cDef = I2C_SENSOR_MAP[comp.metadataId];
             if (!i2cDef) continue;
             // Resolve I2C address from component property or use default
@@ -3261,11 +3264,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                 }
               }
             }
-            const virtualPin = 200 + addr;
             const props: Record<string, unknown> = {
               sensor_type: i2cDef.sensorType,
-              pin: virtualPin,
+              pin: i2cPartWorkerPin(comp.id),
               addr,
+              owner: comp.id,
             };
             for (const key of i2cDef.propertyKeys ?? []) {
               const val = comp.properties[key];
@@ -3344,8 +3347,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (stm32Bridge) {
           // Pre-register I2C devices (BMP280, MPU6050, SSD1306, …) so the QEMU
           // worker builds each slave on the bus BEFORE the firmware's Wire
-          // master starts probing. Address-based — no wire resolution needed
-          // (virtual pin = 200 + i2c_addr). Mirrors the ESP32 path.
+          // master starts probing. Keyed like the part's own record (see the
+          // ESP32 path); the bus map says which controller each is on.
           const { components } = get();
           const sensors: Array<Record<string, unknown>> = [];
           for (const comp of components) {
@@ -3372,8 +3375,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             }
             const props: Record<string, unknown> = {
               sensor_type: i2cDef.sensorType,
-              pin: 200 + addr,
+              pin: i2cPartWorkerPin(comp.id),
               addr,
+              owner: comp.id,
             };
             for (const key of i2cDef.propertyKeys ?? []) {
               const val = comp.properties[key];
@@ -3806,10 +3810,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const sim = getBoardSimulator(boardId);
       if (sim && sim instanceof AVRSimulator) {
         try {
-          sim.loadHex(hex);
-          sim.addI2CDevice(new VirtualDS1307());
-          sim.addI2CDevice(new VirtualTempSensor());
-          sim.addI2CDevice(new I2CMemoryDevice(0x50));
+          sim.loadHex(hex); // no demo I2C devices: see compileBoardProgram
           set((s) => ({ compiledHex: hex, hexEpoch: s.hexEpoch + 1 }));
           console.log('HEX file loaded successfully');
         } catch (error) {
@@ -3826,10 +3827,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const sim = getBoardSimulator(boardId);
       if (sim && sim instanceof RP2040Simulator) {
         try {
-          sim.loadBinary(base64);
-          sim.addI2CDevice(new VirtualDS1307() as RP2040I2CDevice);
-          sim.addI2CDevice(new VirtualTempSensor() as RP2040I2CDevice);
-          sim.addI2CDevice(new I2CMemoryDevice(0x50) as RP2040I2CDevice);
+          sim.loadBinary(base64); // no demo I2C devices: see compileBoardProgram
           set((s) => ({ compiledHex: base64, hexEpoch: s.hexEpoch + 1 }));
           console.log('Binary loaded into RP2040 successfully');
         } catch (error) {
@@ -4905,6 +4903,15 @@ busRegistry.setResolver(createStoreNetResolver(() => useSimulatorStore.getState(
 busRegistry.onSpiMapChange((boardId) => {
   const sim = simulatorMap.get(boardId) as { pushBusMap?: () => void } | undefined;
   sim?.pushBusMap?.();
+});
+// The same for I2C (F5): a target placed, moved or gone, and a wire edited
+// mid-run, reach a QEMU board's worker as a new I2C half of its map. The
+// registry coalesces the calls to one per board and task; the shim sends only
+// when the published list really changed. A board with no worker has no
+// pushI2cMap, and the Pi publishes its own topology on its bus tick.
+busRegistry.onI2cMapChange((boardId) => {
+  const sim = simulatorMap.get(boardId) as { pushI2cMap?: () => void } | undefined;
+  sim?.pushI2cMap?.();
 });
 // Between maps, a hosted responder's live inputs (a finger, a slider, the
 // circuit solve) go to the same host on their own, keyed by owner. A board

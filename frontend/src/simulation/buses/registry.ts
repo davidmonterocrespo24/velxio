@@ -108,6 +108,9 @@ export interface RemoteSpiSinksEntry {
 
 export type SpiMapListener = (boardId: string) => void;
 
+/** The I2C membership of `boardId` may have changed (see onI2cMapChange). */
+export type I2cMapListener = (boardId: string) => void;
+
 /** A placed device's live inputs changed: `attrs` is the whole set, now. */
 export type SpiAttrsListener = (boardId: string, owner: string, attrs: Record<string, number>) => void;
 
@@ -126,6 +129,10 @@ export class BusRegistry {
   private readonly diagListeners = new Set<DiagnosticListener>();
   private readonly seenDiag = new Set<string>();
   private readonly mapListeners = new Set<SpiMapListener>();
+  private readonly i2cMapListeners = new Set<I2cMapListener>();
+  /** Boards whose I2C changed since the listeners last heard; see i2cMapChanged. */
+  private readonly i2cDirty = new Set<string>();
+  private i2cFlushQueued = false;
   private readonly attrListeners = new Set<SpiAttrsListener>();
   /**
    * What each remote host was last told a device's live inputs are, by owner,
@@ -163,6 +170,7 @@ export class BusRegistry {
         boardId,
         () => this.resolver.boardKind(boardId),
         (d) => this.emit(d),
+        () => this.i2cMapChanged(boardId),
       );
       const fab = f;
       const hooks = [
@@ -441,6 +449,9 @@ export class BusRegistry {
     const entry: I2cEntry = { desc, target, addresses, member: null, fabric: null, bus: null, key: '' };
     this.i2c.set(desc.owner, entry);
     this.placeI2c(entry);
+    // A new owner is news to every board's map, not only the one it landed
+    // on: to the others it is an owner they must keep silent (unplacedI2cOwners).
+    this.i2cMapChangedEverywhere();
     let disposed = false;
     return {
       dispose: () => {
@@ -459,6 +470,7 @@ export class BusRegistry {
     if (!e) return;
     this.unplaceI2c(e);
     this.i2c.delete(owner);
+    this.i2cMapChangedEverywhere();
   }
 
   private placeI2c(e: I2cEntry): void {
@@ -471,9 +483,17 @@ export class BusRegistry {
     const scl = this.resolver.resolve(ref(desc.pins.scl));
     if (sda.kind !== 'board' || scl.kind !== 'board' || sda.boardId !== scl.boardId) {
       if (e.key !== '') this.unplaceI2c(e);
-      // Today's engines ACK a chip whether or not it is wired; on the bench it
-      // is silent, and silence with no reason reads as a dead chip.
       const board = sda.kind === 'board' ? sda.boardId : scl.kind === 'board' ? scl.boardId : null;
+      // A chip neither of whose lines reaches a board is a part that is not
+      // wired yet, which is every I2C part the moment it is dropped on the
+      // canvas and, while a project loads, possibly every one of them. SPI
+      // stays quiet about a device until its clock reaches a board, and so
+      // does this: the silence is right (the chip is on no bus), and a note
+      // about each part the user has not wired yet would bury the one that
+      // is actually half wired.
+      if (board === null) return;
+      // A chip with one line on a board is half wired: on the bench it is
+      // silent, and silence with no reason reads as a dead chip.
       this.emit({
         code: 'i2c-wiring',
         bus: 'i2c',
@@ -753,6 +773,74 @@ export class BusRegistry {
     return { boardId: e.bus.boardId, sdaPin: e.bus.sdaPin, sclPin: e.member.sclPin, clocked: e.member.clocked };
   }
 
+  /**
+   * The I2C owners a remote worker for `boardId` must keep silent: every
+   * registered target that is not on a bus of that board (wired to nothing,
+   * half wired, or wired to another board). Without `boardId`, the targets
+   * that are on no bus at all. Sorted, so a map built from it never depends
+   * on the order parts mounted in.
+   *
+   * The worker's sensor records do not come from the fabric: a part sends its
+   * record to whichever simulator it was handed, so a worker can hold a record
+   * for a chip whose wires go somewhere else entirely, and with no word about
+   * it that record answers on every controller (i2c_bus_table.py, "otherwise
+   * every controller"). The map's `{unplaced: [...]}` entry is that word.
+   */
+  unplacedI2cOwners(boardId?: string): string[] {
+    const out: string[] = [];
+    for (const [owner, e] of this.i2c) {
+      const on = e.bus?.boardId ?? null;
+      if (boardId === undefined ? on === null : on !== boardId) out.push(owner);
+    }
+    return out.sort();
+  }
+
+  /**
+   * Called (once per task, after the change settles) with each board whose
+   * I2C membership may have changed: a target placed, moved or removed, a
+   * wire edited mid-run, a controller bound or rerouted. A board whose master
+   * is in a backend worker republishes its map from here, so a rewire reaches
+   * the worker without waiting for the next sensor attach. It can fire when
+   * nothing the map carries changed; the listener compares.
+   */
+  onI2cMapChange(listener: I2cMapListener): () => void {
+    this.i2cMapListeners.add(listener);
+    return () => this.i2cMapListeners.delete(listener);
+  }
+
+  /**
+   * Coalesced to a microtask: one netlist recompute places every target, and
+   * a drag recomputes dozens of times a task, while the listener's work (a
+   * map built and compared, maybe sent) only needs the state they settle in.
+   * It also keeps the listener out of the middle of a placement.
+   */
+  private i2cMapChanged(boardId: string): void {
+    if (this.i2cMapListeners.size === 0) return;
+    this.i2cDirty.add(boardId);
+    if (this.i2cFlushQueued) return;
+    this.i2cFlushQueued = true;
+    queueMicrotask(() => {
+      this.i2cFlushQueued = false;
+      const boards = Array.from(this.i2cDirty);
+      this.i2cDirty.clear();
+      for (const id of boards) {
+        for (const l of this.i2cMapListeners) {
+          try {
+            l(id);
+          } catch {
+            /* a broken listener must not break the bus */
+          }
+        }
+      }
+    });
+  }
+
+  private i2cMapChangedEverywhere(): void {
+    const ids = new Set<string>(this.fabrics.keys());
+    for (const id of this.resolver.boards()) ids.add(id);
+    for (const id of ids) this.i2cMapChanged(id);
+  }
+
   /** Drop everything. Tests only. */
   clear(): void {
     for (const owner of Array.from(this.spi.keys())) this.detachSpi(owner);
@@ -760,6 +848,8 @@ export class BusRegistry {
     for (const id of Array.from(this.fabrics.keys())) this.dropFabric(id);
     this.seenDiag.clear();
     this.mapListeners.clear();
+    this.i2cMapListeners.clear();
+    this.i2cDirty.clear();
     this.attrListeners.clear();
     this.sentAttrs.clear();
     this.resolver = NO_RESOLVER;

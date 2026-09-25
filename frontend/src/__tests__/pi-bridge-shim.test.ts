@@ -69,6 +69,23 @@ beforeEach(() => {
   clearLineGaps();
 });
 
+/** Wire a part's SDA/SCL to the Pi's GPIO2/GPIO3 (/dev/i2c-1), as the canvas
+ *  does: an I2C part is on the bus its wires reach (board-buses F5). */
+function wireI2c1(boardId: string, componentId: string): void {
+  useSimulatorStore.setState((s) => ({
+    wires: [
+      ...s.wires.filter((w) => w.start.componentId !== componentId),
+      ...(['SDA', 'SCL'] as const).map((pinName) => ({
+        id: `${componentId}-${pinName}`,
+        start: { componentId, pinName, x: 0, y: 0 },
+        end: { componentId: boardId, pinName: pinName === 'SDA' ? 'GPIO2' : 'GPIO3', x: 0, y: 0 },
+        waypoints: [],
+        color: '#0a0',
+      })),
+    ],
+  }) as never);
+}
+
 describe('a Pi board has a simulator entry', () => {
   it('addBoard installs a PiBridgeShim next to the bridge and the PinManager', () => {
     const { id, shim } = addPi();
@@ -115,20 +132,24 @@ describe('I2C parts attach to it', () => {
     expect(addrs).toEqual([0x27, 0x68, 0x76]);
   });
 
-  it('the mpu6050 part attaches through the registry the way it does on an ESP32', () => {
-    const { shim } = addPi();
+  it('the mpu6050 part wired to GPIO2/3 is on /dev/i2c-1, and on no other bus', () => {
+    const { id, shim } = addPi();
+    wireI2c1(id, 'mpu-1');
     const logic = PartSimulationRegistry.get('mpu6050');
     expect(logic?.attachEvents).toBeTypeOf('function');
     const element = document.createElement('div');
     const cleanup = logic!.attachEvents!(element, shim as never, () => null, 'mpu-1');
-    expect(shim.getI2CBus().listDevices().map((d) => d.address)).toContain(0x68);
+    expect(shim.i2cAddresses(1)).toContain(0x68);
+    expect(shim.i2cAddresses(0)).not.toContain(0x68);
     cleanup();
+    expect(shim.i2cAddresses(1)).not.toContain(0x68);
   });
 });
 
 describe('one I2C transaction', () => {
   it('WHO_AM_I on the MPU6050 model answers 0x68; an empty address is a NAK', () => {
-    const { shim } = addPi();
+    const { id, shim } = addPi();
+    wireI2c1(id, 'mpu-1');
     const logic = PartSimulationRegistry.get('mpu6050');
     const cleanup = logic!.attachEvents!(document.createElement('div'), shim as never, () => null, 'mpu-1');
     expect(shim.i2cTransfer(0x68, [0x75], 1)).toEqual([0x68]);

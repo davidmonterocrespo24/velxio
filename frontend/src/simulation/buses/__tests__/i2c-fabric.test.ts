@@ -303,7 +303,9 @@ describe('I2C fabric: membership from the nets', () => {
     expect(a.log.concat(b.log, c.log)).toEqual([]);
     for (const id of ['no-sda', 'no-scl', 'none']) expect(r.reg.i2cPlacement(id)).toBeNull();
     const wiring = r.diags.filter((d) => d.code === 'i2c-wiring');
-    expect(wiring.map((d) => d.owners[0]).sort()).toEqual(['no-scl', 'no-sda', 'none']);
+    // A chip with neither line on a board is a part not wired yet: SPI's rule
+    // (nothing said until the clock reaches a board), see i2c-registry-part2.
+    expect(wiring.map((d) => d.owners[0]).sort()).toEqual(['no-scl', 'no-sda']);
     expect(wiring.find((d) => d.owners[0] === 'no-sda')!.message).toMatch(/SDA is not connected/);
     expect(wiring.find((d) => d.owners[0] === 'no-scl')!.message).toMatch(/SCL is not connected/);
   });

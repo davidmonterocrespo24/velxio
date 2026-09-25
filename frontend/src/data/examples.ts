@@ -22,6 +22,8 @@ import { infraredExamples } from './examples-infrared';
 import { esp32MqttExamples } from './examples-esp32-mqtt';
 import { esp32s3TftExamples } from './examples-esp32s3-tft';
 import { jsemuChipExamples } from './examples-jsemu-chips';
+import eeprom24c01C from '../components/customChips/examples/eeprom-24c01.c?raw';
+import eeprom24c01J from '../components/customChips/examples/eeprom-24c01.chip.json?raw';
 
 /** Per-board setup for multi-board examples */
 export interface ExampleBoard {
@@ -104,6 +106,73 @@ export interface ExampleProject {
   thumbnail?: string;
   /** Arduino libraries required by this example (auto-installed when loading). */
   libraries?: string[];
+}
+
+// ── Real I2C parts for the bus examples ──────────────────────────────────────
+// A bus answers only for what is wired to it, like the bench. The EEPROM the
+// I2C examples write and read is the gallery's 24C01 chip (base address 0x50,
+// 8-bit word address, the protocol those sketches speak), shipped as source so
+// Run compiles it like any custom chip. A0..A2 and WP go to GND: address 0x50,
+// writes allowed.
+
+type ExampleComponent = ExampleProject['components'][number];
+type ExampleWire = ExampleProject['wires'][number];
+
+/** Where the example's board exposes its I2C bus, by pad name. */
+interface I2cPads {
+  board: string;
+  sda: string;
+  scl: string;
+  vcc: string;
+  gnd: string;
+}
+
+const UNO_I2C: I2cPads = { board: 'arduino-uno', sda: 'A4', scl: 'A5', vcc: '5V', gnd: 'GND.1' };
+// The Pico examples name their board 'arduino-uno' like every legacy example
+// (loadExample remaps a board id to the live board); Wire is I2C0 on GP4/GP5.
+const PICO_I2C: I2cPads = { board: 'arduino-uno', sda: 'GP4', scl: 'GP5', vcc: '3V3', gnd: 'GND.1' };
+
+function i2cEeprom24c01(id: string, x: number, y: number): ExampleComponent {
+  return {
+    type: 'custom-chip',
+    id,
+    x,
+    y,
+    properties: { chipName: '24C01 EEPROM', sourceC: eeprom24c01C, chipJson: eeprom24c01J, wasmBase64: '' },
+  };
+}
+
+function i2cEepromWires(id: string, pads: I2cPads): ExampleWire[] {
+  const b = pads.board;
+  return [
+    { id: `${id}-sda`, start: { componentId: b, pinName: pads.sda }, end: { componentId: id, pinName: 'SDA' }, color: '#2196f3' },
+    { id: `${id}-scl`, start: { componentId: b, pinName: pads.scl }, end: { componentId: id, pinName: 'SCL' }, color: '#ff9800' },
+    { id: `${id}-vcc`, start: { componentId: b, pinName: pads.vcc }, end: { componentId: id, pinName: 'VCC' }, color: '#ff0000' },
+    { id: `${id}-gnd`, start: { componentId: b, pinName: pads.gnd }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+    { id: `${id}-a0`, start: { componentId: id, pinName: 'A0' }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+    { id: `${id}-a1`, start: { componentId: id, pinName: 'A1' }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+    { id: `${id}-a2`, start: { componentId: id, pinName: 'A2' }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+    { id: `${id}-wp`, start: { componentId: id, pinName: 'WP' }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+  ];
+}
+
+/**
+ * An RTC at 0x68. On the 5 V Uno it is the DS1307 breakout; on a 3V3 board it
+ * is a DS3231, which runs from 3.3 V where a DS1307 needs 4.5 V, and keeps the
+ * same time registers at 0x00-0x06, so the sketch reads it the same way.
+ */
+function i2cRtc(kind: 'ds1307' | 'ds3231', id: string, x: number, y: number): ExampleComponent {
+  return { type: kind === 'ds1307' ? 'wokwi-ds1307' : 'velxio-ds3231', id, x, y, properties: {} };
+}
+
+function i2cRtcWires(kind: 'ds1307' | 'ds3231', id: string, pads: I2cPads): ExampleWire[] {
+  const b = pads.board;
+  return [
+    { id: `${id}-sda`, start: { componentId: b, pinName: pads.sda }, end: { componentId: id, pinName: 'SDA' }, color: '#2196f3' },
+    { id: `${id}-scl`, start: { componentId: b, pinName: pads.scl }, end: { componentId: id, pinName: 'SCL' }, color: '#ff9800' },
+    { id: `${id}-vcc`, start: { componentId: b, pinName: pads.vcc }, end: { componentId: id, pinName: kind === 'ds1307' ? '5V' : 'VCC' }, color: '#ff0000' },
+    { id: `${id}-gnd`, start: { componentId: b, pinName: pads.gnd }, end: { componentId: id, pinName: 'GND' }, color: '#000000' },
+  ];
 }
 
 const legacyExamples: ExampleProject[] = [
@@ -4085,14 +4154,14 @@ void loop() {
     id: 'i2c-scanner',
     title: 'I2C Scanner (TWI)',
     description:
-      'Scans the I2C bus and reports all devices found. SSD1306 OLED (0x3C) is wired on canvas; virtual devices at 0x48, 0x50, 0x68 also respond.',
+      'Scans the I2C bus and reports all devices found: the SSD1306 OLED (0x3C), the 24C01 EEPROM (0x50) and the DS1307 RTC (0x68) wired on the canvas. Only what is wired answers, as on the bench.',
     category: 'communication',
     difficulty: 'intermediate',
     code: `// I2C Bus Scanner — TWI Protocol Test
 // Scans all 127 I2C addresses and reports which ones respond with ACK.
-// The emulator has virtual devices at:
-//   0x48 = Temperature sensor
-//   0x50 = EEPROM
+// Wired on the canvas (SDA = A4, SCL = A5):
+//   0x3C = SSD1306 OLED
+//   0x50 = 24C01 EEPROM
 //   0x68 = DS1307 RTC
 
 #include <Wire.h>
@@ -4154,6 +4223,7 @@ void loop() {
       { type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} },
       { type: 'wokwi-ssd1306', id: 'ssd1306-1', x: 420, y: 100, properties: {} },
       { type: 'wokwi-ds1307', id: 'rtc1', x: 420, y: 280, properties: {} },
+      i2cEeprom24c01('eeprom1', 620, 280),
     ],
     wires: [
       // SDA bus (shared)
@@ -4204,9 +4274,10 @@ void loop() {
       {
         id: 'wire-vcc-rtc',
         start: { componentId: 'ssd1306-1', pinName: 'VIN' },
-        end: { componentId: 'rtc1', pinName: 'VCC' },
+        end: { componentId: 'rtc1', pinName: '5V' },
         color: '#ff0000',
       },
+      ...i2cEepromWires('eeprom1', UNO_I2C),
     ],
   },
   {
@@ -4318,11 +4389,11 @@ void loop() {
     id: 'i2c-eeprom-rw',
     title: 'I2C EEPROM Read/Write',
     description:
-      'Writes data to a virtual I2C EEPROM (0x50) and reads it back. Tests TWI write+read transactions.',
+      'Writes data to a 24C01 I2C EEPROM (0x50) wired to A4/A5 and reads it back. Tests TWI write+read transactions.',
     category: 'communication',
     difficulty: 'intermediate',
     code: `// I2C EEPROM Read/Write Test
-// Virtual EEPROM at address 0x50
+// 24C01 EEPROM at address 0x50 (A0-A2 to GND), SDA = A4, SCL = A5.
 // Writes values to registers, then reads them back.
 
 #include <Wire.h>
@@ -4405,8 +4476,11 @@ void loop() {
   delay(1000);
 }
 `,
-    components: [{ type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} }],
-    wires: [],
+    components: [
+      { type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} },
+      i2cEeprom24c01('eeprom1', 480, 200),
+    ],
+    wires: i2cEepromWires('eeprom1', UNO_I2C),
   },
   {
     id: 'spi-loopback',
@@ -4482,7 +4556,7 @@ void loop() {
     id: 'multi-protocol',
     title: 'Multi-Protocol Demo',
     description:
-      'Uses Serial + I2C + SPI together. Reads RTC via I2C, sends SPI data, and logs everything to Serial.',
+      'Uses Serial + I2C + SPI together. Reads a DS1307 RTC and a 24C01 EEPROM on the I2C bus, sends SPI data, and logs everything to Serial.',
     category: 'communication',
     difficulty: 'advanced',
     code: `// Multi-Protocol Demo: Serial + I2C + SPI
@@ -4617,8 +4691,12 @@ void loop() {
   delay(2000);
 }
 `,
-    components: [{ type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} }],
-    wires: [],
+    components: [
+      { type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} },
+      i2cRtc('ds1307', 'rtc1', 480, 120),
+      i2cEeprom24c01('eeprom1', 480, 280),
+    ],
+    wires: [...i2cRtcWires('ds1307', 'rtc1', UNO_I2C), ...i2cEepromWires('eeprom1', UNO_I2C)],
   },
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -4813,7 +4891,7 @@ void loop() {
   {
     id: 'pico-i2c-scanner',
     title: '[Pico] I2C Scanner',
-    description: 'Scan the I2C bus on the Pico for connected devices',
+    description: 'Scan the I2C bus on the Pico: a DS3231 RTC (0x68) and a 24C01 EEPROM (0x50) are wired to GP4/GP5',
     category: 'communication',
     difficulty: 'intermediate',
     boardType: 'raspberry-pi-pico',
@@ -4849,7 +4927,7 @@ void loop() {
       switch (addr) {
         case 0x48: Serial.print(" (Temperature sensor)"); break;
         case 0x50: Serial.print(" (EEPROM)"); break;
-        case 0x68: Serial.print(" (DS1307 RTC)"); break;
+        case 0x68: Serial.print(" (DS1307/DS3231 RTC)"); break;
         case 0x27: Serial.print(" (LCD backpack)"); break;
         case 0x3C: Serial.print(" (SSD1306 OLED)"); break;
         default: break;
@@ -4866,12 +4944,16 @@ void loop() {
 }
 `,
     components: [
+      i2cRtc('ds3231', 'rtc1', 560, 100),
+      i2cEeprom24c01('eeprom1', 560, 240),
       { type: 'wokwi-resistor', id: 'r-led-scan-a', x: 280, y: 100, properties: { value: '220' } },
       { type: 'wokwi-resistor', id: 'r-led-found-a', x: 280, y: 180, properties: { value: '220' } },
       { type: 'wokwi-led', id: 'led-scan', x: 400, y: 100, properties: { color: 'blue' } },
       { type: 'wokwi-led', id: 'led-found', x: 400, y: 180, properties: { color: 'green' } },
     ],
     wires: [
+      ...i2cRtcWires('ds3231', 'rtc1', PICO_I2C),
+      ...i2cEepromWires('eeprom1', PICO_I2C),
       {
         id: 'w1',
         start: { componentId: 'arduino-uno', pinName: 'GP12' },
@@ -4914,12 +4996,13 @@ void loop() {
   {
     id: 'pico-i2c-rtc-read',
     title: '[Pico] I2C RTC Read',
-    description: 'Read time from a virtual DS1307 RTC over I2C on Raspberry Pi Pico',
+    description: 'Read time from a DS3231 RTC wired to GP4/GP5 over I2C on Raspberry Pi Pico',
     category: 'communication',
     difficulty: 'intermediate',
     boardType: 'raspberry-pi-pico',
-    code: `// Raspberry Pi Pico — I2C DS1307 RTC Read
-// Reads time from virtual RTC at address 0x68
+    code: `// Raspberry Pi Pico - I2C RTC Read
+// Reads time from the DS3231 at address 0x68 (SDA = GP4, SCL = GP5).
+// A DS3231 runs from the Pico's 3.3 V and keeps the DS1307 time registers.
 
 #include <Wire.h>
 
@@ -4932,7 +5015,7 @@ void setup() {
   delay(500);
   Wire.begin();
   Serial.println("=== Pico I2C RTC Read ===");
-  Serial.println("Reading DS1307 at 0x68 (system time)");
+  Serial.println("Reading DS3231 at 0x68");
   Serial.println();
 }
 
@@ -4972,12 +5055,14 @@ void loop() {
 }
 `,
     components: [
+      i2cRtc('ds3231', 'rtc1', 560, 140),
       { type: 'wokwi-resistor', id: 'r-led-i2c-a', x: 280, y: 80, properties: { value: '220' } },
       { type: 'wokwi-resistor', id: 'r-led-rtc-a', x: 280, y: 180, properties: { value: '220' } },
       { type: 'wokwi-led', id: 'led-i2c', x: 400, y: 100, properties: { color: 'blue' } },
       { type: 'wokwi-led', id: 'led-rtc', x: 400, y: 180, properties: { color: 'yellow' } },
     ],
     wires: [
+      ...i2cRtcWires('ds3231', 'rtc1', PICO_I2C),
       {
         id: 'w-sda',
         start: { componentId: 'arduino-uno', pinName: 'GP12' },
@@ -5020,12 +5105,12 @@ void loop() {
   {
     id: 'pico-i2c-eeprom-rw',
     title: '[Pico] I2C EEPROM R/W',
-    description: 'Write and read back data to a virtual I2C EEPROM on the Pico',
+    description: 'Write and read back data to a 24C01 I2C EEPROM wired to GP4/GP5 on the Pico',
     category: 'communication',
     difficulty: 'intermediate',
     boardType: 'raspberry-pi-pico',
     code: `// Raspberry Pi Pico — I2C EEPROM Read/Write
-// Writes data to virtual EEPROM at 0x50 and reads it back
+// Writes data to the 24C01 EEPROM at 0x50 (SDA = GP4, SCL = GP5) and reads it back
 
 #include <Wire.h>
 
@@ -5096,12 +5181,14 @@ void loop() {
 }
 `,
     components: [
+      i2cEeprom24c01('eeprom1', 560, 140),
       { type: 'wokwi-resistor', id: 'r-led-write-a', x: 280, y: 100, properties: { value: '220' } },
       { type: 'wokwi-resistor', id: 'r-led-read-a', x: 280, y: 180, properties: { value: '220' } },
       { type: 'wokwi-led', id: 'led-write', x: 400, y: 100, properties: { color: 'red' } },
       { type: 'wokwi-led', id: 'led-read', x: 400, y: 180, properties: { color: 'green' } },
     ],
     wires: [
+      ...i2cEepromWires('eeprom1', PICO_I2C),
       {
         id: 'w-sda',
         start: { componentId: 'arduino-uno', pinName: 'GP12' },
@@ -5363,7 +5450,7 @@ void loop() {
   {
     id: 'pico-multi-protocol',
     title: '[Pico] Multi-Protocol Demo',
-    description: 'Comprehensive test: Serial + I2C + SPI + ADC on the Raspberry Pi Pico',
+    description: 'Comprehensive test: Serial + I2C (a DS3231 RTC and a 24C01 EEPROM on GP4/GP5) + SPI + ADC on the Raspberry Pi Pico',
     category: 'communication',
     difficulty: 'advanced',
     boardType: 'raspberry-pi-pico',
@@ -5420,7 +5507,7 @@ void setup() {
   Serial.println();
 
   // ── 3. I2C RTC ──
-  Serial.println("[I2C] Reading DS1307 RTC at 0x68...");
+  Serial.println("[I2C] Reading RTC at 0x68...");
   Wire.beginTransmission(0x68);
   Wire.write(0x00);
   Wire.endTransmission();
@@ -5477,6 +5564,8 @@ void loop() {
 }
 `,
     components: [
+      i2cRtc('ds3231', 'rtc1', 560, 60),
+      i2cEeprom24c01('eeprom1', 560, 200),
       { type: 'wokwi-resistor', id: 'r-led-i2c-a', x: 280, y: 80, properties: { value: '220' } },
       { type: 'wokwi-resistor', id: 'r-led-spi-a', x: 280, y: 160, properties: { value: '220' } },
       { type: 'wokwi-resistor', id: 'r-led-gpio-a', x: 280, y: 360, properties: { value: '220' } },
@@ -5486,6 +5575,8 @@ void loop() {
       { type: 'wokwi-led', id: 'led-gpio', x: 400, y: 360, properties: { color: 'green' } },
     ],
     wires: [
+      ...i2cRtcWires('ds3231', 'rtc1', PICO_I2C),
+      ...i2cEepromWires('eeprom1', PICO_I2C),
       {
         id: 'w-i2c',
         start: { componentId: 'arduino-uno', pinName: 'GP12' },

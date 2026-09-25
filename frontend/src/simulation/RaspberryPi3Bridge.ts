@@ -54,7 +54,12 @@ import type { RemoteSpiMapEntry } from './buses/registry';
  */
 export interface PiBusTopology {
   version: 1;
-  i2c: Array<{ bus: number; addr: number; regs: string | null }>;
+  /**
+   * `ask_writes`: a device that can NAK while present (I2cTarget.mayNak).
+   * The backend asks this tab for the ACK of its writes instead of giving it
+   * itself, so a NAK reaches the guest. Absent = the backend ACKs.
+   */
+  i2c: Array<{ bus: number; addr: number; regs: string | null; ask_writes?: true }>;
   /**
    * `responders` are the SPI devices with a portable model (the bus map an
    * ESP32 or STM32 worker gets, entry for entry): the backend runs them beside

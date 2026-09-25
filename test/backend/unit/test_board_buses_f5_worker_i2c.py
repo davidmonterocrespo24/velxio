@@ -251,15 +251,24 @@ class TestTableArbitration:
 
 # ── The ESP32 worker ─────────────────────────────────────────────────────────
 
-pytest.importorskip('wasmtime', reason='the worker rig loads custom chips')
+# The worker rig loads custom chips, so its module skips itself where wasmtime
+# is missing. That skip is taken here and handed to the `worker` fixture: only
+# the tests that boot the worker are skipped, never the table tests above,
+# which are plain Python and the ones every host can run.
+try:
+    from .test_board_buses_repro_worker import (  # noqa: E402,F401  (worker fixture)
+        I2C_FINISH,
+        I2C_START_SEND,
+        MPU_WHO_AM_I,
+        _wasm,
+        worker,
+    )
+except pytest.skip.Exception as _no_rig:
+    _RIG_MISSING = str(_no_rig)
 
-from .test_board_buses_repro_worker import (  # noqa: E402,F401  (worker fixture)
-    I2C_FINISH,
-    I2C_START_SEND,
-    MPU_WHO_AM_I,
-    _wasm,
-    worker,
-)
+    @pytest.fixture
+    def worker():
+        pytest.skip(_RIG_MISSING)
 
 # arduino-esp32 Wire1 on the pins the F0 browser test uses for it.
 WIRE1_SDA, WIRE1_SCL = 25, 26

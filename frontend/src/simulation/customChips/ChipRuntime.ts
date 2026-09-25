@@ -9,8 +9,8 @@
 import type { PinManager } from '../PinManager';
 import type { I2CBusManager } from '../I2CBusManager';
 import { SPIDevice } from './SPIBus';
-import { attachSpiDevice } from '../buses';
-import type { BusHandle, SpiMode } from '../buses/types';
+import { attachI2cTarget, attachSpiDevice } from '../buses';
+import type { BusHandle, I2cTarget, SpiMode } from '../buses/types';
 import { WasiShim, type SimNanosFn, type WriteStdoutFn } from './WasiShim';
 import { setChipPinDrive } from './chipPinDrives';
 import { isSyntheticChipPin, isSyntheticNetPin } from './syntheticPins';
@@ -125,6 +125,36 @@ interface TimerEntry {
   repeat: boolean;
 }
 
+/** One vx_i2c_attach: an address and the callbacks that serve it. */
+interface I2cDeviceEntry {
+  cfg: I2CConfig;
+  /** The pads its config names, on the chip's canvas component. */
+  scl: string | undefined;
+  sda: string | undefined;
+  /** The chip's side of one addressed phase (see _i2c_attach). */
+  device: ChipI2cDevice;
+}
+
+interface ChipI2cDevice {
+  address: number;
+  connect(addr: number, isRead: boolean): boolean;
+  writeByte(value: number): boolean;
+  readByte(): number;
+  stop(): void;
+}
+
+/**
+ * Every address a chip answers on one pair of pins: ONE target of the bus,
+ * because on the bench they are one chip hanging off one SDA and one SCL.
+ */
+interface I2cGroup {
+  owner: string;
+  scl: string;
+  sda: string;
+  entries: I2cDeviceEntry[];
+  bus: BusHandle | null;
+}
+
 interface SpiEntry {
   /** The chip's armed buffer for this handle. */
   device: SPIDevice;
@@ -137,7 +167,27 @@ export interface ChipInstanceOptions {
   /** Compiled chip.wasm — either bytes, ArrayBuffer, or pre-compiled Module. */
   wasm: Uint8Array | ArrayBuffer | WebAssembly.Module;
   pinManager: PinManager;
-  i2cBus?: I2CBusManager | null;
+  /**
+   * A host that takes the chip's I2C devices itself, one per vx_i2c_attach,
+   * instead of the board's bus fabric: a unit test driving a model byte by
+   * byte. The canvas hosts never pass it; with it, the chip's wiring decides
+   * nothing.
+   */
+  i2cBus?: Pick<I2CBusManager, 'addDevice' | 'removeDevice'> | null;
+  /**
+   * The canvas pad each chip pin is, when the two are named apart (a Grove
+   * module whose chip calls its second address's pins SDA2/SCL2, both on the
+   * socket's SDA/SCL). The fabric resolves wires by the component's pads.
+   */
+  busPads?: Record<string, string> | null;
+  /**
+   * The model a backend worker runs for this chip, when the board's guest is
+   * in one (a QEMU ESP32 or STM32): 'custom-chip' when the host shipped the
+   * chip itself to the worker, 'i2c-write-sink' when the worker only ACKs and
+   * echoes a display's writes to this instance. The fabric reports a chip on
+   * a remote bus as missing unless the worker holds one of these for it.
+   */
+  remoteModel?: string | null;
   /** Logical chip pin name → real Arduino pin number (resolved from wires). */
   wires?: Map<string, number>;
   /** User-editable attributes — keyed by name. */
@@ -173,7 +223,9 @@ export class ChipInstance {
 
   private wasm: ChipInstanceOptions['wasm'];
   private pinManager: PinManager;
-  private i2cBus: I2CBusManager | null;
+  private i2cBus: Pick<I2CBusManager, 'addDevice' | 'removeDevice'> | null;
+  private busPads: Record<string, string>;
+  private remoteModel: string | undefined;
   private wires: Map<string, number>;
   private attrs: Map<string, number>;
   private strAttrs: Map<string, string>;
@@ -222,8 +274,10 @@ export class ChipInstance {
    *  simulator's pin-injection API. */
   private _onDigitalWrite: ((pinName: string, value: boolean) => void) | null = null;
 
-  /** I2C device wrapper currently registered on the bus (for disposal). */
-  private _i2cDevice: { address: number } | null = null;
+  /** Every vx_i2c_attach, in call order. */
+  private i2cDevices: I2cDeviceEntry[] = [];
+  /** The same devices by the pins they are on: one bus target each. */
+  private i2cGroups: I2cGroup[] = [];
 
   wasi: WasiShim;
   private _velxioImports: Record<string, (...args: any[]) => any>;
@@ -238,6 +292,8 @@ export class ChipInstance {
     this.wasm = opts.wasm;
     this.pinManager = opts.pinManager;
     this.i2cBus = opts.i2cBus ?? null;
+    this.busPads = opts.busPads ?? {};
+    this.remoteModel = opts.remoteModel ?? undefined;
     this.wires = opts.wires ?? new Map();
     this.attrs = opts.attrs ?? new Map();
     this.strAttrs = opts.strAttrs ?? new Map();
@@ -316,6 +372,9 @@ export class ChipInstance {
       const e = this.spiDevices[i];
       if (!e.bus) e.bus = this._joinSpiBus(e, i);
     }
+    // And its I2C with every address it attached, in one registration each
+    // pair of pins, rather than one per call while setup is still adding them.
+    for (const g of this.i2cGroups) if (!g.bus) g.bus = this._joinI2cBus(g);
     this.wasi.flush();
   }
 
@@ -365,9 +424,10 @@ export class ChipInstance {
     }
     this._pinWatches.clear();
     this.timers = [];
-    if (this.i2cBus && this._i2cDevice) {
-      this.i2cBus.removeDevice(this._i2cDevice.address);
-    }
+    for (const g of this.i2cGroups) g.bus?.dispose();
+    this.i2cGroups = [];
+    if (this.i2cBus) for (const e of this.i2cDevices) this.i2cBus.removeDevice(e.device.address);
+    this.i2cDevices = [];
     for (const e of this.spiDevices) e.bus?.dispose();
     this.spiDevices = [];
     // Stop driving any bus nets this chip contributed to, then re-resolve them
@@ -743,10 +803,18 @@ export class ChipInstance {
 
   // ── I2C ──────────────────────────────────────────────────────────────────
 
+  /**
+   * vx_i2c_attach: THIS is where a chip enters an I2C bus, with the SDA and
+   * SCL its config names. The fabric puts it on the bus those pads are wired
+   * to, so a chip on Wire1 answers Wire1, a chip whose SDA/SCL go nowhere
+   * answers nobody (as on the bench), and a chip whose pins go to two GPIOs is
+   * served by the software decoder. Every address a chip attaches on the same
+   * pins is one target: they all answer, and they all leave with the chip.
+   *
+   * Returns 0 like the worker's runtime (wasm_chip_runtime.py), so a chip
+   * reads the same handle in every host.
+   */
   private _i2c_attach(cfgPtr: number): number {
-    if (!this.i2cBus) {
-      throw new Error('Chip called vx_i2c_attach but no I2CBusManager is wired to the host');
-    }
     const cfg = readI2CConfig(this.memory!, cfgPtr);
     const callFn = (idx: number, ...args: any[]) => {
       const table = this.exports?.__indirect_function_table as WebAssembly.Table | undefined;
@@ -760,12 +828,12 @@ export class ChipInstance {
        addressed for writing or for reading, and it has to know WHICH — a
        display waits for its command byte, a memory stages the bytes it is
        about to hand over.
-       The masters here do not announce that: `I2CBusManager.connectToSlave`
-       picks the device and remembers the direction without telling it, and the
-       engines' buses do the same. So the phase is read off the byte stream,
-       which carries it exactly: the first write after anything else IS the
-       write phase starting, and the first read after a write IS a REPEATED
-       START — the master keeping the bus and turning it around.
+       The bus fabric announces it: every START and repeated START that names
+       this address calls connect(). A host handed in as `i2cBus` may not, so
+       the phase is also read off the byte stream, which carries it exactly:
+       the first write after anything else IS the write phase starting, and
+       the first read after a write IS a REPEATED START, the master keeping
+       the bus and turning it around.
        That last one was silently missing. Only a STOP used to re-arm the
        announcement, so `Wire.endTransmission(false)` followed by requestFrom()
        — the idiom Adafruit_BusIO's write_then_read() and half the drivers out
@@ -779,7 +847,7 @@ export class ChipInstance {
       if (cfg.on_connect) callFn(cfg.on_connect, cfg.user_data, cfg.address, isRead ? 1 : 0);
       phase = isRead ? 'read' : 'write';
     };
-    const device = {
+    const device: ChipI2cDevice = {
       address: cfg.address,
       /** Masters that DO announce the phase call this; the rest are covered
        *  by the inference in writeByte / readByte, and this keeps them from
@@ -808,9 +876,100 @@ export class ChipInstance {
       },
     };
 
-    this.i2cBus.addDevice(device);
-    this._i2cDevice = device;
+    const entry: I2cDeviceEntry = {
+      cfg,
+      scl: this._busPad(cfg.scl),
+      sda: this._busPad(cfg.sda),
+      device,
+    };
+    this.i2cDevices.push(entry);
+    if (this.i2cBus) {
+      this.i2cBus.addDevice(device);
+      return 0;
+    }
+    if (!entry.scl || !entry.sda) {
+      // No pad to resolve: nothing on a bench would ever clock it either.
+      this.wasi.writeStdout(
+        `vx_i2c_attach at 0x${cfg.address.toString(16)} names no SDA/SCL pin; the chip is on no bus\n`,
+      );
+      return 0;
+    }
+    let group = this.i2cGroups.find((g) => g.scl === entry.scl && g.sda === entry.sda);
+    if (!group) {
+      // The first pair is the chip itself, under its component id: that is
+      // the identity a QEMU worker's copy of the chip carries too.
+      const owner = this.i2cGroups.length === 0 ? this.componentId : `${this.componentId}:i2c${this.i2cGroups.length}`;
+      group = { owner, scl: entry.scl, sda: entry.sda, entries: [], bus: null };
+      this.i2cGroups.push(group);
+    }
+    group.entries.push(entry);
+    // A later attach replaces the registration with one that has every
+    // address (the registry drops the owner's previous one first).
+    if (!this.inSetup) group.bus = this._joinI2cBus(group);
     return 0;
+  }
+
+  /** The canvas pad of a chip pin handle, for the fabric's wire walk. */
+  private _busPad(handle: number): string | undefined {
+    const p = handle >= 0 ? this.pins[handle] : undefined;
+    if (!p || !p.name) return undefined;
+    return this.busPads[p.name] ?? p.name;
+  }
+
+  /**
+   * Put one pair of pins on the bus. Null when the chip has no canvas
+   * identity to resolve its wires against.
+   *
+   * The target dispatches by address: the fabric only calls it for one of the
+   * addresses it registered, and the device that owns that address takes the
+   * phase. The STOP goes to every device addressed since the last one.
+   */
+  private _joinI2cBus(group: I2cGroup): BusHandle | null {
+    if (!this.componentId) return null;
+    const byAddress = new Map<number, ChipI2cDevice>();
+    // Two attaches at one address: the later one answers, as it did before.
+    for (const e of group.entries) byAddress.set(e.cfg.address & 0x7f, e.device);
+    let current: ChipI2cDevice | null = null;
+    const touched = new Set<ChipI2cDevice>();
+    const target: I2cTarget = {
+      // The chip's own code answers each byte and may refuse one, so a host
+      // that ACKs writes ahead of this tab (the Pi relay) has to ask.
+      mayNak: true,
+      start: (address, read) => {
+        current = byAddress.get(address & 0x7f) ?? null;
+        if (!current) return false;
+        touched.add(current);
+        // on_connect's return is not the ACK, in this host or the worker's.
+        return current.connect(address, read);
+      },
+      write: (byte) => (current ? current.writeByte(byte) : false),
+      read: () => (current ? current.readByte() : 0xff),
+      stop: () => {
+        current = null;
+        const list = Array.from(touched);
+        touched.clear();
+        for (const d of list) d.stop();
+      },
+      // The MCU reset mid-transaction: the chip sees the STOP it will never
+      // get, and nothing else. Its data is its own.
+      boardReset: () => {
+        if (touched.size === 0) return;
+        current = null;
+        const list = Array.from(touched);
+        touched.clear();
+        for (const d of list) d.stop();
+      },
+    };
+    return attachI2cTarget(
+      {
+        owner: group.owner,
+        componentId: this.componentId,
+        pins: { scl: group.scl, sda: group.sda },
+        addresses: Array.from(byAddress.keys()),
+        remoteModel: this.remoteModel,
+      },
+      target,
+    );
   }
 
   // ── UART ─────────────────────────────────────────────────────────────────
@@ -885,6 +1044,22 @@ export class ChipInstance {
       rxPad: this.pins[u.rx]?.name ?? null,
       txPad: this.pins[u.tx]?.name ?? null,
     };
+  }
+
+  /**
+   * Hand the chip one write phase it did not see on a bus: a QEMU worker that
+   * only ACKs a display's writes echoes them, and this copy of the chip draws
+   * from them. Addressed, written and stopped exactly as the bus would. False
+   * when the chip attached no device at that address.
+   */
+  replayI2cWrite(address: number, data: readonly number[]): boolean {
+    let dev: ChipI2cDevice | undefined;
+    for (const e of this.i2cDevices) if ((e.cfg.address & 0x7f) === (address & 0x7f)) dev = e.device;
+    if (!dev) return false;
+    dev.connect(address, false);
+    for (const b of data) dev.writeByte(b & 0xff);
+    dev.stop();
+    return true;
   }
 
   /** True if the chip declared at least one UART (post-chip_setup). */

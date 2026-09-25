@@ -444,14 +444,17 @@ describe('ATtiny85: TinyWireM on the USI reaches fabric targets through the soft
     }
   });
 
-  it('with its SDA/SCL left unwired the target hears nothing and the fabric says why', () => {
+  it('with its SDA/SCL left unwired the target hears nothing, and is not reported as miswired', () => {
     const seen: BusDiagnostic[] = [];
     const off = busRegistry.onDiagnostic((d) => seen.push(d));
     const t = bootTiny(false);
     try {
       runFor(t.sim, 8_000_000, () => false);
       expect(t.oled.txs).toEqual([]);
-      expect(seen.some((d) => d.code === 'i2c-wiring' && d.owners.includes(`${t.id}-oled`))).toBe(true);
+      // Neither line reaches the board: a part not wired yet, which the fabric
+      // leaves unsaid exactly as it does for SPI (F5 part two, item 9). A half
+      // wired chip is still named: i2c-registry-part2.test.ts.
+      expect(seen.some((d) => d.code === 'i2c-wiring' && d.owners.includes(`${t.id}-oled`))).toBe(false);
     } finally {
       off();
       t.dispose();

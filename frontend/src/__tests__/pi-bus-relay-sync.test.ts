@@ -92,6 +92,19 @@ describe('the bus map goes to a relaying backend, and only then', () => {
     // A device that cannot export its registers (a command-driven sensor):
     // the backend has to ask the tab for it every time.
     shim.addI2CDevice({ address: 0x44, writeByte: () => true, readByte: () => 0 });
+    // The part is on the bus its wires reach: GPIO2/3, /dev/i2c-1.
+    useSimulatorStore.setState((st) => ({
+      wires: [
+        ...st.wires,
+        ...(['SDA', 'SCL'] as const).map((pinName) => ({
+          id: `mpu-1-${pinName}`,
+          start: { componentId: 'mpu-1', pinName, x: 0, y: 0 },
+          end: { componentId: id, pinName: pinName === 'SDA' ? 'GPIO2' : 'GPIO3', x: 0, y: 0 },
+          waypoints: [],
+          color: '#0a0',
+        })),
+      ],
+    }) as never);
     const cleanup = PartSimulationRegistry.get('mpu6050')!.attachEvents!(
       document.createElement('div'),
       shim as never,

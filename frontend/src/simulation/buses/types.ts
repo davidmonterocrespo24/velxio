@@ -295,6 +295,17 @@ export interface I2cTargetDescriptor {
    * leave with its handle.
    */
   addresses: number[];
+  /**
+   * The model a remote worker runs for this chip, named by the record type the
+   * part sends that worker (`registerSensor('mpu6050', ...)`, 'ssd1306',
+   * 'custom-chip', ...). A QEMU guest asks for every ACK and every byte
+   * synchronously, so on a board whose master is in a backend worker the
+   * target in this tab cannot answer at all: the chip exists there only if
+   * the worker has a model of it (`WORKER_I2C_MODELS`). Leave it out for a
+   * chip that has none; on a remote bus it is then reported
+   * (`bus-remote-responder-missing`) instead of being silently absent.
+   */
+  remoteModel?: string;
 }
 
 /**
@@ -314,6 +325,17 @@ export interface I2cTarget {
   stop(): void;
   /** The MCU was reset (Stop/Run, reset, reload). Protocol state, not data. */
   boardReset?(): void;
+  /**
+   * True when this model can NAK while present: its start() or write() may
+   * return false, as a user's custom chip can (a chip that refuses a byte, or
+   * its own address while busy). A host that has to answer an ACK before
+   * this tab has seen the byte (the Raspberry Pi relay, which would otherwise
+   * pay a network round trip per write) asks the tab only for the chips that
+   * say so, and ACKs the rest itself. Leave it out for a model that ACKs its
+   * address and every byte it is sent, which is every display and sensor
+   * here.
+   */
+  readonly mayNak?: boolean;
 }
 
 /**
@@ -346,6 +368,13 @@ export interface I2cControllerPort {
   readonly unit: number;
   /** Datasheet name, for diagnostics ('TWI', 'I2C1', 'TWIM0'). */
   readonly name: string;
+  /**
+   * True when the master runs outside this tab (a QEMU worker). Nothing here
+   * can answer its events in time, so a target on its bus exists for the
+   * guest only through the worker's own model of it; the bus reads this flag
+   * to name the targets that have none.
+   */
+  readonly remote?: boolean;
   /**
    * The fabric installs the handler here. The adapter calls it for every
    * START, byte and STOP the controller puts on the wire and hands the result

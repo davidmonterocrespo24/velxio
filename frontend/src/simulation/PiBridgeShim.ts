@@ -557,7 +557,12 @@ export class PiBridgeShim {
     // neither is on no bus at all, so the relay NAKs it without asking.
     for (const t of this.fabricI2cTargets()) {
       const key = `${t.bus}:${t.addr}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        // Two chips at one address: if either can NAK, the tab has to answer.
+        const first = i2c.find((d) => d.bus === t.bus && d.addr === t.addr);
+        if (first && t.ask_writes) first.ask_writes = true;
+        continue;
+      }
       seen.add(key);
       i2c.push(t);
     }
@@ -572,6 +577,7 @@ export class PiBridgeShim {
         bus: HEADER_I2C_BUS,
         addr: dev.address & 0x7f,
         regs: typeof dev.dumpRegisters === 'function' ? toHex(Array.from(dev.dumpRegisters())) : null,
+        ...((dev as { mayNak?: boolean }).mayNak === true ? { ask_writes: true as const } : {}),
       });
     }
     return { version: 1, i2c, spi: { attached: this.spiAttached() } };
@@ -597,7 +603,10 @@ export class PiBridgeShim {
         const dump = (m.target as { dumpRegisters?: () => Uint8Array }).dumpRegisters;
         const regs =
           typeof dump === 'function' ? toHex(Array.from(dump.call(m.target))) : null;
-        for (const addr of m.addresses) out.push({ bus: port.unit, addr, regs });
+        // Only a chip that can NAK costs its writes a round trip; the rest
+        // are ACKed by the relay, which is what keeps a display's frame fast.
+        const ask = m.target.mayNak === true ? { ask_writes: true as const } : {};
+        for (const addr of m.addresses) out.push({ bus: port.unit, addr, regs, ...ask });
       }
     }
     out.sort((a, b) => a.bus - b.bus || a.addr - b.addr);
@@ -711,7 +720,9 @@ export class PiBridgeShim {
 
   /** Which devices are where (not their register contents). */
   private mapKeyOf(topology: PiBusTopology): string {
-    const i2c = topology.i2c.map((d) => `${d.bus}:${d.addr}:${d.regs === null ? 'ask' : 'regs'}`).sort();
+    const i2c = topology.i2c
+      .map((d) => `${d.bus}:${d.addr}:${d.regs === null ? 'ask' : 'regs'}${d.ask_writes ? ':nak' : ''}`)
+      .sort();
     return `${i2c.join(',')}|spi:${topology.spi.attached ? 1 : 0}`;
   }
 

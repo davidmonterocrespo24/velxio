@@ -19,6 +19,7 @@
 
 import type { DiagnosticSink } from './spiBus';
 import type { I2cTarget, I2cTargetDescriptor, I2cTransactionHandler } from './types';
+import { WORKER_I2C_MODELS } from './workerI2cModels';
 
 /** Bus-side view of one registered target. */
 export interface I2cMember {
@@ -45,6 +46,8 @@ export class I2cBus implements I2cTransactionHandler {
   sclPin: number | undefined;
   /** Name of the controller routed to this SDA net, for diagnostics. */
   controllerName: string | null = null;
+  /** That controller's master runs outside this tab: see reportRemoteGaps. */
+  controllerRemote = false;
 
   /** Clocked members by address, owner-sorted so no call order depends on attach order. */
   private byAddress = new Map<number, I2cMember[]>();
@@ -133,6 +136,39 @@ export class I2cBus implements I2cTransactionHandler {
     for (const [a, list] of index) if (list.length > 1) this.conflict(a, list);
     // Whatever is mid-transaction keeps only targets that are still addressable.
     this.active = this.active.filter((m) => m.clocked && this.members.get(m.owner) === m);
+  }
+
+  /**
+   * On a bus whose controller is in a backend worker, name every target the
+   * worker has no model of.
+   *
+   * QEMU asks for the ACK of an address and for every byte synchronously, and
+   * the worker answers from its own models; this tab only hears a
+   * transaction afterwards, if at all. A chip whose model lives only here is
+   * therefore not on the guest's bus: its address NAKs, and a sketch that
+   * reads it prints "sensor not found" with nothing to say why. Unlike SPI,
+   * a write sink is no exception: nothing ACKs a display's address unless the
+   * worker holds a sink for it. Only clocked targets are named; one that
+   * never sees the clock already has its own diagnostic.
+   */
+  reportRemoteGaps(): void {
+    if (!this.controllerRemote) return;
+    for (const m of this.members.values()) {
+      if (!m.clocked) continue;
+      const model = m.desc.remoteModel;
+      if (model !== undefined && WORKER_I2C_MODELS.has(model)) continue;
+      this.report({
+        code: 'bus-remote-responder-missing',
+        bus: 'i2c',
+        boardId: this.boardId,
+        owners: [m.owner],
+        message:
+          `${m.owner} is on the I2C bus whose SDA is pin ${this.sdaPin}, but this board's ` +
+          `processor runs in the backend and has no model of the part to answer with, so the ` +
+          `board finds nothing at ${m.addresses.map(hex).join(', ')}. Run this board on an ` +
+          `in-browser engine, or use a part the backend models.`,
+      });
+    }
   }
 
   private conflict(address: number, list: readonly I2cMember[]): void {

@@ -67,11 +67,24 @@ export class BoardBusFabric {
   readonly boardId: string;
   private readonly kind: () => string | undefined;
   private readonly report: DiagnosticSink;
+  private readonly i2cChanged: () => void;
 
-  constructor(boardId: string, kind: () => string | undefined, report: DiagnosticSink) {
+  /**
+   * `onI2cChange` hears every change that can move what a remote worker must
+   * be told about this board's I2C: a target on or off a bus, a clock line
+   * decided again, a controller bound or rerouted. It may fire more often than
+   * the published map really changes; the listener compares.
+   */
+  constructor(
+    boardId: string,
+    kind: () => string | undefined,
+    report: DiagnosticSink,
+    onI2cChange?: () => void,
+  ) {
     this.boardId = boardId;
     this.kind = kind;
     this.report = report;
+    this.i2cChanged = onI2cChange ?? (() => {});
   }
 
   get pins(): BoardPins | null {
@@ -147,7 +160,10 @@ export class BoardBusFabric {
     this.i2cDecoders.clear();
     this.hwLevel.clear();
     for (const bus of this.spiBuses.values()) bus.controller = null;
-    for (const bus of this.i2cBuses.values()) bus.controllerName = null;
+    for (const bus of this.i2cBuses.values()) {
+      bus.controllerName = null;
+      bus.controllerRemote = false;
+    }
   }
 
   dispose(): void {
@@ -218,6 +234,7 @@ export class BoardBusFabric {
     }
     this.clockI2c(bus);
     this.checkI2cWiring(bus);
+    this.i2cChanged();
   }
 
   /**
@@ -246,6 +263,9 @@ export class BoardBusFabric {
     }
     if (bus.sclPin !== scl) bus.setClock(scl);
     else bus.reindex();
+    // Who is clocked is decided just now, and a target the worker cannot
+    // host only matters once it is.
+    bus.reportRemoteGaps();
     const pins = this.pins;
     const dec = this.i2cDecoders.get(bus.sdaPin);
     if (dec && (dec.sclPin !== scl || !pins)) {
@@ -347,7 +367,10 @@ export class BoardBusFabric {
 
   /** Point every I2C controller at the bus on the SDA net it is routed to. */
   private routeI2c(): void {
-    for (const bus of this.i2cBuses.values()) bus.controllerName = null;
+    for (const bus of this.i2cBuses.values()) {
+      bus.controllerName = null;
+      bus.controllerRemote = false;
+    }
     for (const slot of this.i2cSlots) {
       this.i2cRoutingOf(slot);
       const bus = slot.sda !== undefined ? (this.i2cBuses.get(slot.sda) ?? null) : null;
@@ -363,11 +386,13 @@ export class BoardBusFabric {
         });
       }
       bus.controllerName = slot.port.name;
+      bus.controllerRemote = slot.port.remote === true;
     }
     for (const bus of this.i2cBuses.values()) {
       this.clockI2c(bus);
       this.checkI2cWiring(bus);
     }
+    this.i2cChanged();
   }
 
   /** Compare where each device's data lines land with where the controller drives them. */

@@ -43,6 +43,7 @@ import {
 } from '../../simulation/customChips/chipNets';
 import { resetInterconnect } from '../../simulation/Interconnect';
 import { traceDetailed } from '../../simulation/PinTrace';
+import { busRegistry } from '../../simulation/buses';
 import {
   useSimulatorStore,
   getBoardSimulator,
@@ -618,16 +619,64 @@ function nextPass(board: Uno): Pass {
 const I2C_PINS = ['SCL', 'SDA', 'GND', 'VCC'];
 const HW_I2C = { SDA: 18, SCL: 19 };
 
+/**
+ * The Uno on the canvas: in the store under an id, its engine bound to that
+ * board's bus fabric. A chip enters the I2C bus its own SDA/SCL are wired to
+ * (vx_i2c_attach resolves them through the circuit), so here the wiring map is
+ * put in the store as wires, not only handed to the attach as getPin.
+ */
+let canvasSeq = 0;
+function unoOnCanvas(hex: string): Uno & { id: string } {
+  const board = uno(hex);
+  const id = `uno-i2c${++canvasSeq}`;
+  useSimulatorStore.setState((s) => ({
+    boards: [...s.boards, { id, boardKind: 'arduino-uno', x: 0, y: 0, running: false }] as never,
+  }));
+  busRegistry.bindEngine(id, board.sim.getBusBinding());
+  return { ...board, id };
+}
+
+async function attachWiredChip(
+  board: Uno & { id: string },
+  id: string,
+  attrs: Record<string, number>,
+  wiring: Record<string, number> = HW_I2C,
+): Promise<() => void> {
+  useSimulatorStore.setState((s) => ({
+    wires: [
+      ...s.wires.filter((w) => !w.id.startsWith(`${id}-w`)),
+      ...Object.entries(wiring).map(([pinName, pin], i) => ({
+        id: `${id}-w${i}`,
+        start: { componentId: id, pinName, x: 0, y: 0 },
+        end: { componentId: board.id, pinName: String(pin), x: 0, y: 0 },
+        waypoints: [],
+        color: '#0a0',
+      })),
+    ] as never,
+  }));
+  return attachChip(board.sim, id, 'i2c-probe', I2C_PINS, wiring, attrs);
+}
+
+function leaveCanvas(): void {
+  useSimulatorStore.setState((s) => ({
+    boards: s.boards.filter((b) => !b.id.startsWith('uno-i2c')),
+    wires: [],
+  }) as never);
+  busRegistry.netlistChanged();
+}
+
 describe('chip I2C: several addresses, removal', () => {
+  afterEach(leaveCanvas);
+
   it('multi-address-chip-ghost-slave setup: a two-address chip answers at both', async () => {
-    const board = uno(HEX.i2cScan);
-    await attachChip(board.sim, 'lcd', 'i2c-probe', I2C_PINS, HW_I2C, { addr1: 0x3e, addr2: 0x62 });
+    const board = unoOnCanvas(HEX.i2cScan);
+    await attachWiredChip(board, 'lcd', { addr1: 0x3e, addr2: 0x62 });
     expect(nextPass(board).addrs).toEqual(['3E', '62']);
   });
 
-  it.fails('multi-address-chip-ghost-slave: after the chip is deleted, neither of its addresses answers', async () => {
-    const board = uno(HEX.i2cScan);
-    const detach = await attachChip(board.sim, 'lcd', 'i2c-probe', I2C_PINS, HW_I2C, {
+  it('multi-address-chip-ghost-slave: after the chip is deleted, neither of its addresses answers', async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    const detach = await attachWiredChip(board, 'lcd', {
       addr1: 0x3e,
       addr2: 0x62,
     });
@@ -636,22 +685,33 @@ describe('chip I2C: several addresses, removal', () => {
     expect(nextPass(board).addrs).toEqual([]);
   });
 
-  it('i2c-remove-by-address-evicts-other-part setup: a replacement at the same address takes over', async () => {
-    const board = uno(HEX.i2cScan);
-    await attachChip(board.sim, 'sht-a', 'i2c-probe', I2C_PINS, HW_I2C, { addr1: 0x44, id: 0x11 });
-    expect(nextPass(board).r44).toBe('11');
-    await attachChip(board.sim, 'sht-b', 'i2c-probe', I2C_PINS, HW_I2C, { addr1: 0x44, id: 0x22 });
-    expect(nextPass(board).r44).toBe('22');
+  // Two chips at one address on one bus is a conflict on the bench: both ACK
+  // and a read is the wired-AND of what they drive. The
+  // old bus let the newer one take the address over, which hid exactly the
+  // eviction below.
+  it('i2c-remove-by-address-evicts-other-part setup: two chips at one address both answer, and read as their wired-AND', async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    const conflicts: string[][] = [];
+    const off = busRegistry.onDiagnostic((d) => {
+      if (d.code === 'i2c-address-conflict') conflicts.push([...d.owners]);
+    });
+    try {
+      await attachWiredChip(board, 'sht-a', { addr1: 0x44, id: 0x11 });
+      expect(nextPass(board).r44).toBe('11');
+      await attachWiredChip(board, 'sht-b', { addr1: 0x44, id: 0x33 });
+      expect(nextPass(board).r44).toBe('11');
+      expect(conflicts).toContainEqual(['sht-a', 'sht-b']);
+    } finally {
+      off();
+    }
   });
 
-  it.fails('i2c-remove-by-address-evicts-other-part: deleting the original leaves the replacement answering', async () => {
-    const board = uno(HEX.i2cScan);
-    const detachA = await attachChip(board.sim, 'sht-a', 'i2c-probe', I2C_PINS, HW_I2C, {
-      addr1: 0x44,
-      id: 0x11,
-    });
-    await attachChip(board.sim, 'sht-b', 'i2c-probe', I2C_PINS, HW_I2C, { addr1: 0x44, id: 0x22 });
-    expect(nextPass(board).r44).toBe('22');
+  it('i2c-remove-by-address-evicts-other-part: deleting the original leaves the replacement answering', async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    const detachA = await attachWiredChip(board, 'sht-a', { addr1: 0x44, id: 0x11 });
+    await attachWiredChip(board, 'sht-b', { addr1: 0x44, id: 0x22 });
+    // 0x11 & 0x22, printed with Serial.print(b, HEX).
+    expect(nextPass(board).r44).toBe('0');
     detachA();
     expect(nextPass(board).r44).toBe('22');
   });
@@ -659,23 +719,40 @@ describe('chip I2C: several addresses, removal', () => {
 
 describe('chip I2C: membership follows the wiring', () => {
   const ID = 'chip-i2c-attached-regardless-of-wiring';
+  afterEach(leaveCanvas);
 
   it(`${ID} setup: a chip with SDA/SCL on A4/A5 is found by the scanner`, async () => {
-    const board = uno(HEX.i2cScan);
-    await attachChip(board.sim, 'ee', 'i2c-probe', I2C_PINS, HW_I2C, { addr1: 0x50 });
+    const board = unoOnCanvas(HEX.i2cScan);
+    await attachWiredChip(board, 'ee', { addr1: 0x50 });
     expect(nextPass(board).addrs).toEqual(['50']);
   });
 
-  it.fails(`${ID}: a chip whose SDA/SCL are not wired is invisible to the hardware Wire bus`, async () => {
-    const board = uno(HEX.i2cScan);
-    await attachChip(board.sim, 'ee', 'i2c-probe', I2C_PINS, {}, { addr1: 0x50 });
+  it(`${ID}: a chip whose SDA/SCL are not wired is invisible to the hardware Wire bus`, async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    await attachWiredChip(board, 'ee', { addr1: 0x50 }, {});
     expect(nextPass(board).addrs).toEqual([]);
   });
 
-  it.fails(`${ID}: a chip whose SDA/SCL go to D2/D3 is invisible to the scanner on A4/A5`, async () => {
-    const board = uno(HEX.i2cScan);
-    await attachChip(board.sim, 'ee', 'i2c-probe', I2C_PINS, { SDA: 2, SCL: 3 }, { addr1: 0x50 });
+  it(`${ID}: a chip whose SDA/SCL go to D2/D3 is invisible to the scanner on A4/A5`, async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    await attachWiredChip(board, 'ee', { addr1: 0x50 }, { SDA: 2, SCL: 3 });
     expect(nextPass(board).addrs).toEqual([]);
+  });
+
+  it(`${ID}: the same chip moved from D2/D3 to A4/A5 mid-run is found by the next scan`, async () => {
+    const board = unoOnCanvas(HEX.i2cScan);
+    await attachWiredChip(board, 'ee', { addr1: 0x50 }, { SDA: 2, SCL: 3 });
+    expect(nextPass(board).addrs).toEqual([]);
+    // Re-wiring is a store change, not a re-attach: the fabric moves it.
+    useSimulatorStore.setState((s) => ({
+      wires: s.wires.map((w) =>
+        w.id.startsWith('ee-w')
+          ? { ...w, end: { ...w.end, pinName: w.start.pinName === 'SDA' ? '18' : '19' } }
+          : w,
+      ),
+    }) as never);
+    busRegistry.netlistChanged();
+    expect(nextPass(board).addrs).toEqual(['50']);
   });
 });
 

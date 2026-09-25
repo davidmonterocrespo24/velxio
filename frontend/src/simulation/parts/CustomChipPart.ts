@@ -14,7 +14,6 @@ import {
   ensureUartBridge,
   getSimulatorBridges,
   avrUartTx,
-  getI2CBus,
   detectSimulatorKind,
 } from '../customChips';
 import { hostsChipsInWorker } from '../customChips/simulatorBridges';
@@ -340,9 +339,10 @@ PartSimulationRegistry.register('custom-chip', {
     const strAttrs = new Map<string, string>(Object.entries(strAttrsObj));
 
     // Lazily install the per-simulator UART bridge. Idempotent — safe to call
-    // even if other custom chips have already wired it up. SPI needs nothing
-    // here: the chip joins the board's bus from vx_spi_attach, with the pins of
-    // its own config, and a chip that never calls it stays off SPI entirely.
+    // even if other custom chips have already wired it up. SPI and I2C need
+    // nothing here: the chip joins the board's buses from vx_spi_attach and
+    // vx_i2c_attach, with the pins of its own config, and a chip that never
+    // calls them stays off those buses entirely.
     ensureUartBridge(sim);
     const bridges = getSimulatorBridges(sim);
 
@@ -363,10 +363,9 @@ PartSimulationRegistry.register('custom-chip', {
           wasm,
           componentId,
           pinManager: sim.pinManager,
-          // Polymorphic I2C: AVR returns the I2CBusManager directly, RP2040
-          // and a browser-hosted ESP32 (in-browser engine) a thin adapter,
-          // anything else null (chip won't get I2C).
-          i2cBus: getI2CBus(sim, 0) as any,
+          // No I2C bus is handed over: the chip enters the bus its own SDA/SCL
+          // are wired to when it calls vx_i2c_attach, on whichever controller
+          // that is (Wire1, the XIAO RP2040's I2C1) or on none.
           wires,
           attrs,
           strAttrs,

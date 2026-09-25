@@ -61,6 +61,7 @@ import {
 import { HD44780Decoder } from '../simulation/HD44780Decoder';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts/ProtocolParts';
+import { busRegistry } from '../simulation/buses';
 
 // Minimal mock of AVRTWI shaped exactly as I2CBusManager calls it.
 // We don't need a real CPU for this test — the bug is in what
@@ -191,11 +192,26 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     const twi = makeTWI();
     const bus = new I2CBusManager(twi as any);
     const sim: any = {
-      addI2CDevice: (d: any) => bus.addDevice(d),
-      removeI2CDevice: (a: number) => bus.removeDevice(a),
       i2cBus: bus,
       pinManager: { onPinChange: () => () => {} },
     };
+    // The backpack is on the bus its SDA/SCL are wired to: the Uno's TWI on
+    // A4/A5 (18/19), whose controller port is this manager.
+    busRegistry.setResolver({
+      resolve: (ref) =>
+        ref.kind === 'board'
+          ? { kind: 'board', boardId: ref.boardId, pin: ref.pin }
+          : ref.componentId === 'lcd-1' && (ref.pinName === 'SDA' || ref.pinName === 'SCL')
+            ? { kind: 'board', boardId: 'uno', pin: ref.pinName === 'SDA' ? 18 : 19 }
+            : { kind: 'floating' },
+      boardKind: () => 'arduino-uno',
+      boards: () => ['uno'],
+    });
+    busRegistry.bindEngine('uno', {
+      pins: { onPinChange: () => () => {}, peekPinState: () => undefined },
+      spi: [],
+      i2c: [bus],
+    });
 
     const detach = PartSimulationRegistry.get('lcd1602-i2c')!.attachEvents!(
       el as HTMLElement,
@@ -234,6 +250,7 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     expect(chars[4]).toBe('o'.charCodeAt(0));
 
     detach();
+    busRegistry.clear();
   });
 
   it('FIXED: clear command wipes the display and resets cursor', () => {

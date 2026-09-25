@@ -390,13 +390,12 @@ describe('QEMU ESP32 shim: a custom chip on the board SPI pins', () => {
 
 // ── worker-i2c-slaves-ignore-bus-id (the browser half) ───────────────────────
 
-/** The field a sensor record uses for its I2C controller (Wire = 0, Wire1 =
- *  1); nothing sends it today. Same name as the worker tests use
- *  (test/backend/unit/test_board_buses_repro_worker.py). */
-const I2C_BUS_KEY = 'bus';
-
-/** A BMP280 part (ProtocolParts 'bmp280') on the board, SDA/SCL on `sda`/`scl`. */
+/** A BMP280 part (ProtocolParts 'bmp280') on the board, SDA/SCL on `sda`/`scl`,
+ *  wired in the store as the canvas wires it: that is what places it on a bus. */
 function mountBmp280(shim: unknown, id: string, temperature: number, sda: number, scl: number) {
+  const boardId = useSimulatorStore.getState().boards.find((b) => getBoardSimulator(b.id) === shim)!.id;
+  wire(boardId, id, { SDA: `D${sda}`, SCL: `D${scl}` });
+  busRegistry.netlistChanged();
   const el = { id, address: '0x76', temperature: String(temperature), pressure: '1013.25' };
   const pinOf = (name: string) => (name === 'SDA' ? sda : name === 'SCL' ? scl : null);
   return PartSimulationRegistry.get('bmp280')!.attachEvents!(
@@ -427,7 +426,7 @@ describe('QEMU ESP32 board: two I2C sensors at one address on Wire and Wire1', (
     expect(recs[0]).toMatchObject({ addr: 0x76, temperature: 20 });
   });
 
-  it.fails(
+  it(
     'worker-i2c-slaves-ignore-bus-id: a BMP280 on Wire (21/22) and one on Wire1 (25/26), both at 0x76, reach the worker as two devices with their own readings',
     () => {
       const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
@@ -440,28 +439,33 @@ describe('QEMU ESP32 board: two I2C sensors at one address on Wire and Wire1', (
     },
   );
 
-  // Depends on the record field the fix picks (I2C_BUS_KEY): if it names the
-  // controller some other way, rename the constant rather than read this as
-  // still failing. On an ESP32 the GPIO matrix picks the controller at run
-  // time (Wire.begin(25, 26) is legal), so a fix that sends the SDA/SCL pins
-  // and lets the worker resolve the controller makes this contract moot:
-  // delete it then, the test above still covers the two records.
-  it.fails(
-    'worker-i2c-slaves-ignore-bus-id: each of the two records names the I2C controller its SDA/SCL are wired to (Wire = 0, Wire1 = 1)',
+  // The record does not name its controller: on an ESP32 the GPIO matrix
+  // picks it at run time (Wire.begin(25, 26) is legal). Each record carries
+  // its owner, and the bus map that rides in the same start message says where
+  // that owner's SDA is; the worker resolves the pad against the live matrix
+  // (i2c_bus_table.py, test_board_buses_f5_worker_i2c.py).
+  it(
+    'worker-i2c-slaves-ignore-bus-id: each record carries its part as owner, and the start map puts that owner on the SDA it is wired to',
     () => {
       const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
       const shim = getBoardSimulator(id);
       cleanups.push(mountBmp280(shim, 'bmp-a', 20, 21, 22));
       cleanups.push(mountBmp280(shim, 'bmp-b', 30, 25, 26));
-      const recs = bootSensors(id);
-      expect(Object.fromEntries(recs.map((r) => [r.temperature, r[I2C_BUS_KEY]]))).toEqual({
-        20: 0,
-        30: 1,
+      getEsp32Bridge(id)!.connect();
+      const ws = ScriptedSocket.last!;
+      ws.open();
+      const start = ws.sent.find((m) => m.type === 'start_esp32')!.data!;
+      const recs = (start.sensors as Array<Record<string, unknown>>).filter((r) => r.sensor_type === 'bmp280');
+      expect(Object.fromEntries(recs.map((r) => [r.temperature, r.owner]))).toEqual({
+        20: 'bmp-a',
+        30: 'bmp-b',
       });
+      const map = (start.bus_map as { i2c: Array<{ owner: string; sda: number | null }> }).i2c;
+      expect(Object.fromEntries(map.map((e) => [e.owner, e.sda]))).toEqual({ 'bmp-a': 21, 'bmp-b': 25 });
     },
   );
 
-  it.fails(
+  it(
     'worker-i2c-slaves-ignore-bus-id: deleting the Wire1 BMP280 leaves the Wire one on the board for the next Run',
     () => {
       const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
@@ -473,6 +477,23 @@ describe('QEMU ESP32 board: two I2C sensors at one address on Wire and Wire1', (
       expect(recs.map((r) => r.temperature)).toEqual([20]);
     },
   );
+});
+
+// A part the worker does host is not a remote gap. The target the part puts on
+// the fabric says which worker model answers for it (`remoteModel`, the record
+// type it sends); without it, every I2C part on a QEMU board was named
+// `bus-remote-responder-missing` while its own worker record answered fine.
+describe('QEMU ESP32 board: a hosted I2C part is not reported as missing', () => {
+  it('a BMP280 wired to Wire raises no bus-remote-responder-missing, and its record reaches the worker', () => {
+    // A diagnostic is said once per owner; the rows above already mounted a bmp-a.
+    busRegistry.resetDiagnostics();
+    const seen: string[] = [];
+    cleanups.push(busRegistry.onDiagnostic((d) => seen.push(`${d.code}:${d.owners.join(',')}`)));
+    const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+    cleanups.push(mountBmp280(getBoardSimulator(id), 'bmp-a', 20, 21, 22));
+    expect(bootSensors(id)).toHaveLength(1);
+    expect(seen.filter((d) => d.startsWith('bus-remote-responder-missing'))).toEqual([]);
+  });
 });
 
 // ── stm32-no-client-miso-and-epaper-swallow (the browser half) ───────────────

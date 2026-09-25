@@ -716,16 +716,32 @@ function bootMega(b: Bench, budget = 6_000_000): string[] {
     .filter((l) => l.length > 0);
 }
 
+/**
+ * A Mega with the DS1307 the sketch talks to, on its own SDA/SCL (20/21). The
+ * store no longer puts a demo RTC on every AVR bus (D-010), so the part is on
+ * the canvas the way a user wires it; without it Wire reads TWI:FAIL.
+ */
+function megaBench(): Bench {
+  const b = new Bench('arduino-mega');
+  const id = `${b.id}-rtc`;
+  b.wire(id, 'SDA', '20');
+  b.wire(id, 'SCL', '21');
+  b.wire(id, '5V', '5V');
+  b.wire(id, 'GND', 'GND.1');
+  b.mount({ id, metadataId: 'ds1307', el: {} });
+  return b;
+}
+
 describe('Arduino Mega: peripherals rebuilt by Stop/Run and Reset keep the ATmega2560 vectors', () => {
   it('mega-reset-uno-spi-config, avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config setup: first Run boots once, Wire answers, millis() ticks', () => {
-    const b = new Bench('arduino-mega');
+    const b = megaBench();
     b.load(MEGA_HEX);
     b.run();
     expect(bootMega(b)).toEqual(MEGA_GOOD);
   });
 
   it('mega-reset-uno-spi-config, avr-mega-reset-uno-vectors setup: a recompile (reload) rebuilds with the Mega vectors and boots the same', () => {
-    const b = new Bench('arduino-mega');
+    const b = megaBench();
     b.load(MEGA_HEX);
     b.run();
     bootMega(b);
@@ -737,7 +753,7 @@ describe('Arduino Mega: peripherals rebuilt by Stop/Run and Reset keep the ATmeg
 
   for (const how of ['Stop', 'Reset'] as const) {
     it(`avr-mega-reset-uno-vectors, avr-mega-tiny-reset-wrong-config, mega-reset-uno-spi-config: after ${how} then Run the Mega boots once and millis(), Serial and Wire keep working`, () => {
-      const b = new Bench('arduino-mega');
+      const b = megaBench();
       b.load(MEGA_HEX);
       b.run();
       bootMega(b);

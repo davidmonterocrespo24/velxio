@@ -45,6 +45,17 @@ export interface RemoteI2cMapEntry {
 }
 
 /**
+ * The owners the worker must keep silent: registered targets that are on no
+ * bus of this board. The worker places a sensor record by its owner, and a
+ * record the map says nothing about answers on every controller, which is
+ * right only for a part that is not on the fabric yet. A part that IS on the
+ * fabric and is wired to nothing here must not answer, so the map names it.
+ */
+export interface RemoteI2cUnplacedEntry {
+  unplaced: string[];
+}
+
+/**
  * The controller port of a board whose CPU is in a backend worker.
  *
  * Nothing in the tab ever clocks it: the worker answers every event from its
@@ -58,6 +69,9 @@ export class RemoteI2cPort implements I2cControllerPort {
   readonly bus = 'i2c' as const;
   readonly unit: number;
   readonly name: string;
+  /** The master is in the worker: a target here answers only through a model
+   *  the worker holds, and the bus names the ones it does not. */
+  readonly remote = true;
   private handler: I2cTransactionHandler | null = null;
 
   constructor(unit: number, name: string) {
@@ -102,9 +116,9 @@ export class RemoteI2cLane {
   /**
    * The `i2c` half of the bus map: every target the fabric placed on this
    * board, sorted by owner so the list (and the key below) never depends on
-   * the order parts mounted in.
+   * the order parts mounted in, then the owners that are on none of its buses.
    */
-  publication(): RemoteI2cMapEntry[] {
+  publication(): Array<RemoteI2cMapEntry | RemoteI2cUnplacedEntry> {
     const fabric = busRegistry.fabric(this.boardId);
     const out: RemoteI2cMapEntry[] = [];
     for (const bus of fabric.i2cBuses.values()) {
@@ -124,7 +138,10 @@ export class RemoteI2cLane {
       }
     }
     out.sort((a, b) => (a.owner < b.owner ? -1 : a.owner > b.owner ? 1 : 0));
-    return out;
+    const unplaced = busRegistry.unplacedI2cOwners(this.boardId);
+    // Left out when empty, so a board with every target placed sends the same
+    // list it did before this entry existed.
+    return unplaced.length ? [...out, { unplaced }] : out;
   }
 
   /**
@@ -132,7 +149,7 @@ export class RemoteI2cLane {
    * returned. The caller sends the map when it does; a map that went anyway
    * (the SPI half changed) should still take it, so both are returned.
    */
-  poll(): { i2c: RemoteI2cMapEntry[]; changed: boolean } {
+  poll(): { i2c: Array<RemoteI2cMapEntry | RemoteI2cUnplacedEntry>; changed: boolean } {
     const i2c = this.publication();
     const key = JSON.stringify(i2c);
     const changed = key !== this.lastKey;

@@ -13,6 +13,7 @@ export {
   BusRegistry,
   busRegistry,
   type DiagnosticListener,
+  type I2cMapListener,
   type RemoteSpiMapEntry,
   type RemoteSpiSinksEntry,
   type SpiAttrsListener,
@@ -27,6 +28,7 @@ export {
 } from './busChips';
 export { RemoteSpiPort, type RemoteSpiPortOptions } from './remotePort';
 export { RemoteSpiLane } from './remoteLane';
+export { WORKER_I2C_MODELS } from './workerI2cModels';
 export { BoardBusFabric } from './fabric';
 export { SpiBus, reverseBits, type SpiMember } from './spiBus';
 export { SoftSpiDecoder } from './softSpi';
