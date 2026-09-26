@@ -11,8 +11,42 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as ts from 'typescript';
+import { createRequire } from 'node:module';
+import type * as TS from 'typescript';
 import type { ComponentMetadata, ComponentCategory } from '../frontend/src/types/component-metadata';
+
+/**
+ * The compiler API is only needed to parse the optional
+ * third-party/wokwi-elements clone, so it is loaded on demand rather than
+ * imported at the top: `typescript` lives in the repo root's devDependencies,
+ * which `npm install` in frontend/ does not install, and `npm run dev` runs
+ * this script. A top-level import therefore threw MODULE_NOT_FOUND before the
+ * "no clone, skip regeneration" early return below could fire, breaking dev
+ * for anyone who had not also installed at the root.
+ *
+ * Resolution falls back to frontend/node_modules, which pins the same
+ * typescript version, so the clone path works from either install.
+ *
+ * `createRequire` rather than `await import()`: dynamic import goes through
+ * the ESM resolver, which honours neither NODE_PATH nor a different base.
+ */
+let ts!: typeof TS;
+
+function loadTypeScript(): void {
+  if (ts) return;
+  const bases = [__filename, path.join(__dirname, '../frontend/package.json')];
+  for (const base of bases) {
+    try {
+      ts = createRequire(base)('typescript');
+      return;
+    } catch {
+      // Try the next base.
+    }
+  }
+  throw new Error(
+    "Cannot resolve 'typescript'. Run `npm install` at the repo root (or in frontend/).",
+  );
+}
 
 // Hardcoded category mapping (components don't self-declare categories)
 const CATEGORY_MAP: Record<string, ComponentCategory> = {
@@ -123,6 +157,8 @@ class MetadataGenerator {
       console.log('       third-party/wokwi-elements');
       return;
     }
+
+    loadTypeScript();
 
     const components: ComponentMetadata[] = [];
     const elementFiles = this.findElementFiles();
@@ -340,16 +376,16 @@ class MetadataGenerator {
   /**
    * Parse TypeScript AST to extract decorators and properties
    */
-  private parseTypeScriptAST(sourceFile: ts.SourceFile): ParsedComponent | null {
+  private parseTypeScriptAST(sourceFile: TS.SourceFile): ParsedComponent | null {
     let tagName = '';
     let className = '';
     const properties: ParsedComponent['properties'] = [];
     let pinCount = 0;
 
-    const visit = (node: ts.Node) => {
+    const visit = (node: TS.Node) => {
       // Find @customElement decorator
       if (ts.isDecorator(node)) {
-        const decorator = node as ts.Decorator;
+        const decorator = node as TS.Decorator;
         if (ts.isCallExpression(decorator.expression)) {
           const call = decorator.expression;
           if (ts.isIdentifier(call.expression) && call.expression.text === 'customElement') {

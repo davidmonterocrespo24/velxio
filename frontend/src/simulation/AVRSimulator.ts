@@ -308,6 +308,159 @@ const MEGA_PORT_CONFIGS = [
 ];
 
 /**
+ * ── ATmega2560 timer wiring ──────────────────────────────────────────────────
+ *
+ * avr8js ships ATmega328P configs. Timer0/1/2 keep the same register
+ * addresses on the Mega, but two things differ and both matter:
+ *
+ *   1. The compare-output pins (OCnx). On the Uno OC1A is PB1; on the Mega
+ *      it is PB5 (D11). Without these overrides a CTC + toggle-on-compare
+ *      sketch drives the wrong pad (or none at all, since the DDR bit the
+ *      sketch sets belongs to a different pin).
+ *   2. Timer3/4/5 do not exist on the ATmega328P, so avr8js has no stock
+ *      config for them — they are built below from `timer1Config` (same
+ *      16-bit layout, different register block, TIMSK/TIFR and vectors).
+ *
+ * Interrupt fields are WORD addresses = _VECTOR(N) * 2 (each JMP vector is
+ * 4 bytes = 2 words), matching the convention already used for Timer0-2.
+ *
+ * OCnx → port pin → Arduino pin (ATmega2560 datasheet §13.3 / variants/mega):
+ *   OC0A PB7 D13   OC0B PG5 D4
+ *   OC1A PB5 D11   OC1B PB6 D12   OC1C PB7 D13
+ *   OC2A PB4 D10   OC2B PH6 D9
+ *   OC3A PE3 D5    OC3B PE4 D2    OC3C PE5 D3
+ *   OC4A PH3 D6    OC4B PH4 D7    OC4C PH5 D8
+ *   OC5A PL3 D46   OC5B PL4 D45   OC5C PL5 D44
+ */
+const MEGA_TIMER0_PINS = {
+  compPortA: portBConfig.PORT,
+  compPinA: 7,
+  compPortB: portGConfig.PORT,
+  compPinB: 5,
+  externalClockPort: portDConfig.PORT,
+  externalClockPin: 7, // T0 → PD7
+} as const;
+
+const MEGA_TIMER1_PINS = {
+  compPortA: portBConfig.PORT,
+  compPinA: 5,
+  compPortB: portBConfig.PORT,
+  compPinB: 6,
+  compPortC: portBConfig.PORT,
+  compPinC: 7,
+  externalClockPort: portDConfig.PORT,
+  externalClockPin: 6, // T1 → PD6
+} as const;
+
+const MEGA_TIMER2_PINS = {
+  compPortA: portBConfig.PORT,
+  compPinA: 4,
+  compPortB: portHConfig.PORT,
+  compPinB: 6,
+  // Timer2 has no T2 input on the Mega — it clocks off TOSC1/TOSC2.
+  externalClockPort: 0,
+  externalClockPin: 0,
+} as const;
+
+/** Timer1's third compare channel (OC1C) — absent on the ATmega328P. */
+const MEGA_TIMER1_CHANNEL_C = {
+  OCRC: 0x8c,
+  compCInterrupt: 0x26, // _VECTOR(19) TIMER1_COMPC
+  OCFC: 0b1000,
+  OCIEC: 0b1000,
+} as const;
+
+/** Timer3/4/5 share Timer1's 16-bit layout; only the addresses move. */
+const megaTimer3Config: AVRTimerConfig = {
+  ...timer1Config,
+  captureInterrupt: 0x3e, // _VECTOR(31)
+  compAInterrupt: 0x40, // _VECTOR(32)
+  compBInterrupt: 0x42, // _VECTOR(33)
+  compCInterrupt: 0x44, // _VECTOR(34)
+  ovfInterrupt: 0x46, // _VECTOR(35)
+  TIFR: 0x38,
+  TIMSK: 0x71,
+  TCCRA: 0x90,
+  TCCRB: 0x91,
+  TCCRC: 0x92,
+  TCNT: 0x94,
+  ICR: 0x96,
+  OCRA: 0x98,
+  OCRB: 0x9a,
+  OCRC: 0x9c,
+  OCFC: 0b1000,
+  OCIEC: 0b1000,
+  compPortA: portEConfig.PORT,
+  compPinA: 3,
+  compPortB: portEConfig.PORT,
+  compPinB: 4,
+  compPortC: portEConfig.PORT,
+  compPinC: 5,
+  externalClockPort: portEConfig.PORT,
+  externalClockPin: 6, // T3 → PE6
+};
+
+const megaTimer4Config: AVRTimerConfig = {
+  ...timer1Config,
+  captureInterrupt: 0x52, // _VECTOR(41)
+  compAInterrupt: 0x54, // _VECTOR(42)
+  compBInterrupt: 0x56, // _VECTOR(43)
+  compCInterrupt: 0x58, // _VECTOR(44)
+  ovfInterrupt: 0x5a, // _VECTOR(45)
+  TIFR: 0x39,
+  TIMSK: 0x72,
+  TCCRA: 0xa0,
+  TCCRB: 0xa1,
+  TCCRC: 0xa2,
+  TCNT: 0xa4,
+  ICR: 0xa6,
+  OCRA: 0xa8,
+  OCRB: 0xaa,
+  OCRC: 0xac,
+  OCFC: 0b1000,
+  OCIEC: 0b1000,
+  compPortA: portHConfig.PORT,
+  compPinA: 3,
+  compPortB: portHConfig.PORT,
+  compPinB: 4,
+  compPortC: portHConfig.PORT,
+  compPinC: 5,
+  externalClockPort: portHConfig.PORT,
+  externalClockPin: 7, // T4 → PH7
+};
+
+const megaTimer5Config: AVRTimerConfig = {
+  ...timer1Config,
+  captureInterrupt: 0x5c, // _VECTOR(46)
+  compAInterrupt: 0x5e, // _VECTOR(47)
+  compBInterrupt: 0x60, // _VECTOR(48)
+  compCInterrupt: 0x62, // _VECTOR(49)
+  ovfInterrupt: 0x64, // _VECTOR(50)
+  TIFR: 0x3a,
+  TIMSK: 0x73,
+  // Timer5 lives in extended I/O (0x120+) — reachable via cpu.data / write
+  // hooks exactly like the low registers, just not via IN/OUT.
+  TCCRA: 0x120,
+  TCCRB: 0x121,
+  TCCRC: 0x122,
+  TCNT: 0x124,
+  ICR: 0x126,
+  OCRA: 0x128,
+  OCRB: 0x12a,
+  OCRC: 0x12c,
+  OCFC: 0b1000,
+  OCIEC: 0b1000,
+  compPortA: portLConfig.PORT,
+  compPinA: 3,
+  compPortB: portLConfig.PORT,
+  compPinB: 4,
+  compPortC: portLConfig.PORT,
+  compPinC: 5,
+  externalClockPort: portLConfig.PORT,
+  externalClockPin: 2, // T5 → PL2
+};
+
+/**
  * DDR register address per ATmega2560 port. Module scope because two things
  * need it: the port listeners (which pass the mask to PinManager) and
  * `mcuDrives`, the "is the sketch driving this pad right now" question.
@@ -377,15 +530,31 @@ const ATMEGA328P_PERIPHERALS: AtmegaPeripheralConfigs = {
 };
 
 const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
-  timer0: { ...timer0Config, compAInterrupt: 0x2a, compBInterrupt: 0x2c, ovfInterrupt: 0x2e },
+  // The compare-output pads and the third channel of Timer1 are the Mega's,
+  // not the 328P's: without them a sketch that sets OCR1A drives no pin (#356).
+  timer0: {
+    ...timer0Config,
+    compAInterrupt: 0x2a,
+    compBInterrupt: 0x2c,
+    ovfInterrupt: 0x2e,
+    ...MEGA_TIMER0_PINS,
+  },
   timer1: {
     ...timer1Config,
     captureInterrupt: 0x20,
     compAInterrupt: 0x22,
     compBInterrupt: 0x24,
     ovfInterrupt: 0x28,
+    ...MEGA_TIMER1_CHANNEL_C,
+    ...MEGA_TIMER1_PINS,
   },
-  timer2: { ...timer2Config, compAInterrupt: 0x1a, compBInterrupt: 0x1c, ovfInterrupt: 0x1e },
+  timer2: {
+    ...timer2Config,
+    compAInterrupt: 0x1a,
+    compBInterrupt: 0x1c,
+    ovfInterrupt: 0x1e,
+    ...MEGA_TIMER2_PINS,
+  },
   usart0: {
     ...usart0Config,
     rxCompleteInterrupt: 0x32,
@@ -763,6 +932,17 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         spi,
         this.twi,
       ];
+
+      if (this.boardVariant === 'mega') {
+        // Timer3/4/5 drive nine of the Mega's fifteen PWM pins and are the
+        // usual choice for user-defined CTC / ISR timing, so they have to
+        // tick like the others (#356).
+        this.peripherals.push(
+          new AVRTimer(cpu, megaTimer3Config),
+          new AVRTimer(cpu, megaTimer4Config),
+          new AVRTimer(cpu, megaTimer5Config),
+        );
+      }
 
       this.adc = new AVRADC(cpu, cfg.adc);
 

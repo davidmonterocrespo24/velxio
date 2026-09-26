@@ -19,7 +19,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { avrInstruction } from 'avr8js';
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { PinManager } from '../simulation/PinManager';
 
@@ -72,25 +71,6 @@ const EMPTY_HEX = ':00000001FF\n';
 
 function runCycles(sim: AVRSimulator, cycles: number): void {
   for (let i = 0; i < cycles; i++) sim.step();
-}
-
-/**
- * Run N cycles executing only instructions — no cpu.tick().
- *
- * avr8js timer peripherals only advance when cpu.tick() is called.
- * On ATmega2560, timer0Config.ovfInterrupt uses the ATmega328P vector
- * address (0x20) rather than the Mega address (0x60).  Calling cpu.tick()
- * during E2E tests causes Timer0 OVF to jump to the wrong ISR, which
- * triggers __bad_interrupt → CPU resets to 0 every ~16 K cycles, preventing
- * loop() from ever reaching digitalWrite(13, LOW).
- * Skipping cpu.tick() avoids all timer interrupts while still executing
- * every AVR instruction correctly.
- */
-function runCyclesNoTick(sim: AVRSimulator, cycles: number): void {
-  const cpu = (sim as any).cpu;
-  for (let i = 0; i < cycles; i++) {
-    avrInstruction(cpu);
-  }
 }
 
 // ─── Unit tests ───────────────────────────────────────────────────────────────

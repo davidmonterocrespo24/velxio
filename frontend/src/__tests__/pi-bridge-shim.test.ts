@@ -27,6 +27,10 @@ vi.mock('../simulation/RaspberryPi3Bridge', () => ({
     onBooted: unknown = null;
     onDisconnected: unknown = null;
     onError: unknown = null;
+    /** The header UART, not the console (RaspberryPi3Bridge declares both).
+     *  The shim chains itself onto this slot, so the tests fire it to play
+     *  the guest writing to /dev/serial0. */
+    onUartTx: ((text: string) => void) | null = null;
     quietBootDefault = false;
     quietBootLabel = '';
     sent: unknown[] = [];
@@ -54,7 +58,14 @@ import {
 } from '../store/useSimulatorStore';
 import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { registerPiBusOp } from '../lib/proBoardRegistry';
-import { avrUartTx, detectSimulatorKind } from '../simulation/customChips/simulatorBridges';
+import {
+  avrUartTx,
+  detectSimulatorKind,
+  ensureUartBridge,
+  getSimulatorBridges,
+} from '../simulation/customChips/simulatorBridges';
+import { feedBoardSerialOut } from '../simulation/Interconnect';
+import { setWires } from './helpers/multiBoardSetup';
 import { VirtualBMP280, VirtualDS3231, VirtualPCF8574, type I2CDevice } from '../simulation/I2CBusManager';
 import { attachI2cTarget } from '../simulation/buses';
 import { i2cTargetOf } from '../simulation/parts/i2cPart';
@@ -116,12 +127,51 @@ describe('a Pi board has a simulator entry', () => {
   });
 });
 
-describe("a custom chip's UART", () => {
-  it('is the rp2040 browser path, and the chip\'s reply reaches the guest header UART', () => {
+// ── The header UART, both directions ────────────────────────────────────────
+//
+// A UART part attaches to a board the way the Grove modules do: it listens on
+// the custom-chip bridge's `uartListeners` and answers through the simulator's
+// `sendSerialBytes`. Every module with a command grammar is this shape, so a
+// stand-in of that shape is what the tests drive, and what they assert is the
+// user-visible thing: the module answered.
+
+interface MockPiBridge {
+  onUartTx: ((text: string) => void) | null;
+  sendUartBytes?: (bytes: number[]) => void;
+}
+
+/**
+ * An AT modem in twelve lines: it says nothing until it is spoken to, and
+ * answers OK to a well-formed AT line. The real Grove AT modems (ESP8285,
+ * WizFi360, HM-11, BC417, Wio-E5) attach through the same two seams.
+ */
+function attachAtModem(shim: PiBridgeShim): () => void {
+  ensureUartBridge(shim);
+  const bridges = getSimulatorBridges(shim);
+  let line = '';
+  const listener = (byte: number) => {
+    const ch = String.fromCharCode(byte);
+    if (ch !== '\r') {
+      line += ch;
+      return;
+    }
+    const reply = line.trim().toUpperCase() === 'AT' ? 'OK\r\n' : 'ERROR\r\n';
+    line = '';
+    shim.sendSerialBytes(Array.from(new TextEncoder().encode(reply)));
+  };
+  bridges.uartListeners.add(listener);
+  return () => bridges.uartListeners.delete(listener);
+}
+
+const decode = (bytes: number[]) => new TextDecoder().decode(Uint8Array.from(bytes));
+
+describe('a UART part on the header', () => {
+  it("is the rp2040 browser path, and the part's reply reaches the guest header UART", () => {
     const { id, shim } = addPi();
-    // avrUartTx routes an rp2040-kind simulator through serialWriteByte; the
-    // shim used to have only sendSerialBytes, so the board could talk to a
-    // chip (onSerialData) but never hear it.
+    // The part-to-board direction only. avrUartTx routes an rp2040-kind
+    // simulator through serialWriteByte; the shim used to have no such
+    // method, so a part's replies went nowhere. What the board SENDS is the
+    // test below, and it was the half that never worked.
     expect(detectSimulatorKind(shim)).toBe('rp2040');
     const bridge = getBoardBridge(id) as unknown as { sendUartBytes?: (b: number[]) => void };
     bridge.sendUartBytes = vi.fn();
@@ -129,6 +179,64 @@ describe("a custom chip's UART", () => {
     avrUartTx(shim, 0x1ff);
     expect(bridge.sendUartBytes).toHaveBeenNthCalledWith(1, [0x41]);
     expect(bridge.sendUartBytes).toHaveBeenNthCalledWith(2, [0xff]);
+  });
+
+  it('answers the Linux guest that spoke to it', () => {
+    const { id, shim } = addPi();
+    const bridge = getBoardBridge(id) as unknown as MockPiBridge;
+    const answered: number[] = [];
+    bridge.sendUartBytes = (bytes) => answered.push(...bytes);
+    const detach = attachAtModem(shim);
+
+    // The guest wrote "AT\r" to /dev/serial0; the backend relays it as
+    // `uart_tx` and RaspberryPi3Bridge hands the decoded text to onUartTx.
+    bridge.onUartTx?.('AT\r');
+
+    expect(decode(answered)).toBe('OK\r\n');
+    detach();
+  });
+
+  it('answers the in-browser engine that spoke to it', () => {
+    const { id, shim } = addPi();
+    useSimulatorStore.setState((s) => ({
+      boards: s.boards.map((b) => (b.id === id ? { ...b, engineMode: 'instant' } : b)),
+    }));
+    const answered: number[] = [];
+    shim.instantAdapter = { onUartRx: (bytes) => answered.push(...bytes) };
+    const detach = attachAtModem(shim);
+
+    // The in-browser engine has no bridge and no socket: it announces every
+    // byte its script transmits through feedBoardSerialOut, which is the
+    // seam the pro overlay's installInstantEngine already calls.
+    for (const ch of 'AT\r') feedBoardSerialOut(id, ch, 0);
+
+    expect(decode(answered)).toBe('OK\r\n');
+    detach();
+  });
+
+  it('hears each byte once while a peer board is on the same wire', () => {
+    const { id, shim } = addPi();
+    const { id: peerId } = addPi('raspberry-pi-3');
+    const bridge = getBoardBridge(id) as unknown as MockPiBridge;
+    const peerBridge = getBoardBridge(peerId) as unknown as MockPiBridge;
+    const peerHeard: number[] = [];
+    peerBridge.sendUartBytes = (bytes) => peerHeard.push(...bytes);
+    setWires(useSimulatorStore, [
+      { fromBoard: id, fromPin: 'GPIO14', toBoard: peerId, toPin: 'GPIO15' },
+    ]);
+
+    // The wire makes Interconnect take the same onUartTx slot the shim
+    // already chained itself onto. Both wrappers keep their predecessor, so
+    // the part must hear each byte exactly once and the peer must still get
+    // it: the trap the Grove uartLink comment calls out, from the other end.
+    ensureUartBridge(shim);
+    const heard: number[] = [];
+    getSimulatorBridges(shim).uartListeners.add((b) => heard.push(b));
+    bridge.onUartTx?.('AT');
+
+    expect(heard).toEqual([0x41, 0x54]);
+    expect(decode(peerHeard)).toBe('AT');
+    setWires(useSimulatorStore, []);
   });
 });
 
@@ -271,7 +379,13 @@ describe('what the guest tells the canvas', () => {
     expect(shim.setAdcVoltage(26, 1.65)).toBe(false);
     const gap = lineGaps().find((g) => g.code === 'no-adc');
     expect(gap?.pin).toBe(26);
+    // The advice has to name a route that WORKS. The MCP3008 reads the
+    // voltage the circuit solve publishes for the net its channel sits on,
+    // measured end to end on production in both engines. The ADS1115 was in
+    // this sentence too and answers from its own sliders instead of its pads,
+    // so it sent the user to a dead end; it stays out until it reads them.
     expect(gap?.why).toMatch(/MCP3008/);
+    expect(gap?.why).not.toMatch(/ADS1115/);
   });
 });
 
