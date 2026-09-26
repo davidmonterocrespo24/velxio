@@ -4,14 +4,14 @@
  * hands to the parts wired to it.
  *
  * Why it exists: every part on the canvas attaches to
- * `getBoardSimulator(boardId)` and asks it for a bus (`addI2CDevice`), a pin
- * (`setPinState`, `pinManager`) or an ADC
- * (`setAdcVoltage`). A Pi had no entry in that map: a hand-rolled stub in
- * DynamicComponent answered `setPinState` and nothing else, so an I2C sensor
- * wired to GPIO2/3 attached nowhere and the guest read 0x00 from an address
- * that had a model sitting right there on the canvas. This class gives the
- * Pi the same surface the STM32 and ESP32 shims give their boards, over the
- * same `I2CBusManager` and `PinManager` every other board uses.
+ * `getBoardSimulator(boardId)` and asks it for a pin (`setPinState`,
+ * `pinManager`) or an ADC (`setAdcVoltage`), and its bus lines reach the
+ * board through the bus fabric's ports below. A Pi had no entry in that
+ * map: a hand-rolled stub in DynamicComponent answered `setPinState` and
+ * nothing else, so an I2C sensor wired to GPIO2/3 attached nowhere and the
+ * guest read 0x00 from an address that had a model sitting right there on
+ * the canvas. This class gives the Pi the same surface the STM32 and ESP32
+ * shims give their boards, over the same `PinManager` every other board uses.
  *
  * Two engines run a Pi script, and both come here for their peripherals:
  *
@@ -69,7 +69,6 @@
  * which bus from the same placement ({@link busTopology}).
  */
 
-import { I2CBusManager, nullI2CMaster, type I2CDevice } from './I2CBusManager';
 import type { PinManager } from './PinManager';
 import type { RaspberryPi3Bridge, PiBusTopology } from './RaspberryPi3Bridge';
 import type { LineSupport } from './line/LineHost';
@@ -460,7 +459,6 @@ export class PiBridgeShim {
 
   private readonly bridge: RaspberryPi3Bridge;
   private readonly boardState: () => PiShimBoardState | undefined;
-  private readonly i2cBusInstance: I2CBusManager;
   /** SPI0 and SPI1, by unit. The fabric's view of this board's SPI. */
   private readonly spiPorts: PiSpiPort[];
   /** I2C0 and I2C1, by unit: the fabric's view of this board's I2C. */
@@ -490,7 +488,6 @@ export class PiBridgeShim {
     this.bridge = opts.bridge;
     this.pinManager = opts.pinManager;
     this.boardState = opts.boardState;
-    this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
     // Every board of the family gets the controllers the guest image serves;
     // each port finds its pads in the board's pin function table.
     this.spiPorts = SPI_UNITS.map((unit) => new PiSpiPort(unit, opts.boardKind, unit === 0));
@@ -565,20 +562,6 @@ export class PiBridgeShim {
       }
       seen.add(key);
       i2c.push(t);
-    }
-    // Parts not on the fabric yet (addI2CDevice) keep the header bus, as they
-    // always had. A fabric target at the same address wins the entry: the
-    // transfer asks the fabric first.
-    for (const dev of this.i2cBusInstance.listDevices()) {
-      const key = `${HEADER_I2C_BUS}:${dev.address & 0x7f}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      i2c.push({
-        bus: HEADER_I2C_BUS,
-        addr: dev.address & 0x7f,
-        regs: typeof dev.dumpRegisters === 'function' ? toHex(Array.from(dev.dumpRegisters())) : null,
-        ...((dev as { mayNak?: boolean }).mayNak === true ? { ask_writes: true as const } : {}),
-      });
     }
     return { version: 1, i2c, spi: { attached: this.spiAttached() } };
   }
@@ -842,15 +825,14 @@ export class PiBridgeShim {
   /**
    * The hosted line-sensor channel (simulation/line/requestLine).
    *
-   * This class used to have no `registerSensor` at all, on purpose, so the
-   * I2C parts would take their `addI2CDevice` branch and no device was fed
-   * twice. That invariant still holds and is worth restating: every one of
-   * those parts calls `addI2CDevice?.()` inside the registerSensor branch
-   * too, and the extras it reaches for (`addI2CTransactionListener` and its
-   * remover) are optional and absent here, so the branch they now take is the
-   * one they took before plus a `registerSensor` that declines. The
-   * `line_request` guard below is what makes declining exact: only a record
-   * the line contract built is ours.
+   * This class used to have no `registerSensor` at all, on purpose, so no
+   * I2C part would file a worker record here on top of its bus model. That
+   * invariant still holds and is worth restating: an I2C part is on the
+   * fabric by its wiring (parts/i2cPart.ts) and only files a worker record
+   * with a simulator that says yes, so a `registerSensor` that declines
+   * everything but the line contract keeps every device on the fabric alone.
+   * The `line_request` guard below is what makes declining exact: only a
+   * record the line contract built is ours.
    *
    * WHERE THE MODEL RUNS is not this class's business. Under QEMU it runs in
    * the backend, because a guest read is answered from the backend's own pin
@@ -962,24 +944,12 @@ export class PiBridgeShim {
     return true;
   }
 
-  // ── I2C: the header bus of the parts not on the fabric yet ─────────────
-  // A part on the bus fabric (attachI2cTarget) is on the controller its SDA
-  // is wired to and is reached through the I2C ports above. The rest keep
-  // this one manager on the header bus, as before F5. No
-  // `addI2CTransactionListener` on purpose: the parts then take their
-  // `addI2CDevice` branch (the AVR / RP2040 path), so every device lives on
-  // this one I2CBusManager and nobody feeds it twice. `registerSensor` above
-  // exists for the line contract only and declines everything else, which
-  // keeps that true: see its comment.
-  getI2CBus(_bus: 0 | 1 = 0): I2CBusManager {
-    return this.i2cBusInstance;
-  }
-  addI2CDevice(device: I2CDevice, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.addDevice(device);
-  }
-  removeI2CDevice(addr: number, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.removeDevice(addr);
-  }
+  // ── I2C ────────────────────────────────────────────────────────────────
+  // A part is on the bus fabric (attachI2cTarget): on the controller its SDA
+  // is wired to, reached through the I2C ports above. No
+  // `addI2CTransactionListener` on purpose, and `registerSensor` declines
+  // everything but the line contract, so nothing files a second copy of a
+  // part here: see its comment.
 
   /**
    * One I2C transaction as a master would run it: address for write, send
@@ -990,9 +960,7 @@ export class PiBridgeShim {
    *
    * `bus` is the guest's controller (/dev/i2c-<bus>). Its port hands the
    * transaction to the fabric, which answers from the targets whose SDA is on
-   * that controller's net (project board-buses-2026-09, F5). A part not on
-   * the fabric yet sits on the header manager and is asked when the fabric
-   * NAKs, on the header bus only: that is the one bus those parts ever had.
+   * that controller's net (project board-buses-2026-09, F5).
    */
   i2cTransfer(addr: number, write: readonly number[], readLen: number, bus = HEADER_I2C_BUS): number[] | null {
     const r = this.i2cExchange(addr, write, readLen, bus);
@@ -1011,29 +979,7 @@ export class PiBridgeShim {
     bus: number,
   ): number[] | 'nack' | 'nack-data' {
     const port = this.i2cPorts[bus] as PiI2cPort | undefined;
-    const viaFabric = port?.handler ? this.fabricI2cTransfer(port.handler, addr, write, readLen) : 'nack';
-    if (viaFabric !== 'nack') return viaFabric;
-    if (bus !== HEADER_I2C_BUS) return 'nack';
-    return this.legacyI2cTransfer(addr, write, readLen) ?? 'nack';
-  }
-
-  /** The header manager's transaction, for the parts not on the fabric yet. */
-  private legacyI2cTransfer(addr: number, write: readonly number[], readLen: number): number[] | null {
-    const i2c = this.i2cBusInstance;
-    if (write.length > 0 || readLen === 0) {
-      if (!i2c.handleExternalConnect(addr, true)) return null;
-      for (const b of write) i2c.handleExternalWrite(b);
-    }
-    const out: number[] = [];
-    if (readLen > 0) {
-      if (!i2c.handleExternalConnect(addr, false)) {
-        i2c.handleExternalStop();
-        return null;
-      }
-      for (let i = 0; i < readLen; i++) out.push(i2c.handleExternalRead() & 0xff);
-    }
-    i2c.handleExternalStop();
-    return out;
+    return port?.handler ? this.fabricI2cTransfer(port.handler, addr, write, readLen) : 'nack';
   }
 
   /**

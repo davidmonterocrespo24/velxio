@@ -30,6 +30,7 @@ import {
   AVREEPROM,
   EEPROMMemoryBackend,
   eepromConfig,
+  AVRUSI,
 } from 'avr8js';
 import type { AVREEPROMConfig, SPIConfig, TWIConfig } from 'avr8js';
 import type { AVRTimerConfig } from 'avr8js/dist/esm/peripherals/timer';
@@ -50,8 +51,6 @@ import { LineSensorHub } from './line/LineSensorHub';
 import { hexToUint8Array } from '../utils/hexParser';
 import type { SerialLink } from '../store/serialWire';
 import { I2CBusManager, nullI2CMaster } from './I2CBusManager';
-import type { I2CDevice } from './I2CBusManager';
-import { attachUsiI2c } from './UsiI2cBridge';
 import { boardPinsFromPinManager } from './buses/boardPins';
 
 /**
@@ -713,10 +712,13 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         new AVRTimer(cpu, attiny85Timer0Config),
         new ATtinyTimer1(cpu, attinyTimer1Config),
         // The ATtiny85 also has no hardware TWI: TinyWireM / Tiny4kOLED drive
-        // I2C through the USI peripheral on PB0 (SDA) / PB2 (SCL). Bridge that
-        // onto the shared I2C bus so devices (SSD1306 OLED, etc.) receive data.
-        // Rebuilt with every CPU, or a Stop/Run leaves the bus without a master.
-        attachUsiI2c(cpu, this.portB, this.i2cBus),
+        // I2C through the USI peripheral in two-wire mode, PB0 (SDA) / PB2
+        // (SCL). The USI shifts the bits out through PORTB, so the whole
+        // transaction is on the board's pins, and the bus fabric's software
+        // decoder reads it there and answers with SDA held low (the level the
+        // USI samples): see getBusBinding. Rebuilt with every CPU, like the
+        // rest of the peripherals.
+        new AVRUSI(cpu, this.portB, 0x36 /* PINB */, 0 /* PB0 = SDA */, 2 /* PB2 = SCL */),
       ];
     } else {
       const cfg = this.boardVariant === 'mega' ? ATMEGA2560_PERIPHERALS : ATMEGA328P_PERIPHERALS;
@@ -1362,34 +1364,6 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     }
   }
 
-  /**
-   * Register a virtual I2C device on the bus (e.g. RTC, sensor).
-   */
-  addI2CDevice(device: I2CDevice): void {
-    if (this.i2cBus) {
-      this.i2cBus.addDevice(device);
-    }
-  }
-
-  /**
-   * Remove a virtual I2C device by address.  Mirrors RP2040Simulator's
-   * `removeI2CDevice(addr, bus)` shape so Interconnect / parts can use
-   * the same uniform API across boards.
-   */
-  removeI2CDevice(address: number, _bus: 0 | 1 = 0): void {
-    this.i2cBus?.removeDevice(address);
-  }
-
-  /**
-   * Get the I2CBusManager for a given hardware I2C bus.  AVR has only
-   * one TWI so `bus` is ignored.  Available from construction time so
-   * Interconnect can install cross-board I2C bridges immediately
-   * (the bus's master peripheral is swapped in later by `loadHex`).
-   */
-  getI2CBus(_bus: 0 | 1 = 0): I2CBusManager {
-    return this.i2cBus;
-  }
-
   // ── Bus fabric (project board-buses-2026-09) ──────────────────────────────
 
   /**
@@ -1410,10 +1384,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * same reason as SPI and one more: its USI in two-wire mode IS the pins.
    * TinyWireM shifts every bit out through PORTB, so the board's PB0/PB2
    * carry the whole transaction as edges, and the fabric's software decoder
-   * already reads it there (and answers with SDA held low, which is what the
-   * USI samples). A port fed from those same edges would hand every target
-   * each transaction twice. UsiI2cBridge keeps serving the devices that
-   * still register through addI2CDevice until they move to the fabric.
+   * reads it there and answers with SDA held low, which is what the USI
+   * samples. A port fed from those same edges would hand every target each
+   * transaction twice.
    */
   getBusBinding(): EngineBinding {
     if (!this.busBinding) {

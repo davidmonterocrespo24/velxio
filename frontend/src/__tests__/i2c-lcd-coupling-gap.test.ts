@@ -53,7 +53,7 @@
  *      that bundles the PCF8574 + LCD1602 into one part.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   I2CBusManager,
   VirtualPCF8574,
@@ -62,6 +62,26 @@ import { HD44780Decoder } from '../simulation/HD44780Decoder';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts/ProtocolParts';
 import { busRegistry } from '../simulation/buses';
+import { bareBoard, putI2cDevice, clearBench } from './helpers/i2cBench';
+
+/**
+ * The TWI's manager as the Uno's controller port on the fabric, with the
+ * backpack on its pins (A4/A5 = 18/19) the way a part is. What the cases
+ * drive into the manager reaches the PCF8574 through the bus, as on the
+ * board.
+ */
+function twiWith(bus: I2CBusManager, pcf: VirtualPCF8574): void {
+  bareBoard('uno', 'arduino-uno', {
+    getBusBinding: () => ({
+      pins: { onPinChange: () => () => {}, peekPinState: () => undefined },
+      spi: [],
+      i2c: [bus],
+    }),
+  });
+  putI2cDevice(pcf, { boardId: 'uno', pin: 18 }, { boardId: 'uno', pin: 19 });
+}
+
+afterEach(() => clearBench());
 
 // Minimal mock of AVRTWI shaped exactly as I2CBusManager calls it.
 // We don't need a real CPU for this test — the bug is in what
@@ -123,7 +143,7 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     const pcf = new VirtualPCF8574(0x27);
     const seen: number[] = [];
     pcf.onWrite = (v) => seen.push(v);
-    bus.addDevice(pcf);
+    twiWith(bus, pcf);
 
     emitChar(bus, 0x27, 'H'.charCodeAt(0));
     emitChar(bus, 0x27, 'i'.charCodeAt(0));
@@ -145,7 +165,7 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     const pcf = new VirtualPCF8574(0x27);
     const decoder = new HD44780Decoder({ cols: 16, rows: 2 });
     pcf.onWrite = (v) => decoder.feedPCF8574Byte(v);
-    bus.addDevice(pcf);
+    twiWith(bus, pcf);
 
     // Before printing characters the sketch issues a Set DDRAM
     // Address command (0x80 | row*0x40 | col) to position the
@@ -259,7 +279,7 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     const pcf = new VirtualPCF8574(0x27);
     const decoder = new HD44780Decoder({ cols: 16, rows: 2 });
     pcf.onWrite = (v) => decoder.feedPCF8574Byte(v);
-    bus.addDevice(pcf);
+    twiWith(bus, pcf);
 
     // Write some content first.
     const sendCmd = (cmd: number) => {
@@ -290,7 +310,7 @@ describe('I2C bug — LCD-I2C coupling gap (Discord: "i2c lcd is unavailable")',
     const pcf = new VirtualPCF8574(0x27);
     const decoder = new HD44780Decoder({ cols: 16, rows: 2 });
     pcf.onWrite = (v) => decoder.feedPCF8574Byte(v);
-    bus.addDevice(pcf);
+    twiWith(bus, pcf);
 
     const sendCmd = (cmd: number) => {
       const h = (cmd >> 4) & 0x0f;

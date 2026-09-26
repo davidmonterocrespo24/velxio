@@ -17,8 +17,6 @@
  *    bus" whatever its wiring, and bus 0 reached nothing);
  *  - the topology the backend relay answers absent addresses from is per bus,
  *    from the same placement, and register pushes are keyed by bus too;
- *  - a part still on the header manager keeps working on bus 1, behind the
- *    fabric;
  *  - a NAK on a data byte ends the write and says so, in a reply every guest
  *    parser still reads as EREMOTEIO.
  */
@@ -68,7 +66,6 @@ import {
   type I2cGuestTransaction,
 } from '../../simulation/buses/conformance/i2cPortConformance';
 import type { I2cTarget, NetResolver, PinRef, ResolvedPin } from '../../simulation/buses/types';
-import type { I2CDevice } from '../../simulation/I2CBusManager';
 
 beforeAll(() => {
   vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -299,29 +296,6 @@ describe('Raspberry Pi I2C: a target is on the controller its SDA is wired to', 
     } finally {
       f.done();
       vi.useRealTimers();
-    }
-  });
-
-  it('a part still on the header manager answers on bus 1 behind the fabric, and only there', () => {
-    const f = onFabric('pi-i2c-e');
-    try {
-      const legacy: I2CDevice = {
-        address: 0x40,
-        writeByte: () => true,
-        readByte: () => 0x5a,
-      };
-      f.shim.addI2CDevice(legacy);
-      f.attach('bus1', 2, 3, new Regs(0x11));
-      expect(f.shim.answerBusLine('I2C 1 40 R 1')).toBe('I2C_DATA 1 40 5a');
-      expect(f.shim.answerBusLine('I2C 0 40 R 1')).toBe('I2C_ERR 0 40 nack');
-      // The fabric target at 0x76 is asked first and answers.
-      expect(f.shim.answerBusLine('I2C 1 76 R 1')).toBe('I2C_DATA 1 76 11');
-      expect(f.shim.busTopology().i2c.map((d) => [d.bus, d.addr])).toEqual([
-        [1, 0x76],
-        [1, 0x40],
-      ]);
-    } finally {
-      f.done();
     }
   });
 

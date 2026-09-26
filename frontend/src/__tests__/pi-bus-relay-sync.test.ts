@@ -60,10 +60,11 @@ vi.mock('../simulation/RaspberryPi3Bridge', () => ({
 
 import { useSimulatorStore, getBoardSimulator, getBoardBridge } from '../store/useSimulatorStore';
 import type { PiBridgeShim } from '../simulation/PiBridgeShim';
-import { VirtualBMP280, VirtualDS3231 } from '../simulation/I2CBusManager';
+import { VirtualBMP280, VirtualDS3231, type I2CDevice } from '../simulation/I2CBusManager';
 import { PartSimulationRegistry } from '../simulation/parts';
-import { busRegistry, createStoreNetResolver } from '../simulation/buses';
+import { attachI2cTarget, busRegistry, createStoreNetResolver } from '../simulation/buses';
 import type { NetResolver, PinRef, ResolvedPin } from '../simulation/buses/types';
+import { i2cTargetOf } from '../simulation/parts/i2cPart';
 
 type MockBridge = { onBusRelay: ((v: number) => void) | null; onDisconnected: (() => void) | null };
 
@@ -74,6 +75,34 @@ function addPi() {
     shim: getBoardSimulator(id) as PiBridgeShim,
     bridge: getBoardBridge(id) as unknown as MockBridge,
   };
+}
+
+/** Wire a part's SDA/SCL to the Pi's GPIO2/GPIO3 (/dev/i2c-1), as the canvas does. */
+function wireI2c1(boardId: string, componentId: string): void {
+  useSimulatorStore.setState((st) => ({
+    wires: [
+      ...st.wires.filter((w) => w.start.componentId !== componentId),
+      ...(['SDA', 'SCL'] as const).map((pinName) => ({
+        id: `${componentId}-${pinName}`,
+        start: { componentId, pinName, x: 0, y: 0 },
+        end: { componentId: boardId, pinName: pinName === 'SDA' ? 'GPIO2' : 'GPIO3', x: 0, y: 0 },
+        waypoints: [],
+        color: '#0a0',
+      })),
+    ],
+  }) as never);
+}
+
+let devSeq = 0;
+/** A device model on /dev/i2c-1 by its wiring, the way a part registers (board-buses F5). */
+function putOnI2c1(boardId: string, device: I2CDevice): () => void {
+  const owner = `dev-${device.address.toString(16)}-${++devSeq}`;
+  wireI2c1(boardId, owner);
+  const h = attachI2cTarget(
+    { owner, componentId: owner, pins: { sda: 'SDA', scl: 'SCL' }, addresses: [device.address] },
+    i2cTargetOf(device),
+  );
+  return () => h.dispose();
 }
 
 beforeEach(() => {
@@ -88,23 +117,12 @@ afterEach(() => {
 describe('the bus map goes to a relaying backend, and only then', () => {
   it('nothing is published before bus_relay; once announced, the map and the busRelay flag', () => {
     const { id, shim, bridge } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
+    putOnI2c1(id, new VirtualBMP280(0x76));
     // A device that cannot export its registers (a command-driven sensor):
     // the backend has to ask the tab for it every time.
-    shim.addI2CDevice({ address: 0x44, writeByte: () => true, readByte: () => 0 });
+    putOnI2c1(id, { address: 0x44, writeByte: () => true, readByte: () => 0 });
     // The part is on the bus its wires reach: GPIO2/3, /dev/i2c-1.
-    useSimulatorStore.setState((st) => ({
-      wires: [
-        ...st.wires,
-        ...(['SDA', 'SCL'] as const).map((pinName) => ({
-          id: `mpu-1-${pinName}`,
-          start: { componentId: 'mpu-1', pinName, x: 0, y: 0 },
-          end: { componentId: id, pinName: pinName === 'SDA' ? 'GPIO2' : 'GPIO3', x: 0, y: 0 },
-          waypoints: [],
-          color: '#0a0',
-        })),
-      ],
-    }) as never);
+    wireI2c1(id, 'mpu-1');
     const cleanup = PartSimulationRegistry.get('mpu6050')!.attachEvents!(
       document.createElement('div'),
       shim as never,
@@ -134,8 +152,8 @@ describe('the bus map goes to a relaying backend, and only then', () => {
 
 describe('afterwards only changes travel', () => {
   it('a register write pushes that device once; an idle bus sends nothing', () => {
-    const { shim, bridge } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
+    const { id, shim, bridge } = addPi();
+    putOnI2c1(id, new VirtualBMP280(0x76));
     bridge.onBusRelay!(1);
     vi.advanceTimersByTime(1000);
     expect(sent.regs).toEqual([]);
@@ -153,12 +171,13 @@ describe('afterwards only changes travel', () => {
   });
 
   it('a device added after the announcement republishes the map', () => {
-    const { shim, bridge } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
+    const { id, shim, bridge } = addPi();
+    putOnI2c1(id, new VirtualBMP280(0x76));
     bridge.onBusRelay!(1);
     expect(sent.topology).toHaveLength(1);
-    shim.addI2CDevice(new VirtualDS3231());
+    putOnI2c1(id, new VirtualDS3231());
     vi.advanceTimersByTime(260);
+    void shim;
     expect(sent.topology).toHaveLength(2);
     const addrs = (sent.topology[1] as { i2c: Array<{ addr: number }> }).i2c.map((d) => d.addr).sort();
     expect(addrs).toEqual([0x68, 0x76]);
@@ -199,12 +218,12 @@ describe('afterwards only changes travel', () => {
   });
 
   it('a disconnect stops the sync', () => {
-    const { shim, bridge } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
+    const { id, shim, bridge } = addPi();
+    putOnI2c1(id, new VirtualBMP280(0x76));
     bridge.onBusRelay!(1);
     bridge.onDisconnected!();
     shim.i2cTransfer(0x76, [0xf4, 0x55], 0);
-    shim.addI2CDevice(new VirtualDS3231());
+    putOnI2c1(id, new VirtualDS3231());
     vi.advanceTimersByTime(2000);
     expect(sent.regs).toEqual([]);
     expect(sent.topology).toHaveLength(1);

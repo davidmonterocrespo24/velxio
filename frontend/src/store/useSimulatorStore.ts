@@ -17,8 +17,6 @@ import { ExternalPinScopeFeed } from '../simulation/externalPinScope';
 import { SignalRouter } from '../simulation/SignalRouter';
 import { requestElectricalResolve } from '../simulation/spice/electricalResolveHook';
 import { ledcSignalForChannel } from '../simulation/esp32-signals';
-import { I2CBusManager, nullI2CMaster } from '../simulation/I2CBusManager';
-import type { I2CDevice } from '../simulation/I2CBusManager';
 import type { Wire, WireInProgress, WireEndpoint } from '../types/wire';
 import type { BoardKind, BoardInstance, LanguageMode, WifiStatus } from '../types/board';
 import {
@@ -186,22 +184,6 @@ export class Esp32BridgeShim {
   private bridge: Esp32Bridge;
 
   /**
-   * Cross-board I2C surface — see AVRSimulator / RP2040Simulator for
-   * the canonical pattern.  ESP32 sketches run in backend QEMU, so the
-   * "primary" I2C path goes through the backend's libqemu-xtensa I2C
-   * slaves and reaches the frontend as `i2c_event` / `i2c_transaction`
-   * WebSocket messages.  But virtual devices attached to the ESP32
-   * board on the canvas also live frontend-side as I2CDevice instances
-   * — and Interconnect's bridge mechanism needs to reach them when a
-   * peer board's master tries to read across an SDA+SCL wire.  So we
-   * expose an I2CBusManager whose local devices mirror what
-   * ProtocolParts registers via `registerSensor`.  The peer-master
-   * direction works through this bus; the ESP32-master direction
-   * still flows through the backend (where the firmware runs).
-   */
-  private i2cBusInstance: I2CBusManager;
-
-  /**
    * Canvas parts waiting for a decoded WS2812 frame, keyed by their DIN pin.
    *
    * A NeoPixel part normally recovers its colours by timing the edges on DIN
@@ -236,7 +218,6 @@ export class Esp32BridgeShim {
   constructor(bridge: Esp32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
-    this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
     this.i2cLane = new RemoteI2cLane(bridge.boardId, bridge.boardKind);
     this.remoteLane = new RemoteSpiLane(
       bridge.boardId,
@@ -268,23 +249,6 @@ export class Esp32BridgeShim {
       i2c: this.i2cLane.poll().i2c,
     });
 
-    // Wire the write-forwarding path: when the backend ProxySlave emits
-    // a completed write transaction (one full STOP-bounded master phase
-    // from the ESP32 firmware), look up the peer device on the local
-    // device lookup map and replay the bytes through its writeByte()
-    // contract.  Peer `I2CDevice` implementations (I2CMemoryDevice,
-    // VirtualPCF8574, VirtualSSD1306, …) already encode the
-    // pointer-byte + data semantics; we just hand off the sequence.
-    bridge.onProxyI2cComplete = (addr: number, data: number[]) => {
-      const dev = this._peerDeviceLookup.get(addr);
-      if (!dev) return;
-      try {
-        for (const b of data) dev.writeByte(b);
-        dev.stop?.();
-      } catch (e) {
-        console.warn(`[Esp32BridgeShim] proxy write replay failed for 0x${addr.toString(16)}`, e);
-      }
-    };
   }
 
   setPinState(pin: number, state: boolean): void {
@@ -790,72 +754,24 @@ export class Esp32BridgeShim {
     }
   }
 
-  // ── Cross-board I2C bus surface ─────────────────────────────────────────
-
-  /**
-   * Expose the I2CBusManager so Interconnect can install cross-board
-   * bridges and ProtocolParts can register frontend-side virtual
-   * devices.  ESP32 has 2 hardware I2C buses but we collapse them
-   * onto a single front-end bus for now — the bus index is ignored.
-   * Splitting per-bus would require teaching the backend to tag
-   * `i2c_event` payloads with the originating bus number, which
-   * the lib worker already does (`bus` field) but the frontend
-   * shim doesn't yet route on.
-   */
-  getI2CBus(_bus: 0 | 1 = 0): I2CBusManager {
-    return this.i2cBusInstance;
-  }
-
-  /**
-   * Register a frontend-side virtual I2C device.  This mirrors the
-   * backend's QEMU-side slave (kept in sync via `registerSensor` /
-   * `updateSensor`) so peer boards reading across the I2C bridge
-   * find the device.  ProtocolParts calls this on the ESP32 path
-   * alongside the existing `registerSensor` + `addI2CTransactionListener`.
-   */
-  /** Sync-attached part devices, kept so a bridge REBUILD can adopt them.
-   *  The overlay loads async: a deep-linked example attaches its parts to the
-   *  shim wired around the stock QEMU bridge (whose attachSyncI2cDevice is
-   *  missing — a silent no-op), and only then does the overlay's factory
-   *  rebuild the board. Without this record the part's device existed
-   *  nowhere: the C6 gesture example booted with an EMPTY engine I2C bus and
-   *  arduino's i2c-ng driver failed every transaction (ESP_ERR_INVALID_STATE)
-   *  — whether it broke depended on a chunk-load race the pro bundle's growth
-   *  turned into a sure loss. */
-  private syncI2cParts = new Map<number, I2CDevice>();
-
-  addI2CDevice(device: I2CDevice, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.addDevice(device);
-    this.syncI2cParts.set(device.address, device);
-    // An in-browser JS-emulator substitute bridge (velxio-prod overlay) plugs
-    // the part's real device model straight onto the engine's synchronous I2C
-    // bus, so the firmware's own reads hit it (sensors answer, displays
-    // render). The QEMU WebSocket bridge has no such method — reads there are
-    // served by the backend slave from registerSensor — so this is a no-op.
-    (this.bridge as { attachSyncI2cDevice?: (d: I2CDevice) => void }).attachSyncI2cDevice?.(device);
-  }
-
   /** A rebuilt board gets a fresh shim; the parts on the canvas do NOT
    *  re-attach (their closures hold the old shim), so the new shim re-plays
-   *  everything the old one had. Runs through addI2CDevice so the new bridge
-   *  (a pre-connect-buffering Delegating bridge) hears about each device. */
+   *  what the old one had. */
   adoptPartsFrom(prev: Esp32BridgeShim): void {
-    for (const dev of prev.syncI2cParts.values()) this.addI2CDevice(dev);
-    // Same reason as the I2C devices: a NeoPixel part subscribed to the OLD
-    // shim and will not re-attach for a bridge rebuild, so without this the
-    // pixel goes black on the first recompile and never comes back.
+    // A NeoPixel part subscribed to the OLD shim and will not re-attach for a
+    // bridge rebuild, so without this the pixel goes black on the first
+    // recompile and never comes back.
     for (const [pin, sink] of prev.ws2812Sinks) this.ws2812Sinks.set(pin, sink);
-    // SPI needs nothing here: a device is on the board's bus because its pins
-    // are on a controller's nets, and the fabric holds that binding across
-    // every rebuild of the shim (project board-buses-2026-09).
+    // SPI and I2C need nothing here: a device is on the board's bus because
+    // its pins are on a controller's nets, and the fabric holds that binding
+    // across every rebuild of the shim (project board-buses-2026-09).
   }
 
   /**
    * Attach (or clear, with null) the microphone sample source feeding the
-   * board's I2S RX path: one signed 16-bit sample per call. Same forwarding
-   * pattern as addI2CDevice — the in-browser JS-engine bridges implement
-   * setMicrophoneSource (velxio-prod overlay); everywhere else it's a no-op,
-   * which reads as a silent mic.
+   * board's I2S RX path: one signed 16-bit sample per call. The in-browser
+   * JS-engine bridges implement setMicrophoneSource (velxio-prod overlay);
+   * everywhere else it's a no-op, which reads as a silent mic.
    */
   setMicrophoneSource(source: (() => number) | null): boolean {
     const b = this.bridge as { setMicrophoneSource?: (s: (() => number) | null) => void };
@@ -894,189 +810,6 @@ export class Esp32BridgeShim {
     (this.bridge as { setSpeakerMuted?: (m: boolean) => void }).setSpeakerMuted?.(muted);
   }
 
-  /** Remove a previously-registered virtual device. */
-  removeI2CDevice(addr: number, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.removeDevice(addr);
-    this.syncI2cParts.delete(addr);
-    (this.bridge as { detachSyncI2cDevice?: (a: number) => void }).detachSyncI2cDevice?.(addr);
-  }
-
-  /**
-   * Push register snapshots of a peer board's I2C devices into a
-   * backend `ProxySlave` per address.  Called by Interconnect after a
-   * cross-board I2C bridge is installed so the ESP32 firmware's Wire
-   * master reads can find the peer's devices inside QEMU.
-   *
-   * Walks the peer bus AND its transitive bridges (BFS).  Each device
-   * found at any reachable hop gets a ProxySlave on the backend.  All
-   * addresses discovered through `peerBus` are tracked under that key,
-   * so `clearProxiesForPeer(peerBus)` cleans up exactly what this call
-   * installed without disturbing proxies from concurrent bridges
-   * (e.g. when another wire pair also connects to this same ESP32).
-   *
-   * Devices that don't expose `dumpRegisters` (PCF8574, SSD1306,
-   * LCD-I2C) are skipped — they receive state through the
-   * write-forwarding path (proxy_i2c_complete event from the backend
-   * ProxySlave) instead.
-   */
-  syncProxyFromPeer(peerBus: I2CBusManager): void {
-    const ownedAddrs = this._proxiedByPeer.get(peerBus) ?? new Set<number>();
-
-    // BFS over the peer's bridge graph.  Skip our own bus so we don't
-    // mirror ourselves back via the return edge.
-    const visited = new Set<I2CBusManager>([this.i2cBusInstance, peerBus]);
-    const queue: I2CBusManager[] = [peerBus];
-
-    while (queue.length > 0) {
-      const bus = queue.shift()!;
-      if (typeof bus.listDevices === 'function') {
-        for (const device of bus.listDevices()) {
-          // Track the live device reference for write-forwarding and
-          // periodic resync.  Last writer wins on address collisions
-          // (rare; the user wired two devices to the same address).
-          this._peerDeviceLookup.set(device.address, device);
-          if (typeof device.dumpRegisters !== 'function') continue;
-          try {
-            const regs = device.dumpRegisters();
-            this.bridge.registerProxyI2c(device.address, regs);
-            ownedAddrs.add(device.address);
-            // Prime the resync hash so the first tick doesn't push a
-            // redundant identical dump.
-            this._lastDumpHash.set(device.address, Esp32BridgeShim._hashRegs(regs));
-          } catch (e) {
-            console.warn(
-              `[Esp32BridgeShim] syncProxyFromPeer dump failed for 0x${device.address.toString(16)}`,
-              e,
-            );
-          }
-        }
-      }
-      if (typeof bus.getBridges === 'function') {
-        for (const next of bus.getBridges()) {
-          if (visited.has(next)) continue;
-          visited.add(next);
-          queue.push(next);
-        }
-      }
-    }
-
-    if (ownedAddrs.size > 0) {
-      this._proxiedByPeer.set(peerBus, ownedAddrs);
-      this._ensureResyncTimer();
-    }
-  }
-
-  /**
-   * Tear down only the proxies that `syncProxyFromPeer(peerBus)`
-   * installed.  Safe to call multiple times; idempotent.  Other
-   * concurrent bridges (different peer buses) retain their proxies.
-   */
-  clearProxiesForPeer(peerBus: I2CBusManager): void {
-    const owned = this._proxiedByPeer.get(peerBus);
-    if (!owned) return;
-    for (const addr of owned) {
-      // Only unregister if no other peer also claims this address.
-      let claimedElsewhere = false;
-      for (const [other, set] of this._proxiedByPeer) {
-        if (other !== peerBus && set.has(addr)) {
-          claimedElsewhere = true;
-          break;
-        }
-      }
-      if (!claimedElsewhere) {
-        this.bridge.unregisterProxyI2c(addr);
-        this._peerDeviceLookup.delete(addr);
-        this._lastDumpHash.delete(addr);
-      }
-    }
-    this._proxiedByPeer.delete(peerBus);
-    this._stopResyncTimerIfIdle();
-  }
-
-  /**
-   * Tear down EVERY proxy slave we've installed.  Used on full board
-   * stop / disconnect — `clearProxiesForPeer` is preferred for
-   * single-wire-pair teardowns.
-   */
-  clearAllProxies(): void {
-    for (const set of this._proxiedByPeer.values()) {
-      for (const addr of set) this.bridge.unregisterProxyI2c(addr);
-    }
-    this._proxiedByPeer.clear();
-    this._peerDeviceLookup.clear();
-    this._lastDumpHash.clear();
-    this._stopResyncTimerIfIdle();
-  }
-
-  /** Per-peer set of addresses we've mirrored.  Cleanup keyed by peer bus. */
-  private _proxiedByPeer = new Map<I2CBusManager, Set<number>>();
-  /** Address → live frontend device, for write-forwarding & periodic resync. */
-  private _peerDeviceLookup = new Map<number, I2CDevice>();
-  /** Periodic resync timer — runs while any proxy is live. */
-  private _resyncTimer: ReturnType<typeof setInterval> | null = null;
-  /** Cheap hash of the last dumped register set per address, to skip WS pushes when unchanged. */
-  private _lastDumpHash = new Map<number, number>();
-
-  /**
-   * Periodic resync interval in ms.  250 ms strikes the balance
-   * between WS bandwidth and human-perceivable RTC freshness; see
-   * the architecture rationale in the plan file.  Exposed for tests
-   * that want a faster cadence via fake timers.
-   */
-  static RESYNC_INTERVAL_MS = 250;
-
-  private _ensureResyncTimer(): void {
-    if (this._resyncTimer !== null) return;
-    if (this._proxiedByPeer.size === 0) return;
-    this._resyncTimer = setInterval(() => this._resyncTick(), Esp32BridgeShim.RESYNC_INTERVAL_MS);
-  }
-
-  private _stopResyncTimerIfIdle(): void {
-    if (this._proxiedByPeer.size === 0 && this._resyncTimer !== null) {
-      clearInterval(this._resyncTimer);
-      this._resyncTimer = null;
-      this._lastDumpHash.clear();
-    }
-  }
-
-  /**
-   * FNV-1a over EVERY byte of a register dump. The previous hash sampled one
-   * byte in sixteen plus the first eight, so a change anywhere else — the
-   * BMP280 measurement registers at 0xF7-0xFC, an MPU-6050 axis the slider
-   * moved — left the hash equal and the proxy never refreshed: the ESP32 read
-   * a stale value for as long as the run lasted. 256 bytes every 250 ms per
-   * proxied device costs nothing.
-   */
-  static _hashRegs(regs: Uint8Array): number {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < regs.length; i++) {
-      h ^= regs[i];
-      h = Math.imul(h, 0x01000193);
-    }
-    return h >>> 0;
-  }
-
-  private _resyncTick(): void {
-    // Union of all proxied addresses across peers.
-    const seen = new Set<number>();
-    for (const set of this._proxiedByPeer.values()) {
-      for (const addr of set) seen.add(addr);
-    }
-    for (const addr of seen) {
-      const device = this._peerDeviceLookup.get(addr);
-      if (!device || typeof device.dumpRegisters !== 'function') continue;
-      let regs: Uint8Array;
-      try {
-        regs = device.dumpRegisters();
-      } catch {
-        continue;
-      }
-      const h = Esp32BridgeShim._hashRegs(regs);
-      if (this._lastDumpHash.get(addr) === h) continue;
-      this._lastDumpHash.set(addr, h);
-      this.bridge.updateProxyI2c(addr, regs);
-    }
-  }
 }
 
 // ── LEDC duty handler ───────────────────────────────────────────────────
@@ -1205,7 +938,6 @@ class Stm32BridgeShim {
   /** Levels the circuit applies; the worker only reports the ones it drives. */
   private externalScope = new ExternalPinScopeFeed(() => performance.now());
   private bridge: Stm32Bridge;
-  private i2cBusInstance: I2CBusManager;
   private _i2cTransactionListeners = new Map<number, (data: number[]) => void>();
 
   /** The board's SPI lane: the STM32 runs in a backend QEMU worker, so its
@@ -1219,7 +951,6 @@ class Stm32BridgeShim {
   constructor(bridge: Stm32Bridge, pm: PinManager) {
     this.bridge = bridge;
     this.pinManager = pm;
-    this.i2cBusInstance = new I2CBusManager(nullI2CMaster());
     this.i2cLane = new RemoteI2cLane(bridge.boardId, bridge.boardKind);
     this.remoteLane = new RemoteSpiLane(
       bridge.boardId,
@@ -1377,17 +1108,6 @@ class Stm32BridgeShim {
     if (this._i2cTransactionListeners.size === 0) {
       this.bridge.onI2cTransaction = null;
     }
-  }
-
-  // ── Cross-board I2C bus surface (for Interconnect bridges) ────────────────
-  getI2CBus(_bus: 0 | 1 = 0): I2CBusManager {
-    return this.i2cBusInstance;
-  }
-  addI2CDevice(device: I2CDevice, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.addDevice(device);
-  }
-  removeI2CDevice(addr: number, _bus: 0 | 1 = 0): void {
-    this.i2cBusInstance.removeDevice(addr);
   }
 
 }
@@ -2128,22 +1848,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     // can call setPinState / access pinManager on ESP32 boards.
     const shim = new Esp32BridgeShim(bridge, pm);
     shim.onSerialData = serialCallback;
-    // If a shim already exists for this id (e.g. tests recreate the
-    // same kind after reset, or the pro overlay rebuilds the bridge),
-    // dispose any active proxies / timers so the orphaned instance
-    // doesn't keep firing.
+    // A shim may already exist for this id (tests recreate the same kind
+    // after reset, or the pro overlay rebuilds the bridge). The parts on the
+    // canvas subscribed to the OLD shim (their attach closures hold it) and
+    // will not re-attach for a bridge rebuild: carry over what they gave it.
     const existingShim = simulatorMap.get(id) as any;
-    if (existingShim?.clearAllProxies) {
-      try {
-        existingShim.clearAllProxies();
-      } catch {
-        /* ignore */
-      }
-    }
-    // The parts on the canvas attached their I2C device models to the OLD
-    // shim (their attach closures hold it) and will not re-attach for a
-    // bridge rebuild — carry them over, or the rebuilt engine boots with an
-    // empty I2C bus and every Wire transaction fails.
     if (existingShim instanceof Esp32BridgeShim) {
       try {
         shim.adoptPartsFrom(existingShim);

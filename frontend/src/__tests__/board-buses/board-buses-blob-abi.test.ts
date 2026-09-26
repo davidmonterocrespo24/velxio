@@ -20,7 +20,6 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PinManager } from '../../simulation/PinManager';
-import { I2CBusManager } from '../../simulation/I2CBusManager';
 import { ChipInstance } from '../../simulation/customChips/ChipRuntime';
 
 const fixture = (p: string) =>
@@ -77,19 +76,14 @@ class Probe {
 }
 
 // The probe attaches an I2C slave (the Linux hosts only reach a chip that
-// way), so the browser host needs a bus to put it on. Nothing here clocks it;
-// the master is a stub that is never asked to do anything.
-const idleMaster = {
-  completeStart() {}, completeStop() {}, completeConnect() {},
-  completeWrite() {}, completeRead() {},
-};
+// way). Its pads are wired to nothing here, so the fabric puts it on no bus
+// and nothing clocks it, which is all this suite needs of it.
 
 async function makeChip(blobs?: Map<string, Uint8Array>) {
   const chip = await ChipInstance.create({
     wasm: WASM,
     componentId: 'blob-probe',
     pinManager: new PinManager(),
-    i2cBus: new I2CBusManager(idleMaster),
     wires: new Map(),
     blobs: blobs ?? null,
   });

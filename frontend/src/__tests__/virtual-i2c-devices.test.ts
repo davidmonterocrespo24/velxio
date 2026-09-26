@@ -6,15 +6,17 @@
  *   VirtualDS3231   — real-time clock with on-chip temperature sensor (0x68)
  *   VirtualPCF8574  — 8-bit I/O expander (0x20–0x27 / 0x38–0x3F)
  *
- * Also covers the I2CBusManager routing (connectToSlave / writeByte / readByte)
- * and the pre-existing VirtualDS1307, VirtualTempSensor, I2CMemoryDevice helpers.
+ * Also covers the I2CBusManager as the TWI's controller port (connectToSlave /
+ * writeByte / readByte reaching a device on the fabric) and the pre-existing
+ * VirtualDS1307, VirtualTempSensor, I2CMemoryDevice helpers.
  *
  * NOTE: these tests import directly from I2CBusManager.ts which only uses
  * `import type` from avr8js — so they run in the plain Node / Vitest environment
  * without needing the third-party to be built.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { bareBoard, putI2cDevice, clearBench } from './helpers/i2cBench';
 import {
   I2CBusManager,
   I2CMemoryDevice,
@@ -23,6 +25,7 @@ import {
   VirtualBMP280,
   VirtualDS3231,
   VirtualPCF8574,
+  type I2CDevice,
 } from '../simulation/I2CBusManager';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,47 +71,66 @@ function makeTWI() {
   };
 }
 
-// ─── I2CBusManager routing ────────────────────────────────────────────────────
+// ─── I2CBusManager as the TWI's port ─────────────────────────────────────────
 
-describe('I2CBusManager — routing', () => {
+/**
+ * The manager as the Uno's controller port on the fabric, with a device on
+ * the TWI's pins (A4/A5 = 18/19) the way a part is: what the mock TWI drives
+ * into the manager reaches the device through the bus, as on the board.
+ */
+function twiPort() {
+  const twi = makeTWI();
+  const bus = new I2CBusManager(twi as any);
+  bareBoard('uno', 'arduino-uno', {
+    getBusBinding: () => ({
+      pins: { onPinChange: () => () => {}, peekPinState: () => undefined },
+      spi: [],
+      i2c: [bus],
+    }),
+  });
+  return {
+    twi,
+    bus,
+    put: (device: I2CDevice) => putI2cDevice(device, { boardId: 'uno', pin: 18 }, { boardId: 'uno', pin: 19 }),
+  };
+}
+
+afterEach(() => clearBench());
+
+describe('I2CBusManager — the TWI port', () => {
   it('completes start unconditionally', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+    const { twi, bus } = twiPort();
     bus.start(false);
     expect(twi.calls).toContain('start');
   });
 
-  it('NACKs an address with no registered device', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+  it('NACKs an address with no device on the bus', () => {
+    const { twi, bus } = twiPort();
     bus.connectToSlave(0x42, true);
     expect(twi.calls).toContain('connect:false');
   });
 
-  it('ACKs when a device is registered at the address', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
-    bus.addDevice(new I2CMemoryDevice(0x42));
+  it('ACKs when a device on the bus has the address', () => {
+    const { twi, bus, put } = twiPort();
+    put(new I2CMemoryDevice(0x42));
     bus.connectToSlave(0x42, true);
     expect(twi.calls).toContain('connect:true');
   });
 
-  it('routes writeByte to active device and returns ACK', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+  it('routes writeByte to the addressed device and returns ACK', () => {
+    const { twi, bus, put } = twiPort();
     const device = new I2CMemoryDevice(0x50);
-    bus.addDevice(device);
+    put(device);
     bus.connectToSlave(0x50, true);
     bus.writeByte(0x10); // set register pointer
     expect(twi.calls).toContain('write:true');
   });
 
-  it('routes readByte to active device', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+  it('routes readByte to the addressed device', () => {
+    const { twi, bus, put } = twiPort();
     const device = new I2CMemoryDevice(0x50);
     device.registers[0x00] = 0xab;
-    bus.addDevice(device);
+    put(device);
     bus.connectToSlave(0x50, true);
     bus.writeByte(0x00); // set register pointer to 0
     bus.connectToSlave(0x50, false); // repeated start, read mode
@@ -118,33 +140,28 @@ describe('I2CBusManager — routing', () => {
   });
 
   it('returns 0xFF on read when no device at address', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+    const { twi, bus } = twiPort();
     bus.readByte(true);
     expect(twi.calls).toContain('read:255');
   });
 
   it('NACKs write when no active device', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+    const { twi, bus } = twiPort();
     bus.writeByte(0x00);
     expect(twi.calls).toContain('write:false');
   });
 
-  it('removeDevice stops routing to that address', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
-    bus.addDevice(new I2CMemoryDevice(0x42));
-    bus.removeDevice(0x42);
+  it('a device taken off the bus is no longer addressed', () => {
+    const { twi, bus, put } = twiPort();
+    put(new I2CMemoryDevice(0x42)).dispose();
     bus.connectToSlave(0x42, true);
     expect(twi.calls).toContain('connect:false');
   });
 
   it('calls device.stop() on stop condition', () => {
-    const twi = makeTWI();
-    const bus = new I2CBusManager(twi as any);
+    const { twi, bus, put } = twiPort();
     let stopped = false;
-    const device: any = {
+    const device: I2CDevice = {
       address: 0x42,
       writeByte: () => true,
       readByte: () => 0,
@@ -152,7 +169,7 @@ describe('I2CBusManager — routing', () => {
         stopped = true;
       },
     };
-    bus.addDevice(device);
+    put(device);
     bus.connectToSlave(0x42, true);
     bus.stop();
     expect(stopped).toBe(true);

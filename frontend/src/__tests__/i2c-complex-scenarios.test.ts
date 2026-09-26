@@ -21,7 +21,7 @@
  * skip gracefully if arduino-cli or the required library is missing.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -38,7 +38,6 @@ import { AVRSimulator } from '../simulation/AVRSimulator';
 import { RP2040Simulator } from '../simulation/RP2040Simulator';
 import { PinManager } from '../simulation/PinManager';
 import {
-  I2CBusManager,
   I2CMemoryDevice,
   VirtualBMP280,
   VirtualDS1307,
@@ -46,6 +45,37 @@ import {
 } from '../simulation/I2CBusManager';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts/ProtocolParts';
+import { bareBoard, putI2cDevice, wireI2cPins, clearBench, type BoardPin } from './helpers/i2cBench';
+
+// Every device is on a bus by its wiring (board-buses F5). The Uno's TWI is
+// A4/A5; the Pico's Wire is GP4/GP5.
+const UNO_I2C = (boardId: string): [BoardPin, BoardPin] => [
+  { boardId, pin: 18 },
+  { boardId, pin: 19 },
+];
+const PICO_I2C = (boardId: string): [BoardPin, BoardPin] => [
+  { boardId, pin: 4 },
+  { boardId, pin: 5 },
+];
+
+/** An Uno with the firmware loaded, on the fabric as `boardId`. */
+function unoBoard(hex: string, boardId = 'uno'): AVRSimulator {
+  const sim = new AVRSimulator(new PinManager(), 'uno');
+  sim.loadHex(hex);
+  bareBoard(boardId, 'arduino-uno', sim);
+  return sim;
+}
+
+/**
+ * A second Uno on the fabric, whose header the cases wire to the master's: a
+ * device on the peer's A4/A5 is on one net with the master's, so the fabric
+ * places it on both boards. The peer's CPU never runs.
+ */
+function peerUno(peerId = 'peer'): void {
+  bareBoard(peerId, 'arduino-uno', new AVRSimulator(new PinManager(), 'uno'));
+}
+
+afterEach(() => clearBench());
 
 // ─── Availability gates (same shape as i2c-real-firmware.test.ts) ────────────
 
@@ -193,17 +223,16 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       HEX = compileSketch('i2c_scanner_multi');
     });
 
-    it('detects exactly the addresses that have a registered device', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+    it('detects exactly the addresses that have a device on the bus', () => {
+      const sim = unoBoard(HEX);
 
-      // Register devices at 5 distinct addresses spanning the
-      // common I2C device-id range.  The scanner walks 1..126,
-      // so a NACK on any non-registered address must NOT produce
-      // a Serial byte.
+      // Devices at 5 distinct addresses spanning the common I2C device-id
+      // range, all on the TWI's pins.  The scanner walks 1..126, so a NACK on
+      // any other address must NOT produce a Serial byte.
       const REGISTERED = [0x10, 0x27, 0x3c, 0x68, 0x76];
+      const [sda, scl] = UNO_I2C('uno');
       for (const addr of REGISTERED) {
-        sim.addI2CDevice(new I2CMemoryDevice(addr));
+        putI2cDevice(new I2CMemoryDevice(addr), sda, scl);
       }
 
       const out: number[] = [];
@@ -221,9 +250,8 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
     });
 
     it('an empty bus produces zero discovered addresses', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
-      // No devices registered.
+      const sim = unoBoard(HEX);
+      // No devices on the bus.
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
 
@@ -231,26 +259,19 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       expect(out).toEqual([0xff]);
     });
 
-    it('finds devices that live on a bridged peer bus', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+    it('finds devices wired to a peer board whose header shares the net', () => {
+      const sim = unoBoard(HEX);
+      peerUno();
+      const [sda, scl] = UNO_I2C('uno');
+      const [psda, pscl] = UNO_I2C('peer');
 
-      // Local devices on the Uno's own bus...
-      sim.addI2CDevice(new I2CMemoryDevice(0x10));
-      sim.addI2CDevice(new I2CMemoryDevice(0x27));
+      // Devices on the Uno's own header...
+      putI2cDevice(new I2CMemoryDevice(0x10), sda, scl);
+      putI2cDevice(new I2CMemoryDevice(0x27), sda, scl);
 
-      // ...plus devices on a peer board's bus reached via bridge.
-      const peerBus = new I2CBusManager({
-        completeStart() {},
-        completeStop() {},
-        completeConnect() {},
-        completeWrite() {},
-        completeRead() {},
-      });
-      peerBus.addDevice(new I2CMemoryDevice(0x3c));
-      peerBus.addDevice(new I2CMemoryDevice(0x76));
-      sim.i2cBus.attachBridge(peerBus);
-      peerBus.attachBridge(sim.i2cBus);
+      // ...plus devices on the peer board's header, wired to the Uno's.
+      putI2cDevice(new I2CMemoryDevice(0x3c), [psda, sda], [pscl, scl]);
+      putI2cDevice(new I2CMemoryDevice(0x76), [psda, sda], [pscl, scl]);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
@@ -275,14 +296,17 @@ describe.runIf(LIQUID_CRYSTAL_I2C_AVAILABLE)(
 
     it('renders "Time:" + valid HH:MM:SS from a real DS1307 + LiquidCrystal_I2C combo', () => {
       const sim = new AVRSimulator(new PinManager(), 'uno');
+      bareBoard('uno', 'arduino-uno', sim);
       sim.loadHex(HEX);
+      const [sda, scl] = UNO_I2C('uno');
 
       // Device 1: virtual DS1307 returning host wall-clock time.
-      sim.addI2CDevice(new VirtualDS1307());
+      putI2cDevice(new VirtualDS1307(), sda, scl);
 
       // Device 2: the LCD-I2C part (uses VirtualPCF8574 + HD44780
-      // decoder internally).  Attach against a mock wokwi-lcd1602
-      // shaped element.
+      // decoder internally), on the bus by its own pins.  Attach against a
+      // mock wokwi-lcd1602 shaped element.
+      wireI2cPins('lcd-1', sda, scl);
       const el: any = {
         pins: 'full',
         characters: new Uint8Array(32),
@@ -356,24 +380,15 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       HEX = compileSketch('bmp280_bridge_reader');
     });
 
-    it('returns the BMP280 chip_id (0x58) and status (0x00) through the bridge', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
-
-      // Peer board: just a bus + the BMP280.  The Uno has no local
-      // 0x76 device; the only way these reads can succeed is via
-      // the cross-board bridge.
-      const peerBus = new I2CBusManager({
-        completeStart() {},
-        completeStop() {},
-        completeConnect() {},
-        completeWrite() {},
-        completeRead() {},
-      });
-      peerBus.addDevice(new VirtualBMP280(0x76));
-
-      sim.i2cBus.attachBridge(peerBus);
-      peerBus.attachBridge(sim.i2cBus);
+    it('returns the BMP280 chip_id (0x58) and status (0x00) over the shared net', () => {
+      const sim = unoBoard(HEX);
+      peerUno();
+      // The BMP280 sits on the peer's header, whose A4/A5 are wired to the
+      // Uno's: the net reaches both boards, so the fabric puts the chip on
+      // both buses and the Uno's master finds it.
+      const [sda, scl] = UNO_I2C('uno');
+      const [psda, pscl] = UNO_I2C('peer');
+      putI2cDevice(new VirtualBMP280(0x76), [psda, sda], [pscl, scl]);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
@@ -384,13 +399,12 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       expect(out[1]).toBe(0x00); // status: measurement complete
     });
 
-    it('returns NACK behaviour when the bridge is torn down mid-sketch', () => {
-      // Cold simulator — no devices anywhere, no bridge.  The
-      // sketch should still complete (Wire.requestFrom NACKs and
-      // returns 0 bytes), and Serial output should be empty since
-      // `if (Wire.available())` gates the writes.
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+    it('returns NACK behaviour with nothing on the net', () => {
+      // Cold simulator — no devices anywhere.  The sketch should still
+      // complete (Wire.requestFrom NACKs and returns 0 bytes), and Serial
+      // output should be empty since `if (Wire.available())` gates the
+      // writes.
+      const sim = unoBoard(HEX);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
@@ -400,8 +414,7 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
 
       // No bytes should have been emitted.  This proves the
       // sketch's `if (Wire.available())` guards behave correctly
-      // — meaning the I2CBusManager genuinely NACKed when no
-      // device matched.
+      // — meaning the bus genuinely NACKed when no device matched.
       expect(out).toEqual([]);
     });
   },
@@ -418,13 +431,13 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
     });
 
     it('round-trips three different patterns through the same device', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+      const sim = unoBoard(HEX);
 
       const pcf = new VirtualPCF8574(0x27);
       // Default portState = 0xFF (everything externally pulled
       // high), so reads should mirror outputLatch.
-      sim.addI2CDevice(pcf);
+      const [sda, scl] = UNO_I2C('uno');
+      putI2cDevice(pcf, sda, scl);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
@@ -439,15 +452,15 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
     });
 
     it('external input wins when output latch is HIGH (open-drain semantics)', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+      const sim = unoBoard(HEX);
 
       const pcf = new VirtualPCF8574(0x27);
       // External inputs hold lower nibble LOW.  After the sketch
       // releases everything with 0xFF, the read-back should reflect
       // those external lows.
       pcf.portState = 0b11110000;
-      sim.addI2CDevice(pcf);
+      const [sda, scl] = UNO_I2C('uno');
+      putI2cDevice(pcf, sda, scl);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));
@@ -493,26 +506,18 @@ describe.runIf(RP2040_CORE_AVAILABLE)(
       BIN_B64 = compileSketch('pico_i2c_master_reader', 'rp2040:rp2040:rpipico');
     }, 300_000);
 
-    it('master TWI on rp2040js reaches the BMP280 on a bridged peer bus', () => {
+    it('master on rp2040js reaches the BMP280 wired to a peer board over the shared net', () => {
       const pm = new PinManager();
       const sim = new RP2040Simulator(pm);
+      bareBoard('pico', 'raspberry-pi-pico', sim);
       sim.loadBinary(BIN_B64);
 
-      // Peer bus owns the BMP280.
-      const peerBus = new I2CBusManager({
-        completeStart() {},
-        completeStop() {},
-        completeConnect() {},
-        completeWrite() {},
-        completeRead() {},
-      });
-      peerBus.addDevice(new VirtualBMP280(0x76));
-
-      // Bridge symmetrically.  Bus 0 is the Pico's I2C0 (default
-      // Wire on GP4/GP5).
-      const picoBus = sim.getI2CBus(0);
-      picoBus.attachBridge(peerBus);
-      peerBus.attachBridge(picoBus);
+      // The peer board holds the BMP280; its A4/A5 are wired to the Pico's
+      // GP4/GP5 (Wire), so the chip is on the Pico's I2C0 bus too.
+      peerUno();
+      const [sda, scl] = PICO_I2C('pico');
+      const [psda, pscl] = UNO_I2C('peer');
+      putI2cDevice(new VirtualBMP280(0x76), [psda, sda], [pscl, scl]);
 
       const out: number[] = [];
       sim.onSerialData = (ch) => out.push(ch.charCodeAt(0));

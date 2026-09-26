@@ -52,6 +52,14 @@ export type ResolvedPin =
  *  app; a plain object in tests. */
 export interface NetResolver {
   resolve(ref: PinRef): ResolvedPin;
+  /**
+   * Every board pin on the pin's net, one per board it reaches. A net that
+   * runs from one board's SDA to another's carries a chip on it to BOTH
+   * masters, and an I2C target is placed on each of them (F5, the
+   * cross-board case). Optional: a resolver without it reaches one board,
+   * the one `resolve` names.
+   */
+  resolveAll?(ref: PinRef): ResolvedPin[];
   /** Board kind of a board id, or undefined for a board that is gone. */
   boardKind(boardId: string): string | undefined;
   /** Board ids present in the project, in canvas order. */

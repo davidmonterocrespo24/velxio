@@ -5,7 +5,6 @@ export {
   getSimulatorBridges,
   ensureUartBridge,
   avrUartTx,
-  getI2CBus,
   detectSimulatorKind,
   type SimulatorKind,
 } from './simulatorBridges';

@@ -2,9 +2,8 @@
  * Board buses F5: the AVR engine's I2C controller port (the TWI) against the
  * shared I2C conformance suite (project/board-buses-2026-09, F5-F6-SPEC,
  * TESTS.md layer 2), plus what the suite cannot see on this engine: the
- * transition bridge (devices that still register through addI2CDevice share
- * the wire with the fabric's targets), the fabric end to end by nets, and the
- * ATtiny85, whose two-wire USI reaches the fabric through the software decoder.
+ * fabric end to end by nets, and the ATtiny85, whose two-wire USI reaches the
+ * fabric through the software decoder.
  *
  * Everything under test is the real thing: avr8js behind AVRSimulator, driven
  * through the store's own lifecycle (addBoard, compileBoardProgram, startBoard,
@@ -31,7 +30,6 @@ vi.stubGlobal('cancelAnimationFrame', () => {});
 
 import { useSimulatorStore, getBoardSimulator } from '../../store/useSimulatorStore';
 import type { AVRSimulator } from '../../simulation/AVRSimulator';
-import { I2CMemoryDevice } from '../../simulation/I2CBusManager';
 import { attachI2cTarget, busRegistry } from '../../simulation/buses';
 import type { BusDiagnostic, EngineBinding, I2cTarget } from '../../simulation/buses/types';
 import {
@@ -311,36 +309,6 @@ for (const kind of ['arduino-uno', 'arduino-mega'] as const) {
       try {
         expect(rig.exchange({ address: 0x42, write: [0x01], read: 0 }).status).toBe(2);
         expect(probe.starts).toBe(0);
-      } finally {
-        handle.dispose();
-      }
-    });
-
-    it('transition bridge: an addI2CDevice device and a fabric target share the wire (both hear writes, reads are their AND, one of them ACKs for both)', () => {
-      const rig = new AvrI2cRig(kind);
-      const legacy = new I2CMemoryDevice(0x52);
-      for (let i = 0; i < 256; i++) legacy.registers[i] = 0xf0 | (i & 0x0f);
-      rig.sim.addI2CDevice(legacy);
-
-      // Alone, the legacy device answers exactly as before.
-      expect(rig.exchange({ address: 0x52, write: [0x03], read: 2 })).toEqual({ status: 0, read: [0xf3, 0xf4] });
-
-      const dev = `${rig.id}-twin`;
-      rig.wire(dev, 'SDA', rig.v.sda);
-      rig.wire(dev, 'SCL', rig.v.scl);
-      const target = new RegTarget((i) => 0x3f ^ (i << 4));
-      const handle = attachI2cTarget({ owner: dev, pins: { sda: 'SDA', scl: 'SCL' }, addresses: [0x52] }, target);
-      try {
-        expect(rig.exchange({ address: 0x52, write: [0x20, 0x99], read: 0 }).status).toBe(0);
-        expect(legacy.registers[0x20], 'the legacy device heard the write').toBe(0x99);
-        expect(target.regs[0x20], 'the fabric target heard it too').toBe(0x99);
-        const want = [0x05, 0x06].map((r) => (0xf0 | r) & (0x3f ^ ((r << 4) & 0xff)));
-        expect(rig.exchange({ address: 0x52, write: [0x05], read: 2 }).read, 'wired-AND').toEqual(want);
-        expect(target.stops, 'one STOP per transaction reaches the fabric').toBe(2);
-
-        // A fabric target on its own address beside the legacy one.
-        rig.sim.removeI2CDevice(0x52);
-        expect(rig.exchange({ address: 0x52, write: [0x20], read: 1 }).read).toEqual([0x99]);
       } finally {
         handle.dispose();
       }

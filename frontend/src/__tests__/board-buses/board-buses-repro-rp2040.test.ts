@@ -32,7 +32,7 @@ import '../../simulation/parts/ComplexParts';
 import '../../simulation/parts/EPaperPart';
 import '../../simulation/parts/CustomChipPart';
 import { attachSpiDevice } from '../../simulation/buses';
-import { ChipInstance, getI2CBus } from '../../simulation/customChips';
+import { ChipInstance } from '../../simulation/customChips';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { busRegistry } from '../../simulation/buses';
 import { buildFat16Image } from '../../utils/fatImage';
@@ -659,25 +659,6 @@ describe('RP2040 I2C: a chip answers on the controller its SDA/SCL are wired to'
     expect(board.out()).toContain('DONE');
     expect(board.out()).toContain('WIRE1:ACK:BEEF');
     expect(board.out()).toContain('WIRE0:NACK');
-  });
-
-  it('rp2040-i2c-bus0-hardcoded setup: on the XIAO RP2040, Wire is I2C1 (the same chip model on bus 1 answers)', async () => {
-    const board = boot('rp2040-xiao-i2c');
-    const chip = await ChipInstance.create({
-      wasm: new Uint8Array(readFileSync(fixturePath('rp2040-chips', 'i2c-beef.wasm'))),
-      componentId: 'chip-i2c-bus1',
-      pinManager: board.sim.pinManager,
-      i2cBus: getI2CBus(board.sim, 1) as never,
-      wires: new Map([
-        ['SDA', 6],
-        ['SCL', 7],
-      ]),
-    });
-    chip.start();
-    untilDone(board);
-    expect(board.out()).toContain('READY');
-    expect(board.out()).toContain('WIRE:ACK:BEEF');
-    chip.dispose();
   });
 
   it(

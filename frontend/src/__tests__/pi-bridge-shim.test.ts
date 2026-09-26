@@ -5,7 +5,7 @@
  * Until 2026-09 a Pi had no entry in simulatorMap: addBoard built a bridge
  * and a PinManager and stopped there, and DynamicComponent handed parts a
  * hand-rolled stub with setPinState and little else. Every I2C part in the
- * catalog attaches through addI2CDevice / getI2CBus, so on a Pi they had
+ * catalog attached through addI2CDevice / getI2CBus, so on a Pi they had
  * nowhere to go: an MPU6050 wired to SDA/SCL was drawn and never answered,
  * and the guest's smbus2 read got the "no slave" stub. This file pins the
  * contract the parts rely on, and the bus grammar both engines route
@@ -55,7 +55,9 @@ import {
 import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { registerPiBusOp } from '../lib/proBoardRegistry';
 import { avrUartTx, detectSimulatorKind } from '../simulation/customChips/simulatorBridges';
-import { VirtualBMP280, VirtualDS3231, VirtualPCF8574 } from '../simulation/I2CBusManager';
+import { VirtualBMP280, VirtualDS3231, VirtualPCF8574, type I2CDevice } from '../simulation/I2CBusManager';
+import { attachI2cTarget } from '../simulation/buses';
+import { i2cTargetOf } from '../simulation/parts/i2cPart';
 import { PartSimulationRegistry } from '../simulation/parts';
 import { lineGaps, clearLineGaps } from '../simulation/line/requestLine';
 
@@ -84,6 +86,18 @@ function wireI2c1(boardId: string, componentId: string): void {
       })),
     ],
   }) as never);
+}
+
+let devSeq = 0;
+/** A device model on /dev/i2c-1 by its wiring, the way a part registers (board-buses F5). */
+function putOnI2c1(boardId: string, device: I2CDevice): () => void {
+  const owner = `dev-${device.address.toString(16)}-${++devSeq}`;
+  wireI2c1(boardId, owner);
+  const h = attachI2cTarget(
+    { owner, componentId: owner, pins: { sda: 'SDA', scl: 'SCL' }, addresses: [device.address] },
+    i2cTargetOf(device),
+  );
+  return () => h.dispose();
 }
 
 describe('a Pi board has a simulator entry', () => {
@@ -119,17 +133,13 @@ describe("a custom chip's UART", () => {
 });
 
 describe('I2C parts attach to it', () => {
-  it('BMP280, DS3231 and a PCF8574 backpack land on the header bus', () => {
-    const { shim } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
-    shim.addI2CDevice(new VirtualDS3231());
-    shim.addI2CDevice(new VirtualPCF8574(0x27));
-    const addrs = shim
-      .getI2CBus()
-      .listDevices()
-      .map((d) => d.address)
-      .sort((a, b) => a - b);
-    expect(addrs).toEqual([0x27, 0x68, 0x76]);
+  it('BMP280, DS3231 and a PCF8574 backpack wired to GPIO2/3 are on /dev/i2c-1', () => {
+    const { id, shim } = addPi();
+    putOnI2c1(id, new VirtualBMP280(0x76));
+    putOnI2c1(id, new VirtualDS3231());
+    putOnI2c1(id, new VirtualPCF8574(0x27));
+    expect(shim.i2cAddresses(1)).toEqual([0x27, 0x68, 0x76]);
+    expect(shim.i2cAddresses(0)).toEqual([]);
   });
 
   it('the mpu6050 part wired to GPIO2/3 is on /dev/i2c-1, and on no other bus', () => {
@@ -158,13 +168,13 @@ describe('one I2C transaction', () => {
   });
 
   it('the bus grammar: RR reads a register, T is a repeated-start read, a NAK is I2C_ERR', () => {
-    const { shim } = addPi();
-    shim.addI2CDevice(new VirtualBMP280(0x76));
+    const { id, shim } = addPi();
+    putOnI2c1(id, new VirtualBMP280(0x76));
     // 0x58 is the BMP280's chip id (0x60 would be a BME280).
     expect(shim.answerBusLine('I2C 1 76 T d0 1')).toBe('I2C_DATA 1 76 58');
     expect(shim.answerBusLine('I2C 1 76 RR d0 1')).toBe('I2C_DATA 1 76 58');
     expect(shim.answerBusLine('I2C 1 77 RR d0 1')).toBe('I2C_ERR 1 77 nack');
-    // Only the header bus carries devices.
+    // The chip is on the bus its wires reach, and on no other.
     expect(shim.answerBusLine('I2C 0 76 RR d0 1')).toBe('I2C_ERR 0 76 nack');
   });
 });

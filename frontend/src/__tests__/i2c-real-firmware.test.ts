@@ -43,7 +43,7 @@
  * pong-emulation.test.ts and mega-emulation.test.ts.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -58,14 +58,29 @@ import { join, resolve } from 'node:path';
 
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { PinManager } from '../simulation/PinManager';
-import {
-  I2CBusManager,
-  I2CMemoryDevice,
-  VirtualPCF8574,
-} from '../simulation/I2CBusManager';
+import { I2CMemoryDevice, VirtualPCF8574 } from '../simulation/I2CBusManager';
 import { HD44780Decoder } from '../simulation/HD44780Decoder';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts/ProtocolParts';
+import { bareBoard, putI2cDevice, wireI2cPins, clearBench } from './helpers/i2cBench';
+
+// The Uno's TWI pins (A4 / A5), and a peer Uno's, as board pins of the fabric.
+const UNO_SDA = 18;
+const UNO_SCL = 19;
+const onUno = (boardId: string) => [
+  { boardId, pin: UNO_SDA },
+  { boardId, pin: UNO_SCL },
+];
+
+/** An Uno with the firmware loaded, on the fabric as `boardId`. */
+function unoBoard(hex: string, boardId = 'uno'): AVRSimulator {
+  const sim = new AVRSimulator(new PinManager(), 'uno');
+  sim.loadHex(hex);
+  bareBoard(boardId, 'arduino-uno', sim);
+  return sim;
+}
+
+afterEach(() => clearBench());
 
 // ─── Availability gates ──────────────────────────────────────────────────────
 
@@ -231,11 +246,11 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       HEX = compileSketch('i2c_eeprom_demo');
     });
 
-    it('single board: master writes 0xAA..0xDD into a locally-registered device', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+    it('single board: master writes 0xAA..0xDD into a device wired to its SDA/SCL', () => {
+      const sim = unoBoard(HEX);
       const eeprom = new I2CMemoryDevice(0x50);
-      sim.addI2CDevice(eeprom);
+      const [sda, scl] = onUno('uno');
+      putI2cDevice(eeprom, sda, scl);
 
       const steps = runUntil(
         sim,
@@ -254,9 +269,9 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
     });
 
     it('single board: master reads back via Wire.requestFrom and echoes via Serial', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
-      sim.addI2CDevice(new I2CMemoryDevice(0x50));
+      const sim = unoBoard(HEX);
+      const [sda, scl] = onUno('uno');
+      putI2cDevice(new I2CMemoryDevice(0x50), sda, scl);
 
       const serialOut: number[] = [];
       sim.onSerialData = (ch) => serialOut.push(ch.charCodeAt(0));
@@ -265,39 +280,30 @@ describe.runIf(ARDUINO_CLI_AVAILABLE)(
       expect(serialOut.slice(0, 4)).toEqual([0xaa, 0xbb, 0xcc, 0xdd]);
     });
 
-    it('multi-board bridge: master on board A reaches device on board B', () => {
-      const simA = new AVRSimulator(new PinManager(), 'uno');
-      simA.loadHex(HEX);
-
-      // Peer "board" — only its I2CBusManager + device matter for
-      // the slave-side path.  A real RP2040Simulator or AVRSimulator
-      // would equally work; we use a bare bus to keep the test fast
-      // (no second CPU to step).
-      const peerBus = new I2CBusManager({
-        completeStart() {},
-        completeStop() {},
-        completeConnect() {},
-        completeWrite() {},
-        completeRead() {},
-      });
+    it('two boards: master on board A reaches a device wired to board B over the shared I2C net', () => {
+      const simA = unoBoard(HEX, 'a');
+      // The peer board holds the device on its own header; its A4/A5 are
+      // wired to A's, so the net reaches both boards and the fabric puts the
+      // device on both buses. The peer's CPU never runs (no second CPU to
+      // step): what matters is that A's master finds the chip.
+      const simB = new AVRSimulator(new PinManager(), 'uno');
+      bareBoard('b', 'arduino-uno', simB);
       const eeprom = new I2CMemoryDevice(0x50);
-      peerBus.addDevice(eeprom);
-
-      simA.i2cBus.attachBridge(peerBus);
-      peerBus.attachBridge(simA.i2cBus);
+      const [sdaB, sclB] = onUno('b');
+      const [sdaA, sclA] = onUno('a');
+      putI2cDevice(eeprom, [sdaB, sdaA], [sclB, sclA]);
 
       const serialOut: number[] = [];
       simA.onSerialData = (ch) => serialOut.push(ch.charCodeAt(0));
 
       runUntil(simA, EEPROM_STEP_BUDGET, () => serialOut.length >= 4);
 
-      // Writes landed on the PEER bus's device (not the master's,
-      // which has no local 0x50).
+      // Writes landed on the device wired to the peer board.
       expect(eeprom.registers[0]).toBe(0xaa);
       expect(eeprom.registers[1]).toBe(0xbb);
       expect(eeprom.registers[2]).toBe(0xcc);
       expect(eeprom.registers[3]).toBe(0xdd);
-      // Reads also flowed back through the bridge.
+      // Reads also came back over the same net.
       expect(serialOut.slice(0, 4)).toEqual([0xaa, 0xbb, 0xcc, 0xdd]);
     });
   },
@@ -314,8 +320,7 @@ describe.runIf(LIQUID_CRYSTAL_I2C_AVAILABLE)(
     });
 
     it('renders "Hello" on row 0 and "World" on row 1', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+      const sim = unoBoard(HEX);
 
       const pcf = new VirtualPCF8574(0x27);
       const decoder = new HD44780Decoder({ cols: 16, rows: 2 });
@@ -324,7 +329,8 @@ describe.runIf(LIQUID_CRYSTAL_I2C_AVAILABLE)(
         bytesSeen.push(v);
         decoder.feedPCF8574Byte(v);
       };
-      sim.addI2CDevice(pcf);
+      const [sda, scl] = onUno('uno');
+      putI2cDevice(pcf, sda, scl);
 
       runUntil(sim, LCD_STEP_BUDGET, () => {
         const c = decoder.snapshot().characters;
@@ -340,8 +346,10 @@ describe.runIf(LIQUID_CRYSTAL_I2C_AVAILABLE)(
     });
 
     it('end-to-end via the lcd1602-i2c part: element.characters reflects the print', () => {
-      const sim = new AVRSimulator(new PinManager(), 'uno');
-      sim.loadHex(HEX);
+      const sim = unoBoard(HEX);
+      // The part registers itself with the fabric by its own pins.
+      const [sda, scl] = onUno('uno');
+      wireI2cPins('lcd-1', sda, scl);
 
       // Mock wokwi-lcd1602 element exactly as DynamicComponent
       // would render and pass to the part.

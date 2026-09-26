@@ -19,7 +19,6 @@ import { PinManager } from '../../simulation/PinManager';
 import { busRegistry } from '../../simulation/buses/registry';
 import { createStoreNetResolver } from '../../simulation/buses';
 import type { I2cTarget, NetResolver, PinRef, ResolvedPin } from '../../simulation/buses/types';
-import type { I2CDevice } from '../../simulation/I2CBusManager';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { ChipInstance } from '../../simulation/customChips/ChipRuntime';
 import { readFileSync } from 'node:fs';
@@ -121,17 +120,6 @@ describe('Raspberry Pi: the topology marks the devices whose writes the tab must
       f.attach('quiet', 2, 3, picky(false), 0x50);
       f.attach('loud', 2, 3, picky(true), 0x50);
       expect(f.shim.busTopology().i2c).toEqual([{ bus: 1, addr: 0x50, regs: null, ask_writes: true }]);
-    } finally {
-      f.done();
-    }
-  });
-
-  it('a part still on the header manager that says it can NAK is marked too', () => {
-    const f = onFabric('pi-ack-c');
-    try {
-      const legacy = { address: 0x40, writeByte: () => true, readByte: () => 0, mayNak: true };
-      f.shim.addI2CDevice(legacy as I2CDevice);
-      expect(f.shim.busTopology().i2c).toEqual([{ bus: 1, addr: 0x40, regs: null, ask_writes: true }]);
     } finally {
       f.done();
     }

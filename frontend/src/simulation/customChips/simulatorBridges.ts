@@ -3,40 +3,39 @@
  *
  * Each simulator family exposes its peripherals differently:
  *   - AVR (avr8js)   — `simulator.usart` / `simulator.i2cBus`
- *   - RP2040 (rp2040js) — `simulator.serialWriteByte` /
- *                         `simulator.addI2CDevice` (per-bus indexing)
+ *   - RP2040 (rp2040js) — `simulator.serialWriteByte` / `simulator.getBusBinding`
  *   - ESP32 (bridge shim) — `simulator.sendPinEvent`. The shim wraps either
  *     the backend QEMU bridge, which hosts custom chips in its worker
  *     (CustomChipPart hands the WASM over and no browser instance exists),
  *     or an overlay's in-browser engine, which answers `hostsCustomChips()`
- *     false so the chip runs here: GPIO through the shim's PinManager, I2C
- *     through `addI2CDevice` (synchronous on the engine bus), UART on
- *     CHIP_UART.
+ *     false so the chip runs here: GPIO through the shim's PinManager, UART
+ *     on CHIP_UART.
  *
  * The bridges in this module install a single dispatcher per simulator that
- * fans out to every chip subscribed, regardless of family. SPI is not one of
- * them: a chip joins a bus from vx_spi_attach and the fabric
- * (simulation/buses) routes it by its wiring.
+ * fans out to every chip subscribed, regardless of family. SPI and I2C are
+ * not among them: a chip joins a bus from vx_spi_attach / vx_i2c_attach and
+ * the fabric (simulation/buses) routes it by its wiring.
  */
 export type SimulatorKind = 'avr' | 'rp2040' | 'esp32' | 'unknown';
 
 /**
  * Which family a simulator belongs to, from the shape of its surface. These
  * are FINGERPRINTS of the family, never a place to hang a chip: a chip's SPI
- * bytes come from the bus fabric, and its UART and I2C from the bridges below.
+ * and I2C bytes come from the bus fabric, and its UART from the bridge below.
  *
- * They used to read `spi` and `setSPIHandler`, the F2 transition bridge, which
- * F3 removed. The RP family now answers to `addI2CDevice` plus
- * `serialWriteByte`, which is the very pair this module calls on it (the AVR
- * has neither, the ESP32 shim has no serialWriteByte), so a simulator that
- * passes the test is one the bridges below can actually drive.
+ * They used to read `spi` and `setSPIHandler` (the F2 transition bridge,
+ * gone with F3) and then `addI2CDevice` (the I2C one, gone with F5). The RP
+ * family answers to `serialWriteByte`, the very call the UART bridge makes
+ * on it, plus `getBusBinding`, the fabric's way in (the AVR has no
+ * serialWriteByte, the ESP32 shim has none either), so a simulator that
+ * passes the test is one the bridges can actually drive.
  */
 export function detectSimulatorKind(simulator: any): SimulatorKind {
   if (!simulator) return 'unknown';
   if (simulator.usart && simulator.i2cBus) return 'avr';
   if (
-    typeof simulator.addI2CDevice === 'function' &&
-    typeof simulator.serialWriteByte === 'function'
+    typeof simulator.serialWriteByte === 'function' &&
+    typeof simulator.getBusBinding === 'function'
   ) {
     return 'rp2040';
   }
@@ -233,36 +232,3 @@ export function avrUartTx(simulator: any, byte: number): void {
 // board's SPI with it (issue #355 and findings
 // grove-chip-takes-spi-on-rp-and-xiao-arm, customchip-setspihandler-steals-bus0,
 // rp2-sethandler-clobbers-spi-chain).
-
-// ── I2C adapter ─────────────────────────────────────────────────────────────
-
-/**
- * Pick the right I2C bus object for the chip runtime to call `addDevice`/
- * `removeDevice` on. AVR exposes `simulator.i2cBus` directly; RP2040 needs
- * a tiny adapter to forward to its `addI2CDevice` (per-bus) API.
- *
- * Returns `null` if the simulator doesn't expose any I2C bus (ESP32 today).
- */
-export function getI2CBus(simulator: any, bus: 0 | 1 = 0): {
-  addDevice: (device: any) => void;
-  removeDevice: (address: number) => void;
-} | null {
-  const kind = detectSimulatorKind(simulator);
-  if (kind === 'avr' && simulator.i2cBus) {
-    return simulator.i2cBus;
-  }
-  if (
-    (kind === 'rp2040' || kind === 'esp32') &&
-    typeof simulator.addI2CDevice === 'function'
-  ) {
-    // ESP32: the shim's addI2CDevice puts the device on an in-browser
-    // engine's synchronous bus (attachSyncI2cDevice). On the QEMU bridge the
-    // call is a no-op, but a chip on that bridge never reaches this path:
-    // CustomChipPart hands it to the worker (see hostsChipsInWorker).
-    return {
-      addDevice: (device) => simulator.addI2CDevice(device, bus),
-      removeDevice: (address) => simulator.removeI2CDevice?.(address, bus),
-    };
-  }
-  return null;
-}

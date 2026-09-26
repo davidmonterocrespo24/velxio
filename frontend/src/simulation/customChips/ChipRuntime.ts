@@ -2,12 +2,11 @@
  * ChipRuntime — TypeScript port of test/test_custom_chips/src/ChipRuntime.js.
  *
  * Loads a Velxio custom-chip WASM, wires its imports to host services
- * (PinManager, I2CBusManager, the SPI bus fabric, attribute storage, timer
+ * (PinManager, the SPI and I2C bus fabric, attribute storage, timer
  * queue), and dispatches its callbacks back into the simulator. One
  * ChipInstance per chip dropped on the canvas.
  */
 import type { PinManager } from '../PinManager';
-import type { I2CBusManager } from '../I2CBusManager';
 import { SPIDevice } from './SPIBus';
 import { attachI2cTarget, attachSpiDevice } from '../buses';
 import type { BusHandle, I2cTarget, SpiMode } from '../buses/types';
@@ -163,17 +162,22 @@ interface SpiEntry {
   bus: BusHandle | null;
 }
 
+/**
+ * A test's stand-in for the bus fabric: it takes the chip's I2C devices, one
+ * per vx_i2c_attach, and drives them byte by byte itself. The canvas hosts
+ * never pass one; with it, the chip's wiring decides nothing.
+ */
+export interface ChipI2cTestHost {
+  addDevice(device: ChipI2cDevice): void;
+  removeDevice(address: number): void;
+}
+
 export interface ChipInstanceOptions {
   /** Compiled chip.wasm — either bytes, ArrayBuffer, or pre-compiled Module. */
   wasm: Uint8Array | ArrayBuffer | WebAssembly.Module;
   pinManager: PinManager;
-  /**
-   * A host that takes the chip's I2C devices itself, one per vx_i2c_attach,
-   * instead of the board's bus fabric: a unit test driving a model byte by
-   * byte. The canvas hosts never pass it; with it, the chip's wiring decides
-   * nothing.
-   */
-  i2cBus?: Pick<I2CBusManager, 'addDevice' | 'removeDevice'> | null;
+  /** A unit test's host for the chip's I2C devices (see ChipI2cTestHost). */
+  i2cBus?: ChipI2cTestHost | null;
   /**
    * The canvas pad each chip pin is, when the two are named apart (a Grove
    * module whose chip calls its second address's pins SDA2/SCL2, both on the
@@ -223,7 +227,7 @@ export class ChipInstance {
 
   private wasm: ChipInstanceOptions['wasm'];
   private pinManager: PinManager;
-  private i2cBus: Pick<I2CBusManager, 'addDevice' | 'removeDevice'> | null;
+  private i2cBus: ChipI2cTestHost | null;
   private busPads: Record<string, string>;
   private remoteModel: string | undefined;
   private wires: Map<string, number>;
@@ -829,8 +833,9 @@ export class ChipInstance {
        display waits for its command byte, a memory stages the bytes it is
        about to hand over.
        The bus fabric announces it: every START and repeated START that names
-       this address calls connect(). A host handed in as `i2cBus` may not, so
-       the phase is also read off the byte stream, which carries it exactly:
+       this address calls connect(). A test host handed in as `i2cBus` may
+       not, so the phase is also read off the byte stream, which carries it
+       exactly:
        the first write after anything else IS the write phase starting, and
        the first read after a write IS a REPEATED START, the master keeping
        the bus and turning it around.

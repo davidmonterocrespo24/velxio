@@ -653,10 +653,10 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   /**
    * One `I2CBusManager` per hardware I2C controller (RP2040 has two:
    * I2C0/Wire and I2C1/Wire1).  Constructed up-front in the
-   * simulator's constructor with a placeholder master so that cross-
-   * board bridges + device registrations can land BEFORE firmware
-   * loads.  The real RPI2C peripheral takes over in `wireI2C()` via
-   * `attachMaster` + `wireRpI2cToBus`.
+   * simulator's constructor with a placeholder master so that the bus
+   * fabric can bind the ports BEFORE firmware loads.  The real RPI2C
+   * peripheral takes over in `wireI2C()` via `attachMaster` +
+   * `wireRpI2cToBus`.
    */
   private i2cBuses: [I2CBusManager, I2CBusManager];
 
@@ -1741,30 +1741,6 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     } else {
       this.rp2040.uart[0].feedByte(byte);
     }
-  }
-
-  /**
-   * Register a virtual I2C device on the specified bus (0 or 1).
-   * Default bus 0 = Wire, bus 1 = Wire1.  Devices are added directly
-   * to the bus manager (which exists from construction time, with a
-   * placeholder master until the real RPI2C is wired in start()).
-   */
-  addI2CDevice(device: I2CDevice, bus: 0 | 1 = 0): void {
-    this.i2cBuses[bus].addDevice(device);
-  }
-
-  /** Remove an I2C device by address from the given bus. */
-  removeI2CDevice(address: number, bus: 0 | 1 = 0): void {
-    this.i2cBuses[bus].removeDevice(address);
-  }
-
-  /**
-   * Get the I2CBusManager for a given hardware bus (0 or 1).
-   * Available from construction time so Interconnect can install
-   * cross-board bridges before firmware loads.
-   */
-  getI2CBus(bus: 0 | 1 = 0): I2CBusManager {
-    return this.i2cBuses[bus];
   }
 
   /**

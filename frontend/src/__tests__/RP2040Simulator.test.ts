@@ -9,16 +9,14 @@
  * - Binary loading (base64 decode)
  * - LED_BUILTIN pin (GPIO25)
  * - UART / Serial (onSerialData, serialWrite)
- * - I2C virtual devices (addI2CDevice, removeI2CDevice)
+ * - I2C controllers as bus-fabric ports
  * - SPI through the bus fabric's controller ports
  * - Bootrom loading
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RP2040Simulator } from '../simulation/RP2040Simulator';
-import type { RP2040I2CDevice } from '../simulation/RP2040Simulator';
 import { PinManager } from '../simulation/PinManager';
-import { VirtualDS1307, VirtualTempSensor, I2CMemoryDevice } from '../simulation/I2CBusManager';
 
 // ─── Mock requestAnimationFrame ──────────────────────────────────────────────
 // No-op mock: returns an ID but never invokes the callback.
@@ -360,34 +358,6 @@ describe('RP2040Simulator — I2C', () => {
   });
   afterEach(() => sim.stop());
 
-  it('addI2CDevice() registers a device on bus 0', () => {
-    const device: RP2040I2CDevice = {
-      address: 0x48,
-      writeByte: () => true,
-      readByte: () => 0x42,
-    };
-    expect(() => sim.addI2CDevice(device)).not.toThrow();
-  });
-
-  it('addI2CDevice() registers a device on bus 1', () => {
-    const device: RP2040I2CDevice = {
-      address: 0x50,
-      writeByte: () => true,
-      readByte: () => 0xff,
-    };
-    expect(() => sim.addI2CDevice(device, 1)).not.toThrow();
-  });
-
-  it('removeI2CDevice() removes a registered device', () => {
-    const device: RP2040I2CDevice = {
-      address: 0x48,
-      writeByte: () => true,
-      readByte: () => 0x42,
-    };
-    sim.addI2CDevice(device);
-    expect(() => sim.removeI2CDevice(0x48)).not.toThrow();
-  });
-
   it('I2C0 event handlers are wired after loadBinary()', () => {
     const mcu = sim.getMCU()!;
     const i2c = mcu.i2c[0];
@@ -408,37 +378,15 @@ describe('RP2040Simulator — I2C', () => {
     expect(i2c.onStop).toBeDefined();
   });
 
-  it('VirtualDS1307 can be registered as RP2040I2CDevice', () => {
-    const rtc = new VirtualDS1307();
-    expect(() => sim.addI2CDevice(rtc as RP2040I2CDevice)).not.toThrow();
-  });
-
-  it('VirtualTempSensor can be registered as RP2040I2CDevice', () => {
-    const sensor = new VirtualTempSensor();
-    expect(() => sim.addI2CDevice(sensor as RP2040I2CDevice)).not.toThrow();
-  });
-
-  it('I2CMemoryDevice can be registered as RP2040I2CDevice', () => {
-    const eeprom = new I2CMemoryDevice(0x50);
-    expect(() => sim.addI2CDevice(eeprom as RP2040I2CDevice)).not.toThrow();
-  });
-
-  it('I2C devices persist across simulator lifecycle', () => {
-    sim.addI2CDevice({ address: 0x48, writeByte: () => true, readByte: () => 0 });
-    sim.addI2CDevice({ address: 0x50, writeByte: () => true, readByte: () => 0 }, 0);
-
-    // After the I2CBusManager refactor, devices live inside the
-    // per-bus I2CBusManager (exposed via getI2CBus).  The bus
-    // doesn't expose its internal Map directly, but registering
-    // the same address again twice would silently overwrite —
-    // we verify the round-trip by removing and asserting that the
-    // bus returns NACK afterwards on connectToSlave (which the
-    // bus's `handleExternalConnect` mirror lets us observe
-    // without driving the RPI2C peripheral).
-    const bus0 = sim.getI2CBus(0)!;
-    expect(bus0.handleExternalConnect(0x48, true)).toBe(true);
-    expect(bus0.handleExternalConnect(0x50, true)).toBe(true);
-    expect(bus0.handleExternalConnect(0x77, true)).toBe(false);
+  // Devices reach the controllers through the bus fabric by their wiring
+  // (board-buses F5); the engine exposes its two controllers as ports and
+  // nothing else. The firmware's funcsel writes route them (see
+  // board-buses/port-conformance-rp2040-i2c.test.ts for the real thing).
+  it('the binding exposes I2C0 and I2C1 as ports, unrouted until the firmware selects their pads', () => {
+    const ports = sim.getBusBinding().i2c ?? [];
+    expect(ports.map((p) => `${p.unit}:${p.name}`)).toEqual(['0:I2C0', '1:I2C1']);
+    for (const p of ports) expect(p.routing()).toEqual({});
+    expect(sim.getBusBinding().i2c?.[0], 'the same port for the life of the board').toBe(ports[0]);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * A custom chip on an ESP32 board whose bridge does not host chips in a
- * backend worker takes the browser path, and that path gives it I2C through
- * the shim's surfaces.
+ * backend worker takes the browser path: GPIO through the shim, UART through
+ * the bridge below, and its buses through the fabric by its own pads.
  *
  * The OSS QEMU bridge hosts chips in its worker and has no opinion; an
  * overlay's in-browser engine answers `hostsCustomChips()` false. Before
@@ -19,12 +19,10 @@ import { describe, it, expect } from 'vitest';
 import {
   detectSimulatorKind,
   hostsChipsInWorker,
-  getI2CBus,
   ensureUartBridge,
 } from '../simulation/customChips/simulatorBridges';
 
 function esp32Shim(extra: Record<string, unknown> = {}) {
-  const added: Array<{ device: unknown; bus: number }> = [];
   const spi = {
     onByte: null as ((mosi: number) => void) | null,
     completed: [] as number[],
@@ -33,14 +31,10 @@ function esp32Shim(extra: Record<string, unknown> = {}) {
     },
   };
   return {
-    added,
     spi,
     sim: {
       sendPinEvent: () => {},
       registerSensor: () => true,
-      addI2CDevice: (device: unknown, bus: number) => {
-        added.push({ device, bus });
-      },
       spi,
       ...extra,
     },
@@ -76,21 +70,11 @@ describe('custom chips on an ESP32 shim', () => {
     expect(hostsChipsInWorker(undefined)).toBe(false);
   });
 
-  it('gives a browser-hosted chip the shim I2C bus', () => {
-    const { sim, added } = esp32Shim({ hostsCustomChips: () => false });
-    const bus = getI2CBus(sim, 0);
-    expect(bus).not.toBeNull();
-    const device = { address: 0x50 };
-    bus!.addDevice(device);
-    expect(added).toEqual([{ device, bus: 0 }]);
-  });
-
   // Issue #355: an ILI9488 touch panel went deaf the moment a Grove sensor
   // model (a custom chip) sat on the same board, because the chip host took
   // the board's SPI whatever the chip spoke. Nothing here touches SPI now.
   it('leaves the shim SPI adapter alone when it hosts a chip', () => {
     const { sim, spi } = esp32Shim({ hostsCustomChips: () => false });
-    getI2CBus(sim, 0);
     ensureUartBridge(sim);
     expect(spi.onByte).toBeNull();
     expect(spi.completed).toEqual([]);

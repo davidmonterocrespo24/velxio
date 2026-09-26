@@ -1,27 +1,31 @@
 /**
  * usi-i2c-ack.test.ts
  *
- * Regression tests for the ATtiny85 USI → I2C bridge's slave-side ACK
+ * Regression tests for the slave-side ACK on the ATtiny85's two-wire USI
  * (the blank-SSD1306-on-ATtiny85 regression).
  *
  * TinyWireM's USI_TWI_Master_Transfer strobes USICR with
  * USIWM1|USICS1|USICLK|USITC (0x2B). In avr8js that is `clockSrc === 3`:
  * DI is sampled at the top of the FALLING USITC write — one toggle AFTER
- * the 9th rising edge. The bridge therefore has to hold SDA low from the
- * moment the 8th bit completes until the falling edge that closes the ACK
- * slot. Releasing on the rising edge makes the master read NACK and
+ * the 9th rising edge. Whoever answers therefore has to hold SDA low from
+ * the moment the 8th bit completes until the falling edge that closes the
+ * ACK slot. Releasing on the rising edge makes the master read NACK and
  * TinyWireM aborts after the address byte: the exact bug where the
  * INPUT_PULLUP seed (eb3b04ef) stopped masking the missing ACK.
  *
- * Instead of compiling real firmware, the test replays TinyWireM's exact
- * register sequence (taken from the ATTinyCore disassembly of
- * USI_TWI_Master_Transfer / _Start / _Stop) against a real AVRSimulator.
+ * Since board-buses F5 the answer comes from the bus fabric's software I2C
+ * decoder on PB0/PB2 (the USI IS the pins: AVRSimulator.getBusBinding), with
+ * the device on the bus by its wiring like any part. Instead of compiling
+ * real firmware, the test replays TinyWireM's exact register sequence (taken
+ * from the ATTinyCore disassembly of USI_TWI_Master_Transfer / _Start /
+ * _Stop) against a real AVRSimulator.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { PinManager } from '../simulation/PinManager';
 import type { I2CDevice } from '../simulation/I2CBusManager';
+import { bareBoard, putI2cDevice, clearBench } from './helpers/i2cBench';
 
 // ATtiny85 register addresses
 const DDRB = 0x37;
@@ -46,7 +50,10 @@ beforeEach(() => {
   });
   vi.stubGlobal('cancelAnimationFrame', vi.fn());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearBench();
+});
 
 /** Mirror of TinyWireM's master ops, register-accurate. */
 class UsiMaster {
@@ -129,11 +136,9 @@ function makeSim() {
       stops++;
     },
   };
-  // same call path ProtocolParts uses on AVR
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const simAny = sim as any;
-  if (typeof simAny.addI2CDevice === 'function') simAny.addI2CDevice(device);
-  else sim.i2cBus.addDevice(device);
+  // On the bus by its wiring, as a part is: SDA on PB0, SCL on PB2.
+  bareBoard('tiny', 'attiny85', sim);
+  putI2cDevice(device, { boardId: 'tiny', pin: 0 }, { boardId: 'tiny', pin: 2 });
 
   return { sim, received, getStops: () => stops };
 }

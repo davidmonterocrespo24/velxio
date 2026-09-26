@@ -114,6 +114,6 @@ export const ATTINY85_TABLE: BoardPinFunctions = staticTable({
     'ATtiny25/45/85 datasheet, USI chapter; ATTinyCore 1.4.1 ' +
     'variants/tinyX5/pins_arduino.h (MOSI 1, MISO 0, SCK 2, SS 3, SDA 0, SCL 2) and its ' +
     'SPI and Wire (USIWire) libraries. The core Serial is a software UART on AIN0/AIN1 ' +
-    '(TX PB0, RX PB1), not a controller. Engine: AVRUSI bridged to the I2C bus in ' +
-    'UsiI2cBridge.ts.',
+    '(TX PB0, RX PB1), not a controller. Engine: AVRUSI shifts the bits through PORTB ' +
+    'and the fabric software decoder answers on PB0/PB2 (AVRSimulator.getBusBinding).',
 });

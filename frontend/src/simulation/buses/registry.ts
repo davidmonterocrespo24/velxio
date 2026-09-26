@@ -11,7 +11,9 @@
  *
  * I2C targets live in the same registry with the same rules: registered once
  * by their own pin names, placed on the bus of their SDA net, moved when the
- * circuit changes, removed by the identity of their handle.
+ * circuit changes, removed by the identity of their handle. One more: an SDA
+ * net that reaches two boards (their I2C pins wired to each other) puts the
+ * target on both boards' buses, so either master finds it, as on the bench.
  */
 
 import { BoardBusFabric } from './fabric';
@@ -54,14 +56,26 @@ interface SpiEntry {
   unwatch: (() => void) | null;
 }
 
+/** One board's bus an I2C target sits on. */
+interface I2cPlacement {
+  member: I2cMember;
+  fabric: BoardBusFabric;
+  bus: I2cBus;
+}
+
 interface I2cEntry {
   desc: I2cTargetDescriptor;
   target: I2cTarget;
   /** Addresses as the bus indexes them: 7-bit, deduplicated. */
   addresses: number[];
-  member: I2cMember | null;
-  fabric: BoardBusFabric | null;
-  bus: I2cBus | null;
+  /**
+   * Every bus the target is on: one per board whose SDA and SCL pins are on
+   * its nets. One board is the common case; two when the boards' I2C pins
+   * are wired to each other, and then the same chip answers both masters,
+   * as on the bench. The first one is the board `resolve` names.
+   */
+  placements: I2cPlacement[];
+  /** Identity of the placement set, to skip no-op recomputes. */
   key: string;
 }
 
@@ -205,7 +219,9 @@ export class BusRegistry {
     const f = this.fabrics.get(boardId);
     if (!f) return;
     for (const e of this.spi.values()) if (e.fabric === f) this.unplace(e);
-    for (const e of this.i2c.values()) if (e.fabric === f) this.unplaceI2c(e);
+    // A target on this board and on another loses this board's bus only,
+    // and the next recompute places it again where the circuit says.
+    for (const e of this.i2c.values()) if (e.placements.some((p) => p.fabric === f)) this.unplaceI2c(e);
     for (const off of this.fabricHooks.get(boardId) ?? []) off();
     this.fabricHooks.delete(boardId);
     f.dispose();
@@ -446,7 +462,7 @@ export class BusRegistry {
     for (const a of desc.addresses) {
       if (Number.isInteger(a) && a >= 0 && a <= 0x7f && !addresses.includes(a)) addresses.push(a);
     }
-    const entry: I2cEntry = { desc, target, addresses, member: null, fabric: null, bus: null, key: '' };
+    const entry: I2cEntry = { desc, target, addresses, placements: [], key: '' };
     this.i2c.set(desc.owner, entry);
     this.placeI2c(entry);
     // A new owner is news to every board's map, not only the one it landed
@@ -479,9 +495,28 @@ export class BusRegistry {
       typeof pin === 'string'
         ? { kind: 'component', componentId: desc.componentId ?? desc.owner, pinName: pin }
         : pin;
-    const sda = this.resolver.resolve(ref(desc.pins.sda));
-    const scl = this.resolver.resolve(ref(desc.pins.scl));
-    if (sda.kind !== 'board' || scl.kind !== 'board' || sda.boardId !== scl.boardId) {
+    const sdaRef = ref(desc.pins.sda);
+    const sclRef = ref(desc.pins.scl);
+    const sda = this.resolver.resolve(sdaRef);
+    const scl = this.resolver.resolve(sclRef);
+    // Every board both lines reach: a net wired from one board's SDA to
+    // another's carries the chip to both masters. The board `resolve` names
+    // comes first, so `i2cPlacement` and the diagnostics speak of that one.
+    const wanted: Array<{ boardId: string; sda: number; scl: number }> = [];
+    if (sda.kind === 'board' && scl.kind === 'board' && sda.boardId === scl.boardId) {
+      wanted.push({ boardId: sda.boardId, sda: sda.pin, scl: scl.pin });
+    }
+    if (this.resolver.resolveAll) {
+      const sclOn = new Map<string, number>();
+      for (const p of this.resolver.resolveAll(sclRef)) if (p.kind === 'board') sclOn.set(p.boardId, p.pin);
+      for (const p of this.resolver.resolveAll(sdaRef)) {
+        if (p.kind !== 'board') continue;
+        const c = sclOn.get(p.boardId);
+        if (c === undefined || wanted.some((w) => w.boardId === p.boardId)) continue;
+        wanted.push({ boardId: p.boardId, sda: p.pin, scl: c });
+      }
+    }
+    if (wanted.length === 0) {
       if (e.key !== '') this.unplaceI2c(e);
       const board = sda.kind === 'board' ? sda.boardId : scl.kind === 'board' ? scl.boardId : null;
       // A chip neither of whose lines reaches a board is a part that is not
@@ -509,38 +544,35 @@ export class BusRegistry {
       });
       return;
     }
-    const board = sda.boardId;
-    const key = `${board}|${sda.pin}|${scl.pin}`;
-    if (key === e.key && e.bus) return;
+    const key = wanted.map((w) => `${w.boardId}|${w.sda}|${w.scl}`).join(';');
+    if (key === e.key && e.placements.length === wanted.length) return;
     this.unplaceI2c(e);
-    const fabric = this.fabric(board);
-    const bus = fabric.i2cBusFor(sda.pin);
-    const member: I2cMember = {
-      owner: desc.owner,
-      desc,
-      target: e.target,
-      addresses: e.addresses,
-      sclPin: scl.pin,
-      clocked: false,
-    };
-    e.member = member;
-    e.fabric = fabric;
-    e.bus = bus;
+    for (const w of wanted) {
+      const fabric = this.fabric(w.boardId);
+      const bus = fabric.i2cBusFor(w.sda);
+      const member: I2cMember = {
+        owner: desc.owner,
+        desc,
+        target: e.target,
+        addresses: e.addresses,
+        sclPin: w.scl,
+        clocked: false,
+      };
+      e.placements.push({ member, fabric, bus });
+      bus.add(member);
+      fabric.i2cMembershipChanged(bus);
+    }
     e.key = key;
-    bus.add(member);
-    fabric.i2cMembershipChanged(bus);
   }
 
   private unplaceI2c(e: I2cEntry): void {
-    const { bus, fabric } = e;
-    if (bus) {
-      bus.remove(e.desc.owner);
-      fabric?.i2cMembershipChanged(bus);
-    }
-    e.member = null;
-    e.bus = null;
-    e.fabric = null;
+    const gone = e.placements;
+    e.placements = [];
     e.key = '';
+    for (const { bus, fabric } of gone) {
+      bus.remove(e.desc.owner);
+      fabric.i2cMembershipChanged(bus);
+    }
   }
 
   // ── The bus map a remote worker needs ─────────────────────────────────────
@@ -766,11 +798,23 @@ export class BusRegistry {
     return { boardId: e.bus.boardId, sckPin: e.bus.sckPin, selected: e.member.selected };
   }
 
-  /** Where each I2C target sits right now. */
+  /** Where an I2C target sits right now: the board `resolve` names, or null
+   *  when it is on no bus. A target on two boards' buses lists them all in
+   *  {@link i2cPlacements}. */
   i2cPlacement(owner: string): { boardId: string; sdaPin: number; sclPin: number; clocked: boolean } | null {
+    return this.i2cPlacements(owner)[0] ?? null;
+  }
+
+  /** Every bus an I2C target sits on, the board `resolve` names first. */
+  i2cPlacements(owner: string): Array<{ boardId: string; sdaPin: number; sclPin: number; clocked: boolean }> {
     const e = this.i2c.get(owner);
-    if (!e || !e.bus || !e.member) return null;
-    return { boardId: e.bus.boardId, sdaPin: e.bus.sdaPin, sclPin: e.member.sclPin, clocked: e.member.clocked };
+    if (!e) return [];
+    return e.placements.map(({ bus, member }) => ({
+      boardId: bus.boardId,
+      sdaPin: bus.sdaPin,
+      sclPin: member.sclPin,
+      clocked: member.clocked,
+    }));
   }
 
   /**
@@ -789,8 +833,8 @@ export class BusRegistry {
   unplacedI2cOwners(boardId?: string): string[] {
     const out: string[] = [];
     for (const [owner, e] of this.i2c) {
-      const on = e.bus?.boardId ?? null;
-      if (boardId === undefined ? on === null : on !== boardId) out.push(owner);
+      const on = e.placements.map((p) => p.bus.boardId);
+      if (boardId === undefined ? on.length === 0 : !on.includes(boardId)) out.push(owner);
     }
     return out.sort();
   }
