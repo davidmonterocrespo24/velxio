@@ -23,6 +23,7 @@ const xiaoEsp32S3SvgUrl = '/boards/xiao-esp32-s3.svg';
 const arduinoNanoEsp32SvgUrl = '/boards/arduino-nano-esp32.svg';
 const xiaoEsp32C3SvgUrl = '/boards/xiao-esp32-c3.svg';
 const aitewinC3SvgUrl = '/boards/esp32c3-supermini.svg';
+const cyd2424SvgUrl = '/boards/cyd-esp32-2424s012.svg';
 
 // ─── Pin positions (mm × 5 px/mm, from board.json) ───────────────────────────
 
@@ -325,6 +326,17 @@ const PINS_AITEWIN_C3 = [
   { name: '0', x: 84, y: 105 },
 ];
 
+// CYD ESP32-2424S012: 37.0 mm × 38.5 mm → 185 × 193 px
+// No external GPIO header — USB-C only. Wirable points are the two edge buttons.
+// Internal: GPIO2=TFT_DC, GPIO3=TFT_BL, GPIO6=TFT_SCK, GPIO7=TFT_MOSI,
+// GPIO10=TFT_CS (GC9A01); GPIO4/5=CST816D I2C SDA/SCL; GPIO1=touch RST.
+// Side button: GPIO18, left edge  x=1.3mm→7px   y=16.75mm→84px
+// RST button:  right edge         x=35.7mm→178px y=16.75mm→84px
+const PINS_CYD_2424S012 = [
+  { name: '18',  x: 7,   y: 84 },
+  { name: 'RST', x: 178, y: 84 },
+];
+
 // ─── ADC pin map: GPIO → { adc bank, channel within bank, qemu chn index } ──────
 // chn is the index passed to qemu_picsimlab_set_apin():
 //   0-7  → ADC1 channels 0-7  (GPIO 36,37,38,39,32,33,34,35)
@@ -423,6 +435,12 @@ const BOARD_CONFIGS: Record<string, BoardConfig> = {
     w: 90,
     h: 123,
     pins: PINS_AITEWIN_C3,
+  },
+  'cyd-esp32-2424s012': {
+    svgUrl: cyd2424SvgUrl,
+    w: 185,
+    h: 193,
+    pins: PINS_CYD_2424S012,
   },
 };
 

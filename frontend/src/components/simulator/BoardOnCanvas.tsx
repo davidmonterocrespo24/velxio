@@ -65,6 +65,7 @@ export const BOARD_SIZE: Record<string, { w: number; h: number }> = {
   'arduino-nano-esp32': { w: 217, h: 90 },
   'xiao-esp32-c3': { w: 91, h: 117 },
   'aitewinrobot-esp32c3-supermini': { w: 90, h: 123 },
+  'cyd-esp32-2424s012': { w: 185, h: 193 }, // 37.0mm × 38.5mm
   'stm32-bluepill': { w: 114, h: 271 }, // 22.855 × 54.193 mm (wokwi-boards SVG)
   'stm32-blackpill': { w: 103, h: 266 }, // 20.695 × 53.125 mm (wokwi-boards SVG)
   'stm32-bluepill-f103cb': { w: 114, h: 271 }, // reuses Blue Pill SVG
@@ -198,6 +199,7 @@ export const BoardOnCanvas = ({
       case 'esp32-c3':
       case 'xiao-esp32-c3':
       case 'aitewinrobot-esp32c3-supermini':
+      case 'cyd-esp32-2424s012':
         return <Esp32 id={id} x={x} y={y} boardKind={boardKind} />;
       case 'stm32-bluepill':
         return <Stm32BluePill id={id} x={x} y={y} />;
