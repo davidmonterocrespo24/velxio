@@ -220,6 +220,14 @@ export class SpiBus {
     }
   }
 
+  /** The line's idle level when no member can ever drive MISO (none wired or
+   *  all write-only): every frame then reads it whatever is selected. Null
+   *  when some member can. */
+  idleMisoIfUndriven(): number | null {
+    for (const m of this.members.values()) if (drives(m)) return null;
+    return this.idleMiso;
+  }
+
   /** One hardware frame. Returns the MISO the master reads for it. */
   frame(mosi: number, bits: number): number {
     const sel = this.selectedList;

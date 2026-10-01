@@ -297,6 +297,13 @@ export interface SpiControllerPort {
   setHardwareCsHandler?(handler: ((index: number, active: boolean) => void) | null): void;
   /** Routing changed (the sketch moved the pins): the fabric recomputes. */
   setRoutingChangeHandler?(handler: (() => void) | null): void;
+  /**
+   * Optional: the fabric installs a query for the MISO the controller would
+   * read on every frame because nothing on its bus can drive the line (the
+   * line's idle level), or null when something can. An engine that cannot
+   * ask the bus inline (it runs on another thread) answers such reads itself.
+   */
+  setIdleMisoQuery?(query: (() => number | null) | null): void;
 }
 
 // ── I2C ─────────────────────────────────────────────────────────────────────
