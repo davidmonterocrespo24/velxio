@@ -230,6 +230,7 @@ describe('an I2C target on a net that reaches two boards', () => {
     reg.attachI2c({ owner: 'chip', pins: { sda: 'SDA', scl: 'SCL' }, addresses: [0x76] }, new Regs(1));
     const lane = new RemoteI2cLane('b', 'esp32');
     const map = lane.publication();
-    expect(map).toEqual([{ owner: 'chip', bus_id: null, sda: 4, scl: 5, addresses: [0x76] }]);
+    // `shared`: the chip is on another board's bus too (that guest changes it as well).
+    expect(map).toEqual([{ owner: 'chip', bus_id: null, sda: 4, scl: 5, addresses: [0x76], shared: true }]);
   });
 });

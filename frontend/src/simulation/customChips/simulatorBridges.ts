@@ -57,6 +57,21 @@ export function hostsChipsInWorker(simulator: any): boolean {
   }
 }
 
+/**
+ * Whether the board's engine runs its own copy of an I2C part of `type` next
+ * to the guest, from the record the part files with registerSensor, while the
+ * part keeps its copy on the fabric (an overlay's engine in a worker). No
+ * bridge says so by default.
+ */
+export function hostsI2cModel(simulator: any, type: string): boolean {
+  if (!simulator || typeof simulator.hostsI2cModel !== 'function') return false;
+  try {
+    return simulator.hostsI2cModel(type) === true;
+  } catch {
+    return false;
+  }
+}
+
 // ── UART ────────────────────────────────────────────────────────────────────
 //
 // There is no UART bridge any more either. A chip is on a board's UART wires

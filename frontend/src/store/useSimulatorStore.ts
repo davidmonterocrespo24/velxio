@@ -389,6 +389,11 @@ export class Esp32BridgeShim {
     return typeof b.hostsCustomChips === 'function' ? b.hostsCustomChips() !== false : true;
   }
 
+  /** Whether the bridge's engine runs a copy of an I2C part of this type (simulatorBridges.hostsI2cModel). */
+  hostsI2cModel(type: string): boolean {
+    return (this.bridge as unknown as { hostsI2cModel?: (t: string) => boolean }).hostsI2cModel?.(type) === true;
+  }
+
   /** Send the worker the board's SPI bus map, for a board whose firmware runs
    *  there. A board running in this tab has no worker and its bridge has no
    *  sendBusMap, so this is a no-op for it. */
