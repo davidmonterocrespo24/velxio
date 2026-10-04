@@ -3554,6 +3554,23 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
 
+      // Hard reset FIRST, before the engine is told to stop: clear cached pin
+      // states AND notify listeners so multiplexed displays (7-segment, LED
+      // matrix, NeoPixel) clear the frozen frame they were holding when power
+      // was cut, instead of carrying it into the next run.
+      //
+      // The order matters. Stopping the engine flips this board to
+      // running:false, and that store change makes the circuit service
+      // rebuild the netlist; its pin collection runs synchronously, so with
+      // the pads still classified as outputs the new deck keeps a V-source at
+      // each pad's last level. The same store change clears the input
+      // connector's memory, and when that solve lands it pushes the pad's own
+      // stale level back into it as an external input. On the Grove relay
+      // example that re-latched the relay after Stop and the motor ran at
+      // full speed with the board powered off. Reset first and the rebuild
+      // sees no outputs.
+      getBoardPinManager(boardId)?.hardResetPinStates();
+
       if (isPiBoardKind(board.boardKind)) {
         if (board.engineMode === 'instant') getInstantEngine()?.stop(boardId);
         else getBoardBridge(boardId)?.disconnect();
@@ -3573,17 +3590,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         getBoardSimulator(boardId)?.reset();
       }
 
-      // Hard reset: clear cached pin states AND notify listeners so
-      // multiplexed displays (7-segment, LED matrix, NeoPixel) clear
-      // the frozen frame they were holding when power was cut, instead
-      // of carrying it into the next run.
-      getBoardPinManager(boardId)?.hardResetPinStates();
-
       set((s) => {
         const boards = s.boards.map((b) => (b.id === boardId ? { ...b, running: false } : b));
         const isActive = s.activeBoardId === boardId;
         return { boards, ...(isActive ? { running: false } : {}) };
       });
+      // A powered-off board sources nothing: rebuild the deck without its
+      // pads, whatever the stop above did or did not trigger.
+      requestElectricalResolve();
     },
 
     resetBoard: (boardId: string) => {

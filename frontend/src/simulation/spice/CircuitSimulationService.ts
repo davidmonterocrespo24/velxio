@@ -70,6 +70,9 @@ export interface ElectricalSnapshot {
   /** Nets backed by a real source/element (see NetlistBuilder). Gates which
    *  MCU input pins connectDigitalInputsToMcu may drive from the solve. */
   sourcedNets: Set<string>;
+  /** Lower-case names of the deck's V-sources, so a consumer can tell a pad's
+   *  own source apart from the rest of what holds its net. */
+  voltageSources?: string[];
 }
 
 /** What the service needs from the scheduler. */
@@ -515,6 +518,7 @@ export class CircuitSimulationService {
       timeWaveforms,
       warnings: result.warnings,
       sourcedNets: ctx.sourcedNets,
+      voltageSources: ctx.voltageSources.map((vs) => vs.toLowerCase()),
     });
   }
 

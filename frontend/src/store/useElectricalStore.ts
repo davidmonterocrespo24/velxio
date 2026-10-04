@@ -29,6 +29,10 @@ export interface ElectricalSnapshot {
    *  component card). connectDigitalInputsToMcu only drives MCU input pins
    *  whose net is here, so floating event-part pins aren't forced LOW. */
   sourcedNets: Set<string>;
+  /** The V-source names of the deck this snapshot was solved with, lower
+   *  case (`v_<board>_<pin>` for a board pad). connectDigitalInputsToMcu
+   *  uses it to recognise a pad reading its own stale source. */
+  voltageSources?: string[];
 }
 
 interface ElectricalState extends ElectricalSnapshot {
@@ -56,6 +60,7 @@ const EMPTY: ElectricalSnapshot = {
   lastSolveMs: 0,
   submittedNetlist: '',
   sourcedNets: new Set(),
+  voltageSources: [],
 };
 
 export const useElectricalStore = create<ElectricalState>((set) => ({

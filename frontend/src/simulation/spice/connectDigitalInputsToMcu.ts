@@ -41,6 +41,7 @@ import { isStm32BoardKind } from '../../types/board';
 import type { BoardKind } from '../../types/board';
 import { stm32PinNameToLinear } from '../Stm32Bridge';
 import { boardPinToNumber } from '../../utils/boardPinMapping';
+import { sanitizeSpiceId } from './NetlistBuilder';
 
 // 3.3 V LVCMOS thresholds with a hysteresis band so a node hovering near the
 // midpoint doesn't chatter. A pulled-up idle input sits at ~3.3 V and a
@@ -68,7 +69,8 @@ export function connectDigitalInputsToMcu(): () => void {
   const lastLevel = new Map<string, boolean>();
 
   function injectDigitalInputs() {
-    const { nodeVoltages, pinNetMap, sourcedNets } = useElectricalStore.getState();
+    const { nodeVoltages, pinNetMap, sourcedNets, voltageSources } = useElectricalStore.getState();
+    const sources = new Set(voltageSources ?? []);
     const { boards } = useSimulatorStore.getState();
     for (const board of boards) {
       const sim = getBoardSimulator(board.id) as
@@ -92,6 +94,19 @@ export function connectDigitalInputsToMcu(): () => void {
         const gpio = isStm32 ? stm32PinNameToLinear(pinName) : gpioFromPinName(pinName, board.boardKind);
         if (gpio < 0) continue;
         if (driven.has(gpio)) continue; // the MCU drives this pin (digitalWrite)
+        // A deck that still carries this pad's OWN source is stale: the pad
+        // was an output when the netlist was built and has since been reset
+        // (Stop, Reset) or released (pinMode(INPUT)). Its net solves at the
+        // level the pad itself last drove, and pushing that back in would
+        // make the firmware read its own ghost. Measured on the Grove relay
+        // example: Stop with the contact closed re-latched the relay and the
+        // motor ran at full speed with the board powered off. Forget the
+        // memory too, so the first honest solve after the rebuild is emitted
+        // even if it agrees with what was pushed before.
+        if (sources.has(`v_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`.toLowerCase())) {
+          lastLevel.delete(`${board.id}:${gpio}`);
+          continue;
+        }
         // A part that models this line ITSELF (an HC-SR04's ECHO pulse, a
         // DHT22's frame, an encoder's edges) owns it — see partPinOwnership.
         // The `sourcedNets` gate below cannot protect those: the moment the

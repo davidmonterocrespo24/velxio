@@ -100,7 +100,7 @@ vi.stubGlobal('cancelAnimationFrame', vi.fn());
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 import { boardPinToNumber, isBoardComponent } from '../utils/boardPinMapping';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
-import { useSimulatorStore, getEsp32Bridge, getBoardSimulator } from '../store/useSimulatorStore';
+import { useSimulatorStore, getEsp32Bridge, getBoardSimulator, getBoardPinManager } from '../store/useSimulatorStore';
 import { useEditorStore } from '../store/useEditorStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -394,6 +394,24 @@ describe('useSimulatorStore — ESP32 boards', () => {
     const disconnectSpy = vi.spyOn(bridge, 'disconnect');
     stopBoard(id);
     expect(disconnectSpy).toHaveBeenCalledOnce();
+  });
+
+  it('stopBoard hard-resets the pins BEFORE it disconnects the bridge', () => {
+    // The disconnect flips running:false and the circuit service rebuilds the
+    // deck from the pins as they are at that instant. Reset after, and the
+    // rebuilt deck keeps a source at each pad's last level, which the input
+    // connector then pushes back into the pad (the Grove relay that stayed
+    // closed after Stop).
+    const { addBoard, startBoard, stopBoard } = useSimulatorStore.getState();
+    const id = addBoard('esp32', 300, 100);
+    startBoard(id);
+    const bridge = getEsp32Bridge(id)!;
+    const disconnectSpy = vi.spyOn(bridge, 'disconnect');
+    const reset = getBoardPinManager(id)!.hardResetPinStates as unknown as ReturnType<typeof vi.fn>;
+    reset.mockClear();
+    stopBoard(id);
+    expect(reset).toHaveBeenCalledOnce();
+    expect(reset.mock.invocationCallOrder[0]).toBeLessThan(disconnectSpy.mock.invocationCallOrder[0]);
   });
 
   it('compileBoardProgram calls bridge.loadFirmware for esp32', () => {
