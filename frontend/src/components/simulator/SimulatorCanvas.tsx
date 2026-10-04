@@ -1489,6 +1489,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             onPinChange: (pin, cb) => pm.onPinChange(pin, cb),
             getPinState: (pin) => pm.getPinState(pin),
             getOutputPins: () => pm.getOutputPins(),
+            onPinConfigChange: (pin, cb) => pm.onPinConfigChange(pin, cb),
             observeWs2812: (pin, sink) =>
               observeBoardWs2812(board.id, (framePin, pixels) => {
                 if (framePin === pin) sink(pixels);

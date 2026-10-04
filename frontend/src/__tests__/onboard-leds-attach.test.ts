@@ -4,7 +4,8 @@
  * visual each on-board LED should show, polarity applied (issue #374).
  *
  * A real PinManager drives every case, through the same triggerPinChange
- * the ESP32 bridges call from gpio_change.
+ * the ESP32 bridges call from gpio_change and the same setPinDirection they
+ * call from the guest's pinMode.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { PinManager } from '../simulation/PinManager';
@@ -13,8 +14,9 @@ import type { OnboardLedVisual } from '../types/board';
 
 type Pixel = { r: number; g: number; b: number };
 
-function rig(kind: string) {
+function rig(kind: string, beforeAttach?: (pm: PinManager) => void) {
   const pm = new PinManager();
+  beforeAttach?.(pm);
   const frames = new Map<number, (px: readonly Pixel[]) => void>();
   const seen: Array<[string, OnboardLedVisual]> = [];
   const last = () => seen[seen.length - 1];
@@ -33,13 +35,16 @@ function rig(kind: string) {
       onPinChange,
       getPinState: (pin) => pm.getPinState(pin),
       getOutputPins: () => pm.getOutputPins(),
+      onPinConfigChange: (pin, cb) => pm.onPinConfigChange(pin, cb),
       observeWs2812,
     },
     (id, visual) => seen.push([id, visual]),
   );
   const mcu = (pin: number, high: boolean) => pm.triggerPinChange(pin, high, 'mcu');
   const frame = (pin: number, px: Pixel[]) => frames.get(pin)?.(px);
-  return { pm, seen, last, mcu, frame, detach, onPinChange, observeWs2812 };
+  // What the bridges report for pinMode: a direction, no level.
+  const dir = (pin: number, d: 0 | 1) => pm.setPinDirection(pin, d);
+  return { pm, seen, last, mcu, dir, frame, detach, onPinChange, observeWs2812 };
 }
 
 describe('attachOnboardLeds: single-colour LEDs follow their own pin with the board polarity', () => {
@@ -98,6 +103,82 @@ describe('attachOnboardLeds: single-colour LEDs follow their own pin with the bo
       r.mcu(13, false);
       expect(r.seen).toEqual([]);
     }
+  });
+});
+
+describe('attachOnboardLeds: the boot case, a pad that becomes an output without a level change', () => {
+  // pinMode(pin, OUTPUT) drives the pad at its reset latch, LOW, and the engine
+  // reports the direction only: the level did not move. On the active-LOW
+  // boards the real LED is lit from that instant (measured on velxio.dev
+  // 2026-10-04: a sketch writing LOW once in setup() left the dot dark).
+  it.each([
+    ['wemos-lolin32-lite', 22],
+    ['xiao-esp32-s3', 21],
+    ['aitewinrobot-esp32c3-supermini', 8],
+  ])('%s: pinMode(%i, OUTPUT) alone lights the active-LOW LED', (kind, pin) => {
+    const r = rig(kind);
+    r.dir(pin, 1);
+    expect(r.seen).toEqual([['led', true]]);
+    r.mcu(pin, false); // the setup() write at the level the pad already holds
+    expect(r.seen.every(([, v]) => v === true)).toBe(true);
+    r.mcu(pin, true);
+    expect(r.last()).toEqual(['led', false]);
+  });
+
+  it('esp32-cam: pinMode(33, OUTPUT) lights the red LED, pinMode(4, OUTPUT) leaves the flash dark', () => {
+    const r = rig('esp32-cam');
+    r.dir(33, 1);
+    expect(r.last()).toEqual(['led', true]);
+    r.dir(4, 1);
+    expect(r.last()).toEqual(['flash', false]);
+  });
+
+  it('esp32 (DevKit V1): pinMode(2, OUTPUT) paints the active-HIGH LED dark, never lit', () => {
+    const r = rig('esp32');
+    r.dir(2, 1);
+    expect(r.seen).toEqual([['led', false]]);
+  });
+
+  it('a HIGH written before pinMode is the level the pad shows when it becomes an output', () => {
+    const r = rig('wemos-lolin32-lite');
+    r.mcu(22, true); // digitalWrite(HIGH) first: off on an active-LOW board
+    r.dir(22, 1);
+    expect(r.seen.some(([, v]) => v === true)).toBe(false);
+  });
+
+  it('pinMode(INPUT) releases the pad and the LED goes dark, whichever polarity', () => {
+    const lo = rig('wemos-lolin32-lite');
+    lo.dir(22, 1);
+    expect(lo.last()).toEqual(['led', true]);
+    lo.dir(22, 0);
+    expect(lo.last()).toEqual(['led', false]);
+    const hi = rig('esp32');
+    hi.mcu(2, true);
+    hi.dir(2, 1);
+    expect(hi.last()).toEqual(['led', true]);
+    hi.dir(2, 0);
+    expect(hi.last()).toEqual(['led', false]);
+  });
+
+  it('a board already running when the canvas attaches shows its driven pad at once', () => {
+    const r = rig('wemos-lolin32-lite', (pm) => pm.setPinDirection(22, 1));
+    expect(r.seen).toEqual([['led', true]]);
+    const idle = rig('wemos-lolin32-lite');
+    expect(idle.seen).toEqual([]);
+  });
+
+  it('a pull change on a pad that is not an output says nothing at attach and darkens on config', () => {
+    const r = rig('wemos-lolin32-lite');
+    r.pm.setPinPull(22, 1); // INPUT_PULLUP: the LED hangs off a pad at 3V3, off
+    expect(r.seen).toEqual([['led', false]]);
+  });
+
+  it('arduino-nano-esp32: pinMode(LED_RED, OUTPUT) alone is a red LED', () => {
+    const r = rig('arduino-nano-esp32');
+    r.dir(46, 1);
+    expect(r.last()).toEqual(['rgb', { r: 255, g: 0, b: 0 }]);
+    r.dir(45, 1);
+    expect(r.last()).toEqual(['rgb', { r: 255, g: 0, b: 255 }]);
   });
 });
 
