@@ -678,6 +678,15 @@ export function createNeopixelDecoder(
   // 2/10 under rp2350js. An absolute threshold is right for exactly one of
   // those three and silently reads 0x00 or 0xFF for the others.
   //
+  // WHERE the ratio is cut matters as much. The pixel samples the line a fixed
+  // time after the rising edge (about 0.48 us: T0H is at most 380 ns, T1H at
+  // least 580 ns), so a '1' only has to be high past that point, not for most
+  // of the bit. Cutting at one half read FastLED's WS2811 and WS2813 as black:
+  // their '1' is 640 ns high and 640 ns low, exactly half, ten cycles of twenty
+  // on an AVR (measured on velxio.dev, 2026-10-05; WS2811 is the default chip
+  // of FastLED's DemoReel100). The cut is 5/12 of the bit: above the longest
+  // '0' any driver emits (1/3) and below the shortest '1' (1/2).
+  //
   // Seeded from the nominal 1.25 us bit period so the very first edge pair of a
   // run has something to compare against; every completed bit replaces it with
   // what this board actually produces.
@@ -705,6 +714,9 @@ export function createNeopixelDecoder(
   // FIRST bit of a frame, so the last bit is never left pending and no pixel
   // is dropped at the end of a run.
   let pendingHigh = -1;
+
+  /** The bit a pixel reads from a high of `highDur`, against this board's bit period. */
+  const bitOf = (highDur: number): number => (highDur * 12 > periodRef * 5 ? 1 : 0);
 
   /** Fold one decoded bit into the frame, emitting a pixel every 24. */
   const pushBit = (bit: number) => {
@@ -735,7 +747,7 @@ export function createNeopixelDecoder(
         else if (lastHighDur > 0) periodRef = lastHighDur + lowDur;
       }
       if (pendingHigh >= 0) {
-        pushBit(pendingHigh * 2 > periodRef ? 1 : 0);
+        pushBit(bitOf(pendingHigh));
         pendingHigh = -1;
       }
       if (isLatch) {
@@ -758,7 +770,7 @@ export function createNeopixelDecoder(
         // warning in attachWs2812Part tell the user something real.
         if (periodRef > 0 && (highDur > 0 || lastHighDur > 0)) {
           if (lastHighDur === 0) pendingHigh = highDur; // frame's first bit
-          else pushBit(highDur * 2 > periodRef ? 1 : 0);
+          else pushBit(bitOf(highDur));
         }
         lastHighDur = highDur;
       }

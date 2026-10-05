@@ -565,6 +565,11 @@ def _decode_rmt_item(value: int) -> tuple[int, int, int, int]:
     return level0, duration0, level1, duration1
 
 
+def _ws281x_bit(high: int, low: int) -> int:
+    """The bit a WS281x pixel reads from `high` ticks up then `low` ticks down."""
+    return 1 if 7 * high > 5 * low else 0
+
+
 class _RmtDecoder:
     """Accumulate RMT items for one channel; flush complete WS2812 frames."""
 
@@ -594,15 +599,22 @@ class _RmtDecoder:
             self._bits.clear()
             return pix or None
 
-        # Classify the bit by comparing the two halves of its own symbol, not
-        # against an absolute tick count. A WS2812 '1' is high-longer-than-low
-        # and a '0' is high-shorter-than-low whatever resolution the driver
-        # picked — the in-browser engine decodes it exactly this way. The old
-        # fixed threshold of 48 ticks was an order of magnitude off for the two
-        # drivers in this image, which both build symbols at 10 MHz with 8 ticks
-        # for a 1 and 4 for a 0, so every bit classified as 0: a black strip.
+        # Classify the bit by the share of its own symbol that is high, not
+        # against an absolute tick count: the resolution is the driver's choice.
+        # The old fixed threshold of 48 ticks was an order of magnitude off for
+        # the two drivers in this image, which both build symbols at 10 MHz with
+        # 8 ticks for a 1 and 4 for a 0, so every bit classified as 0: a black
+        # strip.
+        #
+        # The cut is 5/12 of the symbol, not one half. A pixel samples the line
+        # a fixed time after the rising edge (about 0.48 us), so a '1' only has
+        # to stay high past that point. "High longer than low" read FastLED's
+        # WS2811 and WS2813 as black: their '1' is 640 ns high and 640 ns low,
+        # exactly half. 5/12 sits above the longest '0' any driver emits (1/3)
+        # and below the shortest '1' (1/2). The in-browser engines use the same
+        # rule (ws281xBit).
         if level0 == 1 and dur0 > 0:
-            self._bits.append(1 if dur0 > dur1 else 0)
+            self._bits.append(_ws281x_bit(dur0, dur1))
 
         # Every 24 bits → one GRB pixel → convert to RGB
         while len(self._bits) >= 24:
