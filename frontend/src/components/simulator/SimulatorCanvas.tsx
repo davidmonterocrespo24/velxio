@@ -11,6 +11,7 @@ import type { BoardLedVisuals } from '../../types/board';
 import { getBoardBuiltins, getProBoard } from '../../lib/proBoardRegistry';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { openDeviceGateway } from '../../lib/openDeviceGateway';
+import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -705,9 +706,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // No-op when the flag is off (default).
   useEffect(() => mountDigitalGateEngine(), []);
 
-  // Auto-start/stop Pi bridges when simulation state changes
+  // Auto-start/stop Pi bridges when simulation state changes: each remote
+  // board starts once per session, so a script that finished is not re-run
+  // (see remoteBoardAutostart.ts for the restart loop this prevents).
   const startBoard = useSimulatorStore((s) => s.startBoard);
   const stopBoard = useSimulatorStore((s) => s.stopBoard);
+  const autoStartedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const remoteBoards = boards.filter(
       (b) =>
@@ -718,10 +722,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         b.boardKind === 'esp32-s3' ||
         b.boardKind === 'esp32-c3',
     );
-    remoteBoards.forEach((b) => {
-      if (running && !b.running) startBoard(b.id);
-      else if (!running && b.running) stopBoard(b.id);
-    });
+    const { start, stop } = remoteBoardActions(running, remoteBoards, autoStartedRef.current);
+    start.forEach((id) => startBoard(id));
+    stop.forEach((id) => stopBoard(id));
   }, [running, boards, startBoard, stopBoard]);
 
   // Attach wheel listener as non-passive so preventDefault() works
