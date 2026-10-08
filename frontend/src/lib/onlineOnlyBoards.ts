@@ -1,7 +1,7 @@
 /**
  * Online-only boards — the public "shop window".
  *
- * These boards are implemented by the hosted editor (velxio.com), where they
+ * These boards are implemented by the hosted editor (velxio.dev), where they
  * are free to use; their emulation engines and board wiring are not part of
  * the OSS tree. The OSS build knows only this list — name, art, a badge —
  * and renders advertisement cards in the picker that link to the online
@@ -23,7 +23,7 @@ export interface OnlineOnlyBoardAd {
 }
 
 /** Where the ad cards send the user. */
-export const ONLINE_EDITOR_URL = 'https://velxio.com';
+export const ONLINE_EDITOR_URL = 'https://velxio.dev';
 
 /**
  * Ad suppression — the hosted overlay's escape hatch.

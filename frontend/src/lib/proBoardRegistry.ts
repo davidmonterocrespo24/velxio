@@ -1,6 +1,6 @@
 /**
  * proBoardRegistry — runtime registration seam for boards a private overlay
- * (velxio.com) ships outside the OSS tree.
+ * (velxio.dev) ships outside the OSS tree.
  *
  * The OSS BoardKind union and its compiler-enforced Record maps stay exactly
  * as they are for the open boards. An overlay calls registerProBoards() at
