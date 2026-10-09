@@ -123,6 +123,12 @@ export interface MixedModeSchedulerPort {
    */
   alterSources(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
   /**
+   * Alter + solve + read in one round trip when the engine offers it;
+   * falls back to alterSources + resolveDc inside. Optional for ports
+   * that only know the two steps.
+   */
+  solvePadState?(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
+  /**
    * Make a result the scheduler already produced its current one again
    * (and republish per-pin voltages from it). Used when the service
    * publishes a pad state it has cached instead of solving it anew.
@@ -349,6 +355,7 @@ export class CircuitSimulationService {
       lastRebuildMs: Math.round(this.lastRebuildMs),
       maxRebuildMs: Math.round(this.maxRebuildMs),
       lastStateSolveMs: Math.round(this.lastStateSolveMs),
+      lastStateSolveBreakdown: this.lastStateSolveBreakdown,
       maxStateSolveMs: Math.round(this.maxStateSolveMs),
       healRequests: [...this.healRequests.keys()],
       stopped: this.stopped,
@@ -524,10 +531,18 @@ export class CircuitSimulationService {
       }
     }
     const started = nowMs();
+    let alterMs = 0;
+    let resolveMs = 0;
     try {
-      if (changes.length > 0) await this.scheduler.alterSources(changes);
       this.solverLevels = levels.slice();
-      await this.scheduler.resolveDc();
+      if (this.scheduler.solvePadState) {
+        await this.scheduler.solvePadState(changes);
+      } else {
+        if (changes.length > 0) await this.scheduler.alterSources(changes);
+        alterMs = nowMs() - started;
+        await this.scheduler.resolveDc();
+      }
+      resolveMs = nowMs() - started - alterMs;
       this.stateSolveCount++;
       this.lastStateSolveMs = nowMs() - started;
       if (this.lastStateSolveMs > this.maxStateSolveMs) this.maxStateSolveMs = this.lastStateSolveMs;
@@ -539,7 +554,12 @@ export class CircuitSimulationService {
     }
     const result = this.scheduler.getLastResult();
     if (!result || !this.loadedContext) return null;
+    const tExtract = nowMs();
     const vec = this.extract(result, this.loadedContext);
+    this.lastStateSolveBreakdown = {
+      alterMs: Math.round(alterMs), resolveMs: Math.round(resolveMs), extractMs: Math.round(nowMs() - tExtract),
+      alters: changes.length,
+    };
     this.cache.set(key, vec);
     if (this.cache.size > CircuitSimulationService.CACHE_LIMIT) {
       const oldest = this.cache.keys().next().value;
@@ -604,6 +624,7 @@ export class CircuitSimulationService {
   maxRebuildMs = 0;
   lastStateSolveMs = 0;
   maxStateSolveMs = 0;
+  lastStateSolveBreakdown: Record<string, number> | null = null;
 
   private async runSolve(): Promise<void> {
     this.rebuildCount++;

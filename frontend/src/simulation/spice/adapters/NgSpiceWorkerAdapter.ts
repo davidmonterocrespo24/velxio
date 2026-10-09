@@ -128,7 +128,41 @@ export class NgSpiceWorkerAdapter implements SolverPort {
     }
 
     const solveMs = performance.now() - t0;
-    return { analysis, vectors, timeAxis, solveMs, warnings, timing: { commandMs, readMs } };
+    return {
+      analysis, vectors, timeAxis, solveMs, warnings,
+      timing: { commandMs, readMs, engineMs: cmdResult.ms, engineReadMs: this.client.lastReadVecsMs },
+    };
+  }
+
+  async solveAltered(
+    changes: ReadonlyArray<{ source: string; volts: number }>,
+    analysis: SolveAnalysis,
+    options: SolveOptions,
+  ): Promise<SolveResult> {
+    await this.init();
+    const t0 = performance.now();
+    const res = await this.client.solveState(
+      changes.map((c) => `alter ${c.source} dc ${c.volts}`),
+      analysisToCommand(analysis),
+      options.vectorsOfInterest,
+    );
+    const vectors = new Map<string, SolveVector>();
+    for (const entry of res.entries) {
+      if (entry.error || !entry.real) continue;
+      const key = entry.name.toLowerCase();
+      vectors.set(key, { name: key, real: entry.real, imag: entry.imag ?? null });
+    }
+    let timeAxis: Float64Array = new Float64Array(0);
+    if (analysis.kind === 'tran') {
+      const t = vectors.get('time');
+      if (t) timeAxis = t.real;
+    }
+    const solveMs = performance.now() - t0;
+    return {
+      analysis, vectors, timeAxis, solveMs,
+      warnings: res.stderr.filter((l) => l.length > 0),
+      timing: { commandMs: solveMs, readMs: 0, engineMs: res.engineMs, engineReadMs: res.readMs },
+    };
   }
 
   async alterSources(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {

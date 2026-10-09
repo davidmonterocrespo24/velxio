@@ -148,19 +148,43 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
   private async solveAndPublish(analysis: SolveAnalysis): Promise<void> {
     const solver = this.solver;
     if (!solver) return;
-
-    // Build vectorsOfInterest from pinNetMap (every non-ground net)
-    // plus whatever the orchestrator added.
-    const vectorsOfInterest = new Set<string>();
-    for (const net of this.pinNetMap.values()) {
-      if (net !== '0') vectorsOfInterest.add(`v(${net})`);
-    }
-    for (const v of this.extraVectors) vectorsOfInterest.add(v);
-
     const result = await solver.solve(analysis, {
-      vectorsOfInterest: Array.from(vectorsOfInterest),
+      vectorsOfInterest: this.vectorsOfInterest(),
     });
     this.adoptResult(result);
+  }
+
+  /** Every (component, pin) net voltage plus what the service asked for. */
+  private vectorsOfInterest(): string[] {
+    const wanted = new Set<string>();
+    for (const net of this.pinNetMap.values()) {
+      if (net !== '0') wanted.add(`v(${net})`);
+    }
+    for (const v of this.extraVectors) wanted.add(v);
+    return Array.from(wanted);
+  }
+
+  /**
+   * Bring the deck to a pad state and solve it: the alters, the operating
+   * point and the vector reads in one round trip when the engine offers
+   * it (every trip to the worker waits behind the main thread's current
+   * task, tens of milliseconds while an engine runs), the three-step path
+   * otherwise. Publishes like any other solve.
+   */
+  async solvePadState(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {
+    const solver = this.solver;
+    if (!solver) {
+      throw new Error('MixedModeScheduler.solvePadState(): call loadCircuit first');
+    }
+    if (solver.solveAltered) {
+      const result = await solver.solveAltered(changes, { kind: 'op' }, {
+        vectorsOfInterest: this.vectorsOfInterest(),
+      });
+      this.adoptResult(result);
+      return;
+    }
+    await this.alterSources(changes);
+    await this.resolveDc();
   }
 
   /**

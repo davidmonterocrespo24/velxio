@@ -58,6 +58,16 @@ interface VecResult {
   unit: string;
 }
 
+/** What one `solveState` round trip answers. */
+export interface StateSolveResult {
+  rc: number;
+  engineMs: number;
+  readMs: number;
+  stdout: string[];
+  stderr: string[];
+  entries: BatchVecEntry[];
+}
+
 /** One entry of `readVecs`: the vector, or why it could not be read. */
 export interface BatchVecEntry {
   name: string;
@@ -67,6 +77,8 @@ export interface BatchVecEntry {
 }
 
 interface CommandResult {
+  /** Worker-side milliseconds the engine spent on the command. */
+  ms?: number;
   rc: number;
   stdout: string[];
   stderr: string[];
@@ -176,8 +188,74 @@ export class NgSpiceInteractive {
   async readVecs(names: readonly string[]): Promise<Array<BatchVecEntry>> {
     await this.init();
     if (names.length === 0) return [];
-    const res = await this.request<{ vectors: BatchVecEntry[] }>('readVecs', { names: [...names] }, 'vecs');
-    return res.vectors ?? [];
+    const res = await this.request<{
+      index: Array<{ name: string; offset: number; length: number; hasImag: boolean }>;
+      real: Float64Array;
+      imag: Float64Array | null;
+      ms?: number;
+    }>('readVecs', { names: [...names] }, 'vecs');
+    this.lastReadVecsMs = res.ms ?? 0;
+    const out: BatchVecEntry[] = [];
+    for (const e of res.index ?? []) {
+      if (e.offset < 0) {
+        out.push({ name: e.name, error: `Vector '${e.name}' not found.` });
+        continue;
+      }
+      // Views on the one transferred buffer: no copy, and the buffer lives
+      // as long as any view of it does.
+      out.push({
+        name: e.name,
+        real: res.real.subarray(e.offset, e.offset + e.length),
+        imag: e.hasImag && res.imag ? res.imag.subarray(e.offset, e.offset + e.length) : null,
+      });
+    }
+    return out;
+  }
+
+  /** Worker-side milliseconds of the last `readVecs` (the engine reads,
+   *  not the message); for the solve timing breakdown. */
+  lastReadVecsMs = 0;
+
+  /**
+   * One round trip for a pad state: run `commands` (the alters), then the
+   * analysis command, then read `names`, packed. See the worker's
+   * handleSolveState for why one message and not three.
+   */
+  async solveState(
+    commands: readonly string[], analysis: string, names: readonly string[],
+  ): Promise<StateSolveResult> {
+    await this.init();
+    const res = await this.request<{
+      alters: Array<{ command: string; rc: number; ms: number; stderr: string[] }>;
+      rc: number;
+      ms: number;
+      stdout: string[];
+      stderr: string[];
+      index: Array<{ name: string; offset: number; length: number; hasImag: boolean }>;
+      real: Float64Array;
+      imag: Float64Array | null;
+      readMs: number;
+    }>('solveState', { commands: [...commands], analysis, names: [...names] }, 'state-result');
+    const entries: BatchVecEntry[] = [];
+    for (const e of res.index ?? []) {
+      if (e.offset < 0) {
+        entries.push({ name: e.name, error: `Vector '${e.name}' not found.` });
+        continue;
+      }
+      entries.push({
+        name: e.name,
+        real: res.real.subarray(e.offset, e.offset + e.length),
+        imag: e.hasImag && res.imag ? res.imag.subarray(e.offset, e.offset + e.length) : null,
+      });
+    }
+    return {
+      rc: res.rc,
+      engineMs: res.ms ?? 0,
+      readMs: res.readMs ?? 0,
+      stdout: res.stdout ?? [],
+      stderr: [...(res.stderr ?? []), ...(res.alters ?? []).flatMap((a) => a.stderr ?? [])],
+      entries,
+    };
   }
 
   /** Run several commands in order with one round trip. */

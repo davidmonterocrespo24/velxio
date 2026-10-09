@@ -61,7 +61,7 @@ export interface SolveResult {
   warnings: string[];
   /** Where the time of this solve went, when the engine can tell:
    *  the analysis command itself and the vector reads after it. */
-  timing?: { commandMs: number; readMs: number };
+  timing?: { commandMs: number; readMs: number; engineMs?: number; engineReadMs?: number };
 }
 
 /**
@@ -108,5 +108,15 @@ export interface SolverPort {
    * callers fall back to `alterSource` per entry otherwise.
    */
   alterSources?(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
+  /**
+   * Alter several sources and run the analysis and read the vectors in
+   * ONE round trip, when the engine offers it. The circuit service solves
+   * every pad state this way; callers fall back to alterSources + solve.
+   */
+  solveAltered?(
+    changes: ReadonlyArray<{ source: string; volts: number }>,
+    analysis: SolveAnalysis,
+    options: SolveOptions,
+  ): Promise<SolveResult>;
   dispose(): void;
 }
