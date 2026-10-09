@@ -11,8 +11,8 @@
 import { useMemo } from 'react';
 import { InstrumentFace, INSTRUMENT_WIDTH } from './InstrumentFace';
 import { InstrumentScreen } from './InstrumentScreen';
-import { useElectricalStore } from '../../store/useElectricalStore';
-import { readAmmeter } from '../../simulation/spice/probes';
+import { useElectricalStore, type SolveWindowState } from '../../store/useElectricalStore';
+import { readAmmeter, averageOverWindow } from '../../simulation/spice/probes';
 
 /** Instrument tint. Amber for volts, cyan for amps: the same pairing the
  *  canvas legend and the picker thumbnails use. */
@@ -24,6 +24,7 @@ interface AmmeterProps {
 
 export function Ammeter({ id }: AmmeterProps) {
   const branchCurrents = useElectricalStore((s) => s.branchCurrents);
+  const window = useElectricalStore((s) => s.window);
   const converged = useElectricalStore((s) => s.converged);
   const error = useElectricalStore((s) => s.error);
   const timeWaveforms = useElectricalStore((s) => s.timeWaveforms);
@@ -33,7 +34,7 @@ export function Ammeter({ id }: AmmeterProps) {
       { id, metadataId: 'instr-ammeter', properties: {} },
       {
         nodeVoltages: {},
-        branchCurrents,
+        branchCurrents: averageOverWindow(window, (st) => (st as SolveWindowState).branchCurrents, branchCurrents),
         converged,
         error,
         solveMs: 0,
@@ -44,7 +45,7 @@ export function Ammeter({ id }: AmmeterProps) {
       },
       timeWaveforms,
     );
-  }, [branchCurrents, converged, error, id, timeWaveforms]);
+  }, [branchCurrents, window, converged, error, id, timeWaveforms]);
 
   const height = reading.ac ? 78 : 60;
 

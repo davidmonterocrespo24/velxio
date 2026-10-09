@@ -8,17 +8,18 @@
  *
  *   1. Subscribes to each board's PinManager for every pin referenced
  *      by a wire (i.e., pins that appear in the SPICE netlist).
- *   2. Coalesces edges per pin (last-state-wins inside a 16 ms
- *      window) so kHz toggles don't drown the solver.
- *   3. Calls `service.handleMcuEdge(boardId, pinName, state, vcc)`
- *      which alters the corresponding V source + re-resolves +
- *      publishes the new electrical snapshot.
+ *   2. Hands every edge to `service.handleMcuEdge(boardId, pinName,
+ *      state, vcc, guestMs)` as it happens, stamped with the board's own
+ *      clock when the engine has one.
  *
- * Why batching here and not in the service:
- *   - The service is solver-rate (limited by ngspice solve time).
- *   - PinManager events fire at MCU clock rate (16 MHz simulated).
- *   - Throttling at the source matches event rates; throttling at the
- *     service would still queue O(N) edges per ms.
+ * Nothing is coalesced here any more. Until 2026-10 this module kept the
+ * last state per pin for 16 ms and the service queued last-state-wins on
+ * top of that, and between the two a level that lasted less than a solve
+ * plus a gap was never seen by the solver: a 50 ms step of a 16-LED scan
+ * lit only the LEDs at the turnarounds. The service's PadTimeline now
+ * integrates every edge in time and bounds the solver by solving each
+ * distinct pad state once per window, so the right place for an edge is
+ * the timeline, at once, with its time.
  *
  * Lifecycle: mount alongside the service in EditorPage.  Re-subscribes
  * when boards change (board lifecycle = new PinManager instance).
@@ -26,6 +27,7 @@
 import {
   useSimulatorStore,
   getBoardPinManager,
+  getBoardSimulator,
 } from '../../store/useSimulatorStore';
 import { stm32LinearToPinName, stm32PinNameToLinear } from '../Stm32Bridge';
 import { isStm32BoardKind, isPiBoardKind } from '../../types/board';
@@ -35,10 +37,32 @@ import { boardPinGroupFor } from './boardPinGroups';
 import { pinNameToArduinoPin } from './collectPinStates';
 import type { CircuitSimulationService } from './CircuitSimulationService';
 
-/** How long edges per pin coalesce.  16 ms ≈ 60 fps, well below any
- *  human-perceptible MCU update rate and above the solver's per-edge
- *  cost (~5-15 ms for typical netlists). */
-const COALESCE_WINDOW_MS = 16;
+/**
+ * The board's own clock in milliseconds, or null when the engine keeps
+ * none the service can read. Same two doors as parts/partUtils'
+ * `guestMillis` (not imported: that module pulls an engine in). Read on
+ * every edge, so it stays two property lookups and a division.
+ */
+function guestMsOf(sim: unknown): number | null {
+  const s = sim as {
+    getGuestMicros?: () => number;
+    getCurrentCycles?: () => number;
+    getClockHz?: () => number;
+  } | undefined;
+  if (!s) return null;
+  if (typeof s.getGuestMicros === 'function') {
+    const us = s.getGuestMicros();
+    return Number.isFinite(us) && us >= 0 ? us / 1000 : null;
+  }
+  if (typeof s.getCurrentCycles === 'function' && typeof s.getClockHz === 'function') {
+    const cycles = s.getCurrentCycles();
+    const hz = s.getClockHz();
+    return Number.isFinite(cycles) && cycles >= 0 && Number.isFinite(hz) && hz > 0
+      ? (cycles / hz) * 1000
+      : null;
+  }
+  return null;
+}
 
 /**
  * Wire MCU pin transitions to the service.  Returns an unsubscribe
@@ -48,35 +72,6 @@ const COALESCE_WINDOW_MS = 16;
 export function connectMcuEdgesToService(service: CircuitSimulationService): () => void {
   // Per-board, per-pin subscriptions (Arduino pin number → unsubscribe).
   const boardSubs = new Map<string, Map<number, () => void>>();
-  // Pending coalesced state per pin.
-  const pending = new Map<string, { state: boolean; vcc: number; pinName: string; timer: ReturnType<typeof setTimeout> | null }>();
-
-  function pinKey(boardId: string, pinName: string): string {
-    return `${boardId}|${pinName}`;
-  }
-
-  function flushPin(boardId: string, pinName: string): void {
-    const key = pinKey(boardId, pinName);
-    const entry = pending.get(key);
-    if (!entry) return;
-    pending.delete(key);
-    void service.handleMcuEdge(boardId, pinName, entry.state, entry.vcc);
-  }
-
-  /** `key` is pinKey(boardId, pinName), built once per listener: this runs on
-   *  every MCU edge, and a bit-banged bus makes millions of them (building
-   *  the string per edge, and hashing the new string for the lookup, was the
-   *  costliest listener on the pin). */
-  function schedulePin(key: string, boardId: string, pinName: string, state: boolean, vcc: number): void {
-    const existing = pending.get(key);
-    if (existing) {
-      existing.state = state; // last-state-wins
-      return;
-    }
-    const timer = setTimeout(() => flushPin(boardId, pinName), COALESCE_WINDOW_MS);
-    pending.set(key, { state, vcc, pinName, timer });
-  }
-
   function arduinoPinToName(arduinoPin: number, boardKind: string): string | null {
     // Reverse of pinNameToArduinoPin in subscribeToStore.ts.  Both
     // need to live until subscribeToStore is deleted; trade-off
@@ -182,8 +177,8 @@ export function connectMcuEdgesToService(service: CircuitSimulationService): () 
       }
     }
 
+    const sim = getBoardSimulator(boardId);
     for (const { pin, pinName } of listenPins) {
-      const key = pinKey(boardId, pinName);
       const unsub = pm.onPinChange(pin, (_p, state) => {
         // Suppress digital edges when the pin has active PWM. The OCR-based
         // PWM duty is converted to a DC-averaged voltage in NetlistBuilder
@@ -194,7 +189,7 @@ export function connectMcuEdgesToService(service: CircuitSimulationService): () 
         // making `analogWrite(pin, 128)` look like a binary blink instead
         // of a steady 2.5 V (Fade-LED example regression).
         if (pm.getPwmValue(pin) > 0) return;
-        schedulePin(key, boardId, pinName, state, vcc);
+        void service.handleMcuEdge(boardId, pinName, state, vcc, guestMsOf(sim));
       });
       pinSubs.set(pin, unsub);
 
@@ -259,9 +254,5 @@ export function connectMcuEdgesToService(service: CircuitSimulationService): () 
       for (const unsub of pinSubs.values()) unsub();
     }
     boardSubs.clear();
-    for (const entry of pending.values()) {
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    pending.clear();
   };
 }

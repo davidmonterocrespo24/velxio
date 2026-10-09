@@ -1509,9 +1509,12 @@ void loop() {
   for(int i=22;i<=37;i++) { digitalWrite(i,HIGH); delay(50); digitalWrite(i,LOW); }
   for(int i=37;i>=22;i--) { digitalWrite(i,HIGH); delay(50); digitalWrite(i,LOW); }
 }`,
+    // Sixteen LEDs, one per scanned pin: 22-29 are PORTA, 30-37 PORTC (in
+    // reverse bit order). Until 2026-10 only the first eight were wired and
+    // the other eight pins toggled into nothing.
     components: [
       MEGA,
-      ...Array.from({ length: 8 }, (_, i) => ({
+      ...Array.from({ length: 16 }, (_, i) => ({
         type: 'wokwi-led',
         id: `led${i}`,
         x: 460 + i * 30,
@@ -1520,7 +1523,7 @@ void loop() {
       })),
       // Series 220Ω resistors — one per LED. Without them ngspice
       // can't solve a forward-biased short and the LEDs stay dark.
-      ...Array.from({ length: 8 }, (_, i) => ({
+      ...Array.from({ length: 16 }, (_, i) => ({
         type: 'wokwi-resistor',
         id: `r${i}`,
         x: 340,
@@ -1529,13 +1532,13 @@ void loop() {
       })),
     ],
     wires: [
-      ...Array.from({ length: 8 }, (_, i) =>
+      ...Array.from({ length: 16 }, (_, i) =>
         w(`wp${i}`, ['arduino-mega', `${22 + i}`], [`r${i}`, '1']),
       ),
-      ...Array.from({ length: 8 }, (_, i) =>
+      ...Array.from({ length: 16 }, (_, i) =>
         w(`wl${i}`, [`r${i}`, '2'], [`led${i}`, 'A']),
       ),
-      ...Array.from({ length: 8 }, (_, i) =>
+      ...Array.from({ length: 16 }, (_, i) =>
         w(`wg${i}`, [`led${i}`, 'C'], ['arduino-mega', 'GND'], '#000000'),
       ),
     ],
