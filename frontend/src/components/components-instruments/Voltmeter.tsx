@@ -9,9 +9,9 @@
 import { useMemo } from 'react';
 import { InstrumentFace, INSTRUMENT_WIDTH } from './InstrumentFace';
 import { InstrumentScreen } from './InstrumentScreen';
-import { useElectricalStore } from '../../store/useElectricalStore';
+import { useElectricalStore, type SolveWindowState } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import { buildPinNetLookup, readVoltmeter } from '../../simulation/spice/probes';
+import { buildPinNetLookup, readVoltmeter, averageOverWindow } from '../../simulation/spice/probes';
 import { boardPinGroupFor } from '../../simulation/spice/boardPinGroups';
 
 /** Instrument tint. Amber for volts, cyan for amps: the same pairing the
@@ -24,6 +24,7 @@ interface VoltmeterProps {
 
 export function Voltmeter({ id }: VoltmeterProps) {
   const nodeVoltages = useElectricalStore((s) => s.nodeVoltages);
+  const window = useElectricalStore((s) => s.window);
   const converged = useElectricalStore((s) => s.converged);
   const error = useElectricalStore((s) => s.error);
   const timeWaveforms = useElectricalStore((s) => s.timeWaveforms);
@@ -64,7 +65,7 @@ export function Voltmeter({ id }: VoltmeterProps) {
       { id, metadataId: 'instr-voltmeter', properties: {} },
       netLookup,
       {
-        nodeVoltages,
+        nodeVoltages: averageOverWindow(window, (st) => (st as SolveWindowState).nodeVoltages, nodeVoltages),
         branchCurrents: {},
         converged,
         error,
@@ -76,7 +77,7 @@ export function Voltmeter({ id }: VoltmeterProps) {
       },
       timeWaveforms,
     );
-  }, [nodeVoltages, pinNetMap, wires, boards, id, converged, error, timeWaveforms]);
+  }, [nodeVoltages, window, pinNetMap, wires, boards, id, converged, error, timeWaveforms]);
 
   const height = reading.ac ? 78 : 60;
 

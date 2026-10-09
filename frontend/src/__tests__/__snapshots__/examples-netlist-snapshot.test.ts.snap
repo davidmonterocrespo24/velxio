@@ -1679,30 +1679,54 @@ R_autopull_n4 n4 0 100Meg
 
 exports[`netlist snapshot — circuits (41 examples) > mega-multi-led 1`] = `
 "* Velxio circuit
-V_led0_sense n9 led0_sense_mid DC 0
-D_led0 led0_sense_mid n8 LED_RED
-V_led1_sense n10 led1_sense_mid DC 0
-D_led1 led1_sense_mid n8 LED_RED
-V_led2_sense n11 led2_sense_mid DC 0
-D_led2 led2_sense_mid n8 LED_RED
-V_led3_sense n12 led3_sense_mid DC 0
-D_led3 led3_sense_mid n8 LED_RED
-V_led4_sense n13 led4_sense_mid DC 0
-D_led4 led4_sense_mid n8 LED_RED
-V_led5_sense n14 led5_sense_mid DC 0
-D_led5 led5_sense_mid n8 LED_RED
-V_led6_sense n15 led6_sense_mid DC 0
-D_led6 led6_sense_mid n8 LED_RED
-V_led7_sense n16 led7_sense_mid DC 0
-D_led7 led7_sense_mid n8 LED_RED
-R_r0 n0 n9 220
-R_r1 n1 n10 220
-R_r2 n2 n11 220
-R_r3 n3 n12 220
-R_r4 n4 n13 220
-R_r5 n5 n14 220
-R_r6 n6 n15 220
-R_r7 n7 n16 220
+V_led0_sense n17 led0_sense_mid DC 0
+D_led0 led0_sense_mid n16 LED_RED
+V_led1_sense n24 led1_sense_mid DC 0
+D_led1 led1_sense_mid n16 LED_RED
+V_led2_sense n25 led2_sense_mid DC 0
+D_led2 led2_sense_mid n16 LED_RED
+V_led3_sense n26 led3_sense_mid DC 0
+D_led3 led3_sense_mid n16 LED_RED
+V_led4_sense n27 led4_sense_mid DC 0
+D_led4 led4_sense_mid n16 LED_RED
+V_led5_sense n28 led5_sense_mid DC 0
+D_led5 led5_sense_mid n16 LED_RED
+V_led6_sense n29 led6_sense_mid DC 0
+D_led6 led6_sense_mid n16 LED_RED
+V_led7_sense n30 led7_sense_mid DC 0
+D_led7 led7_sense_mid n16 LED_RED
+V_led8_sense n31 led8_sense_mid DC 0
+D_led8 led8_sense_mid n16 LED_RED
+V_led9_sense n32 led9_sense_mid DC 0
+D_led9 led9_sense_mid n16 LED_RED
+V_led10_sense n18 led10_sense_mid DC 0
+D_led10 led10_sense_mid n16 LED_RED
+V_led11_sense n19 led11_sense_mid DC 0
+D_led11 led11_sense_mid n16 LED_RED
+V_led12_sense n20 led12_sense_mid DC 0
+D_led12 led12_sense_mid n16 LED_RED
+V_led13_sense n21 led13_sense_mid DC 0
+D_led13 led13_sense_mid n16 LED_RED
+V_led14_sense n22 led14_sense_mid DC 0
+D_led14 led14_sense_mid n16 LED_RED
+V_led15_sense n23 led15_sense_mid DC 0
+D_led15 led15_sense_mid n16 LED_RED
+R_r0 n0 n17 220
+R_r1 n1 n24 220
+R_r2 n2 n25 220
+R_r3 n3 n26 220
+R_r4 n4 n27 220
+R_r5 n5 n28 220
+R_r6 n6 n29 220
+R_r7 n7 n30 220
+R_r8 n8 n31 220
+R_r9 n9 n32 220
+R_r10 n10 n18 220
+R_r11 n11 n19 220
+R_r12 n12 n20 220
+R_r13 n13 n21 220
+R_r14 n14 n22 220
+R_r15 n15 n23 220
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
@@ -1720,6 +1744,22 @@ R_autopull_n13 n13 0 100Meg
 R_autopull_n14 n14 0 100Meg
 R_autopull_n15 n15 0 100Meg
 R_autopull_n16 n16 0 100Meg
+R_autopull_n17 n17 0 100Meg
+R_autopull_n18 n18 0 100Meg
+R_autopull_n19 n19 0 100Meg
+R_autopull_n20 n20 0 100Meg
+R_autopull_n21 n21 0 100Meg
+R_autopull_n22 n22 0 100Meg
+R_autopull_n23 n23 0 100Meg
+R_autopull_n24 n24 0 100Meg
+R_autopull_n25 n25 0 100Meg
+R_autopull_n26 n26 0 100Meg
+R_autopull_n27 n27 0 100Meg
+R_autopull_n28 n28 0 100Meg
+R_autopull_n29 n29 0 100Meg
+R_autopull_n30 n30 0 100Meg
+R_autopull_n31 n31 0 100Meg
+R_autopull_n32 n32 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
 .end"

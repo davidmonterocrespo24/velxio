@@ -94,30 +94,26 @@ export class NgSpiceWorkerAdapter implements SolverPort {
     const t0 = performance.now();
 
     const cmdResult = await this.client.command(analysisToCommand(analysis));
+    const commandMs = performance.now() - t0;
     // ngspice writes convergence warnings to stderr; surface them so
     // the caller can decide to retry with relaxed options.
     const warnings = cmdResult.stderr.filter((l) => l.length > 0);
 
-    // Parallel read of every requested vector.  The worker serialises
-    // them internally, so this still costs O(N · 100µs) wall-time, but
-    // it avoids the await-each-then-await-next ping-pong.
+    // One round trip for every requested vector. The service publishes
+    // every net voltage and branch current of the deck, around a hundred
+    // vectors on a sixteen-LED bar, and one message each (even in flight
+    // together, the worker answers them one at a time) cost about 300 ms
+    // per operating point in the browser against 15 ms for the engine.
     const vectors = new Map<string, SolveVector>();
-    const reads = await Promise.allSettled(
-      options.vectorsOfInterest.map(async (name) => {
-        const v = await this.client.readVec(name);
-        return { requested: name, vec: v };
-      }),
-    );
+    const tRead = performance.now();
+    const batch = await this.client.readVecs(options.vectorsOfInterest);
+    const readMs = performance.now() - tRead;
 
     let timeAxis: Float64Array = new Float64Array(0);
-    for (const r of reads) {
-      if (r.status !== 'fulfilled') continue;
-      const { requested, vec } = r.value;
-      vectors.set(requested.toLowerCase(), {
-        name: requested.toLowerCase(),
-        real: vec.real,
-        imag: vec.imag,
-      });
+    for (const entry of batch) {
+      if (entry.error || !entry.real) continue;
+      const key = entry.name.toLowerCase();
+      vectors.set(key, { name: key, real: entry.real, imag: entry.imag ?? null });
     }
 
     // For .tran, fetch the time axis separately.  ngspice always names
@@ -132,7 +128,13 @@ export class NgSpiceWorkerAdapter implements SolverPort {
     }
 
     const solveMs = performance.now() - t0;
-    return { analysis, vectors, timeAxis, solveMs, warnings };
+    return { analysis, vectors, timeAxis, solveMs, warnings, timing: { commandMs, readMs } };
+  }
+
+  async alterSources(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {
+    await this.init();
+    if (changes.length === 0) return;
+    await this.client.commands(changes.map((c) => `alter ${c.source} dc ${c.volts}`));
   }
 
   async alterSource(name: string, dcValue: number): Promise<void> {

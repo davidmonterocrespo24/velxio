@@ -252,8 +252,7 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({}) },
     );
     startTracked(service);
-    // While initial solve runs, fire 3 store changes — should coalesce
-    // into 1 trailing solve.
+    await new Promise((r) => setTimeout(r, 5)); // the initial solve is in flight
     sim.set({ components: [{ id: 'a', metadataId: 'resistor', properties: {} }] });
     sim.set({ components: [{ id: 'b', metadataId: 'resistor', properties: {} }] });
     sim.set({ components: [{ id: 'c', metadataId: 'resistor', properties: {} }] });
@@ -386,17 +385,19 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
     expect(elec.snapshots.length).toBe(initialSnapshots + 1);
   });
 
-  it('coalesces an edge with an in-flight full solve', async () => {
+  it('an edge that lands while the deck is being solved is not lost', async () => {
+    // The deck collects its pin levels before it solves. A level reported
+    // during the solve is in neither the deck nor the timeline that comes
+    // with it; the service keeps the last level of every pad with its time
+    // and puts the ones newer than the collection back on the new
+    // timeline, so the first window publishes them.
     const fake = new FakeSolverAdapter({
       vectors: { 'v(vcc_rail)': 5 },
       solveDelayMs: 30,
     });
     __setSchedulerSolverFactoryForTests(() => fake);
-    // Pin 9 must be wired into the netlist so buildNetlist emits
-    // V_uno_9 (NetlistBuilder line 158 skips board pins whose net
-    // lookup returns null). Without a wire, hasSource stays false
-    // forever and handleMcuEdge's self-heal path would loop. Mirrors
-    // the wired fixture used by the alter+republish test above.
+    // Pin 9 must be wired into the netlist so buildNetlist emits V_uno_9
+    // (NetlistBuilder skips board pins whose net lookup returns null).
     const sim = makeSimStore({
       components: [
         { id: 'rb', metadataId: 'resistor', properties: { value: '1k' } },
@@ -416,19 +417,23 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
       boards: [{ id: 'uno', boardKind: 'arduino-uno' }],
     });
     const elec = makeElectricalStore();
+    let pin9 = 0;
     const service = new CircuitSimulationService(
       sim.port,
       elec.port,
       getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
-      { collectBoardPinStates: () => ({ '9': { type: 'digital', v: 0 } }) },
+      { collectBoardPinStates: () => ({ '9': { type: 'digital', v: pin9 } }) },
     );
     startTracked(service);
-    // While initial solve is running, fire an edge.
+    await new Promise((r) => setTimeout(r, 60)); // first deck loaded, pin 9 is a known pad
+    sim.set({ components: [{ id: 'rb', metadataId: 'resistor', properties: { value: '2k' } }] });
+    await new Promise((r) => setTimeout(r, 5)); // rebuild collected 0 V, solve in flight
+    pin9 = 5;
     void service.handleMcuEdge('uno', '9', true, 5);
-    await new Promise((r) => setTimeout(r, 100));
-    // After initial solve, the pending edge replays — total solves = 2.
-    expect(fake.calls.solve.length).toBe(2);
+    await new Promise((r) => setTimeout(r, 150));
     expect(fake.calls.alterSource).toEqual([['V_uno_9', 5]]);
+    const last = elec.snapshots.at(-1)!;
+    expect(last.window?.states.at(-1)?.levels['v_uno_9']).toBe(5);
   });
 
   it('bounds solve rate under a sustained edge storm (multiplexed display)', async () => {
@@ -511,14 +516,15 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
     // Regression (binary-counter-leds, the most-viewed gallery example):
     // a sketch writing several pins between yields lost every pin but the
     // first. Sequence: pin 2's edge lands first, self-heals, and rebuilds
-    // the netlist; pins 3-5 arrive while that solve is in flight, so they
-    // queue; the drain then found no V_uno_3 in the loaded context and
-    // DROPPED them. Those pins never got a source and stayed at their
-    // build-time voltage forever — bit 0 blinked, bits 1-3 stayed dark
-    // while the firmware counted correctly on serial.
+    // the netlist; pins 3-5 arrive while that solve is in flight and used
+    // to be queued and then dropped for having no source in the loaded
+    // context, so they stayed at their build-time voltage forever. Bit 0
+    // blinked, bits 1-3 stayed dark while the firmware counted correctly
+    // on serial.
     //
-    // The drain must self-heal (re-queue + rebuild) like handleMcuEdge
-    // does, once per pin per netlist.
+    // A pad without a source costs one rebuild per deck, and the rebuild
+    // reads the live pin levels, so the next deck carries every sibling
+    // at the level it holds.
     const fake = new FakeSolverAdapter({
       vectors: { 'v(vcc_rail)': 5 },
       solveDelayMs: 30,
@@ -526,7 +532,9 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
     __setSchedulerSolverFactoryForTests(() => fake);
     // Pin 3 is NOT an MCU output at build time — it becomes one only once
     // the firmware first drives it, exactly like PinManager.outputPins.
+    // `levels` is the PinManager's view: the level the pad holds.
     let pin3IsOutput = false;
+    const levels: Record<string, number> = { '2': 0, '3': 0 };
     const sim = makeSimStore({
       components: [
         { id: 'r2', metadataId: 'resistor', properties: { value: '220' } },
@@ -548,8 +556,8 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
       {
         collectBoardPinStates: () =>
           pin3IsOutput
-            ? { '2': { type: 'digital', v: 0 }, '3': { type: 'digital', v: 0 } }
-            : { '2': { type: 'digital', v: 0 } },
+            ? { '2': { type: 'digital', v: levels['2'] }, '3': { type: 'digital', v: levels['3'] } }
+            : { '2': { type: 'digital', v: levels['2'] } },
       },
     );
     startTracked(service);
@@ -557,13 +565,16 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
     // is still in flight.
     await new Promise((r) => setTimeout(r, 5));
     pin3IsOutput = true;
+    levels['2'] = 5;
     void service.handleMcuEdge('uno', '2', true, 5);
+    levels['3'] = 5;
     void service.handleMcuEdge('uno', '3', true, 5);
-    // Drain gap (33 ms) + rebuild + the healed edge's own solve.
     await new Promise((r) => setTimeout(r, 300));
-
-    const altered = fake.calls.alterSource.map(([name]) => name);
-    expect(altered).toContain('V_uno_3');
+    const deck = fake.calls.loadCircuit.at(-1) ?? '';
+    expect(deck).toMatch(/V_uno_3 \S+ 0 DC 5/);
+    expect(deck).toMatch(/V_uno_2 \S+ 0 DC 5/);
+    // The healed pins never cost more than the one rebuild each deck allows.
+    expect(fake.calls.solve.length).toBeLessThanOrEqual(3);
   });
 
   it('does not loop forever healing a pin that can never be sourced', async () => {
@@ -594,6 +605,190 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
     // A bounded number of extra solves — not one per 33 ms drain gap
     // (~12 over this window) and nowhere near a runaway.
     expect(fake.calls.solve.length - before).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('the publish window keeps every state the pads went through', () => {
+  // Two wired output pins, like two LEDs of a chase: each step lowers one
+  // pin and raises the next within microseconds of each other.
+  const twoPins = {
+    components: [
+      { id: 'ra', metadataId: 'resistor', properties: { value: '1k' } },
+      { id: 'rb', metadataId: 'resistor', properties: { value: '1k' } },
+    ],
+    wires: [
+      { id: 'w1', start: { componentId: 'uno', pinName: '9' }, end: { componentId: 'ra', pinName: '1' } },
+      { id: 'w2', start: { componentId: 'ra', pinName: '2' }, end: { componentId: 'uno', pinName: 'GND' } },
+      { id: 'w3', start: { componentId: 'uno', pinName: '10' }, end: { componentId: 'rb', pinName: '1' } },
+      { id: 'w4', start: { componentId: 'rb', pinName: '2' }, end: { componentId: 'uno', pinName: 'GND' } },
+    ],
+    boards: [{ id: 'uno', boardKind: 'arduino-uno' }],
+  };
+
+  /** A service over twoPins whose collector mirrors the levels the test drives. */
+  function setup(solveDelayMs: number) {
+    const fake = new FakeSolverAdapter({ vectors: { 'v(vcc_rail)': 5 }, solveDelayMs });
+    __setSchedulerSolverFactoryForTests(() => fake);
+    const levels: Record<string, number> = { '9': 0, '10': 0 };
+    const sim = makeSimStore(twoPins);
+    const elec = makeElectricalStore();
+    const service = new CircuitSimulationService(
+      sim.port, elec.port,
+      getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
+      { collectBoardPinStates: () => ({
+        '9': { type: 'digital', v: levels['9'] },
+        '10': { type: 'digital', v: levels['10'] },
+      }) },
+    );
+    startTracked(service);
+    const drive = (pin: '9' | '10', high: boolean) => {
+      levels[pin] = high ? 5 : 0;
+      void service.handleMcuEdge('uno', pin, high, 5);
+    };
+    /** Milliseconds the published windows gave to states where `pin` was high. */
+    const highMs = (pin: string) => elec.snapshots.reduce((acc, snap) => {
+      for (const st of snap.window?.states ?? []) if (st.levels[`v_uno_${pin}`] === 5) acc += st.ms;
+      return acc;
+    }, 0);
+    return { fake, sim, elec, service, drive, highMs };
+  }
+
+  it('a 50 ms step of a chase is a state worth 50 ms, whatever the solver was doing', async () => {
+    // Regression: the Mega 16-LED bar (50 ms per step) lit only the LEDs at
+    // the turnarounds. A step's HIGH landed while the previous step's LOW
+    // was still solving, was queued last-state-wins, and 50 ms later its
+    // own LOW overwrote it: the solver never saw the HIGH and that LED
+    // never lit. Now the HIGH is 48 ms of the windows it spans.
+    const { elec, drive, highMs } = setup(30);
+    await new Promise((r) => setTimeout(r, 60)); // initial solve lands
+
+    drive('9', true);                              // solves now, 30 ms in flight
+    await new Promise((r) => setTimeout(r, 2));
+    drive('10', true);                             // lands while it solves
+    await new Promise((r) => setTimeout(r, 48));
+    drive('10', false);
+    await new Promise((r) => setTimeout(r, 200));  // windows settle
+
+    expect(highMs('10')).toBeGreaterThanOrEqual(40);
+    expect(highMs('10')).toBeLessThanOrEqual(60);
+    // And the last word is the level the pad holds.
+    const last = elec.snapshots.at(-1)!;
+    const latest = last.window ? last.window.states.at(-1)! : undefined;
+    expect(latest?.levels['v_uno_10'] ?? 0).toBe(0);
+  });
+
+  it('a glitch of a few milliseconds weighs a few milliseconds, not a frame and not nothing', async () => {
+    const { drive, highMs } = setup(30);
+    await new Promise((r) => setTimeout(r, 60));
+
+    drive('9', true);
+    await new Promise((r) => setTimeout(r, 2));
+    drive('10', true);
+    await new Promise((r) => setTimeout(r, 3));
+    drive('10', false);
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(highMs('10')).toBeGreaterThan(0);
+    expect(highMs('10')).toBeLessThanOrEqual(12);
+  });
+
+  it('the latest state of a window is the level the pads hold, even after toggling back', async () => {
+    const { elec, drive } = setup(30);
+    await new Promise((r) => setTimeout(r, 60));
+
+    drive('9', true);
+    await new Promise((r) => setTimeout(r, 2));
+    drive('10', true);
+    await new Promise((r) => setTimeout(r, 20));
+    drive('10', false);
+    await new Promise((r) => setTimeout(r, 2));
+    drive('10', true);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const windows = elec.snapshots.filter((snap) => snap.window);
+    expect(windows.length).toBeGreaterThan(0);
+    const last = windows.at(-1)!.window!;
+    expect(last.states.at(-1)!.levels['v_uno_10']).toBe(5);
+    const weights = last.states.reduce((a, st) => a + st.weight, 0);
+    expect(weights).toBeCloseTo(1, 6);
+  });
+
+  it('a periodic pattern is solved once per state and then only looked up', async () => {
+    // A scan, a software PWM, a multiplexed display: the same few states
+    // again and again. Each costs the solver once per deck.
+    const { fake, drive } = setup(2);
+    await new Promise((r) => setTimeout(r, 30));
+    const before = fake.calls.solve.length;
+    let high = false;
+    for (let i = 0; i < 20; i++) {
+      high = !high;
+      drive('9', high);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    // Two states (pin 9 high, pin 9 low), the low one is the deck's own.
+    expect(fake.calls.solve.length - before).toBeLessThanOrEqual(2);
+  });
+
+  it('an unwired output pin scanned every step rebuilds the deck a few times a second, not per edge', async () => {
+    // The Mega bar scans pins 22-37 with LEDs on 22-29 only: every edge on
+    // an unwired pin took the self-heal and rebuilt the whole netlist,
+    // sixteen rebuilds per sweep, which is where the solve time that lost
+    // the pulses above came from. A pad asks again only after HEAL_RETRY_MS.
+    const fake = new FakeSolverAdapter({ vectors: { 'v(vcc_rail)': 5 }, solveDelayMs: 2 });
+    __setSchedulerSolverFactoryForTests(() => fake);
+    const sim = makeSimStore(simpleBoardWithBoard);
+    const elec = makeElectricalStore();
+    const service = new CircuitSimulationService(
+      sim.port, elec.port,
+      getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
+      { collectBoardPinStates: () => ({ '7': { type: 'digital', v: 0 } }) },
+    );
+    startTracked(service);
+    await new Promise((r) => setTimeout(r, 30));
+    const before = fake.calls.solve.length;
+    let level = false;
+    for (let i = 0; i < 10; i++) {
+      level = !level;
+      void service.handleMcuEdge('uno', '7', level, 5);
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    // 400 ms of edges at one heal per 250 ms: two, three with the trailing one.
+    expect(fake.calls.solve.length - before).toBeLessThanOrEqual(3);
+  });
+
+  it('a pad whose first rebuild ran during a reset is healed by the next edge', async () => {
+    // The Mega bar on velxio.dev: the firmware's first burst of edges
+    // landed while Run was resetting the board, the rebuild they asked
+    // for collected no outputs, and with "once per deck" no later edge
+    // could ask again. Here the collector reports the pin as an output
+    // only from the second rebuild on, like a reset would.
+    const fake = new FakeSolverAdapter({ vectors: { 'v(vcc_rail)': 5 }, solveDelayMs: 5 });
+    __setSchedulerSolverFactoryForTests(() => fake);
+    const sim = makeSimStore({
+      components: [{ id: 'rb', metadataId: 'resistor', properties: { value: '1k' } }],
+      wires: [
+        { id: 'w1', start: { componentId: 'uno', pinName: '9' }, end: { componentId: 'rb', pinName: '1' } },
+        { id: 'w2', start: { componentId: 'rb', pinName: '2' }, end: { componentId: 'uno', pinName: 'GND' } },
+      ],
+      boards: [{ id: 'uno', boardKind: 'arduino-uno' }],
+    });
+    const elec = makeElectricalStore();
+    let rebuilds = 0;
+    const service = new CircuitSimulationService(
+      sim.port, elec.port,
+      getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
+      { collectBoardPinStates: () => (++rebuilds >= 3 ? { '9': { type: 'digital', v: 5 } } : {}) },
+    );
+    startTracked(service);
+    await new Promise((r) => setTimeout(r, 30));           // rebuild 1: no outputs
+    void service.handleMcuEdge('uno', '9', true, 5);       // heal -> rebuild 2: still none (reset)
+    await new Promise((r) => setTimeout(r, 300));          // past HEAL_RETRY_MS
+    void service.handleMcuEdge('uno', '9', true, 5);       // asks again -> rebuild 3 carries the pad
+    await new Promise((r) => setTimeout(r, 100));
+    const deck = fake.calls.loadCircuit.at(-1) ?? '';
+    expect(deck).toMatch(/V_uno_9 \S+ 0 DC 5/);
   });
 });
 

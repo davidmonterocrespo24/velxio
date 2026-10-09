@@ -118,6 +118,16 @@ self.addEventListener('message', async (event) => {
 			return;
 		}
 
+		if (data.type === 'readVecs') {
+			handleReadVecs(data.requestId, Array.isArray(data.names) ? data.names : []);
+			return;
+		}
+
+		if (data.type === 'commands') {
+			handleCommands(data.requestId, Array.isArray(data.commands) ? data.commands : []);
+			return;
+		}
+
 		if (data.type === 'listVectors') {
 			handleListVectors(data.requestId);
 			return;
@@ -184,6 +194,51 @@ function handleCommand(requestId, command) {
 	} finally {
 		endCommandCapture(capture);
 	}
+}
+
+/**
+ * Run several commands in order and answer once: the `alter`s that bring
+ * the deck to a pad state before its solve. Each command's rc and output
+ * come back in order; an empty command is skipped.
+ */
+function handleCommands(requestId, commands) {
+	const results = [];
+	for (const command of commands) {
+		if (!String(command).trim()) continue;
+		const capture = beginCommandCapture(requestId);
+		try {
+			const rc = api.command(String(command));
+			results.push({ command, rc, stdout: capture.stdout.slice(), stderr: capture.stderr.slice() });
+		} finally {
+			endCommandCapture(capture);
+		}
+	}
+	self.postMessage({ type: 'commands-result', requestId, results });
+}
+
+/**
+ * Read several vectors in one message. A solve reads every net voltage
+ * and branch current it publishes, a hundred vectors on a sixteen-LED
+ * deck, and one message per vector made the reads cost more than the
+ * solve: about 300 ms per operating point in the browser against 15 ms
+ * for the engine. A vector that does not exist comes back with `error`
+ * instead of failing the batch (a disconnected pin has none).
+ */
+function handleReadVecs(requestId, names) {
+	const vectors = [];
+	const transferables = [];
+	for (const name of names) {
+		const infoPtr = api.getVecInfo(String(name));
+		const data = infoPtr ? readVectorData(infoPtr, /* readImag */ true) : null;
+		if (!data) {
+			vectors.push({ name, error: `Vector '${name}' not found.` });
+			continue;
+		}
+		vectors.push({ name, real: data.real, imag: data.imag });
+		transferables.push(data.real.buffer);
+		if (data.imag) transferables.push(data.imag.buffer);
+	}
+	self.postMessage({ type: 'vecs', requestId, vectors }, transferables);
 }
 
 /**

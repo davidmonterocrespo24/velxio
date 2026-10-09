@@ -58,6 +58,14 @@ interface VecResult {
   unit: string;
 }
 
+/** One entry of `readVecs`: the vector, or why it could not be read. */
+export interface BatchVecEntry {
+  name: string;
+  real?: Float64Array;
+  imag?: Float64Array | null;
+  error?: string;
+}
+
 interface CommandResult {
   rc: number;
   stdout: string[];
@@ -157,6 +165,27 @@ export class NgSpiceInteractive {
   async readVec(name: string): Promise<VecResult> {
     await this.init();
     return this.request<VecResult>('readVec', { name }, 'vec');
+  }
+
+  /**
+   * Read several vectors with one round trip. Entries for vectors the
+   * plot does not have carry `error` instead of data, so one missing
+   * vector (a disconnected pin) does not fail the rest. One message per
+   * vector cost more than the solve itself on a deck of a few dozen nets.
+   */
+  async readVecs(names: readonly string[]): Promise<Array<BatchVecEntry>> {
+    await this.init();
+    if (names.length === 0) return [];
+    const res = await this.request<{ vectors: BatchVecEntry[] }>('readVecs', { names: [...names] }, 'vecs');
+    return res.vectors ?? [];
+  }
+
+  /** Run several commands in order with one round trip. */
+  async commands(cmds: readonly string[]): Promise<CommandResult[]> {
+    await this.init();
+    if (cmds.length === 0) return [];
+    const res = await this.request<{ results: CommandResult[] }>('commands', { commands: [...cmds] }, 'commands-result');
+    return res.results ?? [];
   }
 
   /**

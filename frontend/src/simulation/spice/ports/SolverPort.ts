@@ -59,6 +59,9 @@ export interface SolveResult {
   solveMs: number;
   /** Anything ngspice wrote to stderr during the solve. Empty when clean. */
   warnings: string[];
+  /** Where the time of this solve went, when the engine can tell:
+   *  the analysis command itself and the vector reads after it. */
+  timing?: { commandMs: number; readMs: number };
 }
 
 /**
@@ -100,5 +103,10 @@ export interface SolverPort {
   loadCircuit(netlist: string): Promise<void>;
   solve(analysis: SolveAnalysis, options: SolveOptions): Promise<SolveResult>;
   alterSource(name: string, dcValue: number): Promise<void>;
+  /**
+   * Alter several sources in one round trip, when the engine offers it;
+   * callers fall back to `alterSource` per entry otherwise.
+   */
+  alterSources?(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
   dispose(): void;
 }

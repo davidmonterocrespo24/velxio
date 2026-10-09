@@ -270,7 +270,7 @@ PartSimulationRegistry.register('led', {
       // Digital fallback (anodeHigh && cathodeLow) is only used if
       // the electrical store can't be loaded at all — e.g. in a
       // Node-side test harness that stubs it out.
-      const { branchCurrents, timeWaveforms } = useElectricalStore.getState();
+      const { branchCurrents, timeWaveforms, window } = useElectricalStore.getState();
       const iKey = `v_${componentId}_sense`;
       let raw = branchCurrents[iKey];
       if (timeWaveforms) {
@@ -279,6 +279,41 @@ PartSimulationRegistry.register('led', {
           let sum = 0;
           for (const s of samples) sum += Math.abs(s);
           raw = sum / samples.length;
+        }
+      }
+      // A publish window is the circuit over the last few tens of
+      // milliseconds as the pad states it went through, each with its
+      // share. The eye integrates light over about that long, so the LED
+      // shows the time-weighted brightness of those states: a 50 ms pulse
+      // is on for 50 ms, a software PWM glows at its duty, a scanned LED
+      // bar lights every LED for exactly as long as its pin was high
+      // (before this, only the state the solver happened to land on was
+      // ever shown, and a pulse shorter than a solve plus a gap was lost).
+      // The burnout check uses the highest current of the window: a short
+      // overcurrent is still an overcurrent.
+      let windowBrightness: number | undefined;
+      let windowPeak: number | undefined;
+      if (!timeWaveforms && window && window.states.length > 1) {
+        let seen = false;
+        let mean = 0;
+        let peak = 0;
+        for (const st of window.states) {
+          const i = st.branchCurrents[iKey];
+          if (i === undefined) continue;
+          if (!Number.isFinite(i)) {
+            peak = i;
+            seen = true;
+            break;
+          }
+          seen = true;
+          const a = Math.abs(i);
+          if (a > peak) peak = a;
+          mean += st.weight * Math.min(1, a / LED_RATED_MAX_A);
+        }
+        if (seen) {
+          windowBrightness = mean;
+          windowPeak = peak;
+          raw = peak;
         }
       }
       // A non-finite branch current (NaN / Infinity) that ngspice actually
@@ -314,9 +349,12 @@ PartSimulationRegistry.register('led', {
           reportLedBurnout(componentId, current);
           return;
         }
-        lastSpiceBrightness = Math.min(1, current / LED_RATED_MAX_A);
+        lastSpiceBrightness =
+          windowBrightness !== undefined && windowPeak !== undefined
+            ? windowBrightness
+            : Math.min(1, current / LED_RATED_MAX_A);
         lastSpiceTs = Date.now();
-        el.value = current > 1e-6;
+        el.value = windowBrightness !== undefined ? windowBrightness > 1e-3 : current > 1e-6;
         el.brightness = lastSpiceBrightness;
         return;
       }
@@ -388,7 +426,8 @@ PartSimulationRegistry.register('led', {
     const unsubElectrical = useElectricalStore.subscribe((state, prev) => {
       if (
         state.branchCurrents !== prev.branchCurrents ||
-        state.timeWaveforms !== prev.timeWaveforms
+        state.timeWaveforms !== prev.timeWaveforms ||
+        state.window !== prev.window
       )
         update();
     });
