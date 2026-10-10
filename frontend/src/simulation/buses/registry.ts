@@ -498,6 +498,13 @@ export class BusRegistry {
     const { fabric, bus } = e;
     if (!fabric || !bus) return;
     const cs = e.cs;
+    // The select as a port whose engine runs on another thread follows it (setBusQuery).
+    e.member.select =
+      cs.kind !== 'pin'
+        ? { active: cs.kind === 'none' || cs.active }
+        : cs.viaChip
+          ? null
+          : { pin: cs.pin, activeHigh: (e.desc.csActive ?? 'low') === 'high' };
     if (cs.kind === 'none') {
       bus.setSelected(e.member, true);
       return;

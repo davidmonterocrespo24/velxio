@@ -16,6 +16,7 @@
  */
 
 import type { BusKind } from './pinFunctions';
+import type { SpiBus } from './spiBus';
 import type { BoardPinHost } from '../customChips/busNets';
 
 // ── Pins ────────────────────────────────────────────────────────────────────
@@ -304,6 +305,8 @@ export interface SpiControllerPort {
    * ask the bus inline (it runs on another thread) answers such reads itself.
    */
   setIdleMisoQuery?(query: (() => number | null) | null): void;
+  /** Optional: the fabric installs a query for the bus the controller is routed to (null: none). */
+  setBusQuery?(query: (() => SpiBus | null) | null): void;
 }
 
 // ── I2C ─────────────────────────────────────────────────────────────────────

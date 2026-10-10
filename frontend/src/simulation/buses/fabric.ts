@@ -166,6 +166,7 @@ export class BoardBusFabric {
         port.setHardwareCsHandler?.((index, active) => this.onHardwareCs(slot, index, active));
         port.setRoutingChangeHandler?.(() => this.route());
         port.setIdleMisoQuery?.(() => (slot.bus ? slot.bus.idleMisoIfUndriven() : 0xff));
+        port.setBusQuery?.(() => slot.bus);
       }
       for (const bus of this.spiBuses.values()) this.ensureDecoder(bus);
       this.i2cSlots = (binding.i2c ?? []).map((port) => ({ port, bus: null }));
@@ -221,6 +222,7 @@ export class BoardBusFabric {
       slot.port.setHardwareCsHandler?.(null);
       slot.port.setRoutingChangeHandler?.(null);
       slot.port.setIdleMisoQuery?.(null);
+      slot.port.setBusQuery?.(null);
     }
     for (const slot of this.i2cSlots) {
       slot.port.setTransactionHandler(null);

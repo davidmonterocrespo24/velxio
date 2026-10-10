@@ -31,7 +31,7 @@ export type DiagnosticSink = (d: BusDiagnostic) => void;
  *  74HC595's QH) leaves the line alone, as it does on the bench, and so does a
  *  write-only model whose leg IS wired (an ILI9341 panel with SDO connected).
  *  A device that declares no MISO pin at all answers null anyway. */
-function drives(m: SpiMember): boolean {
+export function drives(m: SpiMember): boolean {
   if (m.device.writeOnly) return false;
   return m.desc.pins.miso === undefined ? false : m.misoPin !== undefined;
 }
@@ -59,6 +59,9 @@ export interface SpiMember {
   selected: boolean;
   /** Bits reversed on the way in and out: controller and chip disagree on order. */
   reverse: boolean;
+  /** Where the registry reads its chip select: a pin of this board at its active
+   *  level, a constant, or null when it is followed some other way (a chip's pin). */
+  select?: { pin: number; activeHigh: boolean } | { active: boolean } | null;
   /** Mode/order checked against the controller for the current selection. */
   checked: boolean;
 }
