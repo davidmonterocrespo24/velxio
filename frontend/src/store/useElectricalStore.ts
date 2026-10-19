@@ -15,9 +15,37 @@
 import { create } from 'zustand';
 import type { TimeWaveforms } from '../simulation/spice/types';
 
+/**
+ * One state the MCU pads held during the publish window, with the solve
+ * for it and the share of the window it took. `weight`s sum to 1 over the
+ * window's states.
+ */
+export interface SolveWindowState {
+  weight: number;
+  ms: number;
+  /** Lower-case V-source name of each pad → volts it held in this state. */
+  levels: Record<string, number>;
+  nodeVoltages: Record<string, number>;
+  branchCurrents: Record<string, number>;
+}
+
+/**
+ * The circuit over the last publish window as a time-weighted set of
+ * states, next to the instantaneous `nodeVoltages` / `branchCurrents` of
+ * the latest one. What the eye, a meter or a coil integrates reads this;
+ * what reacts to a level (a logic input, a comparator) reads the
+ * instantaneous fields. Absent on a publish made for a single state
+ * (a rebuild, the first edge after idle).
+ */
+export interface SolveWindow {
+  ms: number;
+  states: SolveWindowState[];
+}
+
 export interface ElectricalSnapshot {
   nodeVoltages: Record<string, number>;
   branchCurrents: Record<string, number>;
+  window?: SolveWindow;
   pinNetMap: Map<string, string>;
   analysisMode: 'op' | 'tran' | 'ac';
   timeWaveforms?: TimeWaveforms;
@@ -29,6 +57,10 @@ export interface ElectricalSnapshot {
    *  component card). connectDigitalInputsToMcu only drives MCU input pins
    *  whose net is here, so floating event-part pins aren't forced LOW. */
   sourcedNets: Set<string>;
+  /** The V-source names of the deck this snapshot was solved with, lower
+   *  case (`v_<board>_<pin>` for a board pad). connectDigitalInputsToMcu
+   *  uses it to recognise a pad reading its own stale source. */
+  voltageSources?: string[];
 }
 
 interface ElectricalState extends ElectricalSnapshot {
@@ -48,6 +80,7 @@ interface ElectricalState extends ElectricalSnapshot {
 const EMPTY: ElectricalSnapshot = {
   nodeVoltages: {},
   branchCurrents: {},
+  window: undefined,
   pinNetMap: new Map(),
   analysisMode: 'op',
   timeWaveforms: undefined,
@@ -56,6 +89,7 @@ const EMPTY: ElectricalSnapshot = {
   lastSolveMs: 0,
   submittedNetlist: '',
   sourcedNets: new Set(),
+  voltageSources: [],
 };
 
 export const useElectricalStore = create<ElectricalState>((set) => ({

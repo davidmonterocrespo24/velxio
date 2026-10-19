@@ -266,4 +266,29 @@ describe('#268 — the limit this fix does not lift', () => {
     const result = await importFromWokwiZip(await zipOf(diagram));
     expect(result.warnings.join(' ')).toMatch(/esp32-2/);
   });
+
+  it('drops the wires to Wokwi\'s serial monitor without calling them missing parts', async () => {
+    // Almost every project downloaded from Wokwi wires the board's TX/RX to
+    // `$serialMonitor`, an instrument and not a part. A reporter's FreeRTOS +
+    // OLED project arrived with "Some wires refer to parts the diagram does
+    // not contain ($serialMonitor)".
+    const diagram = {
+      version: 1,
+      author: 'Taylor Wang',
+      editor: 'wokwi',
+      parts: [
+        { type: 'wokwi-esp32-devkit-v1', id: 'esp', top: 0, left: 0, attrs: {} },
+        { type: 'wokwi-servo', id: 'servo1', top: 0, left: 300, attrs: {} },
+      ],
+      connections: [
+        ['esp:TX0', '$serialMonitor:RX', '', []],
+        ['esp:RX0', '$serialMonitor:TX', '', []],
+        ['servo1:PWM', 'esp:D13', 'green', ['h0']],
+      ],
+    };
+    const result = await importFromWokwiZip(await zipOf(diagram));
+    expect(result.warnings.join(' ')).not.toMatch(/serialMonitor|attach to nothing/);
+    expect(result.wires).toHaveLength(1);
+    expect(result.wires[0].start.componentId).toBe('servo1');
+  });
 });

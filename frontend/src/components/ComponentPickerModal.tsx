@@ -1302,7 +1302,7 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect, hoverApi }) => {
 };
 
 // ── Online-only board ads ───────────────────────────────────────────────────
-// Boards implemented by the hosted editor (velxio.com), free to use there.
+// Boards implemented by the hosted editor (velxio.dev), free to use there.
 // Hidden automatically in any build that registers the real BoardKind.
 /** Recomputed on access (not module load): overlay board registration patches
  *  BOARD_KIND_LABELS at mount, which must hide the corresponding ad. */
@@ -1314,7 +1314,7 @@ const visibleBoardAds = () =>
 /** Teal "ONLINE" pill: the board runs (free) in the hosted editor. */
 const OnlineBadge: React.FC = () => (
   <span
-    title="Free in the online editor — velxio.com"
+    title="Free in the online editor at velxio.dev"
     style={{
       position: 'absolute',
       top: 8,
@@ -1339,7 +1339,7 @@ const OnlineOnlyComponentCard: React.FC<{ ad: OnlineOnlyComponentAd }> = ({ ad }
   <button
     className="component-card"
     style={{ position: 'relative' }}
-    title={`${ad.label} — available in the online editor at velxio.com`}
+    title={`${ad.label}: available in the online editor at velxio.dev`}
     onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
   >
     <OnlineBadge />
@@ -1361,7 +1361,7 @@ const OnlineOnlyBoardCard: React.FC<{ ad: OnlineOnlyBoardAd }> = ({ ad }) => (
   <button
     className="component-card"
     style={{ position: 'relative' }}
-    title={`${ad.label} — free to use in the online editor at velxio.com`}
+    title={`${ad.label}: free to use in the online editor at velxio.dev`}
     onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
   >
     <OnlineBadge />

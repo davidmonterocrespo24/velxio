@@ -45,7 +45,7 @@ for (const path in modules) {
 const cache = new Map<string, ComponentDoc | null>();
 
 /**
- * Overlay seam: a private build (velxio.com) can register the datasheet
+ * Overlay seam: a private build (velxio.dev) can register the datasheet
  * markdown for a component it injects at runtime — the import.meta.glob above
  * only sees files committed in this tree. Same raw format as the .md files
  * (optional front-matter + body). Last write wins; the parsed cache for the

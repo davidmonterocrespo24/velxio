@@ -148,22 +148,56 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
   private async solveAndPublish(analysis: SolveAnalysis): Promise<void> {
     const solver = this.solver;
     if (!solver) return;
-
-    // Build vectorsOfInterest from pinNetMap (every non-ground net)
-    // plus whatever the orchestrator added.
-    const vectorsOfInterest = new Set<string>();
-    for (const net of this.pinNetMap.values()) {
-      if (net !== '0') vectorsOfInterest.add(`v(${net})`);
-    }
-    for (const v of this.extraVectors) vectorsOfInterest.add(v);
-
     const result = await solver.solve(analysis, {
-      vectorsOfInterest: Array.from(vectorsOfInterest),
+      vectorsOfInterest: this.vectorsOfInterest(),
     });
-    this.lastResult = result;
+    this.adoptResult(result);
+  }
 
-    // Publish the last sample per (component, pin).  For .op that's
-    // the single point; for .tran it's the steady-state.
+  /** Every (component, pin) net voltage plus what the service asked for. */
+  private vectorsOfInterest(): string[] {
+    const wanted = new Set<string>();
+    for (const net of this.pinNetMap.values()) {
+      if (net !== '0') wanted.add(`v(${net})`);
+    }
+    for (const v of this.extraVectors) wanted.add(v);
+    return Array.from(wanted);
+  }
+
+  /**
+   * Bring the deck to a pad state and solve it: the alters, the operating
+   * point and the vector reads in one round trip when the engine offers
+   * it (every trip to the worker waits behind the main thread's current
+   * task, tens of milliseconds while an engine runs), the three-step path
+   * otherwise. Publishes like any other solve.
+   */
+  async solvePadState(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {
+    const solver = this.solver;
+    if (!solver) {
+      throw new Error('MixedModeScheduler.solvePadState(): call loadCircuit first');
+    }
+    if (solver.solveAltered) {
+      const result = await solver.solveAltered(changes, { kind: 'op' }, {
+        vectorsOfInterest: this.vectorsOfInterest(),
+      });
+      this.adoptResult(result);
+      return;
+    }
+    await this.alterSources(changes);
+    await this.resolveDc();
+  }
+
+  /**
+   * Make `result` the scheduler's current answer and publish every
+   * (component, pin) voltage from it: the last sample per pin, the single
+   * point of a .op, the steady state of a .tran. `solveAndPublish` ends
+   * here; the circuit service also calls it with a result it cached for a
+   * pad state the solver already answered (CircuitSimulationService's
+   * state cache), so the subscribers of pin voltages (PinResolver) follow
+   * the published state whether or not the engine ran for it.
+   */
+  adoptResult(result: import('./ports/SolverPort').SolveResult): void {
+    this.lastResult = result;
     for (const [key, net] of this.pinNetMap) {
       const idx = key.indexOf(':');
       if (idx < 0) continue;
@@ -243,6 +277,21 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
    * Silent no-op when no solver has been started (lets legacy callers
    * fire without crashing).
    */
+  /**
+   * Set several V-sources without solving. The circuit service brings the
+   * solver to a pad state in one go (every pad whose level differs from what
+   * the solver holds) and then calls `resolveDc` once; `onMcuPinChange`
+   * stays for callers that alter and solve one pad at a time.
+   */
+  async alterSources(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {
+    if (!this.solver) return;
+    if (this.solver.alterSources) {
+      await this.solver.alterSources(changes);
+      return;
+    }
+    for (const c of changes) await this.solver.alterSource(c.source, c.volts);
+  }
+
   async onMcuPinChange(
     boardId: string,
     pinName: string,

@@ -181,7 +181,14 @@
         "willCompile": "编译程序并烧录到 USB 连接的实体板",
         "uf2Download": "编译程序并下载用于开发板 USB 驱动器的 .uf2"
       },
-      "wifiPanel": "WiFi 面板"
+      "wifiPanel": "WiFi 面板",
+      "dock": {
+        "sdFiles": "SD 卡文件：上传你自己的文件，下载程序写入的文件",
+        "settings": "开发板设置",
+        "rotate": "旋转 (R)",
+        "copy": "复制开发板 (Ctrl+C)",
+        "paste": "粘贴 (Ctrl+V)"
+      }
     },
     "componentPicker": {
       "title": "添加元件",

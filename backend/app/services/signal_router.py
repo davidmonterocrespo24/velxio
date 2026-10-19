@@ -25,6 +25,26 @@ from collections import defaultdict
 from typing import Iterator
 
 
+def diff_routes(
+    snapshot: dict[int, int], emitted: dict[int, int],
+) -> tuple[list[tuple[int, int]], list[int]]:
+    """What the frontend still has to hear about: the routes in `snapshot`
+    that differ from what was last announced to it (`emitted`), and the pins
+    that were announced and are no longer routed.
+
+    The diff is taken against the announced table, never against the router
+    itself: the libqemu GPIO Matrix callback updates the router the moment
+    the firmware routes a pin, so by the time the poll compares the chip's
+    table with the router the two already agree and a diff against the
+    router reports nothing. That left the frontend's mirror empty for every
+    LEDC consumer (servo, dimmed LED, buzzer) on the QEMU engine (#385).
+    """
+    changed = [(gpio, sid) for gpio, sid in snapshot.items()
+               if emitted.get(gpio) != sid]
+    cleared = [gpio for gpio in emitted if gpio not in snapshot]
+    return changed, cleared
+
+
 class SignalRouter:
     """Mirror of the ESP32 GPIO Matrix.
 

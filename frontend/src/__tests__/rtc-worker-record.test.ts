@@ -126,6 +126,8 @@ function run(): Array<Record<string, unknown>> {
 // 12:34:56.250 of 30 September 2026 on the wall of whoever runs the test.
 const ATTACHED = new Date(2026, 8, 30, 12, 34, 56, 250);
 const RUN = new Date(2026, 8, 30, 12, 51, 3, 0);
+/** Minutes east of UTC, as a JSON round trip writes it: 0, never -0, in UTC (the CI's zone). */
+const eastOfUtc = (d: Date) => -d.getTimezoneOffset() || 0;
 
 describe('the record of a clock chip', () => {
   beforeEach(() => {
@@ -142,7 +144,7 @@ describe('the record of a clock chip', () => {
   it('hostClockRecord() is the epoch and the minutes east of UTC', () => {
     expect(hostClockRecord()).toEqual({
       epochMs: ATTACHED.getTime(),
-      utcOffsetMin: -ATTACHED.getTimezoneOffset(),
+      utcOffsetMin: eastOfUtc(ATTACHED),
     });
     // What the tab's model shows is the epoch moved by the offset.
     const { epochMs, utcOffsetMin } = hostClockRecord();
@@ -161,7 +163,7 @@ describe('the record of a clock chip', () => {
           addr: 0x68,
           owner: 'rtc1',
           epochMs: RUN.getTime(),
-          utcOffsetMin: -RUN.getTimezoneOffset(),
+          utcOffsetMin: eastOfUtc(RUN),
         }),
       );
     });
@@ -201,7 +203,7 @@ describe('the record of a clock chip', () => {
       expect.objectContaining({
         sensor_type: 'ds1307',
         epochMs: RUN.getTime(),
-        utcOffsetMin: -RUN.getTimezoneOffset(),
+        utcOffsetMin: eastOfUtc(RUN),
       }),
     ]);
   });

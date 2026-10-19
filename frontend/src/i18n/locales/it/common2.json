@@ -181,7 +181,14 @@
         "willCompile": "Compila lo sketch e caricalo su una scheda reale collegata via USB",
         "uf2Download": "Compila lo sketch e scarica il .uf2 per l'unita USB della scheda"
       },
-      "wifiPanel": "Pannello WiFi"
+      "wifiPanel": "Pannello WiFi",
+      "dock": {
+        "sdFiles": "File della scheda SD: carica i tuoi, scarica ciò che ha scritto lo sketch",
+        "settings": "Impostazioni della scheda",
+        "rotate": "Ruota (R)",
+        "copy": "Copia scheda (Ctrl+C)",
+        "paste": "Incolla (Ctrl+V)"
+      }
     },
     "componentPicker": {
       "title": "Aggiungi componente",

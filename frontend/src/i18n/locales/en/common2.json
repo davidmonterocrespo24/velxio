@@ -186,7 +186,14 @@
       "wifiPanel": "WiFi panel",
       "addNodeHere": "Add node here",
       "probeWire": "Add to scope",
-      "probeNothing": "This wire carries no signal the scope can read yet. Connect it to a board pin, or run the circuit so the solver reports a voltage for it."
+      "probeNothing": "This wire carries no signal the scope can read yet. Connect it to a board pin, or run the circuit so the solver reports a voltage for it.",
+      "dock": {
+        "sdFiles": "SD card files: upload your own, download what the sketch wrote",
+        "settings": "Board settings",
+        "rotate": "Rotate (R)",
+        "copy": "Copy board (Ctrl+C)",
+        "paste": "Paste (Ctrl+V)"
+      }
     },
     "componentPicker": {
       "title": "Add Component",

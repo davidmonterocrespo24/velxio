@@ -186,10 +186,15 @@ body {
   justify-content: center;
   gap: var(--space-5);
   width: 100%;
-  padding: 13px;
+  padding: 12px;
   background: #ffffff;
-  color: var(--color-fg-default);
-  border: none;
+  /* The background is always white, so the text must always be dark: the
+     theme's default foreground is light in dark mode and left the
+     "Continue with Google / GitHub" labels white on white. #1f1f1f is the
+     label colour Google's sign-in button guidelines give for the light button. */
+  color: #1f1f1f;
+  /* A hairline keeps the button's shape on a white page (light theme). */
+  border: 1px solid #dadce0;
   border-radius: var(--radius-pill);
   font-size: 15px;
   font-weight: 500;

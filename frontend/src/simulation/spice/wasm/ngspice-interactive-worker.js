@@ -118,6 +118,21 @@ self.addEventListener('message', async (event) => {
 			return;
 		}
 
+		if (data.type === 'readVecs') {
+			handleReadVecs(data.requestId, Array.isArray(data.names) ? data.names : []);
+			return;
+		}
+
+		if (data.type === 'solveState') {
+			handleSolveState(data.requestId, data);
+			return;
+		}
+
+		if (data.type === 'commands') {
+			handleCommands(data.requestId, Array.isArray(data.commands) ? data.commands : []);
+			return;
+		}
+
 		if (data.type === 'listVectors') {
 			handleListVectors(data.requestId);
 			return;
@@ -173,17 +188,144 @@ function handleCommand(requestId, command) {
 	}
 	const capture = beginCommandCapture(requestId);
 	try {
+		const t0 = performance.now();
 		const rc = api.command(command);
 		self.postMessage({
 			type: 'command-result',
 			requestId,
 			rc,
+			ms: performance.now() - t0,
 			stdout: capture.stdout.slice(),
 			stderr: capture.stderr.slice(),
 		});
 	} finally {
 		endCommandCapture(capture);
 	}
+}
+
+/**
+ * Run several commands in order and answer once: the `alter`s that bring
+ * the deck to a pad state before its solve. Each command's rc and output
+ * come back in order; an empty command is skipped.
+ */
+function handleCommands(requestId, commands) {
+	const results = [];
+	for (const command of commands) {
+		if (!String(command).trim()) continue;
+		const capture = beginCommandCapture(requestId);
+		try {
+			const t0 = performance.now();
+			const rc = api.command(String(command));
+			results.push({ command, rc, ms: performance.now() - t0, stdout: capture.stdout.slice(), stderr: capture.stderr.slice() });
+		} finally {
+			endCommandCapture(capture);
+		}
+	}
+	self.postMessage({ type: 'commands-result', requestId, results });
+}
+
+/**
+ * Read several vectors in one message. A solve reads every net voltage
+ * and branch current it publishes, a hundred vectors on a sixteen-LED
+ * deck, and one message per vector made the reads cost more than the
+ * solve: about 300 ms per operating point in the browser against 15 ms
+ * for the engine. A vector that does not exist comes back with `error`
+ * instead of failing the batch (a disconnected pin has none).
+ */
+function packVectors(names) {
+	const t0 = performance.now();
+	const entries = [];
+	let total = 0;
+	let anyImag = false;
+	for (const name of names) {
+		const infoPtr = api.getVecInfo(String(name));
+		const data = infoPtr ? readVectorData(infoPtr, /* readImag */ true) : null;
+		if (!data) {
+			entries.push({ name, offset: -1, length: 0, data: null });
+			continue;
+		}
+		entries.push({ name, offset: total, length: data.length, data });
+		total += data.length;
+		if (data.imag) anyImag = true;
+	}
+	const real = new Float64Array(total);
+	const imag = anyImag ? new Float64Array(total) : null;
+	const index = [];
+	for (const e of entries) {
+		if (e.data) {
+			real.set(e.data.real, e.offset);
+			if (imag && e.data.imag) imag.set(e.data.imag, e.offset);
+		}
+		index.push({ name: e.name, offset: e.offset, length: e.length, hasImag: !!(e.data && e.data.imag) });
+	}
+	const transferables = [real.buffer];
+	if (imag) transferables.push(imag.buffer);
+	return { index, real, imag, ms: performance.now() - t0, transferables };
+}
+
+function handleReadVecs(requestId, names) {
+	const packed = packVectors(names);
+	self.postMessage(
+		{ type: 'vecs', requestId, index: packed.index, real: packed.real, imag: packed.imag, ms: packed.ms },
+		packed.transferables,
+	);
+}
+
+/**
+ * One pad state, one message: the alters that bring the deck to it, the
+ * analysis, and the packed read of every vector asked for. Each round trip
+ * to the main thread waits behind whatever that thread is doing (an
+ * engine frame, a paint), 50 to 70 ms while a simulation runs, against a
+ * few milliseconds of engine work; three trips per state made a solve
+ * cost two hundred milliseconds that the engine did in six.
+ */
+function handleSolveState(requestId, data) {
+	const commands = Array.isArray(data.commands) ? data.commands : [];
+	const names = Array.isArray(data.names) ? data.names : [];
+	const alters = [];
+	for (const command of commands) {
+		if (!String(command).trim()) continue;
+		const capture = beginCommandCapture(requestId);
+		try {
+			const t0 = performance.now();
+			const rc = api.command(String(command));
+			alters.push({ command, rc, ms: performance.now() - t0, stderr: capture.stderr.slice() });
+		} finally {
+			endCommandCapture(capture);
+		}
+	}
+	const analysis = String(data.analysis || 'op');
+	const capture = beginCommandCapture(requestId);
+	let rc;
+	let ms;
+	let stdout;
+	let stderr;
+	try {
+		const t0 = performance.now();
+		rc = api.command(analysis);
+		ms = performance.now() - t0;
+		stdout = capture.stdout.slice();
+		stderr = capture.stderr.slice();
+	} finally {
+		endCommandCapture(capture);
+	}
+	const packed = packVectors(names);
+	self.postMessage(
+		{
+			type: 'state-result',
+			requestId,
+			alters,
+			rc,
+			ms,
+			stdout,
+			stderr,
+			index: packed.index,
+			real: packed.real,
+			imag: packed.imag,
+			readMs: packed.ms,
+		},
+		packed.transferables,
+	);
 }
 
 /**

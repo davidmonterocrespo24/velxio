@@ -90,6 +90,14 @@ export interface SpiDeviceDescriptor {
     /** Omitted = the chip has no select line (a 74HC595 latch). */
     cs?: DevicePin;
   };
+  /**
+   * Which leg the chip answers on. Default 'miso'. A three-wire SPI chip (an
+   * ST7789 wired SDA-only, the M5 Cardputer's panel) has one data line: it
+   * listens on it and answers on it, and the master reads it half-duplex
+   * (ESP32 SPI_USR_SIO). The engines clock bytes, not wires, so such a chip
+   * answers whenever the master reads, provided its MOSI leg is wired.
+   */
+  dataOut?: 'miso' | 'mosi';
   /** Level that selects the chip. Default 'low'. */
   csActive?: 'low' | 'high';
   /** What an undriven CS means for this chip (its internal pull). Default:

@@ -181,7 +181,14 @@
         "willCompile": "スケッチをコンパイルして USB 接続の実機に書き込みます",
         "uf2Download": "スケッチをコンパイルし、ボードの USB ドライブ用の .uf2 をダウンロード"
       },
-      "wifiPanel": "WiFiパネル"
+      "wifiPanel": "WiFiパネル",
+      "dock": {
+        "sdFiles": "SD カードのファイル: 自分のファイルをアップロード、スケッチが書いたファイルをダウンロード",
+        "settings": "ボード設定",
+        "rotate": "回転 (R)",
+        "copy": "ボードをコピー (Ctrl+C)",
+        "paste": "貼り付け (Ctrl+V)"
+      }
     },
     "componentPicker": {
       "title": "コンポーネントを追加",

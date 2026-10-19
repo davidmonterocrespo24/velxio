@@ -61,6 +61,10 @@ export function snapBoardToSocket(
     | null;
   const boardPins = boardEl?.pinInfo;
   if (!boardPins || boardPins.length === 0) return null;
+  // A turned board does not seat: the socket match below compares its
+  // unrotated pin layout. BoardOnCanvas tags the rotated board container.
+  const turned = boardEl?.closest('[data-board-rotation]')?.getAttribute('data-board-rotation');
+  if (turned && turned !== '0') return null;
 
   let best: { dx: number; dy: number; dist: number } | null = null;
   for (const c of components) {

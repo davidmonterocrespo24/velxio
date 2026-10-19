@@ -519,7 +519,7 @@ Converts hardware callbacks into **WebSocket events** for the frontend:
 | `gpio_dir` | `{pin: int, dir: 0│1}` | GPIO changes direction |
 | `i2c_event` | `{bus, addr, event, response}` | I2C transaction |
 | `spi_event` | `{bus, event, response}` | SPI transaction |
-| `rmt_event` | `{channel, config0, value, level0, dur0, level1, dur1}` | RMT pulse |
+| `rmt_event` | `{channel, config0, value, level0, dur0, level1, dur1}` | One raw RMT item. Debugging only: emitted when the worker runs with `VELXIO_RMT_ITEMS=1`; pixels reach the tab as `ws2812_update` |
 | `ws2812_update` | `{channel, pixels: [[r,g,b],...]}` | Complete NeoPixel frame |
 | `ledc_duty` | `{channel, duty_pct}` | PWM duty cycle on an LEDC channel; frontend resolves channel→pin via the per-board SignalRouter mirror |
 | `gpio_routing` | `{gpio, signal_id}` | `gpio_out_sel[gpio]` was set to `signal_id` — frontend updates its SignalRouter mirror so subsequent `ledc_duty` events route correctly |

@@ -181,7 +181,14 @@
         "willCompile": "Compiler le sketch et le flasher sur une carte réelle branchée en USB",
         "uf2Download": "Compiler le sketch et telecharger le .uf2 pour le lecteur USB de la carte"
       },
-      "wifiPanel": "Panneau WiFi"
+      "wifiPanel": "Panneau WiFi",
+      "dock": {
+        "sdFiles": "Fichiers de la carte SD : importez les vôtres, téléchargez ce que le sketch a écrit",
+        "settings": "Paramètres de la carte",
+        "rotate": "Pivoter (R)",
+        "copy": "Copier la carte (Ctrl+C)",
+        "paste": "Coller (Ctrl+V)"
+      }
     },
     "componentPicker": {
       "title": "Ajouter un composant",

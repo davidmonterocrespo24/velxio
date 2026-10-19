@@ -52,6 +52,10 @@ interface PinOverlayProps {
    * boxes follow the visually-rotated pin tips.
    */
   rotation?: number;
+  /** Explicit unrotated box to rotate the pins about, top-left at the
+   *  wrapper origin. Boards pass their footprint (no DynamicComponent
+   *  wrapper to measure). */
+  pivotBox?: { w: number; h: number };
   /** True while a wire is in progress — paints every square even on dense
    * components (breadboards) because they're all valid wire targets. */
   wiring?: boolean;
@@ -67,6 +71,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
   wrapperOffsetY = 6,
   zoom = 1,
   rotation = 0,
+  pivotBox,
   wiring = false,
 }) => {
   const [pins, setPins] = useState<PinInfo[]>([]);
@@ -171,7 +176,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
           pin.x,
           pin.y,
           rotation,
-          wrapperBox,
+          pivotBox ?? wrapperBox,
           wrapperOffsetX,
           wrapperOffsetY,
         );

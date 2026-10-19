@@ -2456,7 +2456,7 @@ describe('ds1307 — ESP32 path', () => {
     const [, , props] = sim.registerSensor.mock.calls[0];
     expect(props).toMatchObject({
       epochMs: new Date(2026, 8, 30, 12, 34, 56, 250).getTime(),
-      utcOffsetMin: -new Date(2026, 8, 30, 12, 34, 56, 250).getTimezoneOffset(),
+      utcOffsetMin: -new Date(2026, 8, 30, 12, 34, 56, 250).getTimezoneOffset() || 0, // +0, never -0, in UTC
     });
   });
 
@@ -2733,7 +2733,7 @@ describe('ds3231 — ESP32 path', () => {
     expect(props).toMatchObject({
       temperature: SENSOR_CONTROLS.ds3231.defaultValues.temperature,
       epochMs: new Date(2026, 8, 30, 12, 34, 56, 250).getTime(),
-      utcOffsetMin: -new Date(2026, 8, 30, 12, 34, 56, 250).getTimezoneOffset(),
+      utcOffsetMin: -new Date(2026, 8, 30, 12, 34, 56, 250).getTimezoneOffset() || 0, // +0, never -0, in UTC
     });
   });
 

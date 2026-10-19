@@ -4,6 +4,9 @@
  * Uses board SVG assets for realistic rendering.
  * Pin positions are in mm × 5 px/mm.
  *
+ * The on-board LEDs are drawn as overlays on the picture (ONBOARD_LED_FOOTPRINTS
+ * below) and lit through the `onboardLeds` property the React wrapper sets.
+ *
  * Supports three variants via the `board-kind` attribute:
  *   - esp32        → ESP32 DevKit V1      (141 × 265 px)
  *   - esp32-s3     → ESP32-S3 DevKitC-1   (128 × 350 px)
@@ -389,6 +392,65 @@ export function adcPinMapFor(boardKind: string): Record<number, AdcPinInfo> {
   return ESP32_ADC_PIN_MAP;
 }
 
+// ─── On-board LED footprints ──────────────────────────────────────────────────
+
+/**
+ * Where an LED of BOARD_ONBOARD_LEDS (types/board.ts) sits on the picture, in
+ * element px (5 px/mm), and how it glows. Keyed by the same LED id; a test
+ * keeps the two tables in step.
+ *
+ * Every centre was measured on the SVG the element draws (a flood fill of the
+ * LED body at 10x, not the eye), except the XIAO ESP32S3's: its SVG draws
+ * the B button and no LED, so that one is placed where Seeed's front pinout
+ * picture has USER_LED, right of the B button. `size` is the lit dot's
+ * diameter, about the LED body; the glow is drawn around it.
+ */
+interface LedFootprint {
+  x: number;
+  y: number;
+  size: number;
+  /** The LED's colour; an RGB LED takes it from the pixel instead. */
+  color?: string;
+}
+
+const LED_BLUE = '#58a6ff';
+
+const ONBOARD_LED_FOOTPRINTS: Record<string, Record<string, LedFootprint>> = {
+  // The right of the two LED bodies below the module (wokwi's element draws
+  // its led1 there and ledPower on the left one).
+  esp32: { led: { x: 94.5, y: 149, size: 8, color: LED_BLUE } },
+  // The big white flash LED bottom right ("- +" marks), the small LED1 body
+  // bottom left.
+  'esp32-cam': {
+    flash: { x: 120, y: 156.3, size: 14, color: '#fff6d5' },
+    led: { x: 22.1, y: 155.2, size: 7, color: '#ff3b30' },
+  },
+  // The rect in the SVG's own "led" layer, next to the 22 pad.
+  'wemos-lolin32-lite': { led: { x: 105.8, y: 43, size: 8, color: LED_BLUE } },
+  // The 5050 body under the "RGB" silk.
+  'esp32-s3': { rgb: { x: 37.9, y: 200.1, size: 12 } },
+  'xiao-esp32-s3': { led: { x: 82.5, y: 15, size: 6, color: '#ffb020' } },
+  // The 0603 at the corner by the D13 pad (Arduino's top view puts
+  // LED_BUILTIN at that corner of the USB-C), the 5050 dome right of the
+  // connector for the RGB.
+  'arduino-nano-esp32': {
+    led: { x: 12.3, y: 68, size: 6, color: '#ffc400' },
+    rgb: { x: 58.5, y: 40.8, size: 10 },
+  },
+  // The 5050 body under the "GPIO8" silk.
+  'esp32-c3': { rgb: { x: 96.5, y: 106.6, size: 12 } },
+  // The body titled "IO8 LED" in the SVG.
+  'aitewinrobot-esp32c3-supermini': { led: { x: 68, y: 64.3, size: 6, color: LED_BLUE } },
+};
+
+/** The LED ids this element can draw for a kind (for the table test). */
+export function esp32LedFootprintIds(boardKind: string): string[] {
+  return Object.keys(ONBOARD_LED_FOOTPRINTS[boardKind] ?? {});
+}
+
+/** Lit or not for a single-colour LED, the colour for an RGB one. */
+export type OnboardLedVisual = boolean | { r: number; g: number; b: number };
+
 // ─── Board config by variant ──────────────────────────────────────────────────
 
 interface BoardConfig {
@@ -433,6 +495,8 @@ class Esp32Element extends HTMLElement {
     return ['board-kind'];
   }
 
+  private _leds: Record<string, OnboardLedVisual> = {};
+
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
@@ -450,16 +514,70 @@ class Esp32Element extends HTMLElement {
     return BOARD_CONFIGS[kind] ?? BOARD_CONFIGS['esp32'];
   }
 
+  private get kind(): string {
+    const kind = this.getAttribute('board-kind') ?? 'esp32';
+    return BOARD_CONFIGS[kind] ? kind : 'esp32';
+  }
+
   get pinInfo() {
     return this.config.pins;
+  }
+
+  /**
+   * The on-board LEDs' visual state, keyed by LED id (BOARD_ONBOARD_LEDS):
+   * true/false for a single-colour LED, {r,g,b} for an RGB one. The canvas
+   * applies the board's polarity before it gets here, so `true` always means
+   * "lit". Set by the React wrapper (Esp32.tsx) the way the Arduino wrappers
+   * set led13; an id this kind has no footprint for is ignored.
+   */
+  set onboardLeds(v: Record<string, OnboardLedVisual> | undefined) {
+    this._leds = v ?? {};
+    this.applyLeds();
+  }
+  get onboardLeds(): Record<string, OnboardLedVisual> {
+    return this._leds;
+  }
+
+  private applyLeds() {
+    const footprints = ONBOARD_LED_FOOTPRINTS[this.kind];
+    if (!footprints || !this.shadowRoot) return;
+    for (const [id, fp] of Object.entries(footprints)) {
+      const el = this.shadowRoot.getElementById(`led-${id}`);
+      if (!el) continue;
+      const visual = this._leds[id];
+      const color = ledVisualColor(visual, fp.color);
+      if (!color) {
+        el.style.opacity = '0';
+        continue;
+      }
+      // A white-hot core inside the LED's colour and a halo around the
+      // body: at the zoom people work at (0.5 to 1) the body alone is a few
+      // px and reads as "slightly different grey", the halo is what says
+      // lit. The halo never shrinks below an 8 px body's, so a 0603 (the
+      // SuperMini's, the XIAO's) glows as wide as the DevKit V1's.
+      const glow = Math.max(8, fp.size);
+      el.style.background = `radial-gradient(circle, #ffffff 0%, ${color} 45%, ${color} 100%)`;
+      el.style.boxShadow = `0 0 ${glow}px ${Math.round(glow / 2)}px ${color}`;
+      el.style.opacity = '1';
+    }
   }
 
   private render() {
     if (!this.shadowRoot) return;
     const { svgUrl, w, h } = this.config;
+    const footprints = ONBOARD_LED_FOOTPRINTS[this.kind] ?? {};
+    const ledDivs = Object.entries(footprints)
+      .map(
+        ([id, fp]) =>
+          `<div id="led-${id}" data-onboard-led="${id}" style="position:absolute;` +
+          `left:${fp.x - fp.size / 2}px;top:${fp.y - fp.size / 2}px;` +
+          `width:${fp.size}px;height:${fp.size}px;border-radius:50%;` +
+          `opacity:0;transition:opacity 40ms linear;pointer-events:none;"></div>`,
+      )
+      .join('');
     this.shadowRoot.innerHTML = `
       <style>
-        :host { display: inline-block; line-height: 0; }
+        :host { display: inline-block; line-height: 0; position: relative; }
         img   { display: block; }
       </style>
       <img
@@ -469,8 +587,31 @@ class Esp32Element extends HTMLElement {
         draggable="false"
         alt="ESP32 board"
       />
+      ${ledDivs}
     `;
+    // A re-render (board-kind change) rebuilds the dots dark; put back what
+    // the wrapper last set.
+    this.applyLeds();
   }
+}
+
+/**
+ * The CSS colour a visual lights the LED with, or null for dark. An RGB
+ * value is normalised to full brightness: an addressable LED driven at the
+ * core's default RGB_BRIGHTNESS (64 of 255) is plainly lit on a bench, and a
+ * dot at 25% alpha on the canvas would not be.
+ */
+export function ledVisualColor(
+  visual: OnboardLedVisual | undefined,
+  own: string | undefined,
+): string | null {
+  if (visual === undefined || visual === false) return null;
+  if (visual === true) return own ?? '#ffffff';
+  const m = Math.max(visual.r, visual.g, visual.b);
+  if (m <= 0) return null;
+  const k = 255 / m;
+  const c = (v: number) => Math.min(255, Math.round(v * k));
+  return `rgb(${c(visual.r)}, ${c(visual.g)}, ${c(visual.b)})`;
 }
 
 if (!customElements.get('velxio-esp32')) {

@@ -30,9 +30,12 @@ export type DiagnosticSink = (d: BusDiagnostic) => void;
  *  reaches this board's net: a chip whose data-out leg is not wired (a
  *  74HC595's QH) leaves the line alone, as it does on the bench, and so does a
  *  write-only model whose leg IS wired (an ILI9341 panel with SDO connected).
- *  A device that declares no MISO pin at all answers null anyway. */
+ *  A device that declares no MISO pin at all answers null anyway, unless it
+ *  answers on its MOSI leg (`dataOut: 'mosi'`, a three-wire chip): then the
+ *  one wired data line is what carries the answer. */
 export function drives(m: SpiMember): boolean {
   if (m.device.writeOnly) return false;
+  if (m.desc.dataOut === 'mosi') return m.mosiPin !== undefined;
   return m.desc.pins.miso === undefined ? false : m.misoPin !== undefined;
 }
 

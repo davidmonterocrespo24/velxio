@@ -16,7 +16,10 @@
  */
 export function hostClockRecord(): { epochMs: number; utcOffsetMin: number } {
   const now = new Date();
-  return { epochMs: now.getTime(), utcOffsetMin: -now.getTimezoneOffset() };
+  // `|| 0` turns UTC's -0 into 0: the record crosses JSON to the worker, which
+  // writes -0 as 0, and a record that compares unequal to its own wire form is
+  // a trap for every check that holds one against the other.
+  return { epochMs: now.getTime(), utcOffsetMin: -now.getTimezoneOffset() || 0 };
 }
 
 /** The worker models that keep the time, and so carry the tab's clock. */

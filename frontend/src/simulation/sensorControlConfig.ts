@@ -611,7 +611,7 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
 };
 
 // ── Overlay seam ─────────────────────────────────────────────────────────────
-// A private build (velxio.com) registers sensor-control definitions for the
+// A private build (velxio.dev) registers sensor-control definitions for the
 // sensors it ships outside the OSS tree (e.g. the DFRobot Gravity analog
 // family). Same contract as proBoardRegistry / registerComponentDoc: dead code
 // in a pure OSS build. Read every SENSOR_CONTROLS lookup through

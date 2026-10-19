@@ -739,17 +739,22 @@ function makeBitBangSimulator(clockHz: number) {
     setPinState: vi.fn(),
     getClockHz: () => clockHz,
     getCurrentCycles: () => cycles,
-    /** Clock out 24 bits MSB-first, real WS2812 widths, after a reset gap. */
-    sendPixel(r: number, g: number, b: number) {
+    /**
+     * Clock out 24 bits MSB-first after a reset gap. Real WS2812 widths by
+     * default; `timing` is [T0H, T0L, T1H, T1L] in microseconds for a driver
+     * that uses others.
+     */
+    sendPixel(r: number, g: number, b: number, timing: readonly number[] = [0.35, 0.9, 0.7, 0.55]) {
       const us = (n: number) => Math.max(1, Math.round(clockHz * n * 1e-6));
+      const [t0h, t0l, t1h, t1l] = timing;
       cycles += us(80); // >50us latch
       for (const byte of [g, r, b]) {
         for (let i = 7; i >= 0; i--) {
           const one = (byte >> i) & 1;
           handler?.(6, true);
-          cycles += one ? us(0.7) : us(0.35);
+          cycles += one ? us(t1h) : us(t0h);
           handler?.(6, false);
-          cycles += one ? us(0.55) : us(0.9);
+          cycles += one ? us(t1l) : us(t0l);
         }
       }
     },
@@ -774,6 +779,37 @@ describe('WS2812 edge decode — scales to the board clock', () => {
       expect(el.g).toBeCloseTo(0x34 / 255, 5);
       expect(el.b).toBeCloseTo(0x56 / 255, 5);
     });
+  }
+
+  /**
+   * The pixel samples about 0.48 us after the rising edge, so a '1' only has
+   * to be high past that point. FastLED gives WS2811 (the default chip of its
+   * DemoReel100) and WS2813 a '1' of 640 ns high and 640 ns low, exactly half
+   * the bit: ten cycles of twenty on an AVR. Cutting at one half read every
+   * one of those as 0, and the strip stayed black while the sketch ran
+   * (measured on velxio.dev, 2026-10-05).
+   */
+  const DRIVER_TIMINGS: Array<[string, readonly number[]]> = [
+    // [T0H, T0L, T1H, T1L] in microseconds
+    ['FastLED WS2811 800 kHz / WS2813 (a 1 at exactly half)', [0.32, 0.96, 0.64, 0.64]],
+    ['FastLED WS2812B', [0.25, 1.0, 0.875, 0.375]],
+    ['FastLED WS2815', [0.25, 1.64, 1.34, 0.55]],
+    ['FastLED SK6812', [0.3, 0.9, 0.9, 0.3]],
+    ['Adafruit_NeoPixel', [0.4, 0.85, 0.8, 0.45]],
+  ];
+  for (const [driver, timing] of DRIVER_TIMINGS) {
+    for (const [name, hz] of [['16 MHz AVR', 16_000_000], ['125 MHz RP2040', 125_000_000]] as const) {
+      it(`decodes the ${driver} timing on a ${name} board`, () => {
+        const logic = PartSimulationRegistry.get('neopixel')!;
+        const sim = makeBitBangSimulator(hz);
+        const el = makeElement() as any;
+        logic.attachEvents!(el, sim as any, pinMap({ DIN: 6 }));
+        sim.sendPixel(0xf0, 0x0f, 0xaa, timing);
+        expect(el.r).toBeCloseTo(0xf0 / 255, 5);
+        expect(el.g).toBeCloseTo(0x0f / 255, 5);
+        expect(el.b).toBeCloseTo(0xaa / 255, 5);
+      });
+    }
   }
 
   it('reads a saturated byte as 0xFF, not one bit short', () => {

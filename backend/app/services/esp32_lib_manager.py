@@ -28,6 +28,7 @@ Events emitted via callback(event_type, data):
   spi_event     {bus: int, event: int, response: int}
   rmt_event     {channel: int, config0: int, value: int,
                  level0: int, dur0: int, level1: int, dur1: int}
+                 (one per RMT item; only with VELXIO_RMT_ITEMS=1)
   ws2812_update {channel: int, pixels: list[{r,g,b}]}
   ledc_duty     {channel: int, duty_pct: float}
   gpio_routing  {gpio: int, signal_id: int}

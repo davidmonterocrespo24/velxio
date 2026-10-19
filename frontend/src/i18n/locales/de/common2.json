@@ -181,7 +181,14 @@
         "willCompile": "Den Sketch kompilieren und auf ein echtes, per USB angeschlossenes Board flashen",
         "uf2Download": "Sketch kompilieren und die .uf2 fuer das USB-Laufwerk des Boards herunterladen"
       },
-      "wifiPanel": "WLAN-Panel"
+      "wifiPanel": "WLAN-Panel",
+      "dock": {
+        "sdFiles": "Dateien auf der SD-Karte: eigene hochladen, vom Sketch geschriebene herunterladen",
+        "settings": "Board-Einstellungen",
+        "rotate": "Drehen (R)",
+        "copy": "Board kopieren (Strg+C)",
+        "paste": "Einfügen (Strg+V)"
+      }
     },
     "componentPicker": {
       "title": "Komponente hinzufügen",

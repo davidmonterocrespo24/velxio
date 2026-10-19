@@ -58,6 +58,10 @@ const EXPLORER_DEFAULT = 124;
 // /editor within the same SPA session.
 let starterDialogShownThisLoad = false;
 
+function announceStarBanner(action: 'shown' | 'click' | 'dismiss', round: 1 | 2): void {
+  window.dispatchEvent(new CustomEvent('velxio-star-banner', { detail: { action, round } }));
+}
+
 const resizeHandleStyle: React.CSSProperties = {
   height: 5,
   flexShrink: 0,
@@ -162,7 +166,7 @@ export const EditorPage: React.FC = () => {
     };
   }, []);
 
-  // ── GitHub star prompt (show twice at most: 2nd visit OR after 3 min) ──────
+  // ── GitHub star prompt (show twice at most, after 10 min in the editor) ────
   // Three localStorage flags drive this:
   //   velxio_star_prompted     → dismissed the first ask
   //   velxio_star_prompted_v2  → dismissed the follow-up ask (stop forever)
@@ -170,62 +174,78 @@ export const EditorPage: React.FC = () => {
   // Anyone who dismissed the first ask WITHOUT clicking through gets one
   // follow-up (round 2) with a stronger message; clicking the repo link at
   // any time opts them out permanently.
+  //
+  // The banner waits for 10 minutes of the current editor session: asking
+  // before someone has built anything reads as noise. STAR_RESET_KEY clears
+  // the dismiss flags once for everybody who never clicked through, so the
+  // people who dismissed the old early prompt get asked again at the new time.
+  //
+  // Every transition is also announced as a `velxio-star-banner` window event
+  // ({ action: 'shown' | 'click' | 'dismiss', round }) so a deployment can
+  // count it; the OSS build has no listener.
   useEffect(() => {
     const STAR_KEY = 'velxio_star_prompted';
     const STAR_KEY_V2 = 'velxio_star_prompted_v2';
     const STAR_CLICKED_KEY = 'velxio_star_clicked';
-    const VISITS_KEY = 'velxio_editor_visits';
-    const FIRST_VISIT_KEY = 'velxio_editor_first_visit';
-    const THREE_MIN = 3 * 60 * 1000;
+    const STAR_RESET_KEY = 'velxio_star_reset_2026_10';
+    const TEN_MIN = 10 * 60 * 1000;
 
-    // Never bother people who already starred or already saw the follow-up.
-    if (localStorage.getItem(STAR_CLICKED_KEY)) return;
-    if (localStorage.getItem(STAR_KEY_V2)) return;
+    try {
+      // Never bother people who already starred.
+      if (localStorage.getItem(STAR_CLICKED_KEY)) return;
 
-    // Round 2 = they dismissed the first ask (without clicking through).
-    const round = localStorage.getItem(STAR_KEY) ? 2 : 1;
-    setStarRound(round);
-
-    // Increment visit counter
-    const visits = parseInt(localStorage.getItem(VISITS_KEY) ?? '0', 10) + 1;
-    localStorage.setItem(VISITS_KEY, String(visits));
-
-    // Record timestamp of first visit
-    if (!localStorage.getItem(FIRST_VISIT_KEY)) {
-      localStorage.setItem(FIRST_VISIT_KEY, String(Date.now()));
-    }
-    const firstVisit = parseInt(localStorage.getItem(FIRST_VISIT_KEY)!, 10);
-
-    // Show immediately on second+ visit
-    if (visits >= 2) {
-      setShowStarBanner(true);
-      return;
-    }
-
-    // Otherwise schedule after the 3-minute mark
-    const elapsed = Date.now() - firstVisit;
-    const delay = Math.max(0, THREE_MIN - elapsed);
-    const timer = setTimeout(() => {
-      if (!localStorage.getItem(STAR_CLICKED_KEY) && !localStorage.getItem(STAR_KEY_V2)) {
-        setShowStarBanner(true);
+      if (!localStorage.getItem(STAR_RESET_KEY)) {
+        localStorage.removeItem(STAR_KEY);
+        localStorage.removeItem(STAR_KEY_V2);
+        localStorage.removeItem('velxio_editor_visits');
+        localStorage.removeItem('velxio_editor_first_visit');
+        localStorage.setItem(STAR_RESET_KEY, '1');
       }
-    }, delay);
+
+      // Stop for good once the follow-up was dismissed too.
+      if (localStorage.getItem(STAR_KEY_V2)) return;
+    } catch {
+      return; // storage blocked: never nag someone we cannot remember
+    }
+
+    const timer = setTimeout(() => {
+      try {
+        if (localStorage.getItem(STAR_CLICKED_KEY) || localStorage.getItem(STAR_KEY_V2)) return;
+        // Round 2 = they dismissed the first ask (without clicking through).
+        const round = localStorage.getItem(STAR_KEY) ? 2 : 1;
+        setStarRound(round);
+        setShowStarBanner(true);
+        announceStarBanner('shown', round);
+      } catch {
+        /* storage blocked */
+      }
+    }, TEN_MIN);
     return () => clearTimeout(timer);
   }, []);
 
   const handleDismissStarBanner = () => {
     // First dismiss → mark round 1; second dismiss → mark round 2 (stop forever).
-    if (localStorage.getItem('velxio_star_prompted')) {
-      localStorage.setItem('velxio_star_prompted_v2', '1');
-    } else {
-      localStorage.setItem('velxio_star_prompted', '1');
+    try {
+      if (localStorage.getItem('velxio_star_prompted')) {
+        localStorage.setItem('velxio_star_prompted_v2', '1');
+      } else {
+        localStorage.setItem('velxio_star_prompted', '1');
+      }
+    } catch {
+      /* storage blocked */
     }
+    announceStarBanner('dismiss', starRound);
     setShowStarBanner(false);
   };
 
   const handleStarClick = () => {
     // They went to the repo — opt them out of any further prompts.
-    localStorage.setItem('velxio_star_clicked', '1');
+    try {
+      localStorage.setItem('velxio_star_clicked', '1');
+    } catch {
+      /* storage blocked */
+    }
+    announceStarBanner('click', starRound);
     setShowStarBanner(false);
   };
   const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT);

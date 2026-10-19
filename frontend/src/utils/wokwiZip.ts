@@ -612,8 +612,18 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
       };
     });
 
+  // Wokwi names its own instruments with a leading '$': `$serialMonitor` is
+  // the serial monitor, wired to the board's TX/RX in almost every Wokwi
+  // project. They are not parts of the circuit (Velxio's serial monitor
+  // needs no wire), so their connections are dropped here: imported, they
+  // were wires to nothing, and they set off the missing-part warning below.
+  const isInstrumentRef = (ref: string) => ref.startsWith('$');
+  const connections = diagram.connections.filter(
+    ([a, b]) => !isInstrumentRef(a) && !isInstrumentRef(b),
+  );
+
   // Convert connections to Velxio wires
-  const wires: Wire[] = diagram.connections.map((conn, i) => {
+  const wires: Wire[] = connections.map((conn, i) => {
     const [startStr, endStr, color, path] = conn;
     // Wokwi persists parts seated ON a breadboard as one hidden connection
     // per pin: empty color + the special "$bb" token in the path slot.
@@ -662,7 +672,7 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
   // on the canvas writes. The check went quiet on the one case worth catching.
   const definedIds = new Set(diagram.parts.map((p) => p.id));
   const dangling = new Set<string>();
-  for (const [a, b] of diagram.connections) {
+  for (const [a, b] of connections) {
     for (const ref of [a, b]) {
       const id = ref.includes(':') ? ref.slice(0, ref.indexOf(':')) : ref;
       if (id && !definedIds.has(id)) dangling.add(id);

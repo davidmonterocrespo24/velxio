@@ -38,6 +38,7 @@ import type { CompilationLog, CompileTarget } from '../../utils/compilationLogge
 import { exportToWokwiZip, retargetBoardWires } from '../../utils/wokwiZip';
 import { wifiSsidNoteFor } from '../../utils/firmwareWifiNote';
 import { importProjectFile, PROJECT_FILE_ACCEPT } from '../../utils/importProject';
+import { showMessageDialog } from '../../store/useMessageDialogStore';
 import { readFirmwareFile } from '../../utils/firmwareLoader';
 import {
   trackCompileCode,
@@ -1637,11 +1638,18 @@ export const EditorToolbar = ({
           : result.wires,
       );
       if (result.files.length > 0) loadFiles(result.files);
-      setMessage(
-        importWarnings.length > 0
-          ? { type: 'error', text: `Imported ${file.name} — ${importWarnings.join(' ')}` }
-          : { type: 'success', text: `Imported ${file.name}` },
-      );
+      // The import itself succeeded, so the toolbar line stays short and
+      // green. The warnings go to the message dialog: a long red sentence in
+      // the toolbar's status slot widened it and shoved every button sideways.
+      setMessage({ type: 'success', text: `Imported ${file.name}` });
+      if (importWarnings.length > 0) {
+        showMessageDialog(importWarnings.join('\n\n'), {
+          kind: 'info',
+          title: t('editor.import.warningsTitle', 'Imported {{name}}, with notes', {
+            name: file.name,
+          }),
+        });
+      }
       if (result.libraries.length > 0) {
         setPendingLibraries(result.libraries);
         setInstallModalOpen(true);

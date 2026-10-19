@@ -132,12 +132,25 @@ export function startSimulation(): () => void {
     // Probe: collect every board's outputPins set so we can verify the
     // MCU-direction-tracking fix from the harness.
     const outputPinsByBoard: Record<string, number[]> = {};
+    // What the deck would collect for each board right now: the pad states
+    // the netlist stamps as V-sources. A board whose outputs are listed
+    // above but whose collection is empty is the symptom of a pin name the
+    // collector cannot map.
+    const collectedByBoard: Record<string, unknown> = {};
     try {
-      const boards = useSimulatorStore.getState().boards;
+      const { boards, wires } = useSimulatorStore.getState();
       for (const b of boards) {
         const pm = getBoardPinManager(b.id);
         if (pm && typeof pm.getOutputPins === 'function') {
           outputPinsByBoard[b.id] = [...pm.getOutputPins()];
+        }
+        try {
+          collectedByBoard[b.id] = {
+            kind: b.boardKind,
+            states: collectPinStates(b.id, b.boardKind as never, wires as never),
+          };
+        } catch (err) {
+          collectedByBoard[b.id] = { kind: b.boardKind, error: String(err) };
         }
       }
     } catch {
@@ -157,9 +170,15 @@ export function startSimulation(): () => void {
       hasTimeWaveforms: !!electrical.timeWaveforms,
       paused: electrical.paused,
       outputPinsByBoard,
+      collectedByBoard,
       rebuildCount: service.rebuildCount,
       edgeCount: service.edgeCount,
+      stateSolveCount: service.stateSolveCount,
+      cacheHitCount: service.cacheHitCount,
+      windowCount: service.windowCount,
       lastRebuildAt: service.lastRebuildAt,
+      windowStates: electrical.window?.states.map((st) => ({ weight: st.weight, ms: st.ms, levels: st.levels })),
+      edgePath: service.debugState(),
     };
     (window as unknown as { __lastSpice?: unknown }).__lastSpice = snapshot;
     // eslint-disable-next-line no-console

@@ -122,6 +122,9 @@ export interface BoardInstance {
   boardKind: BoardKind;
   x: number;
   y: number;
+  /** Clockwise rotation in degrees (0 / 90 / 180 / 270) about the centre of
+   *  the board's footprint; (x, y) stays the unrotated top-left. */
+  rotation?: number;
   running: boolean;
   // QEMU-Linux (Raspberry Pi 3/4/5/Zero/1/2) only. `running` flips true the
   // instant the user clicks Start (the WebSocket opens in ~1s), but the guest
@@ -332,4 +335,140 @@ export function fqbnForLanguage(kind: BoardKind, mode: LanguageMode | undefined)
     return BOARD_KIND_ESPIDF_FQBN[kind] as string;
   }
   return BOARD_KIND_FQBN[kind] ?? null;
+}
+
+/**
+ * The LED(s) soldered on a board that a sketch drives through a GPIO, so the
+ * canvas can light the picture where the real board lights up.
+ *
+ * Polarity is part of the fact, not a detail: on the boards marked
+ * `activeLow` the LED sits between 3V3 and the pin, so `digitalWrite(pin,
+ * HIGH)` turns it OFF. Drawing those as active HIGH would show the user the
+ * opposite of the hardware in their hands, which is worse than a dark LED
+ * (issue #374, where every ESP32 kind was wired to pin 13 and stayed dark).
+ *
+ * `id` names the LED to the element that draws it: the footprint table in
+ * velxio-components/Esp32Element.ts is keyed by the same ids, and a test
+ * holds the two in step. `led` is the single user LED by convention.
+ */
+export type OnboardLed =
+  /** One LED on one GPIO. */
+  | { id: string; kind: 'gpio'; pin: number; activeLow: boolean }
+  /** A plain RGB LED on three GPIOs, one per colour, sharing one polarity. */
+  | { id: string; kind: 'rgb-gpio'; pins: { r: number; g: number; b: number }; activeLow: boolean }
+  /**
+   * An addressable (WS2812) LED on one GPIO. The pin carries a data stream,
+   * never a level: it shows the first pixel of the frame the engine decodes.
+   */
+  | { id: string; kind: 'ws2812'; pin: number };
+
+/**
+ * What the canvas tells a board element to draw for one LED: lit or not for
+ * a single-colour LED, the colour for an RGB one (all zero = off).
+ */
+export type OnboardLedVisual = boolean | { r: number; g: number; b: number };
+/** The visuals of one board's LEDs, keyed by OnboardLed.id. */
+export type BoardLedVisuals = Record<string, OnboardLedVisual>;
+
+const NO_ONBOARD_LED: readonly OnboardLed[] = [];
+
+/**
+ * Per kind, from the official pin headers (arduino-esp32 `variants/<v>/
+ * pins_arduino.h`, the variant each kind's FQBN builds with) and the vendor
+ * schematics for the polarity, which no header records.
+ */
+export const BOARD_ONBOARD_LEDS: Record<BoardKind, readonly OnboardLed[]> = {
+  // The "L" LED on D13: D13 to a resistor to the LED to GND on the Uno R3,
+  // Nano and Mega 2560 schematics, so HIGH lights it.
+  'arduino-uno': [{ id: 'led', kind: 'gpio', pin: 13, activeLow: false }],
+  'arduino-nano': [{ id: 'led', kind: 'gpio', pin: 13, activeLow: false }],
+  'arduino-mega': [{ id: 'led', kind: 'gpio', pin: 13, activeLow: false }],
+  // GP25 on the Pico. The Pico W's LED hangs off the CYW43's own GPIO, not
+  // the RP2040's, so this row is only right for the plain Pico; both keep
+  // the pin the canvas has always watched, and the Pico element draws no LED
+  // yet, so nothing is visible either way. When it learns to, the W needs
+  // its own path.
+  'raspberry-pi-pico': [{ id: 'led', kind: 'gpio', pin: 25, activeLow: false }],
+  'pi-pico-w': [{ id: 'led', kind: 'gpio', pin: 25, activeLow: false }],
+  // A Pi's ACT LED is driven by the kernel's LED class, not by the user's
+  // GPIO writes, and the QEMU guest models no such LED.
+  'raspberry-pi-zero': NO_ONBOARD_LED,
+  'raspberry-pi-1': NO_ONBOARD_LED,
+  'raspberry-pi-2': NO_ONBOARD_LED,
+  'raspberry-pi-3': NO_ONBOARD_LED,
+  'raspberry-pi-4': NO_ONBOARD_LED,
+  'raspberry-pi-5': NO_ONBOARD_LED,
+  // DOIT ESP32 DevKit V1: blue LED on GPIO2 through a resistor to GND
+  // (variants/doitESP32devkitV1: LED_BUILTIN = 2). The kind's own FQBN is
+  // the generic esp32 variant, which defines no LED_BUILTIN at all, so a
+  // MicroPython Pin(2) or an explicit GPIO is what sketches use here.
+  esp32: [{ id: 'led', kind: 'gpio', pin: 2, activeLow: false }],
+  // Espressif ESP32-DevKitC V4: a power LED and nothing else; the esp32
+  // variant it builds with defines no LED_BUILTIN. Nothing to light.
+  'esp32-devkit-c-v4': NO_ONBOARD_LED,
+  // AI-Thinker ESP32-CAM: the white flash LED on GPIO4 (through a transistor,
+  // HIGH lights it) and the small red LED on GPIO33 between 3V3 and the pin
+  // (LOW lights it). Its FQBN builds with the plain esp32 variant, so
+  // LED_BUILTIN is undefined in Arduino and sketches name the GPIO.
+  'esp32-cam': [
+    { id: 'flash', kind: 'gpio', pin: 4, activeLow: false },
+    { id: 'led', kind: 'gpio', pin: 33, activeLow: true },
+  ],
+  // WEMOS LOLIN32 Lite: LED_BUILTIN = 22 (variants/lolin32-lite); the LED's
+  // other leg is on 3V3 and GPIO22 sinks it, so LOW lights it.
+  'wemos-lolin32-lite': [{ id: 'led', kind: 'gpio', pin: 22, activeLow: true }],
+  // ESP32-S3-DevKitC-1: an addressable RGB LED on GPIO48 (variants/esp32s3:
+  // PIN_RGB_LED 48, LED_BUILTIN = SOC_GPIO_PIN_COUNT + 48, which is how the
+  // core sends digitalWrite(LED_BUILTIN) through rgbLedWrite).
+  'esp32-s3': [{ id: 'rgb', kind: 'ws2812', pin: 48 }],
+  // Seeed XIAO ESP32S3: LED_BUILTIN = 21 (variants/XIAO_ESP32S3); the Seeed
+  // wiki: "it will only turn on when the pin is set to a low level".
+  'xiao-esp32-s3': [{ id: 'led', kind: 'gpio', pin: 21, activeLow: true }],
+  // Arduino Nano ESP32: the yellow D13 LED is GPIO48 (variants/
+  // arduino_nano_nora: D13 = 48, LED_BUILTIN = D13; the Arduino-pin numbering
+  // maps D13 to the same GPIO and the engine reports GPIOs), HIGH lights it.
+  // The RGB LED is three plain GPIOs (LED_RED 46, LED_GREEN 0, LED_BLUE 45)
+  // with the common leg on 3V3: the Arduino docs switch a colour on "by
+  // pulling the GPIO lines to LOW".
+  'arduino-nano-esp32': [
+    { id: 'led', kind: 'gpio', pin: 48, activeLow: false },
+    { id: 'rgb', kind: 'rgb-gpio', pins: { r: 46, g: 0, b: 45 }, activeLow: true },
+  ],
+  // ESP32-C3-DevKitM-1: addressable RGB LED on GPIO8 (variants/esp32c3:
+  // PIN_RGB_LED 8).
+  'esp32-c3': [{ id: 'rgb', kind: 'ws2812', pin: 8 }],
+  // Seeed XIAO ESP32C3: no user LED on the board, and variants/XIAO_ESP32C3
+  // defines none.
+  'xiao-esp32-c3': NO_ONBOARD_LED,
+  // ESP32-C3 SuperMini: a plain blue LED on GPIO8, sunk by the pin from 3V3,
+  // so LOW lights it. The generic esp32c3 FQBN the kind builds with declares
+  // an RGB LED on that pin instead, so an Arduino LED_BUILTIN write becomes
+  // a WS2812 stream there; sketches for this board write GPIO8 directly.
+  'aitewinrobot-esp32c3-supermini': [{ id: 'led', kind: 'gpio', pin: 8, activeLow: true }],
+  // The STM32 kinds light their LED from the Stm32Bridge in the store, with
+  // their own pin and polarity table (STM32_LED). Not repeated here so the
+  // two paths can never drive one LED against each other.
+  'stm32-bluepill': NO_ONBOARD_LED,
+  'stm32-blackpill': NO_ONBOARD_LED,
+  'stm32-bluepill-f103cb': NO_ONBOARD_LED,
+  'stm32-blackpill-f401': NO_ONBOARD_LED,
+  'stm32-f4-discovery': NO_ONBOARD_LED,
+  'stm32-olimex-h405': NO_ONBOARD_LED,
+  'stm32-netduino-plus2': NO_ONBOARD_LED,
+  'stm32-netduino2': NO_ONBOARD_LED,
+  // PB1, the Digispark convention; the bare DIP-8 element draws no LED and
+  // examples wire a real one to PB1.
+  attiny85: [{ id: 'led', kind: 'gpio', pin: 1, activeLow: false }],
+};
+
+/**
+ * The on-board LEDs of a kind. A kind this file does not know (an overlay
+ * board, or a string from a project file) has none here; the overlay's
+ * boards light their own elements.
+ */
+export function onboardLedsFor(kind: string): readonly OnboardLed[] {
+  // hasOwnProperty, not `in`: see isKnownBoardKind.
+  return Object.prototype.hasOwnProperty.call(BOARD_ONBOARD_LEDS, kind)
+    ? BOARD_ONBOARD_LEDS[kind as BoardKind]
+    : NO_ONBOARD_LED;
 }

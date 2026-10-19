@@ -564,6 +564,28 @@
   margin-bottom: 2px;
 }
 
+.pid-examples-count {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--wb-5);
+  color: var(--wb-11);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+/* Every example, not the first few: the list scrolls inside the pane once it
+   runs past ~9 rows, so a long gallery never pushes the properties away. */
+.pid-examples-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
 .pid-example-link {
   display: inline-flex;
   align-items: center;

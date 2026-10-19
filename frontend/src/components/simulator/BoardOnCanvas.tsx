@@ -2,7 +2,7 @@ import React from 'react';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { isBoardSeated } from '../../utils/socketSnap';
 import { getProBoard } from '../../lib/proBoardRegistry';
-import type { BoardInstance } from '../../types/board';
+import type { BoardInstance, BoardLedVisuals } from '../../types/board';
 import { ArduinoUno } from '../velxio-components/ArduinoUno';
 import { ArduinoNano } from '../velxio-components/ArduinoNano';
 import { ArduinoMega } from '../velxio-components/ArduinoMega';
@@ -31,57 +31,17 @@ import {
 } from '../velxio-components/Stm32BluePill';
 import { PinOverlay } from './PinOverlay';
 
-// Board visual dimensions (width × height) for the drag-overlay sizing.
-// ESP32 sizes match the wokwi-boards SVG rendered at 5 px/mm.
-export const BOARD_SIZE: Record<string, { w: number; h: number }> = {
-  // wokwi-elements: rendered at 96 dpi — 1mm = 3.7795px
-  'arduino-uno': { w: 274, h: 202 }, // 72.58mm × 53.34mm
-  'arduino-nano': { w: 170, h: 67 }, // 44.9mm  × 17.8mm
-  'arduino-mega': { w: 388, h: 192 }, // 102.66mm × 50.80mm
-  // Pi Pico physical board is 51mm × 21mm vertical-narrow. The render
-  // uses velxio's <velxio-pi-pico-w>, same Web Component as 'pi-pico-w'
-  // because the Pico and Pico W are pin-compatible. Used to render the
-  // wokwi-nano-rp2040-connect (168×68) — that was a completely different
-  // board with D2-D13 pin labels, so wires in pico examples that
-  // referenced GP10/GP18/etc. landed at (0,0). The render now matches
-  // the boardKind name.
-  'raspberry-pi-pico': { w: 105, h: 264 },
-  // Zero/1/2 render through the Pi-3 element (same 40-pin header art); the
-  // backend picks their QEMU CPU/memory profile from the boardKind.
-  'raspberry-pi-zero': { w: 250, h: 160 },
-  'raspberry-pi-1': { w: 250, h: 160 },
-  'raspberry-pi-2': { w: 250, h: 160 },
-  'raspberry-pi-3': { w: 250, h: 160 }, // RaspberryPi3Element: PI_WIDTH=250 PI_HEIGHT=160
-  'raspberry-pi-4': { w: 330, h: 215 }, // RaspberryPi4Element — real board photo (925×602 @ scale)
-  'raspberry-pi-5': { w: 330, h: 220 }, // RaspberryPi5Element — real board photo (1024×681 @ scale)
-  esp32: { w: 141, h: 265 }, // esp32-devkit-v1: 28.2 × 53 mm
-  'esp32-s3': { w: 128, h: 350 }, // esp32-s3-devkitc-1: 25.5 × 70 mm
-  'esp32-c3': { w: 127, h: 215 }, // esp32-c3-devkitm-1: 25.4 × 42.9 mm
-  'pi-pico-w': { w: 105, h: 264 },
-  'esp32-devkit-c-v4': { w: 140, h: 283 },
-  'esp32-cam': { w: 136, h: 202 },
-  'wemos-lolin32-lite': { w: 128, h: 250 },
-  'xiao-esp32-s3': { w: 91, h: 117 },
-  'arduino-nano-esp32': { w: 217, h: 90 },
-  'xiao-esp32-c3': { w: 91, h: 117 },
-  'aitewinrobot-esp32c3-supermini': { w: 90, h: 123 },
-  'stm32-bluepill': { w: 114, h: 271 }, // 22.855 × 54.193 mm (wokwi-boards SVG)
-  'stm32-blackpill': { w: 103, h: 266 }, // 20.695 × 53.125 mm (wokwi-boards SVG)
-  'stm32-bluepill-f103cb': { w: 114, h: 271 }, // reuses Blue Pill SVG
-  'stm32-blackpill-f401': { w: 103, h: 266 }, // reuses Black Pill SVG
-  // Inline-rendered boards — sizes match Stm32BoardElement.inlineConfig()
-  // (INLINE_W=158; h = 24 + rows*13 + 16).
-  'stm32-f4-discovery': { w: 158, h: 235 }, // 15 rows per side
-  'stm32-olimex-h405': { w: 158, h: 196 }, // 12 rows per side
-  'stm32-netduino-plus2': { w: 158, h: 196 }, // 12 rows per side
-  'stm32-netduino2': { w: 158, h: 196 }, // 12 rows per side
-  attiny85: { w: 160, h: 132 },
-};
+// The size table lives in utils/boardGeometry (the store needs it too, for
+// rotated pin positions); re-exported for existing importers.
+export { BOARD_SIZE } from '../../utils/boardGeometry';
+import { boardBox, boardSize, normalizeRotation } from '../../utils/boardGeometry';
 
 interface BoardOnCanvasProps {
   board: BoardInstance;
   running: boolean;
-  led13?: boolean;
+  /** The on-board LEDs' visual state, keyed by LED id (BOARD_ONBOARD_LEDS),
+   * polarity already applied: `led: true` is a lit user LED. */
+  onboardLeds?: BoardLedVisuals;
   isActive?: boolean;
   /** When false, the pin overlay is hidden — keeps the canvas uncluttered when
    * the user isn't hovering, isn't selecting, and isn't actively wiring. */
@@ -100,7 +60,7 @@ interface BoardOnCanvasProps {
 export const BoardOnCanvas = ({
   board,
   running,
-  led13 = false,
+  onboardLeds,
   isActive = false,
   showPins = true,
   wiring = false,
@@ -112,7 +72,12 @@ export const BoardOnCanvas = ({
   zoom = 1,
 }: BoardOnCanvasProps) => {
   const { id, boardKind, x, y } = board;
-  const size = BOARD_SIZE[boardKind] ?? getProBoard(boardKind)?.size ?? { w: 300, h: 200 };
+  // The AVR elements take one boolean for their single LED.
+  const led13 = onboardLeds?.led === true;
+  const size = boardSize(boardKind);
+  const rotation = normalizeRotation(board.rotation);
+  // Canvas-space box of the rotated board (status dot anchors to it).
+  const box = boardBox(board);
   // Seated on a socket component (Round Display back header)? Decides the
   // stacking below. Recomputed on every position change; the check is a few
   // pad lookups over the component list, cheap at render rate.
@@ -198,7 +163,7 @@ export const BoardOnCanvas = ({
       case 'esp32-c3':
       case 'xiao-esp32-c3':
       case 'aitewinrobot-esp32c3-supermini':
-        return <Esp32 id={id} x={x} y={y} boardKind={boardKind} />;
+        return <Esp32 id={id} x={x} y={y} boardKind={boardKind} onboardLeds={onboardLeds} />;
       case 'stm32-bluepill':
         return <Stm32BluePill id={id} x={x} y={y} />;
       case 'stm32-blackpill':
@@ -256,6 +221,19 @@ export const BoardOnCanvas = ({
       // without covering the board (its buttons/screen stay interactive).
       onContextMenu={onContextMenu}
     >
+      {/* The board, its selection ring and its drag surface turn together
+          about the footprint centre. Pins (PinOverlay below) stay outside and
+          rotate their positions instead, so their hover labels read upright. */}
+      <div
+        data-board-rotation={rotation}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          transform: rotation ? `rotate(${rotation}deg)` : undefined,
+          transformOrigin: `${x + size.w / 2}px ${y + size.h / 2}px`,
+        }}
+      >
       {boardEl}
 
       {/* Active board highlight ring */}
@@ -273,63 +251,6 @@ export const BoardOnCanvas = ({
             zIndex: 2,
           }}
         />
-      )}
-
-      {/* Status dot — top-right corner */}
-      <div
-        style={{
-          position: 'absolute',
-          left: x + size.w - 10,
-          top: y - 6,
-          width: 12,
-          height: 12,
-          borderRadius: '50%',
-          background: statusColor,
-          border: '2px solid #1e1e1e',
-          pointerEvents: 'none',
-          zIndex: 10,
-          transition: 'background 0.3s',
-        }}
-        title={board.running ? 'Running' : board.compiledProgram ? 'Compiled' : 'Idle'}
-      />
-
-      {/* A board with a built-in microSD slot (XIAO Sense, M5Stack Core,
-          Cardputer, ESP32-P4): the visible way into the SD panel of its
-          inspector, which the right-click alone kept hidden from most
-          people. Opens the same board inspector, in every mode. */}
-      {getProBoard(boardKind)?.builtInSd !== undefined && onContextMenu && (
-        <button
-          type="button"
-          className="velxio-part-shortcut"
-          title="Files on the board's SD card: upload your own, download what the sketch wrote"
-          onClick={onContextMenu}
-          onMouseDown={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            left: x + 4,
-            top: y + size.h + 4,
-            zIndex: 11,
-            cursor: 'pointer',
-            fontSize: '10px',
-            fontWeight: 600,
-            lineHeight: '1.2',
-            padding: '2px 7px',
-            borderRadius: '10px',
-            border: '1px solid #0071e3',
-            background: '#0071e3',
-            color: '#fff',
-            whiteSpace: 'nowrap',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-          }}
-        >
-          <svg width="9" height="11" viewBox="0 0 9 11" fill="none" aria-hidden="true">
-            <path d="M3 0.5h5.5v10h-8v-7.5z" stroke="#fff" strokeWidth="1" strokeLinejoin="round" />
-            <path d="M2.5 2.5v2M4.5 2.5v2M6.5 2.5v2" stroke="#fff" strokeWidth="1" />
-          </svg>
-          SD files
-        </button>
       )}
 
       {/* Drag overlay — hidden during simulation */}
@@ -353,6 +274,30 @@ export const BoardOnCanvas = ({
         />
       )}
 
+      </div>
+
+      {/* Status dot — top-right corner */}
+      <div
+        style={{
+          position: 'absolute',
+          left: box.left + box.w - 10,
+          top: box.top - 6,
+          width: 12,
+          height: 12,
+          borderRadius: '50%',
+          background: statusColor,
+          border: '2px solid #1e1e1e',
+          pointerEvents: 'none',
+          zIndex: 10,
+          transition: 'background 0.3s',
+        }}
+        title={board.running ? 'Running' : board.compiledProgram ? 'Compiled' : 'Idle'}
+      />
+
+      {/* The board's controls (SD, camera, mic, sensors, edit actions) are
+          its BoardDock, drawn by SimulatorCanvas in a layer above components
+          and wires so a part placed under the board cannot cover them. */}
+
       {/* Pin overlay for wire connections */}
       <PinOverlay
         componentId={id}
@@ -362,6 +307,8 @@ export const BoardOnCanvas = ({
         showPins={showPins}
         wrapperOffsetX={0}
         wrapperOffsetY={0}
+        rotation={rotation}
+        pivotBox={size}
         zoom={zoom}
         wiring={wiring}
       />

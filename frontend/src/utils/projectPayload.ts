@@ -35,6 +35,8 @@ function serialisableBoard(b: BoardInstance) {
     boardKind: b.boardKind,
     x: b.x,
     y: b.y,
+    // Only a turned board carries it, so unrotated projects save unchanged.
+    ...(b.rotation ? { rotation: b.rotation } : {}),
     activeFileGroupId: b.activeFileGroupId,
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,

@@ -178,6 +178,13 @@ export class PinManager {
     // PORT bit is its pull-up. `reportPad` fires only on a real change, so the
     // release of a line (DDR 1 -> 0, PORT unchanged) reaches the line contract
     // even though no level moved — the event a value-only listener never saw.
+    // DDR set is the MCU driving the pad, at whatever level PORT holds: a
+    // pinMode(OUTPUT) with the pin still LOW is a 0 V source on the wire,
+    // not a floating pad. Classify it as an output here, not on its first
+    // HIGH: a sketch that configures sixteen pins in setup() then gets one
+    // deck with sixteen pads instead of a rebuild per pin as the scan
+    // reaches it (the Mega 16-LED bar spent its first seconds rebuilding).
+    let newlyDriven = false;
     if (ddrMask !== undefined) {
       for (let bit = 0; bit < 8; bit++) {
         const mask = 1 << bit;
@@ -185,6 +192,10 @@ export class PinManager {
         if (arduinoPin < 0) continue;
         const isInput = (ddrMask & mask) === 0;
         const portBit = (newValue & mask) !== 0;
+        if (!isInput && !this.outputPins.has(arduinoPin)) {
+          this.outputPins.add(arduinoPin);
+          newlyDriven = true;
+        }
         this.setPinPull(arduinoPin, isInput && portBit ? 1 : 0);
         this.reportPad(
           arduinoPin,
@@ -230,6 +241,10 @@ export class PinManager {
         }
       }
     }
+    // The deck must grow a V-source for a pad that just became driven; the
+    // resolve hook is throttled, so sixteen DDR bits in one setup() cost one
+    // rebuild. Same door triggerPinChange uses for the other engines.
+    if (newlyDriven) requestElectricalResolve();
   }
 
   getPinState(arduinoPin: number): boolean {

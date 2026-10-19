@@ -161,6 +161,34 @@ function buildAcStatsI(samples: readonly number[]): ProbeAcStats {
 }
 
 /** Shown when the solver rejected the circuit (ngspice error in the store). */
+/**
+ * What a DC meter reads over a publish window: the time-weighted mean of
+ * the states the pads went through. A real meter integrates; a reading
+ * that jumped between the levels of a software PWM, or showed whichever
+ * state the solver happened to land on, is not a reading. Without a window
+ * of more than one state, the instantaneous map as published.
+ */
+export function averageOverWindow(
+  window: { states: ReadonlyArray<{ weight: number }> } | undefined,
+  pick: (state: { weight: number }) => Record<string, number>,
+  instant: Record<string, number>,
+): Record<string, number> {
+  if (!window || window.states.length < 2) return instant;
+  const out: Record<string, number> = {};
+  let total = 0;
+  for (const st of window.states) total += st.weight;
+  if (!(total > 0)) return instant;
+  for (const st of window.states) {
+    const values = pick(st);
+    for (const key of Object.keys(values)) {
+      const v = values[key];
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+      out[key] = (out[key] ?? 0) + (st.weight / total) * v;
+    }
+  }
+  return out;
+}
+
 export const SOLVER_ERROR_DISPLAY = '— solver error';
 /** Shown when the probe's nets exist but no solve has reported them yet. */
 export const NO_READING_DISPLAY = '— no reading';

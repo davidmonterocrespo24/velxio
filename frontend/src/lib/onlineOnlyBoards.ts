@@ -1,7 +1,7 @@
 /**
  * Online-only boards — the public "shop window".
  *
- * These boards are implemented by the hosted editor (velxio.com), where they
+ * These boards are implemented by the hosted editor (velxio.dev), where they
  * are free to use; their emulation engines and board wiring are not part of
  * the OSS tree. The OSS build knows only this list — name, art, a badge —
  * and renders advertisement cards in the picker that link to the online
@@ -23,7 +23,7 @@ export interface OnlineOnlyBoardAd {
 }
 
 /** Where the ad cards send the user. */
-export const ONLINE_EDITOR_URL = 'https://velxio.com';
+export const ONLINE_EDITOR_URL = 'https://velxio.dev';
 
 /**
  * Ad suppression — the hosted overlay's escape hatch.
@@ -410,6 +410,15 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
     category: 'analog',
     thumbnailSvg:
       "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='9' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='9' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='6' y='18' width='48' height='24' rx='2' fill='#1b1b1e' stroke='#08080a' stroke-width='1'/><path d='M6 26 A4 4 0 0 1 6 34' fill='#2c2c30'/><text x='31' y='33' font-family='monospace' font-size='8' font-weight='600' fill='#e6e6e6' text-anchor='middle'>3008</text></svg>",
+  },
+  {
+    id: 'pro-pcm5102a',
+    label: 'PCM5102A I2S Stereo DAC',
+    description:
+      "Stereo I2S DAC with line out: an ESP32-S3 sketch's audio plays on your computer's speakers - available in the online editor",
+    category: 'output',
+    thumbnailSvg:
+      "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='4' y='14' width='52' height='34' rx='3' fill='#4b2370' stroke='#2c1244' stroke-width='1'/><rect x='8' y='9' width='3' height='7' fill='#d6c27a'/><rect x='14' y='9' width='3' height='7' fill='#d6c27a'/><rect x='20' y='9' width='3' height='7' fill='#d6c27a'/><rect x='26' y='9' width='3' height='7' fill='#d6c27a'/><rect x='32' y='9' width='3' height='7' fill='#d6c27a'/><rect x='38' y='9' width='3' height='7' fill='#d6c27a'/><rect x='12' y='24' width='18' height='12' rx='1' fill='#17171a'/><rect x='38' y='24' width='16' height='16' rx='2' fill='#1e1e22'/><circle cx='46' cy='32' r='4.5' fill='#0b0b0d' stroke='#5a5a62' stroke-width='0.8'/><rect x='12' y='40' width='14' height='2.4' rx='1' fill='#3ddc84'/><rect x='12' y='43.5' width='10' height='2.4' rx='1' fill='#3ddc84'/></svg>",
   },
   {
     id: 'pro-pi-camera',

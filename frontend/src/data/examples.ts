@@ -42,9 +42,18 @@ export interface ExampleBoard {
   vfsFiles?: Record<string, string>;
   /** Uploads pre-loaded onto a board's BUILT-IN microSD slot (a ProBoardDef
    *  with builtInSd, e.g. the XIAO ESP32S3 Sense) — the same shape the
-   *  SD Card panel persists on board.sdFiles. */
-  sdFiles?: Array<{ name: string; contentB64: string }>;
+   *  SD Card panel persists on board.sdFiles. A file too large to ship inside
+   *  the bundle (audio, images) names a `url` instead of `contentB64`: the
+   *  loader fetches it when the example opens and stores the bytes on the
+   *  board exactly like an inline file. */
+  sdFiles?: ExampleSdFile[];
 }
+
+/** One file on an example board's built-in microSD: inline bytes, or a URL
+ *  (same origin, e.g. /examples-media/...) fetched when the example opens. */
+export type ExampleSdFile =
+  | { name: string; contentB64: string; url?: undefined }
+  | { name: string; url: string; contentB64?: undefined };
 
 export interface ExampleProject {
   id: string;

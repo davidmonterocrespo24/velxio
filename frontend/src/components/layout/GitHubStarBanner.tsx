@@ -31,7 +31,9 @@ export const GitHubStarBanner: React.FC<Props> = ({ onClose, onStarClick, round 
         <a
           href={GITHUB_URL}
           target="_blank"
-          rel="noopener noreferrer"
+          // No noreferrer: GitHub's traffic page counts these visits by
+          // referrer, and without it every click shows up as "direct".
+          rel="noopener"
           className="gh-star-banner__btn"
           onClick={onStarClick}
         >

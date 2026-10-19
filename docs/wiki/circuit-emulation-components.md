@@ -276,7 +276,7 @@ All op-amps use a behavioral `B_out = max(vLo, min(vHi, A · (V+ − V−)))` wi
 
 | metadataId | Topology |
 |---|---|
-| `relay` | R + L in parallel for the coil + ngspice `S` switches for NO/NC contacts with native Vt/Vh hysteresis + B-source inverter to implement the normally-closed switch (ngspice SW has no "NC" mode). Optional integrated flyback diode (cathode on COIL+, anode on COIL−). Configurable via `coil_voltage`, `coil_resistance`, `include_flyback` properties. |
+| `relay` | Coil = R (`coil_resistance`) in series with L 20 mH; ngspice `S` switches for the NO/NC contacts, controlled by the voltage across the coil with native Vt/Vh hysteresis: pull-in at 75% of `coil_voltage`, drop-out at 45% (the hysteresis only acts inside one `.tran`; every `.op` re-solve is memoryless and leaves the band open, so live MCU-driven circuits switch at the 75% edge both ways). With a fixed R, coil voltage and coil current are proportional, so `coil_resistance` sets the coil current (Vnom / R, 71 mA for the 5 V / 70 Ω default) and shows through an ammeter in series or any drive with resistance of its own (series resistor, transistor, divider), never in the contact state of a coil fed straight from an ideal rail at Vnom (issue #373). B-source inverter implements the normally-closed switch (ngspice SW has no "NC" mode). Optional integrated flyback diode (cathode on COIL+, anode on COIL-). |
 
 #### Optocouplers
 

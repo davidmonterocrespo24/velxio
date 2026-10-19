@@ -94,3 +94,32 @@ export function buildProjectSdImage(
   }
   return buildFat16Image([...byName.values()], opts);
 }
+
+/**
+ * The SD files an example board ships, as the board stores them. Inline files
+ * pass through; a file named by `url` is fetched (a binary too big to sit in
+ * the bundle, like the MP3s of a music player example). A file that cannot be
+ * fetched is left off the card and reported, so one missing asset costs that
+ * file and not the whole example.
+ */
+export async function resolveExampleSdFiles(
+  files: ReadonlyArray<{ name: string; contentB64?: string; url?: string }> | undefined,
+  fetcher: (url: string) => Promise<Response> = (url) => fetch(url),
+): Promise<Array<{ name: string; contentB64: string }>> {
+  if (!files?.length) return [];
+  const out = await Promise.all(
+    files.map(async (f) => {
+      if (typeof f.contentB64 === 'string') return { name: f.name, contentB64: f.contentB64 };
+      if (!f.url) return null;
+      try {
+        const r = await fetcher(f.url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return { name: f.name, contentB64: bytesToB64(new Uint8Array(await r.arrayBuffer())) };
+      } catch (e) {
+        console.warn(`[sd] example file ${f.name} (${f.url}) could not be fetched:`, e);
+        return null;
+      }
+    }),
+  );
+  return out.filter((f): f is { name: string; contentB64: string } => f !== null);
+}

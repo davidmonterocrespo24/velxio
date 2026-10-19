@@ -16,6 +16,7 @@ import { isBoardComponent } from './boardPinMapping';
 import { getInstalledLibraries, installLibrary } from '../services/libraryService';
 import { trackOpenExample } from './analytics';
 import { stripBrandPrefix } from './exampleToBuildNetlistInput';
+import { resolveExampleSdFiles } from './sdCardFiles';
 
 export interface LibraryInstallProgress {
   total: number;
@@ -136,6 +137,13 @@ export async function loadExample(
     }
   }
 
+  // SD files an example names by URL are fetched BEFORE the canvas changes
+  // (and before the store is read below), so a slow download never leaves the
+  // user looking at half an example.
+  const sdFilesByBoard = await Promise.all(
+    (example.boards ?? []).map((eb) => resolveExampleSdFiles(eb.sdFiles)),
+  );
+
   const {
     setComponents,
     setWires,
@@ -192,8 +200,9 @@ export async function loadExample(
 
       // Built-in SD slot uploads (XIAO Sense): land on the board exactly as
       // the SD Card panel would put them, so the Run path finds them.
-      if (eb.sdFiles?.length) {
-        useSimulatorStore.getState().updateBoard(boardId, { sdFiles: eb.sdFiles });
+      const sdFiles = sdFilesByBoard[idx];
+      if (sdFiles.length) {
+        useSimulatorStore.getState().updateBoard(boardId, { sdFiles });
       }
 
       // `vfsFiles` IS the declaration that this board's code is a guest

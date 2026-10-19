@@ -163,7 +163,7 @@ def _discard_sketch_build_cache(sketch_dir: Path) -> None:
 # ── Overlay seam: board cores an overlay ships ──────────────────────────────
 #
 # The cores below are the ones the OSS build compiles for. A private overlay
-# (velxio.com) ships boards whose cores are its own business - their index
+# (velxio.dev) ships boards whose cores are its own business - their index
 # URLs, their version pins, and any prelude a sketch needs before it will
 # build for them. It registers them here at import time instead of editing
 # this table, which keeps the OSS build free of boards it does not have.

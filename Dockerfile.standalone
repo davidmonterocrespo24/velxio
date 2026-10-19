@@ -61,8 +61,11 @@ RUN cd /qemu \
 # The asset versions the gated endpoint serves right now. The download below
 # lives in a cached layer, so a new libqemu on velxio.dev would otherwise never
 # reach a rebuilt image: bump this when an asset is republished (2026-09-27:
-# libqemu-xtensa 1.2.8 stopped the phantom camera VSYNC on GPIO25, #333).
-ARG QEMU_ASSETS_REV=xtensa-1.2.8
+# libqemu-xtensa 1.2.8 stopped the phantom camera VSYNC on GPIO25, #333;
+# 2026-10-14: 1.2.9 lets an RMT frame longer than one memory chunk finish,
+# so a NeoPixel strip of 2+ pixels lights on the ESP32, #381; the arm64
+# build of 1.2.9 was published after the first amd64 image, hence .1).
+ARG QEMU_ASSETS_REV=xtensa-1.2.9.1
 # Download arch-specific .so and arch-independent ROM files.
 # The gated endpoint serves the same byte-for-byte content as the legacy
 # GitHub Release path; asset paths just drop the .so extension since the
@@ -164,7 +167,12 @@ WORKDIR /app/frontend
 # Lock files aren't committed in this repo (they're gitignored) — see the
 # note in .gitignore. The `rm -f` below is defense-in-depth in case
 # someone runs `docker build .` from a tree where a local lock exists.
-RUN rm -f package-lock.json \
+# npm 11, as the frontend CI uses: the npm 10.8 that node:20 ships crashes
+# building the tree from scratch ("Cannot read properties of null (reading
+# 'edgesOut')", a peer-set bug in arborist) since vitest 4.1.12 was published
+# on 2026-10-15. npm 11 resolves the same package.json.
+RUN npm install -g npm@11 --no-audit --no-fund \
+ && rm -f package-lock.json \
  && npm install --include=optional \
  && npm run build:docker
 

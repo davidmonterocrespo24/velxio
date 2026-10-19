@@ -30,7 +30,7 @@ stdout        : JSON event lines (one per line, flushed immediately)
                {"type": "gpio_pull",    "pin": N,  "pull": V}   # 0=none 1=up 2=down
                {"type": "uart_tx",      "uart": N, "byte": V}
                {"type": "ledc_duty",    "channel": N, "duty_pct": F}
-               {"type": "rmt_event",    "channel": N, ...}
+               {"type": "rmt_event",    "channel": N, ...}   (only with VELXIO_RMT_ITEMS=1)
                {"type": "ws2812_update","channel": N, "pixels": [...]}
                {"type": "i2c_event",    "bus": N, "addr": N, "event": N, "response": N}
                {"type": "i2c_trace",    "bus": N, "addr": N, "event": N, "op": "...",
@@ -565,6 +565,11 @@ def _decode_rmt_item(value: int) -> tuple[int, int, int, int]:
     return level0, duration0, level1, duration1
 
 
+def _ws281x_bit(high: int, low: int) -> int:
+    """The bit a WS281x pixel reads from `high` ticks up then `low` ticks down."""
+    return 1 if 7 * high > 5 * low else 0
+
+
 class _RmtDecoder:
     """Accumulate RMT items for one channel; flush complete WS2812 frames."""
 
@@ -594,15 +599,22 @@ class _RmtDecoder:
             self._bits.clear()
             return pix or None
 
-        # Classify the bit by comparing the two halves of its own symbol, not
-        # against an absolute tick count. A WS2812 '1' is high-longer-than-low
-        # and a '0' is high-shorter-than-low whatever resolution the driver
-        # picked — the in-browser engine decodes it exactly this way. The old
-        # fixed threshold of 48 ticks was an order of magnitude off for the two
-        # drivers in this image, which both build symbols at 10 MHz with 8 ticks
-        # for a 1 and 4 for a 0, so every bit classified as 0: a black strip.
+        # Classify the bit by the share of its own symbol that is high, not
+        # against an absolute tick count: the resolution is the driver's choice.
+        # The old fixed threshold of 48 ticks was an order of magnitude off for
+        # the two drivers in this image, which both build symbols at 10 MHz with
+        # 8 ticks for a 1 and 4 for a 0, so every bit classified as 0: a black
+        # strip.
+        #
+        # The cut is 5/12 of the symbol, not one half. A pixel samples the line
+        # a fixed time after the rising edge (about 0.48 us), so a '1' only has
+        # to stay high past that point. "High longer than low" read FastLED's
+        # WS2811 and WS2813 as black: their '1' is 640 ns high and 640 ns low,
+        # exactly half. 5/12 sits above the longest '0' any driver emits (1/3)
+        # and below the shortest '1' (1/2). The in-browser engines use the same
+        # rule (ws281xBit).
         if level0 == 1 and dur0 > 0:
-            self._bits.append(1 if dur0 > dur1 else 0)
+            self._bits.append(_ws281x_bit(dur0, dur1))
 
         # Every 24 bits → one GRB pixel → convert to RGB
         while len(self._bits) >= 24:
@@ -999,7 +1011,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     # this file) so the worker can find its sibling modules without
     # depending on the backend's package layout.
     try:
-        from app.services.signal_router import SignalRouter  # type: ignore[import-not-found] # noqa: E402
+        from app.services.signal_router import SignalRouter, diff_routes  # type: ignore[import-not-found] # noqa: E402
         from app.services.esp32_signals import (  # type: ignore[import-not-found] # noqa: E402
             ledc_signal_for_channel,
             SIG_LEDC_HS_CH0_OUT_IDX,
@@ -1019,6 +1031,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             _spec.loader.exec_module(_mod)        # type: ignore[union-attr]
             sys.modules[_name] = _mod
         SignalRouter = sys.modules['signal_router'].SignalRouter
+        diff_routes = sys.modules['signal_router'].diff_routes
         ledc_signal_for_channel = sys.modules['esp32_signals'].ledc_signal_for_channel
         SIG_LEDC_HS_CH0_OUT_IDX = sys.modules['esp32_signals'].SIG_LEDC_HS_CH0_OUT_IDX
         SIG_LEDC_LS_CH_LAST = sys.modules['esp32_signals'].SIG_LEDC_LS_CH_LAST
@@ -1028,6 +1041,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         spi_units = sys.modules['esp32_signals'].spi_units
         spi_cs_signals = sys.modules['esp32_signals'].spi_cs_signals
     _signal_router = SignalRouter()
+    # The routes the frontend has been told about, as `gpio_routing` events.
+    # Kept apart from `_signal_router` on purpose: `_on_gpio_matrix` updates
+    # the router synchronously, so the router cannot tell the poll what is
+    # still unannounced (see diff_routes).
+    _emitted_routes: dict[int, int] = {}
     _rmt_sig_base = rmt_signal_base(machine)
     _i2c_sda_sig = i2c_sda_signals(machine)
     _uart_tx_sig = uart_tx_signals(machine)
@@ -1134,7 +1152,14 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 # can opt in without code changes here.
                 if SIG_LEDC_HS_CH0_OUT_IDX <= signal_id <= SIG_LEDC_LS_CH_LAST:
                     snapshot[gpio_pin] = signal_id
-            changed, cleared = _signal_router.replace_snapshot(snapshot)
+            # Diff against what was last EMITTED, not against the router:
+            # _on_gpio_matrix has usually updated the router already and a
+            # diff against it is empty, which is how no `gpio_routing` ever
+            # reached the frontend and every LEDC consumer stayed still (#385).
+            changed, cleared = diff_routes(snapshot, _emitted_routes)
+            _signal_router.replace_snapshot(snapshot)  # keep the mirror in step
+            _emitted_routes.clear()
+            _emitted_routes.update(snapshot)
             for gpio_pin, signal_id in changed:
                 _emit({'type': 'gpio_routing',
                        'gpio': gpio_pin,
@@ -1765,7 +1790,19 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             marker = direction & 0xF000
             if marker == 0x5000:  # LEDC duty change (from esp32_ledc.c)
                 ledc_ch = (direction >> 8) & 0x0F
-                intensity = direction & 0xFF  # 0-100 percentage
+                intensity: float = direction & 0xFF  # 0-100 percentage
+                # The integer in the IRQ word is 1 % coarse: 200 us of pulse
+                # at 50 Hz, a servo step of about 19 degrees. esp32_ledc.c
+                # writes the exact float to its duty table before raising
+                # this IRQ, so read that instead when the library exposes it.
+                try:
+                    duty_ptr = lib.qemu_picsimlab_get_internals(6)  # LEDC_CHANNEL_DUTY
+                    if duty_ptr:
+                        exact = float((ctypes.c_float * 16).from_address(duty_ptr)[ledc_ch])
+                        if 0.0 <= exact <= 100.0:
+                            intensity = round(exact, 2)
+                except Exception:
+                    pass
 
                 # Refresh the GPIO Matrix snapshot first so the routing
                 # is current — emits any gpio_routing events the
@@ -1854,13 +1891,20 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     )):
                         _log(f'[wifi-uart] {line}')
 
+    # One `rmt_event` per RMT item used to go to the tab for every symbol on
+    # the wire: 2401 messages for one frame of a 100-pixel strip, of which the
+    # frontend consumed none (the pixels reach it as `ws2812_update`). Raw items
+    # are a debugging aid now, on with VELXIO_RMT_ITEMS=1.
+    _rmt_items = _env_flag('VELXIO_RMT_ITEMS')
+
     def _on_rmt_event(channel: int, config0: int, value: int) -> None:
         if _stopped.is_set():
             return
-        level0, dur0, level1, dur1 = _decode_rmt_item(value)
-        _emit({'type': 'rmt_event', 'channel': channel, 'config0': config0,
-               'value': value, 'level0': level0, 'dur0': dur0,
-               'level1': level1, 'dur1': dur1})
+        if _rmt_items:
+            level0, dur0, level1, dur1 = _decode_rmt_item(value)
+            _emit({'type': 'rmt_event', 'channel': channel, 'config0': config0,
+                   'value': value, 'level0': level0, 'dur0': dur0,
+                   'level1': level1, 'dur1': dur1})
         if channel not in _rmt_decoders:
             _rmt_decoders[channel] = _RmtDecoder(channel)
         pixels = _rmt_decoders[channel].feed(value)
@@ -1882,7 +1926,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
         So this callback ONLY mutates the in-memory SignalRouter
         snapshot. The 10 Hz poll thread (_refresh_signal_routing) is
-        the sole emitter of gpio_routing / gpio_routing_clear events.
+        the sole emitter of gpio_routing / gpio_routing_clear events,
+        and it diffs the chip's table against `_emitted_routes`, not
+        against the router this callback keeps warm.
         The callback's only benefit over the poll alone is reducing
         the worst-case routing-to-emit latency from ~100 ms to one
         poll tick, AND keeping the snapshot dict warm so the next

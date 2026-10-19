@@ -1,0 +1,110 @@
+/* ── Per-board control row (BoardDock) ───────────────────────────────── */
+/* Above components (z 1/2) and wires (z 20), below the pin overlay (z 30). */
+.board-docks-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+.board-dock {
+  position: absolute;
+  transform-origin: 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: max-content;
+  pointer-events: none; /* only the pills take clicks */
+}
+
+.board-dock-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--wb-3);
+  border: 1px solid var(--wb-6);
+  box-shadow: var(--shadow-1, 0 1px 3px rgba(0, 0, 0, 0.35));
+  pointer-events: auto;
+}
+/* Nothing in it (a board with no capabilities, OSS slot empty): no pill. */
+.board-dock-group:not(:has(button)) {
+  display: none;
+}
+
+.board-dock-group--edit {
+  margin-left: auto;
+}
+
+/* Capabilities that only act on a running board read as available-later
+   while the board is idle; SD (files are uploaded before Run) stays lit. */
+.board-dock-group--idle > button:not(.board-dock-btn--sd),
+.board-dock-group--idle > div > button {
+  opacity: 0.6;
+}
+.board-dock-group--idle > button:not(.board-dock-btn--sd):hover,
+.board-dock-group--idle > div > button:hover {
+  opacity: 1;
+}
+
+.board-dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--wb-12);
+  cursor: pointer;
+}
+.board-dock-btn:hover:not(:disabled) {
+  background: var(--color-wash-hover);
+}
+.board-dock-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* Separates the board actions from the destructive / inspector pair. */
+.board-dock-group--edit > button:nth-last-child(2) {
+  margin-left: 4px;
+}
+.board-dock-btn:focus-visible {
+  outline: 2px solid var(--color-action-primary);
+  outline-offset: -2px;
+}
+.board-dock-btn--sd {
+  color: var(--color-action-primary);
+}
+.board-dock-btn--danger:hover {
+  color: var(--color-feedback-error);
+}
+
+.board-dock-slot {
+  display: inline-flex;
+  align-items: center;
+}
+.board-dock-slot > div {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The camera / mic / sensors toggles were built for the canvas header:
+   icon-only and compact here (state lives in the colour + tooltip). */
+.board-dock .canvas-cam-mic-btn,
+.board-dock-group > div > button {
+  height: 24px !important;
+  padding: 0 5px !important;
+  gap: 0 !important;
+  border-radius: 6px !important;
+}
+.board-dock .canvas-cam-mic-btn > span,
+.board-dock-group > div > button > span {
+  display: none;
+}

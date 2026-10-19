@@ -1530,14 +1530,14 @@
             "12",
             "24"
           ],
-          "description": "Nominal coil voltage (V)"
+          "description": "Nominal coil voltage (V). Contacts pull in at 75% of it"
         },
         {
           "name": "coil_resistance",
           "type": "number",
           "defaultValue": 70,
           "control": "text",
-          "description": "Coil resistance (Ω)"
+          "description": "Coil resistance (Ω). Sets the coil current (coil voltage / R)"
         },
         {
           "name": "include_flyback",

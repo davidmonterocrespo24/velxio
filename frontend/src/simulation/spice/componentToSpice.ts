@@ -1124,7 +1124,7 @@ const MAPPERS: Record<string, Mapper> = {
   },
 
   // ── Electromechanical relay (SPDT, 5-pin) ───────────────────────────────
-  // Coil is modelled as R + L in parallel. Contacts are voltage-controlled
+  // Coil is modelled as R in series with L. Contacts are voltage-controlled
   // switches (ngspice `S` element) with native hysteresis via Vt/Vh — avoids
   // chatter when V_COIL sits near the activation threshold. The NC contact
   // uses a B-source that inverts the coil voltage as its control signal,
@@ -1144,7 +1144,26 @@ const MAPPERS: Record<string, Mapper> = {
     if (!cp || !cn || !com) return null;
     const coilR = Number(comp.properties.coil_resistance ?? 70);
     const coilV = Number(comp.properties.coil_voltage ?? 5);
-    const threshold = coilV * 0.6; // drop-in at 60% of nominal
+    // The contacts follow the voltage ACROSS the coil, not its current. With
+    // a fixed R the two are proportional (I = V_coil / R), so a threshold in
+    // volts is the same test as one in amps, and it stays right for every
+    // Vnom / R pair: a 12 V / 400 Ω relay (30 mA) pulls in at 12 V exactly
+    // like the 5 V / 70 Ω default (71 mA). coil_resistance therefore sets the
+    // CURRENT the coil draws (an ammeter in series reads Vnom / R: 71.4 mA
+    // at 70 Ω, 0.9 nA at 5.365 GΩ) and matters as soon as the drive has
+    // resistance of its own: through 1 kΩ a 70 Ω coil keeps 0.33 V and
+    // stays open while a 5 GΩ one keeps 5 V and closes. From an ideal rail
+    // at Vnom the contact state cannot depend on R, which is what issue
+    // #373 read as the field being "non-functional".
+    //
+    // ngspice SW closes at Vt + Vh and opens at Vt - Vh, so these give
+    // pull-in at 0.75 Vnom and drop-out at 0.45 Vnom. Measured on a
+    // 0 -> 5 -> 0 V ramp with the default coil: NO closes at 3.754 V and
+    // opens at 2.248 V. A Songle SRD-05VDC-SL-C, the 5 V / 70 Ω part the
+    // defaults describe, specifies 75% pull-in, so the closing edge is the
+    // datasheet figure. A bare .op has no history and leaves the switch open
+    // anywhere inside the band (3.3 V on a 5 V coil solves open).
+    const threshold = coilV * 0.6;
     const hysteresis = coilV * 0.15;
     const includeFlyback = comp.properties.include_flyback !== false;
     // A relay coil is a wire-wound inductor: R (of the copper) in SERIES

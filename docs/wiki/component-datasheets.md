@@ -377,7 +377,7 @@ Every component id, grouped by category. `[x]` = already has a datasheet,
 
 #### electromech (2)
 - [ ] `motor-driver-l293d` — L293D (Dual H-Bridge Motor Driver)
-- [ ] `relay` — Relay (SPDT)
+- [x] `relay` — Relay (SPDT)
 
 #### input (6)
 - [ ] `dip-switch-8` — DIP Switch 8

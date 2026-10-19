@@ -168,6 +168,7 @@ export function buildLoadPayload(project: RawProject) {
         boardKind: b.boardKind as BoardKind,
         x: b.x ?? 50,
         y: b.y ?? 50,
+        rotation: b.rotation,
         running: false,
         compiledProgram: b.compiledProgram ?? null,
         serialOutput: '',
