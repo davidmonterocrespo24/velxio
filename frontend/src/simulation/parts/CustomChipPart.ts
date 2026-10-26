@@ -17,7 +17,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { normalizeChipPinNames, normalizeChipPulls } from '../customChips/chipJson';
 import { clearChipDrives } from '../customChips/chipPinDrives';
-import { isSyntheticChipPin } from '../customChips/syntheticPins';
+import { isSyntheticChipPin, syntheticChipPin } from '../customChips/syntheticPins';
 import { resolveChipNetMembers } from '../customChips/chipNets';
 import { requestElectricalResolve } from '../spice/electricalResolveHook';
 import { runChipAttachExtensions } from '../customChips/chipAttachExtensions';
@@ -400,14 +400,23 @@ PartSimulationRegistry.register('custom-chip', {
     }
     // ── End ESP32 path ──────────────────────────────────────────────────────
 
-    // Resolve every chip pin name to its wired Arduino pin (if any).
+    // Resolve every chip pin name to its wired Arduino pin, or else to the
+    // chip's own synthetic pin. The trace answers "a rail" (no key) for a pad
+    // whose node reaches a supply through a resistor and no board pin: an
+    // input with a pull-down, or a relay contact with a pull-down feeding a
+    // shift register. The pin then had no key at all, so the chip read 0
+    // forever while connectChipInputsToSolve published the solved level on
+    // exactly this synthetic pin, and an output there drove nothing (user
+    // report 2026-10-23: a 74HC165 reading relay contacts never saw them).
+    // The synthetic pin is what the solve reads and writes for the pad.
     const wires = new Map<string, number>();
     for (const name of pins) {
       if (!name) continue;
       const arduinoPin = getArduinoPin(name);
-      if (arduinoPin !== null && arduinoPin >= 0) {
-        wires.set(name, arduinoPin);
-      }
+      wires.set(
+        name,
+        arduinoPin !== null && arduinoPin >= 0 ? arduinoPin : syntheticChipPin(componentId, name),
+      );
     }
 
     // Convert the attribute maps into Maps for the JS runtime.

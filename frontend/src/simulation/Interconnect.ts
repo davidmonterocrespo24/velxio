@@ -336,6 +336,67 @@ function pushSerialByte(boardId: string, ch: string, uart: number): void {
 // pin; PinManager handles fan-out internally so we don't need our own
 // fanout map for these.
 
+/** A browser simulator that can place a level change at a future cycle. */
+interface TimedSim {
+  getCurrentCycles(): number;
+  getClockHz(): number;
+  schedulePinChange(pin: number, state: boolean, atCycle: number): void;
+}
+
+function asTimedSim(sim: unknown): TimedSim | null {
+  const s = sim as Partial<TimedSim> | undefined;
+  return s &&
+    typeof s.getCurrentCycles === 'function' &&
+    typeof s.getClockHz === 'function' &&
+    typeof s.schedulePinChange === 'function'
+    ? (s as TimedSim)
+    : null;
+}
+
+/** A link idle this long (in seconds of the sender's time) starts its next
+ *  edge at the receiver's "now" again instead of after the previous one. */
+const LINK_REANCHOR_S = 0.05;
+
+/**
+ * Deliver a sender's edges to the receiver at the SPACING they had.
+ *
+ * Every browser board runs its own animation-frame loop and executes about
+ * 16 ms of cycles per frame in one go. A sketch bit-banging a line (a
+ * SoftwareSerial TX: 104 us bits at 9600 baud) produces a whole byte inside
+ * its burst while the receiving board is not executing at all, so a plain
+ * setPinState handed the receiver every edge at once and it only ever saw
+ * the last level: SoftwareSerial between two Unos received nothing (#397).
+ *
+ * Instead each edge is scheduled on the receiver's own cycle clock, the
+ * sender's interval since the previous edge on this link converted between
+ * the two clocks, so bit periods arrive intact a frame later. A link that
+ * was quiet for LINK_REANCHOR_S re-anchors at the receiver's current cycle,
+ * which keeps the lag from growing. Boards without a cycle clock get the
+ * immediate write they always had.
+ */
+function makeTimedPush(fromBoardId: string, toBoardId: string, toPin: number) {
+  let lastFrom = -1;
+  let lastTo = -1;
+  return (state: boolean) => {
+    const src = asTimedSim(runtime?.getBoardSimulator(fromBoardId));
+    const dst = asTimedSim(runtime?.getBoardSimulator(toBoardId));
+    if (!src || !dst) {
+      pushPinState(toBoardId, toPin, state);
+      return;
+    }
+    const fromNow = src.getCurrentCycles();
+    const toNow = dst.getCurrentCycles();
+    const srcHz = src.getClockHz();
+    const gapS = lastFrom < 0 ? Infinity : (fromNow - lastFrom) / srcHz;
+    let at = gapS < LINK_REANCHOR_S && lastTo >= 0 ? lastTo + gapS * dst.getClockHz() : toNow;
+    if (at < toNow) at = toNow;
+    lastFrom = fromNow;
+    lastTo = at;
+    if (at <= toNow) pushPinState(toBoardId, toPin, state);
+    else dst.schedulePinChange(toPin, state, Math.round(at));
+  };
+}
+
 function installBrowserPinSubscription(
   fromBoardId: string,
   fromPin: number,
@@ -345,8 +406,11 @@ function installBrowserPinSubscription(
   if (!runtime) return () => {};
   const pm = runtime.getBoardPinManager(fromBoardId);
   if (!pm?.onPinChange) return () => {};
+  const push = makeTimedPush(fromBoardId, toBoardId, toPin);
   const unsub = pm.onPinChange(fromPin, (_p: number, state: boolean) => {
-    pushPinState(toBoardId, toPin, state);
+    // The reverse hop of a synchronous delivery (see pushPinState's guard).
+    if (propagatingPins.has(`${fromBoardId}:${fromPin}`)) return;
+    push(state);
   });
   return typeof unsub === 'function' ? unsub : () => {};
 }

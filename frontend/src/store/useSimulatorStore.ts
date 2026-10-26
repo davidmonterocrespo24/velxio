@@ -1614,6 +1614,10 @@ interface SimulatorState {
    *  can create boards before the factory exists). No-op (false) for
    *  non-ESP32 kinds or while the board is running. */
   rebuildEsp32Bridge: (boardId: string) => boolean;
+  /** Bumped every time rebuildEsp32Bridge swaps a board's bridge. Whatever
+   *  captured the old bridge (a board's built-ins: its buttons, keyboard,
+   *  speaker) keys on it to re-attach against the new one. */
+  esp32BridgeEpoch: number;
   removeBoard: (boardId: string) => void;
   /** Reload the entire workspace from a saved project payload. Tears down
    *  all current boards, recreates them with their saved IDs (so wire
@@ -2219,6 +2223,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           pinManager: pinManagerMap.get(boardId) ?? legacyPinManager,
         });
       }
+      set((s) => ({ esp32BridgeEpoch: s.esp32BridgeEpoch + 1 }));
       return true;
     },
 
@@ -2613,6 +2618,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     },
 
     canvasClipboard: null,
+    esp32BridgeEpoch: 0,
 
     copyBoard: (boardId: string) => {
       const board = get().boards.find((b) => b.id === boardId);

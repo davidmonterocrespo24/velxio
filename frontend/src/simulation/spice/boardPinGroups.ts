@@ -97,6 +97,12 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
   'raspberry-pi-4': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
   'raspberry-pi-5': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
 
+  // The older Pis share the 40-pin header's power layout with the Pi 3 (the
+  // Pi 1's 26-pin header has the same names on the pins it keeps). Absent
+  // from this table they fell to `default` and their 3V3 pin floated.
+  'raspberry-pi-zero': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
+  'raspberry-pi-1': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
+  'raspberry-pi-2': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
   esp32: {
     vcc: 3.3,
     gnd: ['GND', 'GND.1', 'GND.2'],

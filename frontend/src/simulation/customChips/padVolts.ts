@@ -38,6 +38,22 @@ export function padVolts(componentId: string, pad: string): number | null {
 }
 
 /**
+ * The solved main supply rail (the board's logic VCC: 3.3 V on an ESP32 or a
+ * Pico, 5 V on an Uno), or null before the first solve stamps it.
+ */
+export function logicRailVolts(): number | null {
+  const v = useElectricalStore.getState().nodeVoltages['vcc_rail'];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Calls `cb` after every solve that published new node voltages. */
+export function onSolve(cb: () => void): () => void {
+  return useElectricalStore.subscribe((s, prev) => {
+    if (s.nodeVoltages !== prev.nodeVoltages) cb();
+  });
+}
+
+/**
  * What a remote host is told about a chip's pads: for each chip pin name, the
  * solved voltage of the pad it is, or null for a pad in the air. `pinPads`
  * maps chip pin names to the component's pad names (they are the same for a

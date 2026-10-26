@@ -154,6 +154,7 @@ const MINIMAL_FIXTURES: Record<string, Fixture> = {
   'diode-1n5819': { pins: ['A', 'C'] },
   photodiode: { pins: ['A', 'C'], properties: { lux: 500 } },
   relay: { pins: ['COIL+', 'COIL-', 'COM', 'NO', 'NC'], properties: { coil_voltage: 5 } },
+  'ks2e-m-dc5': { pins: ['COIL1', 'COIL2', 'P1', 'NO1', 'NC1', 'P2', 'NO2', 'NC2'] },
   'opto-4n25': { pins: ['AN', 'CAT', 'COL', 'EMIT'] },
   'opto-pc817': { pins: ['AN', 'CAT', 'COL', 'EMIT'] },
   // ICs: include at least one full gate (1A, 1B, 1Y) so the mapper emits

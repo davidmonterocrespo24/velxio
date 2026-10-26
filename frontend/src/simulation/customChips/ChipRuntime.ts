@@ -17,7 +17,7 @@ import { requestElectricalResolve } from '../spice/electricalResolveHook';
 import { chipBusEnabled } from './chipNets';
 import { setBusDrive, setBoardPinDrive, setBoardPinPull, clearBusDriversForChip } from './busNets';
 import { modeToDrive, Strength, HIGHZ_DRIVE } from './busLogic';
-import { padNet, padVolts } from './padVolts';
+import { logicRailVolts, onSolve, padNet, padVolts } from './padVolts';
 
 function readCString(memory: WebAssembly.Memory, ptr: number): string {
   const u8 = new Uint8Array(memory.buffer);
@@ -270,8 +270,12 @@ export interface ChipInstanceOptions {
   componentId?: string;
 }
 
-/** Logic-high voltage a chip output pin asserts on its SPICE net. */
+/** Logic-high a chip output asserts when nothing says what its supply is:
+ *  no supply pad wired and no rail solved yet. */
 const CHIP_OUTPUT_VCC = 5;
+
+/** The pads a chip is powered from; a CMOS output swings to this level. */
+const SUPPLY_PADS = ['VCC', 'VDD'];
 
 export class ChipInstance {
   static MODE_INPUT = 0;
@@ -637,6 +641,8 @@ export class ChipInstance {
     // Stop driving any bus nets this chip contributed to, then re-resolve them
     // so a removed chip releases the bus (its drivers no longer count).
     if (this.componentId) clearBusDriversForChip(this.pinManager, this.componentId);
+    this._unwatchSupply?.();
+    this._unwatchSupply = null;
     this.disposed = true;
   }
 
@@ -900,11 +906,50 @@ export class ChipInstance {
       ? setChipPinDrive(
           this.componentId,
           p.name,
-          this.pinManager.getPinState(p.arduinoPin) ? CHIP_OUTPUT_VCC : 0,
+          this.pinManager.getPinState(p.arduinoPin) ? this._supplyVolts() : 0,
         )
       : setChipPinDrive(this.componentId, p.name, null);
+    if (isOutput) this._watchSupply();
     if (changed) requestElectricalResolve();
   }
+
+  /**
+   * The level a HIGH output drives: the chip's own supply, as on silicon. A
+   * 74HC595 on a 3.3 V board puts out 3.3 V, so a 5 V relay coil it drives
+   * stays released; a fixed 5 V here pulled it in. The supply pad's solved
+   * voltage when it is wired, else the board's logic rail, else 5 V.
+   */
+  private _supplyVolts(): number {
+    // Rounded to 10 mV: a solved supply comes back as 3.3000000000000003 one
+    // solve and 3.2999835 the next, and setChipPinDrive compares exactly, so
+    // an unrounded level would count as a change after every solve and the
+    // re-publish below would ask for solves without end.
+    const q = (v: number) => Math.round(v * 100) / 100;
+    if (this.componentId) {
+      for (const pad of SUPPLY_PADS) {
+        const v = padVolts(this.componentId, pad);
+        if (v !== null && v > 0.5) return q(v);
+      }
+    }
+    const rail = logicRailVolts();
+    return rail !== null && rail > 0.5 ? q(rail) : CHIP_OUTPUT_VCC;
+  }
+
+  /**
+   * Re-publish the outputs when a solve moves the supply: a chip writes its
+   * outputs at setup, before the first solve has a number for its VCC pad, so
+   * they started at the fallback level and stayed there. A solve that leaves
+   * the supply where it was changes no drive and asks for no new solve.
+   */
+  private _watchSupply(): void {
+    if (this._unwatchSupply || this.disposed) return;
+    this._unwatchSupply = onSolve(() => {
+      if (this.disposed) return;
+      for (const p of this.pins) this._syncSpiceDrive(p);
+    });
+  }
+
+  private _unwatchSupply: (() => void) | null = null;
 
   private _pin_register(namePtr: number, mode: number): number {
     const name = readCString(this.memory!, namePtr);
