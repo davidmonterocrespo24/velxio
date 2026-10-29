@@ -44,12 +44,29 @@ import { boardPinToNumber } from '../../utils/boardPinMapping';
 import { getProBoard } from '../../lib/proBoardRegistry';
 
 // Which Arduino-style pin name maps to which ADC channel, per board.
-function adcRange(prefix: string, start: number, count: number) {
+function adcRange(
+  prefix: string,
+  start: number,
+  count: number,
+  firstChannel = 0,
+): Array<{ pinName: string; channel: number }> {
   return Array.from({ length: count }, (_, i) => ({
     pinName: `${prefix}${start + i}`,
-    channel: i,
+    channel: firstChannel + i,
   }));
 }
+
+/** An explicit GPIO list in channel order, like the classic ESP32's ADC2. */
+function adcList(
+  prefix: string,
+  gpios: readonly number[],
+  firstChannel: number,
+): Array<{ pinName: string; channel: number }> {
+  return gpios.map((gpio, i) => ({ pinName: `${prefix}${gpio}`, channel: firstChannel + i }));
+}
+
+/** Classic ESP32 ADC2 channel -> GPIO (soc/esp32/include/soc/adc_channel.h). */
+const ESP32_ADC2_GPIOS = [4, 0, 2, 15, 13, 12, 14, 27, 25, 26] as const;
 
 const ADC_6CH = adcRange('A', 0, 6);
 const ADC_8CH = adcRange('A', 0, 8);
@@ -98,11 +115,17 @@ export const ADC_PIN_MAP: Partial<Record<BoardKind, Array<{ pinName: string; cha
   // matched the bare-number pin names actual wires carry ('34', '4', 'A0'),
   // so the SPICE->ADC path silently skipped every esp32-family pin
   // (2026-07 emulation-gaps audit; divider circuits read 0 forever).
-  esp32: adcRange('', 32, 8),
-  'esp32-devkit-c-v4': adcRange('', 32, 8),
-  'esp32-cam': adcRange('', 32, 8),
-  'wemos-lolin32-lite': adcRange('GPIO', 32, 8),
-  'esp32-s3': adcRange('', 1, 10),
+  // Both ADC units. ADC2 (GPIO4/0/2/15/13/12/14/27/25/26 = ch0-9) is listed
+  // at channel 10 + ch, the second-unit convention the S3 entry below already
+  // used; the bridges turn it into their engine's own addressing. Until
+  // 2026-10-29 only ADC1 was here, so a solve never reached an ADC2 pin: a pH
+  // probe on GPIO27 and an NTC on GPIO26 read 0.0 and -90 C in a user project.
+  esp32: [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
+  'esp32-devkit-c-v4': [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
+  'esp32-cam': [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
+  'wemos-lolin32-lite': [...adcRange('GPIO', 32, 8), ...adcList('GPIO', ESP32_ADC2_GPIOS, 10)],
+  // S3: ADC1 GPIO1-10 (ch0-9) and ADC2 GPIO11-20 (10 + ch0-9).
+  'esp32-s3': [...adcRange('', 1, 10), ...adcRange('', 11, 10, 10)],
   'xiao-esp32-s3': adcRange('D', 0, 9),
   'arduino-nano-esp32': adcRange('A', 0, 8),
   'esp32-c3': adcRange('', 0, 6),

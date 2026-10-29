@@ -873,9 +873,24 @@ export class Esp32Bridge {
     this._send({ type: 'esp32_chip_net', data: { net, level, ts } });
   }
 
+  /**
+   * The worker's analog slots (qemu_picsimlab_set_apin → esp32_sens.c
+   * ADC_values[]): ADC1 channel c is slot c, ADC2 channel c is slot 8 + c
+   * (`ch = s->channel2 + 8` on the MEAS2 read). The tab's convention is
+   * 10 + c for the second unit (adcChannelForPin / adcChannelForGpio), so the
+   * number is translated at the one place it leaves the tab.
+   */
+  private workerAdcSlot(channel: number): number {
+    if (toQemuBoardType(this.boardKind) !== 'esp32') return channel; // the S3 stub takes 10-19 as is
+    return channel >= 10 ? 8 + (channel - 10) : channel;
+  }
+
   /** Set an ADC channel voltage (millivolts, 0–3300) */
   setAdc(channel: number, millivolts: number): void {
-    this._send({ type: 'esp32_adc_set', data: { channel, millivolts } });
+    this._send({
+      type: 'esp32_adc_set',
+      data: { channel: this.workerAdcSlot(channel), millivolts },
+    });
   }
 
   /**
@@ -900,7 +915,7 @@ export class Esp32Bridge {
       typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64');
     this._send({
       type: 'esp32_adc_waveform',
-      data: { channel, samples_u12_b64: base64, period_ns: periodNs },
+      data: { channel: this.workerAdcSlot(channel), samples_u12_b64: base64, period_ns: periodNs },
     });
   }
 
@@ -908,7 +923,7 @@ export class Esp32Bridge {
   clearAdcWaveform(channel: number): void {
     this._send({
       type: 'esp32_adc_waveform',
-      data: { channel, samples_u12_b64: '', period_ns: 0 },
+      data: { channel: this.workerAdcSlot(channel), samples_u12_b64: '', period_ns: 0 },
     });
   }
 

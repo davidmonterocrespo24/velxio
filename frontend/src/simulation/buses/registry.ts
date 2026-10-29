@@ -244,7 +244,14 @@ export class BusRegistry {
     if (this.resolver.running) {
       const running = new Set<string>();
       for (const id of present) if (this.resolver.running(id)) running.add(id);
-      for (const id of running) if (!this.wasRunning.has(id)) this.forgetDiagnostics(id);
+      for (const id of running) {
+        if (this.wasRunning.has(id)) continue;
+        this.forgetDiagnostics(id);
+        // The remote-gap verdict waited for this moment (see the fabric's
+        // sink above); a device whose placement did not change is not
+        // re-placed below, so the fabric says it now for every bus it holds.
+        this.fabrics.get(id)?.reportRemoteGaps();
+      }
       this.wasRunning = running;
     }
     for (const e of this.spi.values()) this.place(e);
@@ -263,7 +270,15 @@ export class BusRegistry {
       f = new BoardBusFabric(
         boardId,
         () => this.resolver.boardKind(boardId),
-        (d) => this.emit(d),
+        // "The worker has no model of this part" is a verdict about the engine
+        // the board will run on, and that engine is only decided at Run
+        // (DelegatingEsp32Bridge picks JS or QEMU per run). Said at wiring
+        // time it was said about the stock QEMU bridge a board starts with
+        // before the overlay rebuilds it, and users read "runs in the backend
+        // and has no model of the part" about a BME280 that answered fine two
+        // seconds later. So it waits for the board to run, like the wiring
+        // verdicts; the run re-places every device and says it then if true.
+        (d) => (d.code === 'bus-remote-responder-missing' ? this.emitWiring(d) : this.emit(d)),
         () => this.i2cMapChanged(boardId),
         () => this.uartMapChanged(boardId),
       );

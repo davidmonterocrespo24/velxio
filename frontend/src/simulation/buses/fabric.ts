@@ -251,6 +251,17 @@ export class BoardBusFabric {
     }
   }
 
+  /**
+   * Say again which targets the board's remote controllers have no model of.
+   * The registry calls it when a board starts running: the verdict waits for
+   * the run (emitWiring), and a run that changes nothing about the wiring
+   * re-places no device, so nothing else would say it.
+   */
+  reportRemoteGaps(): void {
+    for (const bus of this.i2cBuses.values()) bus.reportRemoteGaps();
+    for (const bus of this.spiBuses.values()) bus.reportRemoteGaps();
+  }
+
   dispose(): void {
     this.releaseBinding();
     this.binding = null;

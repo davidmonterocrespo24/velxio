@@ -118,6 +118,9 @@ import {
 // payload so the worker has them before the firmware runs.
 const SENSOR_COMPONENT_MAP = SINGLE_WIRE_SENSOR_MODELS;
 
+/** Classic ESP32 ADC2 channel → GPIO (soc/adc_channel.h): ch0..9. */
+const ESP32_ADC2_GPIO = [4, 0, 2, 15, 13, 12, 14, 27, 25, 26];
+
 // ── I2C sensor pre-registration ───────────────────────────────────────────────
 // An I2C sensor's worker record is keyed by a slot of its own component
 // (i2cPartWorkerPin), not by a GPIO, and carries the component as its owner:
@@ -695,6 +698,13 @@ export class Esp32BridgeShim {
     }
     if (pin >= 36 && pin <= 39) return pin - 36; // GPIO 36→CH0 … 39→CH3
     if (pin >= 32 && pin <= 35) return pin - 28; // GPIO 32→CH4 … 35→CH7
+    // Classic ESP32 ADC2: GPIO4/0/2/15/13/12/14/27/25/26 → ch0..9, answered as
+    // 10 + ch (channels ≥ 10 are the second unit, the same convention the S3
+    // map above uses for GPIO11-20). Until 2026-10-29 these pins answered -1,
+    // so setAdcVoltage dropped the value and analogRead() read 0 on every
+    // engine: a pH probe on GPIO27 and an NTC on GPIO26 printed pH 0.0 / -90 C.
+    const adc2 = ESP32_ADC2_GPIO.indexOf(pin);
+    if (adc2 >= 0) return 10 + adc2;
     return -1;
   }
 

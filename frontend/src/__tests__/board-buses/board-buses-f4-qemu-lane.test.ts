@@ -107,6 +107,12 @@ function qemuBoard() {
   bridge.connect();
   const ws = ScriptedSocket.last!;
   ws.open();
+  // A connected QEMU session is a running board: Run is what opens the socket,
+  // and the verdicts about where the controller runs wait for it (the engine
+  // is only decided at Run; see the registry's remote-gap sink).
+  useSimulatorStore.setState((s) => ({
+    boards: s.boards.map((b) => (b.id === id ? { ...b, running: true } : b)),
+  }));
   return { id, ws, bridge };
 }
 
