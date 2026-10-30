@@ -4677,6 +4677,15 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // Sequential on purpose: each wire sees the already-re-routed shapes
       // of the ones before it, which is what lays parallel runs out as a
       // tidy side-by-side bus instead of a shuffle of overlaps.
+      //
+      // ONLY those, plus the hand-authored wires: never the stale shape a
+      // later auto-routed wire still carries from the previous pass. With
+      // those in, a pass routed against the leftovers of the pass before it,
+      // so the same project came out in a different shape depending on how
+      // many passes had run (on a slow network a pass ran before the parts
+      // were measured, and its leftovers bent the final routes). Without
+      // them a pass depends only on the endpoints and the parts, and running
+      // it again changes nothing.
       if (updatedWires.some((w) => w.autoRouted && !w.bb)) {
         const rectsById = collectComponentRects(state.components);
         const key = JSON.stringify([
@@ -4694,7 +4703,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             { x: wire.start.x, y: wire.start.y },
             { x: wire.end.x, y: wire.end.y },
             rects,
-            collectWireSegments(updatedWires, wire.id),
+            collectWireSegments(
+              updatedWires.filter((w, j) => j < i || !w.autoRouted),
+              wire.id,
+            ),
           );
           // routed === null means the PREVIEW elbow (longer-axis-first) is
           // clear — so that exact elbow must be materialised. Storing []

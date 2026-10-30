@@ -165,6 +165,47 @@ describe('recalculateAllWirePositions — auto-route pass', () => {
     );
   });
 
+  it('a pass depends only on the parts and endpoints, not on leftover shapes', () => {
+    const s = useSimulatorStore.getState();
+    // w2 runs far below w1 (y ~ 300), so the two never compete for a lane.
+    s.setComponents([
+      ...useSimulatorStore.getState().components,
+      { id: 'c1', metadataId: 'resistor', x: 0, y: 294, properties: {} },
+      { id: 'c2', metadataId: 'resistor', x: 294, y: 294, properties: {} },
+    ] as never);
+    mountComponent('c1'); mountComponent('c2');
+    const route = (w2Waypoints: { x: number; y: number }[]) => {
+      s.setWires([
+        wireBetween('w1', 'a1', 'a2', { autoRouted: true }),
+        wireBetween('w2', 'c1', 'c2', { autoRouted: true, waypoints: w2Waypoints }),
+      ] as never);
+      s.recalculateAllWirePositions();
+      return useSimulatorStore.getState().wires.map((w) => w.waypoints);
+    };
+    const clean = route([]);
+    // w2 still carries a detour from an earlier pass that rides right on top
+    // of w1's lane (y = 110, just under the parts). w1 is routed first and
+    // must not bend around a shape this very pass is about to replace.
+    const leftover = route([
+      { x: 40, y: 300 }, { x: 40, y: 110 }, { x: 260, y: 110 }, { x: 260, y: 300 },
+    ]);
+    expect(leftover).toEqual(clean);
+  });
+
+  it('running the pass again on its own output changes nothing', () => {
+    const s = useSimulatorStore.getState();
+    s.setWires([
+      wireBetween('w1', 'a1', 'a2', { autoRouted: true }),
+      wireBetween('w2', 'b1', 'b2', { autoRouted: true }),
+    ] as never);
+    s.recalculateAllWirePositions();
+    const once = useSimulatorStore.getState().wires.map((w) => w.waypoints);
+    // A fresh array defeats the no-op memo, so the router really runs again.
+    s.setWires(useSimulatorStore.getState().wires.map((w) => ({ ...w })) as never);
+    s.recalculateAllWirePositions();
+    expect(useSimulatorStore.getState().wires.map((w) => w.waypoints)).toEqual(once);
+  });
+
   it('bb seating wires are never routed', () => {
     const s = useSimulatorStore.getState();
     s.setWires([
