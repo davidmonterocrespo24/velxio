@@ -234,6 +234,27 @@ describe('fuseMicroJogs', () => {
     ];
     expect(fuseMicroJogs(pts)).toEqual(pts);
   });
+
+  it('terminates on two micro jogs that undo each other', () => {
+    // Fusing either jog recreates the other: without a pass cap this never
+    // returned, and froze the tab while a 452-wire project rendered.
+    const pts = [
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 5, y: 1 },
+      { x: 10, y: 1 },
+      { x: 10, y: 2 },
+      { x: 8, y: 2 },
+    ];
+    const out = fuseMicroJogs(pts);
+    expect(out[0]).toEqual(pts[0]);
+    expect(out[out.length - 1]).toEqual(pts[pts.length - 1]);
+    for (let i = 1; i < out.length; i++) {
+      const a = out[i - 1];
+      const b = out[i];
+      expect(a.x === b.x || a.y === b.y, `segment ${i} is diagonal`).toBe(true);
+    }
+  });
 });
 
 describe('normalizeWireWaypoints', () => {

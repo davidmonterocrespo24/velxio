@@ -176,14 +176,21 @@ export const MICRO_JOG_EPS = 2;
  * step shorter than `eps`, align one run onto the other so the wire reads
  * as a single straight line. The run NOT anchored to a wire endpoint moves
  * (the shorter one when both are free); a jog anchored to endpoints on
- * both sides is structural and stays. Runs until stable.
+ * both sides is structural and stays. Runs until stable, or until a pass
+ * cap: two micro jogs back to back can undo each other forever (fusing
+ * (0,0) (5,0) (5,1) (10,1) (10,2) (8,2) recreates the jog it just
+ * removed). That hung the renderer, and with it the whole tab, on a
+ * 452-wire project. Every move keeps the polyline orthogonal, so stopping
+ * early only leaves a 1-2 px step unfused.
  */
 export function fuseMicroJogs(pts: Point[], eps: number = MICRO_JOG_EPS): Point[] {
   const out = pts.map((p) => ({ ...p }));
   if (out.length < 4) return out;
 
   let changed = true;
-  while (changed) {
+  let passes = 0;
+  const maxPasses = out.length * 2;
+  while (changed && passes++ < maxPasses) {
     changed = false;
     for (let i = 1; i + 2 < out.length; i++) {
       const a = out[i - 1];

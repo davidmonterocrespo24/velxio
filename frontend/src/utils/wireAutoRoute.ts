@@ -74,6 +74,14 @@ const WIRE_WINDOW_MARGIN = 120;
  * direct elbow. Far above any realistic canvas. */
 const MAX_COORDS_PER_AXIS = 256;
 
+/** Hard cap on A* work per wire (heap pops). A wire whose pin is walled in
+ * has no route at all, and A* then visits every state of the grid (up to
+ * 256 x 256 x 3), each step pricing every nearby wire: seconds per wire,
+ * minutes on a dense canvas, with the tab frozen. A real route on a busy
+ * canvas needs a few thousand pops; past the cap the wire takes the direct
+ * elbow, exactly as when the grid is too large. */
+const MAX_EXPANSIONS = 50_000;
+
 function inflate(r: ObstacleRect, m: number): ObstacleRect {
   return { x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m };
 }
@@ -390,7 +398,9 @@ export function routeAroundObstacles(
   const stepClear = (a: Point, b: Point) => rects.every((r) => !segmentHitsRect(a, b, r));
 
   let goal = -1;
+  let expansions = 0;
   while (heap.size) {
+    if (++expansions > MAX_EXPANSIONS) return null;
     const { s } = heap.pop();
     const dir = s % 3;
     const node = (s - dir) / 3;

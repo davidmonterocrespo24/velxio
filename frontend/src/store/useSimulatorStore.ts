@@ -4606,6 +4606,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     recalculateAllWirePositions: () => {
       const state = get();
+      // Wires whose two ends sit on a pin that is actually in the DOM. A
+      // part that has not mounted yet resolves to its corner, and routing
+      // hundreds of wires between corners (all overlapping each other) is
+      // what froze a 452-wire project on load for good on a slower machine:
+      // loadProjectState runs this on the next frame, before the parts
+      // render. Those wires keep their stored shape until the pass that
+      // runs once their part mounts.
+      const pinned = new Set<string>();
       const updatedWires = state.wires.map((wire) => {
         const updated = { ...wire };
 
@@ -4661,6 +4669,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         updated.end = endPos
           ? { ...wire.end, x: endPos.x, y: endPos.y }
           : { ...wire.end, x: endX, y: endY };
+        if (startPos && endPos) pinned.add(wire.id);
 
         return updated;
       });
@@ -4689,13 +4698,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (updatedWires.some((w) => w.autoRouted && !w.bb)) {
         const rectsById = collectComponentRects(state.components);
         const key = JSON.stringify([
-          updatedWires.map((w) => [w.id, w.start.x, w.start.y, w.end.x, w.end.y]),
+          updatedWires.map((w) => [w.id, w.start.x, w.start.y, w.end.x, w.end.y, pinned.has(w.id)]),
           rectsById.map(({ id, rect }) => [id, rect.x, rect.y, rect.w, rect.h]),
         ]);
         if (lastRouted && lastRouted.wires === state.wires && lastRouted.key === key) return;
         for (let i = 0; i < updatedWires.length; i++) {
           const wire = updatedWires[i];
-          if (!wire.autoRouted || wire.bb) continue;
+          if (!wire.autoRouted || wire.bb || !pinned.has(wire.id)) continue;
           const rects = rectsById
             .filter((r) => r.id !== wire.start.componentId && r.id !== wire.end.componentId)
             .map((r) => r.rect);
@@ -4704,7 +4713,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             { x: wire.end.x, y: wire.end.y },
             rects,
             collectWireSegments(
-              updatedWires.filter((w, j) => j < i || !w.autoRouted),
+              updatedWires.filter((w, j) => pinned.has(w.id) && (j < i || !w.autoRouted)),
               wire.id,
             ),
           );
