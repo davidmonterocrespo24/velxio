@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next';
 import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
 import type { AutoSaveState } from '../../hooks/useAutoSaveProject';
 import type { WorkspaceFile } from '../../store/useEditorStore';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { useSimulatorStore, keepWireShapes } from '../../store/useSimulatorStore';
 import { installChipFileSync, ensureChipWasm, flushChipFileSync } from '../../services/chipFiles';
 import { getChipActions, getChipActionsVersion, subscribeChipActions } from '../../lib/chipActions';
 import type { BoardKind } from '../../types/board';
@@ -496,6 +496,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
             ? retargetBoardWires(result.wires, result.boardType, boardId)
             : result.wires,
         );
+        keepWireShapes(useSimulatorStore.getState().wires);
         if (result.files.length > 0) loadFiles(result.files);
         if (result.libraries.length > 0) {
           console.warn(

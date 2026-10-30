@@ -6,7 +6,7 @@
  * re-shaped.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSimulatorStore } from '../store/useSimulatorStore';
+import { useSimulatorStore, keepWireShapes } from '../store/useSimulatorStore';
 import { expandOrthogonalPoints } from '../utils/wireUtils';
 import { WIRE_SEPARATION } from '../utils/wireAutoRoute';
 
@@ -204,6 +204,51 @@ describe('recalculateAllWirePositions — auto-route pass', () => {
     s.setWires(useSimulatorStore.getState().wires.map((w) => ({ ...w })) as never);
     s.recalculateAllWirePositions();
     expect(useSimulatorStore.getState().wires.map((w) => w.waypoints)).toEqual(once);
+  });
+
+  it('a loaded project keeps its saved shapes; moving a part re-routes only its wires', () => {
+    const s = useSimulatorStore.getState();
+    s.setComponents([
+      ...useSimulatorStore.getState().components,
+      { id: 'blocker', metadataId: 'chip', x: 120, y: 40, properties: {} },
+      { id: 'c1', metadataId: 'resistor', x: 0, y: 294, properties: {} },
+      { id: 'c2', metadataId: 'resistor', x: 294, y: 294, properties: {} },
+    ] as never);
+    mountComponent('blocker', 60, 120); // spans y 40..160, across a1 -> a2
+    mountComponent('c1'); mountComponent('c2');
+    // As saved: shapes the router would not choose today. w1 runs through
+    // the blocker and its saved start is 3 px off the pin it resolves to
+    // (a rotated part, an older release); w2 takes a needless detour.
+    const w1Shape = [{ x: 100, y: 100 }, { x: 100, y: 130 }, { x: 200, y: 130 }, { x: 200, y: 100 }];
+    const w2Shape = [{ x: 150, y: 300 }, { x: 150, y: 400 }, { x: 250, y: 400 }, { x: 250, y: 300 }];
+    const saved = [
+      { ...wireBetween('w1', 'a1', 'a2', { autoRouted: true, waypoints: w1Shape }),
+        start: { componentId: 'a1', pinName: 'P', x: 9, y: 100 },
+        end: { componentId: 'a2', pinName: 'P', x: 300, y: 100 } },
+      { ...wireBetween('w2', 'c1', 'c2', { autoRouted: true, waypoints: w2Shape }),
+        start: { componentId: 'c1', pinName: 'P', x: 6, y: 300 },
+        end: { componentId: 'c2', pinName: 'P', x: 300, y: 300 } },
+      // Saved without a shape: never routed (e.g. placed by the agent).
+      { ...wireBetween('w3', 'b1', 'b2', { autoRouted: true }),
+        start: { componentId: 'b1', pinName: 'P', x: 6, y: 96 },
+        end: { componentId: 'b2', pinName: 'P', x: 300, y: 96 } },
+    ];
+    s.setWires(saved as never);
+    keepWireShapes(useSimulatorStore.getState().wires);
+    s.recalculateAllWirePositions();
+    const loaded = useSimulatorStore.getState().wires;
+    const byId = (ws: typeof loaded, id: string) => ws.find((w) => w.id === id)!;
+    expect(byId(loaded, 'w1').waypoints).toEqual(w1Shape);
+    expect(byId(loaded, 'w1').start.x).toBe(6); // the end follows the pin
+    expect(byId(loaded, 'w2').waypoints).toEqual(w2Shape);
+    expect(byId(loaded, 'w3').waypoints).not.toEqual([]); // routed around the blocker
+
+    // Moving a2 moves only w1's end: w1 is routed again, w2 stays as saved.
+    s.updateComponent('a2', { y: 194 } as never);
+    s.recalculateAllWirePositions();
+    const after = useSimulatorStore.getState().wires;
+    expect(byId(after, 'w1').waypoints).not.toEqual(w1Shape);
+    expect(byId(after, 'w2').waypoints).toEqual(w2Shape);
   });
 
   it('bb seating wires are never routed', () => {

@@ -1855,6 +1855,39 @@ interface SimulatorState {
  */
 let lastRouted: { wires: readonly Wire[]; key: string } | null = null;
 
+/**
+ * Each wire's shape as decided, with the two ends it was decided for: the
+ * saved shape for a loaded project, the route computed after that. A pass
+ * re-routes an auto-routed wire only when its ends moved away from that
+ * (or its shape was replaced from outside). Without this, opening a project re-routed every
+ * auto-routed wire, so a wire could come back in a different shape than it
+ * was saved in although nobody touched it (17 of 40 public projects
+ * sampled on 2026-10-30).
+ */
+const routedFrom = new Map<string, string>();
+const endsKey = (w: Pick<Wire, 'start' | 'end' | 'waypoints'>) =>
+  [w.start.x, w.start.y, w.end.x, w.end.y, ...(w.waypoints ?? []).flatMap((p) => [p.x, p.y])]
+    .map((v) => Math.round(v * 10) / 10)
+    .join(',');
+/**
+ * Marker for a wire whose saved shape is kept whatever its ends resolve to
+ * on the first pass that finds both pins. Saved ends are often a few px off
+ * the pin they resolve to today (a rotated part, a part drawn by an older
+ * release), and that is not the user moving anything.
+ */
+const ADOPT_ENDS = '*';
+/**
+ * A loaded project's wires keep the shapes they were saved with. Only an
+ * auto-routed wire saved without a shape (never routed, e.g. one the agent
+ * placed) is routed.
+ */
+export function keepWireShapes(wires: readonly Wire[]): void {
+  routedFrom.clear();
+  for (const w of wires) {
+    if (!w.autoRouted || (w.waypoints?.length ?? 0) > 0) routedFrom.set(w.id, ADOPT_ENDS);
+  }
+}
+
 // ── Helper: create a simulator for a given board kind ─────────────────────
 function createSimulator(
   boardKind: BoardKind,
@@ -2845,6 +2878,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       );
       setComponents(normalizedComponents);
       setWires(payload.wires);
+      keepWireShapes(payload.wires);
 
       // Active board: prefer the saved one, fall back to the first.
       const targetActive =
@@ -4521,6 +4555,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // guided wires are hand-authored from birth.
         autoRouted: waypoints.length === 0,
       };
+      routedFrom.set(newWire.id, endsKey(newWire));
       set((state) => ({ wires: [...state.wires, newWire], wireInProgress: null }));
     },
 
@@ -4702,9 +4737,15 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           rectsById.map(({ id, rect }) => [id, rect.x, rect.y, rect.w, rect.h]),
         ]);
         if (lastRouted && lastRouted.wires === state.wires && lastRouted.key === key) return;
+        const kept = new Set<string>();
+        for (const w of updatedWires) {
+          const basis = routedFrom.get(w.id);
+          if (basis === ADOPT_ENDS && pinned.has(w.id)) routedFrom.set(w.id, endsKey(w));
+          if (basis === ADOPT_ENDS || basis === endsKey(w)) kept.add(w.id);
+        }
         for (let i = 0; i < updatedWires.length; i++) {
           const wire = updatedWires[i];
-          if (!wire.autoRouted || wire.bb || !pinned.has(wire.id)) continue;
+          if (!wire.autoRouted || wire.bb || !pinned.has(wire.id) || kept.has(wire.id)) continue;
           const rects = rectsById
             .filter((r) => r.id !== wire.start.componentId && r.id !== wire.end.componentId)
             .map((r) => r.rect);
@@ -4713,7 +4754,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             { x: wire.end.x, y: wire.end.y },
             rects,
             collectWireSegments(
-              updatedWires.filter((w, j) => pinned.has(w.id) && (j < i || !w.autoRouted)),
+              updatedWires.filter(
+                (w, j) => pinned.has(w.id) && (j < i || !w.autoRouted || kept.has(w.id)),
+              ),
               wire.id,
             ),
           );
@@ -4735,6 +4778,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               { x: wire.end.x, y: wire.end.y },
             ),
           };
+          routedFrom.set(wire.id, endsKey(updatedWires[i]));
         }
         lastRouted = { wires: updatedWires, key };
       }

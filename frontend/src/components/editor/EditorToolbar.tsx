@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { registerEditorCommand } from '../../lib/editorCommands';
 import { publishCompileOutput } from '../../lib/intellisenseRegistry';
 import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
-import { useSimulatorStore, piRerunScript } from '../../store/useSimulatorStore';
+import { useSimulatorStore, piRerunScript, keepWireShapes } from '../../store/useSimulatorStore';
 import { decideEngine } from '../../lib/instantEngine';
 import { blockedByBoardGate } from '../../lib/proBoardGate';
 import { useElectricalStore } from '../../store/useElectricalStore';
@@ -1637,6 +1637,7 @@ export const EditorToolbar = ({
           ? retargetBoardWires(result.wires, result.boardType, boardId)
           : result.wires,
       );
+      keepWireShapes(useSimulatorStore.getState().wires);
       if (result.files.length > 0) loadFiles(result.files);
       // The import itself succeeded, so the toolbar line stays short and
       // green. The warnings go to the message dialog: a long red sentence in
