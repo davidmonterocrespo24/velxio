@@ -1844,6 +1844,17 @@ interface SimulatorState {
   clearBoardSerialOutput: (boardId: string) => void;
 }
 
+/**
+ * What the last re-route pass of recalculateAllWirePositions produced, and
+ * from which inputs. Every part calls that action once its pinInfo is
+ * readable, and the canvas adds settle timers on top: a 71-part project ran
+ * the whole router 70+ times on load, ~600 ms each, and froze the page for
+ * 47 s. When the wires are still the array the last pass stored and neither
+ * an endpoint nor an obstacle moved, the routes it would compute are the
+ * ones already stored.
+ */
+let lastRouted: { wires: readonly Wire[]; key: string } | null = null;
+
 // ── Helper: create a simulator for a given board kind ─────────────────────
 function createSimulator(
   boardKind: BoardKind,
@@ -4668,6 +4679,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // tidy side-by-side bus instead of a shuffle of overlaps.
       if (updatedWires.some((w) => w.autoRouted && !w.bb)) {
         const rectsById = collectComponentRects(state.components);
+        const key = JSON.stringify([
+          updatedWires.map((w) => [w.id, w.start.x, w.start.y, w.end.x, w.end.y]),
+          rectsById.map(({ id, rect }) => [id, rect.x, rect.y, rect.w, rect.h]),
+        ]);
+        if (lastRouted && lastRouted.wires === state.wires && lastRouted.key === key) return;
         for (let i = 0; i < updatedWires.length; i++) {
           const wire = updatedWires[i];
           if (!wire.autoRouted || wire.bb) continue;
@@ -4699,6 +4715,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             ),
           };
         }
+        lastRouted = { wires: updatedWires, key };
       }
 
       set({ wires: updatedWires });

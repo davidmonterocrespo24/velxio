@@ -71,6 +71,22 @@ interface DynamicComponentProps {
   onPinInfoReady?: (pinInfo: any[]) => void;
 }
 
+/**
+ * Every part asks for a full wire recalculation the moment its pinInfo is
+ * readable, and a project's parts become readable together: 71 parts meant
+ * 71 back-to-back passes of the wire router on load. One pass per burst is
+ * enough, so the requests of the same moment share a single one.
+ */
+let wireRecalcQueued = false;
+function queueWireRecalc(): void {
+  if (wireRecalcQueued) return;
+  wireRecalcQueued = true;
+  setTimeout(() => {
+    wireRecalcQueued = false;
+    useSimulatorStore.getState().recalculateAllWirePositions();
+  }, 30);
+}
+
 export const DynamicComponent: React.FC<DynamicComponentProps> = ({
   id,
   metadata,
@@ -287,7 +303,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       try {
         const el = document.getElementById(id) as (HTMLElement & { pinInfo?: unknown[] }) | null;
         if (el && Array.isArray(el.pinInfo) && el.pinInfo.length > 0) {
-          useSimulatorStore.getState().recalculateAllWirePositions();
+          queueWireRecalc();
           return true;
         }
       } catch {

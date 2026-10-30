@@ -144,6 +144,27 @@ describe('recalculateAllWirePositions — auto-route pass', () => {
     }
   });
 
+  it('a pass with nothing moved keeps the stored routes; a move routes again', () => {
+    const s = useSimulatorStore.getState();
+    s.setWires([
+      wireBetween('w1', 'a1', 'a2', { autoRouted: true }),
+      wireBetween('w2', 'b1', 'b2', { autoRouted: true }),
+    ] as never);
+    s.recalculateAllWirePositions();
+    const first = useSimulatorStore.getState().wires;
+    // Every part calls this on mount: a repeat with the same inputs must not
+    // run the router again (a 71-part project froze the page for 47 s).
+    s.recalculateAllWirePositions();
+    expect(useSimulatorStore.getState().wires).toBe(first);
+    s.updateComponent('a2', { y: 300 } as never);
+    s.recalculateAllWirePositions();
+    const moved = useSimulatorStore.getState().wires;
+    expect(moved).not.toBe(first);
+    expect(moved.find((w) => w.id === 'w1')!.end.y).not.toBe(
+      first.find((w) => w.id === 'w1')!.end.y,
+    );
+  });
+
   it('bb seating wires are never routed', () => {
     const s = useSimulatorStore.getState();
     s.setWires([
