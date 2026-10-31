@@ -49,7 +49,7 @@ const OSS_SEO_ROUTES: SeoRoute[] = [
       title:
         'Velxio — Free Online Circuit & Arduino Simulator | SPICE · ESP32 · RP2040 · ATtiny85 · Custom Chips',
       description:
-        'Velxio is a free, open-source online circuit simulator. Real-time SPICE analog simulation (ngspice-WASM) wired to 19 boards: Arduino Uno/Mega/ATtiny85 (AVR8), ESP32 (Xtensa QEMU), ESP32-C3/CH32V003 (RISC-V via QEMU libqemu-riscv32), Raspberry Pi Pico (RP2040), Raspberry Pi 3 (Linux). Build custom chips in C/Rust. 100+ components, oscilloscope, voltmeter, ammeter — no cloud.',
+        'Velxio is a free, open-source online circuit simulator. Real-time SPICE analog simulation (ngspice-WASM) wired to 19 boards: Arduino Uno/Mega/ATtiny85 (AVR8), ESP32 (Xtensa QEMU), ESP32-C3 (RISC-V via QEMU libqemu-riscv32), Raspberry Pi Pico (RP2040), Raspberry Pi 3 (Linux). Build custom chips in C/Rust. 100+ components, oscilloscope, voltmeter, ammeter — no cloud.',
       url: `${DOMAIN}/`,
     },
   },
@@ -222,7 +222,7 @@ const OSS_SEO_ROUTES: SeoRoute[] = [
     seoMeta: {
       title: 'Free ESP32-C3 & RISC-V Simulator — QEMU Emulation | Velxio',
       description:
-        'Simulate ESP32-C3 RISC-V code via the QEMU lcgamboa backend (libqemu-riscv32) at 160 MHz. 48+ components, Serial Monitor. Also supports CH32V003. Free and open-source.',
+        'Simulate ESP32-C3 RISC-V code via the QEMU lcgamboa backend (libqemu-riscv32) at 160 MHz. 48+ components, Serial Monitor. Free and open-source.',
       url: `${DOMAIN}/esp32-c3-simulator`,
     },
   },

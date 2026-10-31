@@ -49,7 +49,7 @@ toolchain. Windows builds go through MSYS2 / MinGW — see
 | File | Architecture | Used for |
 |---|---|---|
 | `libqemu-xtensa.so` | Xtensa LX6 / LX7 | ESP32, ESP32-S3, ESP32-CAM, Arduino Nano ESP32 |
-| `libqemu-riscv32.so` | RISC-V RV32IMC | ESP32-C3, XIAO ESP32-C3, CH32V003 |
+| `libqemu-riscv32.so` | RISC-V RV32IMC | ESP32-C3, XIAO ESP32-C3 |
 
 The Velxio backend `dlopen`s these at runtime through
 `backend/app/services/qemu_runtime.py`. Drop the freshly built files

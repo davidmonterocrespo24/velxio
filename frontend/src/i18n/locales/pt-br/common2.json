@@ -508,7 +508,7 @@
       "heading": "Como Funciona",
       "avrRp2040Body": "Emulação precisa de ciclo roda inteiramente no seu navegador usando avr8js e rp2040js. Nenhum backend necessário para simulação.",
       "esp32Body": "Xtensa ESP32 e ESP32-S3 rodam no backend QEMU (fork lcgamboa) com imagens flash reais, GPIO, ADC e temporizadores.",
-      "riscvBody": "ESP32-C3 (DevKit, XIAO, SuperMini) e CH32V003 são emulados através do fork lcgamboa do QEMU com libqemu-riscv32, o mesmo padrão de backend do Xtensa ESP32.",
+      "riscvBody": "ESP32-C3 (DevKit, XIAO, SuperMini) são emulados através do fork lcgamboa do QEMU com libqemu-riscv32, o mesmo padrão de backend do Xtensa ESP32.",
       "raspiBody": "ARM Cortex-A53 Linux completo via QEMU raspi3b — inicializa o Raspberry Pi OS real e roda Python com RPi.GPIO."
     },
     "openSource": {

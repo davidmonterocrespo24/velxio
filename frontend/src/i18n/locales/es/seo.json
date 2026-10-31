@@ -65,7 +65,7 @@
         "adcBodyCode": "analogRead()",
         "adcBodySuffix": " devuelve la tensión resuelta por SPICE en el nodo de entrada — después de la etapa de ganancia del amplificador operacional, después del divisor, después de la saturación. Lo que mides es lo que produce el circuito.",
         "sameTitle": "Mismo lienzo, mismo reloj",
-        "sameBody": "Arduino + transistor + motor en la misma placa. ESP32 + fotodiodo + amplificador operacional + ADC. CH32V003 + Zener + LED. Valida firmware y hardware juntos antes de soldar."
+        "sameBody": "Arduino + transistor + motor en la misma placa. ESP32 + fotodiodo + amplificador operacional + ADC. Raspberry Pi Pico + Zener + LED. Valida firmware y hardware juntos antes de soldar."
       },
       "faq": {
         "heading": "Preguntas Frecuentes",
@@ -150,7 +150,7 @@
       "hero": {
         "title": "Simulador ESP32-C3 Gratuito",
         "accent": "Emulación RISC-V mediante QEMU",
-        "subtitle": "Simula código RISC-V de ESP32-C3 y CH32V003 mediante el backend QEMU lcgamboa (libqemu-riscv32, máquina esp32c3-picsimlab). RV32IMC a 160 MHz con más de 48 componentes interactivos.",
+        "subtitle": "Simula código RISC-V de ESP32-C3 mediante el backend QEMU lcgamboa (libqemu-riscv32, máquina esp32c3-picsimlab). RV32IMC a 160 MHz con más de 48 componentes interactivos.",
         "ctaPrimary": "Abrir Simulador ESP32-C3",
         "ctaSecondary": "Ejemplos C3",
         "trust": "Gratuito y de código abierto · Backend QEMU lcgamboa · libqemu-riscv32",
@@ -164,9 +164,7 @@
         "xiaoTitle": "XIAO ESP32-C3",
         "xiaoBody": "Placa RISC-V compacta de Seeed Studio. 11 GPIO, USB-C, chip de carga de batería. 21×17.5 mm.",
         "superTitle": "ESP32-C3 SuperMini",
-        "superBody": "Placa ultracompacta de Aitewinrobot. Mismo núcleo RISC-V, factor de forma mínimo para proyectos embebidos.",
-        "chTitle": "CH32V003",
-        "chBody": "RISC-V RV32EC de WCH a 48 MHz. Encapsulado DIP-8 de ultra bajo costo, 2 KB SRAM, 16 KB flash. Solo céntimos por chip."
+        "superBody": "Placa ultracompacta de Aitewinrobot. Mismo núcleo RISC-V, factor de forma mínimo para proyectos embebidos."
       },
       "examples": {
         "heading": "Proyectos de ejemplo ESP32-C3",
@@ -192,7 +190,7 @@
         "q2": "¿El simulador ESP32-C3 se ejecuta en el navegador?",
         "a2": "Sí. A diferencia del ESP32 basado en Xtensa, la emulación RISC-V del ESP32-C3 se ejecuta completamente en el navegador — no se necesita backend QEMU. Esto lo convierte en la variante ESP32 más rápida de simular.",
         "q3": "¿Es esto también un simulador RISC-V?",
-        "a3": "Sí. El ESP32-C3 utiliza el conjunto de instrucciones RISC-V RV32IMC. Velxio también soporta el CH32V003 (RV32EC a 48 MHz) — otro microcontrolador RISC-V popular.",
+        "a3": "Sí. El ESP32-C3 utiliza el conjunto de instrucciones RISC-V RV32IMC.",
         "q4": "¿Qué placas ESP32-C3 son compatibles?",
         "a4": "Velxio soporta ESP32-C3 DevKitM-1, Seeed XIAO ESP32-C3 y ESP32-C3 SuperMini (Aitewinrobot). Las tres utilizan el mismo núcleo RISC-V.",
         "q5": "¿Puedo usar código Arduino con ESP32-C3?",

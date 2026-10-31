@@ -501,14 +501,14 @@
       "p1": "Velxio 始于一次个人探索，研究微控制器仿真器内部如何工作 — CPU 指令、内存管理、外设时序和底层架构。最初只是一个假期中的学习项目，但很快发展成了更大的东西。",
       "p2": "想法很简单：<strong>如果任何人都可以直接在浏览器中模拟 Arduino、ESP32 和 Raspberry Pi 板，无需购买硬件、无需安装工具链、无需云账户，会怎样？</strong>",
       "p3": "Velxio v1 在 Product Hunt 和 Hacker News 上发布，支持 Arduino Uno 和 Raspberry Pi Pico。来自创客和嵌入式社区的反馈令人难以置信 — 并推动了项目向前发展。",
-      "p4": "<strong>Velxio 2.0</strong> 通过 QEMU（使用 lcgamboa 分支）提供了 ESP32 仿真、运行真实 Linux 的 Raspberry Pi 3、对 ESP32-C3 和 CH32V003 的 RISC-V 支持、逼真的传感器仿真（DHT22、HC-SR04、WS2812B NeoPixel），以及跨越 5 种 CPU 架构的 19 块板 — 全部运行真实编译的代码。",
+      "p4": "<strong>Velxio 2.0</strong> 通过 QEMU（使用 lcgamboa 分支）提供了 ESP32 仿真、运行真实 Linux 的 Raspberry Pi 3、对 ESP32-C3 的 RISC-V 支持、逼真的传感器仿真（DHT22、HC-SR04、WS2812B NeoPixel），以及跨越 5 种 CPU 架构的 19 块板 — 全部运行真实编译的代码。",
       "p5": "v2 发布在 <strong>Hacker News 首页停留超过 20 小时</strong>，在不到 24 小时内获得了近 600 个 GitHub 星标和数千名访问者。现在，它被世界各地的学生、教授和创客使用。"
     },
     "howItWorks": {
       "heading": "工作原理",
       "avrRp2040Body": "周期精确的仿真完全在浏览器中使用 avr8js 和 rp2040js 运行。仿真无需后端。",
       "esp32Body": "Xtensa ESP32 和 ESP32-S3 在后端 QEMU（lcgamboa 分支）上运行，具有真实的闪存映像、GPIO、ADC 和定时器。",
-      "riscvBody": "ESP32-C3（DevKit、XIAO、SuperMini）和 CH32V003 通过 QEMU lcgamboa 分支使用 libqemu-riscv32 进行仿真，与 Xtensa ESP32 相同的后端模式。",
+      "riscvBody": "ESP32-C3（DevKit、XIAO、SuperMini）通过 QEMU lcgamboa 分支使用 libqemu-riscv32 进行仿真，与 Xtensa ESP32 相同的后端模式。",
       "raspiBody": "通过 QEMU raspi3b 实现完整的 ARM Cortex-A53 Linux — 启动真实的 Raspberry Pi OS 并运行带有 RPi.GPIO 的 Python。"
     },
     "openSource": {

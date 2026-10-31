@@ -65,7 +65,7 @@
         "adcBodyCode": "analogRead()",
         "adcBodySuffix": " 返回输入节点上经SPICE求解的电压——经过运放增益级、分压器、饱和之后。您测量到的就是电路产生的值。",
         "sameTitle": "同一画布，同一时钟",
-        "sameBody": "Arduino + 晶体管 + 电机在同一板上。ESP32 + 光电二极管 + 运放 + ADC。CH32V003 + 齐纳管 + LED。在焊接前一起验证固件和硬件。"
+        "sameBody": "Arduino + 晶体管 + 电机在同一板上。ESP32 + 光电二极管 + 运放 + ADC。Raspberry Pi Pico + 齐纳管 + LED。在焊接前一起验证固件和硬件。"
       },
       "faq": {
         "heading": "常见问题",
@@ -150,7 +150,7 @@
       "hero": {
         "title": "免费ESP32-C3仿真器",
         "accent": "通过QEMU进行RISC-V仿真",
-        "subtitle": "通过QEMU lcgamboa后端（libqemu-riscv32，esp32c3-picsimlab机器）仿真ESP32-C3和CH32V003 RISC-V代码。RV32IMC，160 MHz，48+交互式元件。",
+        "subtitle": "通过QEMU lcgamboa后端（libqemu-riscv32，esp32c3-picsimlab机器）仿真ESP32-C3 RISC-V代码。RV32IMC，160 MHz，48+交互式元件。",
         "ctaPrimary": "打开ESP32-C3仿真器",
         "ctaSecondary": "C3示例",
         "trust": "免费开源 · QEMU lcgamboa后端 · libqemu-riscv32",
@@ -164,9 +164,7 @@
         "xiaoTitle": "XIAO ESP32-C3",
         "xiaoBody": "Seeed Studio紧凑型RISC-V板。11个GPIO，USB-C，电池充电IC。21×17.5 mm。",
         "superTitle": "ESP32-C3 SuperMini",
-        "superBody": "Aitewinrobot超紧凑板。相同RISC-V核心，最小外形，适合嵌入式项目。",
-        "chTitle": "CH32V003",
-        "chBody": "WCH RISC-V RV32EC，48 MHz。超低成本DIP-8封装，2 KB SRAM，16 KB闪存。每芯片仅几美分。"
+        "superBody": "Aitewinrobot超紧凑板。相同RISC-V核心，最小外形，适合嵌入式项目。"
       },
       "examples": {
         "heading": "ESP32-C3示例项目",
@@ -192,7 +190,7 @@
         "q2": "ESP32-C3仿真器在浏览器中运行吗？",
         "a2": "是的。与基于Xtensa的ESP32不同，ESP32-C3 RISC-V仿真完全在浏览器中运行——无需QEMU后端。这使其成为仿真最快的ESP32变体。",
         "q3": "这也是RISC-V仿真器吗？",
-        "a3": "是的。ESP32-C3使用RISC-V RV32IMC指令集。Velxio还支持CH32V003（RV32EC，48 MHz）——另一款流行的RISC-V微控制器。",
+        "a3": "是的。ESP32-C3使用RISC-V RV32IMC指令集。",
         "q4": "支持哪些ESP32-C3板？",
         "a4": "Velxio支持ESP32-C3 DevKitM-1、Seeed XIAO ESP32-C3和ESP32-C3 SuperMini（Aitewinrobot）。三者使用相同的RISC-V核心。",
         "q5": "我可以将Arduino代码与ESP32-C3一起使用吗？",
