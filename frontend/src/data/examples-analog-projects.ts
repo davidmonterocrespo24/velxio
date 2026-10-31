@@ -83,7 +83,7 @@ export const analogProjectExamples: ExampleProject[] = [
     id: 'analog-5v-power-supply',
     title: '5 V Regulated Power Supply (Rectifier + 7805)',
     description:
-      'The classic linear supply: a center-tapped 12 V AC transformer (two signal generators in antiphase), a full-wave rectifier with two 1N4007 diodes, a 470 uF reservoir capacitor and a 7805 regulator feeding a 100 ohm load. The capacitor sits near 11 V with ripple, the output stays at 5.000 V. Right-click a wire and choose Add to scope to see each stage.',
+      'The classic linear supply: a center-tapped 12 V AC transformer (two signal generators in antiphase), a full-wave rectifier with two 1N4007 diodes, a 220 uF reservoir capacitor and a 7805 regulator feeding a 100 ohm load. The capacitor swings about 2 V between charging peaks while the output stays at 5.000 V. Right-click a wire and choose Add to scope to see each stage.',
     category: 'circuits',
     difficulty: 'intermediate',
     boardFilter: 'analog',
@@ -110,7 +110,7 @@ export const analogProjectExamples: ExampleProject[] = [
         id: 'c1',
         x: 180,
         y: 40,
-        properties: { value: '470u' },
+        properties: { value: '220u' },
       },
       { type: 'wokwi-reg-7805', id: 'u1', x: 240, y: -20, properties: {} },
       { type: 'wokwi-resistor', id: 'rl', x: 340, y: 60, properties: { value: '100' } },
@@ -140,8 +140,8 @@ export const analogProjectExamples: ExampleProject[] = [
         [322, 66],
       ]),
       w('w10', ['rl', '2'], ['u1', 'GND'], C_GND, [
-        [420, 66],
-        [420, 220],
+        [470, 66],
+        [470, 220],
         [276, 220],
       ]),
       w('w11', ['u1', 'VOUT'], ['vout', 'V+'], C_OUT, [
