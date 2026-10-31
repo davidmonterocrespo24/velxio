@@ -16,7 +16,7 @@ import type { Wire } from '../../types/wire';
 import { UnionFind } from './unionFind';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { GROUND_PIN_RE, VCC_PIN_RE } from './NetlistBuilder';
-import { rms, mean, peak, subtract, isAC } from './waveformStats';
+import { rms, mean, peak, subtract, isAC, steadyState } from './waveformStats';
 
 export type ProbeKind = 'voltmeter' | 'ammeter' | 'multimeter';
 
@@ -262,8 +262,9 @@ export function readVoltmeter(
           : minusArr.length === 0
             ? [...plusArr]
             : subtract(plusArr, minusArr);
-      if (diffSamples.length > 0 && isAC(diffSamples)) {
-        ac = buildAcStatsV(diffSamples);
+      const settled = steadyState(diffSamples);
+      if (settled.length > 0 && isAC(settled)) {
+        ac = buildAcStatsV(settled);
       }
     }
   }
@@ -304,8 +305,9 @@ export function readAmmeter(
   let ac: ProbeAcStats | undefined;
   if (timeWaveforms) {
     const raw = timeWaveforms.branches.get(key);
-    if (raw && raw.length > 0 && isAC(raw)) {
-      ac = buildAcStatsI(raw);
+    const settled = raw ? steadyState(raw) : [];
+    if (settled.length > 0 && isAC(settled)) {
+      ac = buildAcStatsI(settled);
     }
   }
 
