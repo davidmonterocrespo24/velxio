@@ -109,6 +109,26 @@ function ntcResistance(Tc: number, R0 = 10_000, T0 = 298.15, beta = 3950): numbe
 
 // ── Mappers (one per metadataId) ───────────────────────────────────────────
 
+/**
+ * A linear regulator: a behavioural source holding VOUT, plus the current it
+ * delivers drawn back out of VIN.
+ *
+ * The B source alone took nothing from its input, so a reservoir capacitor in
+ * front of a regulator never discharged into the load: no ripple, and a
+ * "linear" regulator that dissipated nothing. A 0 V source senses the output
+ * current and an F source (current-controlled current source) pulls the same
+ * current from VIN to the reference, which is what a series-pass regulator
+ * does (quiescent current left out).
+ */
+function regulatorCards(id: string, vin: string, ref: string, vout: string, expr: string): string[] {
+  return [
+    `B_${id} ${id}_reg ${ref} V = ${expr}`,
+    `V_${id}_iout ${id}_reg ${vout} DC 0`,
+    `F_${id}_iin ${vin} ${ref} V_${id}_iout 1`,
+    `R_${id}_out ${vout} ${ref} 10Meg`,
+  ];
+}
+
 const MAPPERS: Record<string, Mapper> = {
   // Custom chip — emit a DC voltage source for every pin the chip's WASM is
   // currently driving as an output (recorded in customChips/chipPinDrives).
@@ -487,10 +507,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: [
-        `B_${comp.id} ${vout} ${gnd} V = min(V(${vin})-V(${gnd})-2, 5)`,
-        `R_${comp.id}_out ${vout} ${gnd} 10Meg`,
-      ],
+      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 5)`),
       modelsUsed: new Set(),
     };
   },
@@ -500,10 +517,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: [
-        `B_${comp.id} ${vout} ${gnd} V = min(V(${vin})-V(${gnd})-2, 12)`,
-        `R_${comp.id}_out ${vout} ${gnd} 10Meg`,
-      ],
+      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 12)`),
       modelsUsed: new Set(),
     };
   },
@@ -514,10 +528,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: [
-        `B_${comp.id} ${vout} ${gnd} V = max(V(${vin})-V(${gnd})+2, -5)`,
-        `R_${comp.id}_out ${vout} ${gnd} 10Meg`,
-      ],
+      cards: regulatorCards(comp.id, vin, gnd, vout, `max(V(${vin})-V(${gnd})+2, -5)`),
       modelsUsed: new Set(),
     };
   },
@@ -531,10 +542,13 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !adj || !vout) return null;
     return {
-      cards: [
-        `B_${comp.id} ${vout} 0 V = V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25)`,
-        `R_${comp.id}_out ${vout} 0 10Meg`,
-      ],
+      cards: regulatorCards(
+        comp.id,
+        vin,
+        '0',
+        vout,
+        `V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25)`,
+      ),
       modelsUsed: new Set(),
     };
   },

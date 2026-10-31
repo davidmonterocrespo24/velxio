@@ -1648,12 +1648,13 @@ exports[`netlist snapshot — circuits (41 examples) > lm317-adjustable-psu 1`] 
 "* Velxio circuit
 V_bat n0 bat_int DC 9
 R_bat_esr bat_int n1 1.5
-B_u1 n3 0 V = V(n2) + min(V(n0)-V(n2)-2, 1.25)
+B_u1 u1_reg 0 V = V(n2) + min(V(n0)-V(n2)-2, 1.25)
+V_u1_iout u1_reg n3 DC 0
+F_u1_iin n0 0 V_u1_iout 1
 R_u1_out n3 0 10Meg
 R_r1 n3 n2 240
 R_r2 n2 n1 720
 R_rload n3 n1 1000
-R_autopull_n0 n0 0 100Meg
 .op
 .end"
 `;
@@ -2269,10 +2270,11 @@ exports[`netlist snapshot — circuits (41 examples) > power-supply-7805 1`] = `
 "* Velxio circuit
 V_bat n0 bat_int DC 9
 R_bat_esr bat_int 0 1.5
-B_u1 n1 0 V = min(V(n0)-V(0)-2, 5)
+B_u1 u1_reg 0 V = min(V(n0)-V(0)-2, 5)
+V_u1_iout u1_reg n1 DC 0
+F_u1_iin n0 0 V_u1_iout 1
 R_u1_out n1 0 10Meg
 R_rload n1 0 1000
-R_autopull_n0 n0 0 100Meg
 .op
 .end"
 `;
