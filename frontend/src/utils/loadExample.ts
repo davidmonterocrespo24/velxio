@@ -273,7 +273,7 @@ export async function loadExample(
         start: { componentId: wire.start.componentId, pinName: wire.start.pinName, x: 0, y: 0 },
         end: { componentId: wire.end.componentId, pinName: wire.end.pinName, x: 0, y: 0 },
         color: wire.color,
-        waypoints: [],
+        waypoints: wire.waypoints ?? [],
       })),
     );
     recalculateAllWirePositions();
@@ -430,7 +430,7 @@ export async function loadExample(
           y: 0,
         },
         color: wire.color,
-        waypoints: [],
+        waypoints: wire.waypoints ?? [],
       })),
     );
     recalculateAllWirePositions();
