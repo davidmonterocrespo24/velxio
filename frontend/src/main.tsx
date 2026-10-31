@@ -131,11 +131,13 @@ if (import.meta.env.DEV) {
     import('./store/useSimulatorStore'),
     import('./store/useEditorStore'),
     import('./store/useElectricalStore'),
-  ]).then(([sim, ed, el]) => {
+    import('./store/useOscilloscopeStore'),
+  ]).then(([sim, ed, el, osc]) => {
     (window as unknown as Record<string, unknown>).__velxioStores = {
       useSimulatorStore: sim.useSimulatorStore,
       useEditorStore: ed.useEditorStore,
       useElectricalStore: el.useElectricalStore,
+      useOscilloscopeStore: osc.useOscilloscopeStore,
       getBoardSimulator: sim.getBoardSimulator,
     };
   });
