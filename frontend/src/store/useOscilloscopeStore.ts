@@ -117,6 +117,9 @@ export interface OscChannelBase {
   voltsPerDiv: number;
   /** Vertical offset in volts, so two traces can be separated on screen. */
   yOffsetV: number;
+  /** Analog channels fit their vertical scale to each capture until the user
+   *  sets V/div or the offset by hand (false from then on). */
+  autoScale?: boolean;
 }
 
 export interface OscDigitalChannel extends OscChannelBase {
@@ -277,6 +280,33 @@ function resolveTriggerChannelId(
     return triggerChannelId;
   }
   return channels[0]?.id ?? null;
+}
+
+/** Vertical divisions on the scope screen (Oscilloscope.tsx draws the same 8). */
+export const OSC_V_DIVS = 8;
+
+/**
+ * V/div and centre that fit a capture, the way a scope's Auto button does.
+ *
+ * Analog channels used to open at a fixed 1 V/div around 0 V, so anything
+ * outside +-4 V (a 5 V rail, a 9 V amplifier, a rectifier) drew off-screen,
+ * and nothing in the UI could change it. The range always includes 0 V, like
+ * DC coupling: a regulated rail reads as a flat line at its voltage instead of
+ * its ripple blown up to full screen. V/div is the next 1-2-5 step that holds
+ * the range with 20 % margin, and the centre sits on a whole division.
+ */
+export function fitAnalogScale(
+  lo: number,
+  hi: number,
+): { voltsPerDiv: number; yOffsetV: number } {
+  const a = Math.min(lo, 0);
+  const b = Math.max(hi, 0);
+  const span = Math.max(b - a, 1e-3) * 1.2;
+  const raw = span / OSC_V_DIVS;
+  const decade = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 5, 10].find((m) => m * decade >= raw - 1e-12)! * decade;
+  const yOffsetV = Math.round((a + b) / 2 / step) * step;
+  return { voltsPerDiv: step, yOffsetV };
 }
 
 export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
@@ -455,6 +485,13 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
       if (p.volts > hi) hi = p.volts;
     }
     const mid = (lo + hi) / 2;
+    let channels = s0.channels;
+    if (channel.autoScale !== false) {
+      const fit = fitAnalogScale(lo, hi);
+      if (fit.voltsPerDiv !== channel.voltsPerDiv || fit.yOffsetV !== channel.yOffsetV) {
+        channels = channels.map((c) => (c.id === channelId ? { ...c, ...fit } : c));
+      }
+    }
     const next = points.map((p) => ({
       timeMs: p.timeMs,
       state: p.volts >= mid,
@@ -495,6 +532,7 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
     }
 
     set((cur) => ({
+      channels: channels === s0.channels ? cur.channels : channels,
       samples: { ...cur.samples, [channelId]: next },
       triggeredAtMs,
       running,
@@ -505,13 +543,17 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
   setChannelVoltsPerDiv: (channelId, voltsPerDiv) =>
     set((s) => ({
       channels: s.channels.map((c) =>
-        c.id === channelId ? { ...c, voltsPerDiv: Math.max(0.01, voltsPerDiv) } : c,
+        c.id === channelId
+          ? { ...c, voltsPerDiv: Math.max(0.01, voltsPerDiv), autoScale: false }
+          : c,
       ),
     })),
 
   setChannelOffset: (channelId, yOffsetV) =>
     set((s) => ({
-      channels: s.channels.map((c) => (c.id === channelId ? { ...c, yOffsetV } : c)),
+      channels: s.channels.map((c) =>
+        c.id === channelId ? { ...c, yOffsetV, autoScale: false } : c,
+      ),
     })),
 
   clearSamples: () => {
