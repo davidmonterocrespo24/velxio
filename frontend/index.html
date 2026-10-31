@@ -9,7 +9,7 @@
          Replace https://velxio.dev with your real domain
     ═══════════════════════════════════════════════ -->
     <title>Velxio — Free Online Circuit & Arduino Simulator | SPICE · ESP32 · RP2040 · ATtiny85 · Custom Chips</title>
-    <meta name="description" content="Velxio is a free, open-source circuit and microcontroller simulator running in your browser. Real-time SPICE analog simulation (ngspice-WASM) wired to 19 boards: Arduino Uno/Nano/Mega/ATtiny85 (AVR8), ESP32 / ESP32-S3 (Xtensa QEMU), ESP32-C3 / CH32V003 (RISC-V), Raspberry Pi Pico (RP2040), Raspberry Pi 3 (Linux ARM). 100+ components, custom chips in C/Rust, oscilloscope, voltmeter, ammeter — no cloud, no account." />
+    <meta name="description" content="Velxio is a free, open-source circuit and microcontroller simulator running in your browser. Real-time SPICE analog simulation (ngspice-WASM) wired to 19 boards: Arduino Uno/Nano/Mega/ATtiny85 (AVR8), ESP32 / ESP32-S3 (Xtensa QEMU), ESP32-C3 (RISC-V), Raspberry Pi Pico (RP2040), Raspberry Pi 3 (Linux ARM). 100+ components, custom chips in C/Rust, oscilloscope, voltmeter, ammeter — no cloud, no account." />
     <meta name="keywords" content="circuit simulator, online circuit simulator, free circuit simulator, electronics simulator, spice simulator online, ngspice browser, analog circuit simulator, arduino simulator, arduino emulator, arduino simulator free, avr8 emulator, avr simulator, atmega328p simulator, atmega2560 simulator, attiny85 simulator, attiny85 emulator, arduino uno simulator, arduino mega simulator, arduino nano simulator, custom chip simulator, custom chip arduino, rp2040 emulator, raspberry pi pico simulator, esp32 emulator, esp32 simulator, esp32-c3 simulator, esp32-s3 emulator, risc-v simulator, ch32v003, raspberry pi 3 emulator, wokwi alternative, falstad alternative, tinkercad alternative, arduino ide browser, arduino online, online breadboard, virtual breadboard, oscilloscope simulator, op-amp simulator, transistor simulator, simulador arduino, simulador de circuitos, simulador electronico, velxio" />
     <meta name="author" content="David Montero Crespo" />
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
@@ -137,7 +137,7 @@
           "@id": "https://velxio.dev/#app",
           "name": "Velxio",
           "alternateName": ["Velxio Circuit Simulator", "Velxio Arduino Simulator", "Velxio SPICE Simulator", "Velxio Online Electronics Simulator", "Velxio Multi-Board Emulator"],
-          "description": "Free, open-source online circuit and microcontroller simulator. Real-time SPICE analog co-simulation via ngspice-WASM (resistors, capacitors, op-amps, transistors, diodes, voltage regulators) wired to 19 boards across 5 CPU architectures: ATmega328p/2560/ATtiny85 (AVR8 via avr8js), RP2040 ARM Cortex-M0+ (rp2040js, browser), ESP32-C3/CH32V003 RISC-V RV32IMC (QEMU lcgamboa libqemu-riscv32), ESP32/ESP32-S3 Xtensa LX6/LX7 (QEMU lcgamboa libqemu-xtensa), and Raspberry Pi 3B ARM Cortex-A53 (QEMU Linux). Build custom chips in C/Rust/AssemblyScript via the Wokwi Custom Chips API. Includes live oscilloscope, voltmeter, ammeter, signal generator, 100+ interactive electronic components, Monaco Editor, Serial Monitor, arduino-cli compilation, and Library Manager.",
+          "description": "Free, open-source online circuit and microcontroller simulator. Real-time SPICE analog co-simulation via ngspice-WASM (resistors, capacitors, op-amps, transistors, diodes, voltage regulators) wired to 19 boards across 5 CPU architectures: ATmega328p/2560/ATtiny85 (AVR8 via avr8js), RP2040 ARM Cortex-M0+ (rp2040js, browser), ESP32-C3 RISC-V RV32IMC (QEMU lcgamboa libqemu-riscv32), ESP32/ESP32-S3 Xtensa LX6/LX7 (QEMU lcgamboa libqemu-xtensa), and Raspberry Pi 3B ARM Cortex-A53 (QEMU Linux). Build custom chips in C/Rust/AssemblyScript via the Wokwi Custom Chips API. Includes live oscilloscope, voltmeter, ammeter, signal generator, 100+ interactive electronic components, Monaco Editor, Serial Monitor, arduino-cli compilation, and Library Manager.",
           "url": "https://velxio.dev/",
           "applicationCategory": "DeveloperApplication",
           "applicationSubCategory": "Electronics Simulator",
@@ -158,7 +158,7 @@
             "Custom chips in C, Rust, and AssemblyScript (Wokwi Custom Chips API + WASI shim) — define your own ICs and reuse them across projects",
             "Real AVR8 emulation: Arduino Uno (ATmega328p), Nano, Mega 2560 (ATmega2560), ATtiny85, Leonardo (ATmega32u4), Pro Mini at 16 MHz",
             "RP2040 emulation: Raspberry Pi Pico and Pico W (ARM Cortex-M0+ at 133 MHz via rp2040js)",
-            "RISC-V emulation: ESP32-C3 DevKit, XIAO ESP32-C3, ESP32-C3 SuperMini, CH32V003 (RV32IMC/RV32EC via QEMU lcgamboa libqemu-riscv32)",
+            "RISC-V emulation: ESP32-C3 DevKit, XIAO ESP32-C3, ESP32-C3 SuperMini (RV32IMC via QEMU lcgamboa libqemu-riscv32)",
             "ESP32 / ESP32-S3 / ESP32-CAM / Nano ESP32 emulation (Xtensa LX6/LX7 via QEMU)",
             "Raspberry Pi 3B emulation: full ARM Cortex-A53 Linux (Raspberry Pi OS via QEMU raspi3b)",
             "Live instruments: oscilloscope (multi-channel), voltmeter, ammeter, signal generator (sine/square/DC)",
@@ -387,7 +387,7 @@
         <ul>
           <li>Real AVR8 emulation: Arduino Uno (ATmega328p), Nano, Mega 2560, ATtiny85, Leonardo, Pro Mini at 16 MHz via avr8js</li>
           <li>Raspberry Pi Pico &amp; Pico W (RP2040, ARM Cortex-M0+ at 133 MHz) via rp2040js</li>
-          <li>ESP32-C3 / XIAO ESP32-C3 / SuperMini / CH32V003 (RISC-V RV32IMC/EC) &mdash; via QEMU lcgamboa (libqemu-riscv32)</li>
+          <li>ESP32-C3 / XIAO ESP32-C3 / SuperMini (RISC-V RV32IMC) &mdash; via QEMU lcgamboa (libqemu-riscv32)</li>
           <li>ESP32 / ESP32-S3 / ESP32-CAM / Arduino Nano ESP32 (Xtensa LX6/LX7 at 240 MHz) via QEMU lcgamboa</li>
           <li>Raspberry Pi 3B (ARM Cortex-A53, full Linux) via QEMU raspi3b &mdash; runs Python scripts with RPi.GPIO</li>
           <li><strong>Custom Chips</strong> — author your own integrated circuits in C, Rust, or AssemblyScript using the Wokwi Custom Chips API; reuse them across projects</li>
@@ -415,7 +415,6 @@
           <li>ESP32-C3 DevKit (RISC-V RV32IMC) &mdash; 160 MHz, QEMU libqemu-riscv32</li>
           <li>Seeed XIAO ESP32-C3 (RISC-V RV32IMC) &mdash; compact, QEMU libqemu-riscv32</li>
           <li>ESP32-C3 SuperMini (RISC-V RV32IMC) &mdash; mini form factor</li>
-          <li>CH32V003 (RISC-V RV32EC) &mdash; 48 MHz, ultra-compact DIP-8</li>
           <li>ESP32 DevKit V1 / C V4 (Xtensa LX6) &mdash; 240 MHz, WiFi, QEMU</li>
           <li>ESP32-S3 (Xtensa LX7) &mdash; 240 MHz, dual-core, QEMU</li>
           <li>ESP32-CAM (Xtensa LX6) &mdash; camera module, QEMU</li>
@@ -448,7 +447,7 @@
           <dt>Is Velxio free?</dt>
           <dd>Yes. Velxio is free and open-source under the GNU AGPLv3 license. A commercial license is available for proprietary integrations.</dd>
           <dt>Does Velxio work offline?</dt>
-          <dd>The SPICE analog solver and the browser-side CPU emulators (AVR8 via avr8js, RP2040 via rp2040js) run entirely in the browser. Xtensa and RISC-V boards (ESP32 / ESP32-S3 / ESP32-C3 / CH32V003) and Raspberry Pi 3 Linux run through QEMU lcgamboa, which is bundled in the self-hosted Docker image. Compilation requires the local arduino-cli backend. Self-hosted deployments work fully offline once running.</dd>
+          <dd>The SPICE analog solver and the browser-side CPU emulators (AVR8 via avr8js, RP2040 via rp2040js) run entirely in the browser. Xtensa and RISC-V boards (ESP32 / ESP32-S3 / ESP32-C3) and Raspberry Pi 3 Linux run through QEMU lcgamboa, which is bundled in the self-hosted Docker image. Compilation requires the local arduino-cli backend. Self-hosted deployments work fully offline once running.</dd>
           <dt>Can Velxio simulate analog circuits like SPICE?</dt>
           <dd>Yes. Velxio 2.5 includes real-time SPICE analog simulation via ngspice compiled to WebAssembly. It runs full Modified Nodal Analysis on every tick — non-linear devices (diodes, BJTs, MOSFETs, op-amps with saturation) behave like real silicon, not idealised models.</dd>
           <dt>Can I co-simulate Arduino code with an analog circuit?</dt>
@@ -460,7 +459,7 @@
           <dt>Is Velxio a Falstad / Tinkercad / CircuitLab alternative?</dt>
           <dd>For analog circuits, yes. Velxio runs the open-source ngspice solver — the same engine professional EDA tools use. Unlike Falstad and Tinkercad, Velxio also runs the firmware on the microcontroller driving the circuit.</dd>
           <dt>What boards are supported?</dt>
-          <dd>19 boards: Arduino Uno (ATmega328p / AVR8), Arduino Nano, Arduino Mega 2560 (ATmega2560), ATtiny85, Arduino Leonardo (ATmega32u4), Arduino Pro Mini, Raspberry Pi Pico &amp; Pico W (RP2040), ESP32 / ESP32-S3 / ESP32-CAM / Nano ESP32 (Xtensa via QEMU), ESP32-C3 / XIAO ESP32-C3 / ESP32-C3 SuperMini / CH32V003 (RISC-V), and Raspberry Pi 3B (Linux ARM Cortex-A53 via QEMU).</dd>
+          <dd>19 boards: Arduino Uno (ATmega328p / AVR8), Arduino Nano, Arduino Mega 2560 (ATmega2560), ATtiny85, Arduino Leonardo (ATmega32u4), Arduino Pro Mini, Raspberry Pi Pico &amp; Pico W (RP2040), ESP32 / ESP32-S3 / ESP32-CAM / Nano ESP32 (Xtensa via QEMU), ESP32-C3 / XIAO ESP32-C3 / ESP32-C3 SuperMini (RISC-V), and Raspberry Pi 3B (Linux ARM Cortex-A53 via QEMU).</dd>
         </dl>
 
         <!-- SEO landing pages — keyword content for crawlers -->

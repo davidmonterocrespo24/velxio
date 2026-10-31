@@ -193,6 +193,8 @@ export class BusRegistry {
   private readonly uart = new Map<string, UartEntry>();
   private readonly diagListeners = new Set<DiagnosticListener>();
   private readonly seenDiag = new Set<string>();
+  /** Boards the resolver last said were running; see netlistChanged. */
+  private wasRunning = new Set<string>();
   private readonly mapListeners = new Set<SpiMapListener>();
   private readonly i2cMapListeners = new Set<I2cMapListener>();
   /** Boards whose I2C changed since the listeners last heard; see i2cMapChanged. */
@@ -236,6 +238,22 @@ export class BusRegistry {
     for (const [id, f] of this.fabrics) {
       if (!present.has(id) && !f.bound) this.dropFabric(id);
     }
+    // A board that just started runs its firmware against the circuit as it
+    // is NOW, so what was said about it on an earlier run is forgotten and
+    // the placements below report what is still wrong, once per run.
+    if (this.resolver.running) {
+      const running = new Set<string>();
+      for (const id of present) if (this.resolver.running(id)) running.add(id);
+      for (const id of running) {
+        if (this.wasRunning.has(id)) continue;
+        this.forgetDiagnostics(id);
+        // The remote-gap verdict waited for this moment (see the fabric's
+        // sink above); a device whose placement did not change is not
+        // re-placed below, so the fabric says it now for every bus it holds.
+        this.fabrics.get(id)?.reportRemoteGaps();
+      }
+      this.wasRunning = running;
+    }
     for (const e of this.spi.values()) this.place(e);
     for (const e of this.i2c.values()) this.placeI2c(e);
     for (const e of this.uart.values()) this.placeUart(e);
@@ -252,7 +270,15 @@ export class BusRegistry {
       f = new BoardBusFabric(
         boardId,
         () => this.resolver.boardKind(boardId),
-        (d) => this.emit(d),
+        // "The worker has no model of this part" is a verdict about the engine
+        // the board will run on, and that engine is only decided at Run
+        // (DelegatingEsp32Bridge picks JS or QEMU per run). Said at wiring
+        // time it was said about the stock QEMU bridge a board starts with
+        // before the overlay rebuilds it, and users read "runs in the backend
+        // and has no model of the part" about a BME280 that answered fine two
+        // seconds later. So it waits for the board to run, like the wiring
+        // verdicts; the run re-places every device and says it then if true.
+        (d) => (d.code === 'bus-remote-responder-missing' ? this.emitWiring(d) : this.emit(d)),
         () => this.i2cMapChanged(boardId),
         () => this.uartMapChanged(boardId),
       );
@@ -408,7 +434,7 @@ export class BusRegistry {
       // wiring mistake worth naming. Not for a write-only model: leaving its
       // SDO open is how most panels are wired, and "wire it or the chip never
       // answers" would be advice about an answer that does not exist.
-      this.emit({
+      this.emitWiring({
         code: 'spi-wiring',
         bus: 'spi',
         boardId: board,
@@ -458,7 +484,7 @@ export class BusRegistry {
     switch (cs.kind) {
       case 'board':
         if (cs.boardId === board) return { kind: 'pin', pin: cs.pin };
-        this.emit({
+        this.emitWiring({
           code: 'spi-cross-board',
           bus: 'spi',
           boardId: board,
@@ -479,7 +505,7 @@ export class BusRegistry {
 
   private floating(desc: SpiDeviceDescriptor, board: string): CsSource {
     if (desc.csWhenFloating === 'selected') return { kind: 'const', active: true };
-    this.emit({
+    this.emitWiring({
       code: 'spi-cs-floating',
       bus: 'spi',
       boardId: board,
@@ -609,7 +635,7 @@ export class BusRegistry {
       if (board === null) return;
       // A chip with one line on a board is half wired: on the bench it is
       // silent, and silence with no reason reads as a dead chip.
-      this.emit({
+      this.emitWiring({
         code: 'i2c-wiring',
         bus: 'i2c',
         boardId: board,
@@ -1086,6 +1112,13 @@ export class BusRegistry {
     this.seenDiag.clear();
   }
 
+  /** Forget what was reported about one board, for its next run. */
+  private forgetDiagnostics(boardId: string): void {
+    for (const key of Array.from(this.seenDiag)) {
+      if (key.split('|')[1] === boardId) this.seenDiag.delete(key);
+    }
+  }
+
   /**
    * What an I2C chip has to say about its own state, to the monitor of the
    * board whose bus it is on: an MPU-6050 read while it still sleeps. It goes
@@ -1099,6 +1132,24 @@ export class BusRegistry {
     const placed = this.i2c.get(owner)?.placements[0];
     if (!placed) return;
     this.tell({ code, bus: 'i2c', boardId: placed.bus.boardId, owners: [owner], message });
+  }
+
+  /**
+   * A verdict read off the WIRING alone (a line that reaches no board, a chip
+   * select left open), as opposed to one read off bus traffic. It is for a
+   * board that is running its firmware against this circuit. While the board
+   * is idle the circuit is still being built, one wire at a time when the
+   * agent does it, and a chip with its SDA on the board and its SCL not yet
+   * is on its way, not miswired: the note was written to the board's console
+   * as a fact and read there at the next Run, after the wiring was long
+   * complete (the Grove SHT31 on an Uno's A4/A5, reported as "SCL is not
+   * connected" with both wired). The run itself re-places every device
+   * (netlistChanged, when `running` flips) and says then what is still wrong.
+   * A resolver that cannot say what runs gets the verdict at once.
+   */
+  private emitWiring(d: BusDiagnostic): void {
+    if (d.boardId !== null && this.resolver.running && !this.resolver.running(d.boardId)) return;
+    this.emit(d);
   }
 
   private emit(d: BusDiagnostic): void {
@@ -1240,6 +1291,7 @@ export class BusRegistry {
     for (const owner of Array.from(this.uart.keys())) this.detachUart(owner);
     for (const id of Array.from(this.fabrics.keys())) this.dropFabric(id);
     this.seenDiag.clear();
+    this.wasRunning.clear();
     this.mapListeners.clear();
     this.i2cMapListeners.clear();
     this.i2cDirty.clear();

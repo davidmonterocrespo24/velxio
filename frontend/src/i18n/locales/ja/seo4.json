@@ -109,7 +109,7 @@
         "rpTitle": "RP2040 — rp2040js",
         "rpBody": "Raspberry Pi Pico、Raspberry Pi Pico W — 133 MHzのデュアルARM Cortex-M0+。",
         "riscvTitle": "RISC-V — QEMU",
-        "riscvBody": "ESP32-C3 DevKit、XIAO ESP32-C3、ESP32-C3 SuperMini、CH32V003 — libqemu-riscv32による160 MHzのRV32IMC。",
+        "riscvBody": "ESP32-C3 DevKit、XIAO ESP32-C3、ESP32-C3 SuperMini — libqemu-riscv32による160 MHzのRV32IMC。",
         "xtensaTitle": "Xtensa — QEMU",
         "xtensaBody": "ESP32 DevKit V1/C V4、ESP32-S3、ESP32-CAM、Seeed XIAO ESP32-S3、Arduino Nano ESP32 — 240 MHzのXtensa LX6/LX7。",
         "armTitle": "ARM Cortex-A53 — QEMU",

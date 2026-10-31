@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { RP2040Simulator } from '../simulation/RP2040Simulator';
 import { PinManager } from '../simulation/PinManager';
+import { connectAllCompareOutputs } from './helpers/avrPwm';
 
 // ─── RAF depth-limited mock ───────────────────────────────────────────────────
 // Calls execute() once synchronously per start(); prevents infinite recursion.
@@ -144,6 +145,7 @@ describe('Integration — AVRSimulator + PinManager', () => {
     pm.onPwmChange(9, (pin, dc) => pwmChanges.push({ pin, dc }));
 
     // Directly set OCR1AL = 128 (pin 9, ~50% duty cycle)
+    connectAllCompareOutputs((sim as any).cpu);
     (sim as any).cpu.data[0x88] = 128;
 
     sim.start(); // one frame executes, polls PWM registers
@@ -174,6 +176,7 @@ describe('Integration — AVRSimulator + PinManager', () => {
     });
 
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     PWM_MAP.forEach(({ addr, value }) => {
       cpu.data[addr] = value;
     });
@@ -383,6 +386,7 @@ describe('Integration — PWM pipeline (AVR → PinManager → component)', () =
     const pwmValues: number[] = [];
     pm.onPwmChange(9, (_pin, dc) => pwmValues.push(dc));
 
+    connectAllCompareOutputs((sim as any).cpu);
     (sim as any).cpu.data[0x88] = 128;
     sim.start();
     sim.stop();
@@ -408,6 +412,7 @@ describe('Integration — PWM pipeline (AVR → PinManager → component)', () =
       rgb.blue = Math.round(dc * 255);
     });
 
+    connectAllCompareOutputs((sim as any).cpu);
     (sim as any).cpu.data[0x88] = 255; // OCR1A → D9  = 100%
     (sim as any).cpu.data[0x8a] = 128; // OCR1B → D10 = ~50%
     (sim as any).cpu.data[0xb3] = 0; // OCR2A → D11 = 0%
@@ -430,6 +435,7 @@ describe('Integration — PWM pipeline (AVR → PinManager → component)', () =
     const pwmCb = vi.fn();
     pm.onPwmChange(9, pwmCb);
 
+    connectAllCompareOutputs((sim as any).cpu);
     (sim as any).cpu.data[0x88] = 200;
     sim.start(); // frame 1: fires updatePwm(9, 200/255)
     sim.stop();

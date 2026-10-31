@@ -370,6 +370,14 @@ export class ChipInstance {
   }
 
   /**
+   * The compiled module behind this instance, for a part that will make the
+   * next instance of the same chip with `createSync`: compiling is the slow,
+   * async half of `create`, and a part re-attaches on every Run and every
+   * wire edit. Null until instantiated.
+   */
+  module: WebAssembly.Module | null = null;
+
+  /**
    * The same, at once, from a module compiled beforehand. For a part that
    * has to answer the bus from the moment it attaches, as a hand-written model
    * does (buses/models/ds3231.c behind its flag): the compile is the slow
@@ -381,6 +389,7 @@ export class ChipInstance {
     inst._checkImports(opts.wasm, importObject);
     inst.instance = new WebAssembly.Instance(opts.wasm, importObject);
     inst.exports = inst.instance.exports;
+    inst.module = opts.wasm;
     return inst;
   }
 
@@ -444,6 +453,7 @@ export class ChipInstance {
     this._checkImports(module, importObject);
     this.instance = await WebAssembly.instantiate(module, importObject);
     this.exports = this.instance.exports;
+    this.module = module;
   }
 
   private _checkImports(module: WebAssembly.Module, importObject: WebAssembly.Imports): void {

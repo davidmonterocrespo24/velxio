@@ -6,6 +6,7 @@
 
 import { circuitExamples } from './examples-circuits';
 import { analogExamples } from './examples-analog';
+import { analogProjectExamples } from './examples-analog-projects';
 import { digitalExamples } from './examples-digital';
 import { hundredDaysExamples } from './examples-100-days';
 // Pro overlay examples (the Pico W WiFi showcase) — resolves to the real list
@@ -111,6 +112,9 @@ export interface ExampleProject {
     start: { componentId: string; pinName: string };
     end: { componentId: string; pinName: string };
     color: string;
+    /** Corners the wire passes through, in canvas coordinates. Without them the
+     *  wire is drawn as one elbow, which tangles in a larger schematic. */
+    waypoints?: { x: number; y: number }[];
   }>;
   thumbnail?: string;
   /** Arduino libraries required by this example (auto-installed when loading). */
@@ -11824,6 +11828,7 @@ export const exampleProjects: ExampleProject[] = [
   ...legacyExamples,
   ...circuitExamples,
   ...analogExamples,
+  ...analogProjectExamples,
   ...digitalExamples,
   ...hundredDaysExamples,
   ...proExamples,

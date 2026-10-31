@@ -65,7 +65,7 @@
         "adcBodyCode": "analogRead()",
         "adcBodySuffix": " は、オペアンプのゲイン段、分圧器、飽和後の入力ノードのSPICE解析電圧を返します。測定されるのは、回路が生成するものです。",
         "sameTitle": "同じキャンバス、同じクロック",
-        "sameBody": "Arduino＋トランジスタ＋モーターを同じボード上に。ESP32＋フォトダイオード＋オペアンプ＋ADC。CH32V003＋ツェナー＋LED。はんだ付け前にファームウェアとハードウェアを一緒に検証します。"
+        "sameBody": "Arduino＋トランジスタ＋モーターを同じボード上に。ESP32＋フォトダイオード＋オペアンプ＋ADC。Raspberry Pi Pico＋ツェナー＋LED。はんだ付け前にファームウェアとハードウェアを一緒に検証します。"
       },
       "faq": {
         "heading": "よくある質問",
@@ -150,7 +150,7 @@
       "hero": {
         "title": "無料ESP32-C3シミュレータ",
         "accent": "QEMUによるRISC-Vエミュレーション",
-        "subtitle": "QEMU lcgamboaバックエンド（libqemu-riscv32、esp32c3-picsimlabマシン）を介してESP32-C3およびCH32V003 RISC-Vコードをシミュレート。RV32IMC、160MHz、48以上のインタラクティブコンポーネント。",
+        "subtitle": "QEMU lcgamboaバックエンド（libqemu-riscv32、esp32c3-picsimlabマシン）を介してESP32-C3 RISC-Vコードをシミュレート。RV32IMC、160MHz、48以上のインタラクティブコンポーネント。",
         "ctaPrimary": "ESP32-C3シミュレータを開く",
         "ctaSecondary": "C3の例",
         "trust": "無料＆オープンソース · QEMU lcgamboaバックエンド · libqemu-riscv32",
@@ -164,9 +164,7 @@
         "xiaoTitle": "XIAO ESP32-C3",
         "xiaoBody": "Seeed StudioコンパクトRISC-Vボード。11 GPIO、USB-C、バッテリ充電IC。21×17.5mm。",
         "superTitle": "ESP32-C3 SuperMini",
-        "superBody": "Aitewinrobot超コンパクトボード。同じRISC-Vコア、組み込みプロジェクト向け最小フォームファクタ。",
-        "chTitle": "CH32V003",
-        "chBody": "WCH RISC-V RV32EC、48MHz。超低コストDIP-8パッケージ、2KB SRAM、16KBフラッシュ。チップあたりわずか数セント。"
+        "superBody": "Aitewinrobot超コンパクトボード。同じRISC-Vコア、組み込みプロジェクト向け最小フォームファクタ。"
       },
       "examples": {
         "heading": "ESP32-C3のサンプルプロジェクト",
@@ -192,7 +190,7 @@
         "q2": "ESP32-C3シミュレータはブラウザで動作しますか？",
         "a2": "はい。XtensaベースのESP32とは異なり、ESP32-C3のRISC-Vエミュレーションは完全にブラウザ内で動作します — QEMUバックエンドは不要です。これにより、シミュレートするのに最速のESP32バリアントになります。",
         "q3": "これはRISC-Vシミュレータでもありますか？",
-        "a3": "はい。ESP32-C3はRISC-V RV32IMC命令セットを使用します。VelxioはCH32V003（RV32EC、48MHz）もサポートしています — もう1つの人気のあるRISC-Vマイクロコントローラです。",
+        "a3": "はい。ESP32-C3はRISC-V RV32IMC命令セットを使用します。",
         "q4": "どのESP32-C3ボードがサポートされていますか？",
         "a4": "VelxioはESP32-C3 DevKitM-1、Seeed XIAO ESP32-C3、およびESP32-C3 SuperMini（Aitewinrobot）をサポートしています。3つすべてが同じRISC-Vコアを使用しています。",
         "q5": "ESP32-C3でArduinoコードを使用できますか？",

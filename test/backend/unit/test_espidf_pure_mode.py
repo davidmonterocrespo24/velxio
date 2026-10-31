@@ -107,9 +107,70 @@ class TestIdfWifiNormalization(unittest.TestCase):
         self.assertNotIn('MyHomeNetwork', out)
         self.assertNotIn('hunter2', out)
 
+    def test_virtual_ssid_is_kept_in_idf_mode(self):
+        code = 'wifi_config_t c = { .sta = { .ssid = "Velxio-GUEST", .password = "" } };\nesp_wifi_init(0);'
+        out = self.comp._normalize_wifi_for_qemu_idf(code)
+        self.assertIn('.ssid = "Velxio-GUEST"', out)
+
+    def test_wokwi_guest_maps_to_the_simulator_guest_network(self):
+        code = 'wifi_config_t c = { .sta = { .ssid = "Wokwi-GUEST", .password = "" } };\nesp_wifi_init(0);'
+        out = self.comp._normalize_wifi_for_qemu_idf(code)
+        self.assertIn('.ssid = "Velxio-GUEST"', out)
+        self.assertNotIn('Wokwi-GUEST', out)
+
     def test_non_wifi_code_untouched(self):
         code = '#include "driver/gpio.h"\nvoid app_main(void) { }\n'
         self.assertEqual(self.comp._normalize_wifi_for_qemu_idf(code), code)
+
+
+class WifiNormalizationArduinoTests(unittest.TestCase):
+    """Arduino sketches: the simulated networks survive, home networks become the default one."""
+
+    def setUp(self):
+        self.comp = make_compiler()
+        self.norm = self.comp._normalize_wifi_for_qemu
+
+    def test_home_network_literal_becomes_the_default_network(self):
+        out = self.norm('#include <WiFi.h>\nvoid setup(){ WiFi.begin("MyHomeNet", "hunter2"); }')
+        self.assertIn('WiFi.begin("Espressif", "", 5)', out)
+
+    def test_virtual_network_literal_is_kept_with_its_channel(self):
+        out = self.norm('#include <WiFi.h>\nvoid setup(){ WiFi.begin("MasseyWifi", "pw"); }')
+        self.assertIn('WiFi.begin("MasseyWifi", "", 10)', out)
+
+    def test_wokwi_guest_becomes_the_simulator_guest_network(self):
+        out = self.norm('#include <WiFi.h>\nvoid setup(){ WiFi.begin("Wokwi-GUEST", "", 6); }')
+        self.assertIn('WiFi.begin("Velxio-GUEST", "", 6)', out)
+        self.assertNotIn('Wokwi-GUEST', out)
+
+    def test_named_ssid_keeps_the_virtual_network_and_hints_its_channel(self):
+        code = ('#include <WiFi.h>\nconst char* ssid = "Velxio-GUEST";\nconst char* password = "x";\n'
+                'void setup(){ WiFi.begin(ssid, password); }')
+        out = self.norm(code)
+        self.assertIn('const char* ssid = "Velxio-GUEST";', out)
+        self.assertIn('WiFi.begin(ssid, "", 6)', out)
+
+    def test_define_ssid_of_a_home_network_is_rewritten_and_hinted(self):
+        code = ('#include <WiFi.h>\n#define WIFI_SSID "MyHomeNet"\n#define WIFI_PASS "x"\n'
+                'void setup(){ WiFi.begin(WIFI_SSID, WIFI_PASS); }')
+        out = self.norm(code)
+        self.assertIn('#define WIFI_SSID "Espressif"', out)
+        self.assertIn('WiFi.begin(WIFI_SSID, "", 5)', out)
+
+    def test_nested_call_in_the_ssid_argument_survives(self):
+        code = '#include <WiFi.h>\nString net = "Velxio-GUEST";\nvoid setup(){ WiFi.begin(net.c_str(), "pw"); }'
+        out = self.norm(code)
+        self.assertIn('WiFi.begin(net.c_str(), "")', out)
+
+    def test_reconnect_without_arguments_is_untouched(self):
+        code = '#include <WiFi.h>\nvoid loop(){ if (WiFi.status() != WL_CONNECTED) WiFi.begin(); }'
+        self.assertEqual(self.norm(code), code)
+
+    def test_parenthesis_inside_a_string_argument_does_not_end_the_call(self):
+        code = '#include <WiFi.h>\nvoid setup(){ WiFi.begin("Cafe (2G)", "pw"); Serial.println("after"); }'
+        out = self.norm(code)
+        self.assertIn('WiFi.begin("Espressif", "", 5); Serial.println("after");', out)
+
 
 
 class TestJobKeyLanguageVariance(unittest.TestCase):

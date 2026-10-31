@@ -32,7 +32,14 @@ import {
   eepromConfig,
   AVRUSI,
 } from 'avr8js';
-import type { AVREEPROMConfig, SPIConfig, TWIConfig } from 'avr8js';
+import type {
+  AVREEPROMConfig,
+  AVRExternalInterrupt,
+  AVRPinChangeInterrupt,
+  AVRPortConfig,
+  SPIConfig,
+  TWIConfig,
+} from 'avr8js';
 import type { AVRTimerConfig } from 'avr8js/dist/esm/peripherals/timer';
 import type { ADCConfig, ADCMuxConfiguration } from 'avr8js/dist/esm/peripherals/adc';
 import { ADCMuxInputType, ADCReference } from 'avr8js/dist/esm/peripherals/adc';
@@ -70,37 +77,52 @@ import { boardPinsFromPinManager } from './buses/boardPins';
  * - Pin state tracking via PinManager
  */
 
-// OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano)
-const PWM_PINS_UNO = [
-  { ocrAddr: 0x47, pin: 6, label: 'OCR0A' }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5, label: 'OCR0B' }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL' }, // Timer1A low byte → D9
-  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL' }, // Timer1B low byte → D10
-  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A' }, // Timer2A → D11
-  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B' }, // Timer2B → D3
+interface PwmPinDef {
+  ocrAddr: number;
+  pin: number;
+  label: string;
+  /** TCCRnA data address and COMnx mask; absent where the layout differs (ATtiny85). */
+  comAddr?: number;
+  comMask?: number;
+}
+
+// OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano).
+// comAddr/comMask: the channel's COMnx bits in TCCRnA. While they are 0 the
+// compare unit is disconnected from the pin and the pin is a plain GPIO, which
+// is how the Arduino core implements analogWrite(pin, 0) and
+// analogWrite(pin, 255): digitalWrite, OCR left as it was. Reading OCR alone
+// kept reporting the last duty, so the circuit solver held the pin at that
+// average voltage after analogWrite(0).
+const PWM_PINS_UNO: PwmPinDef[] = [
+  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A low byte → D9
+  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B low byte → D10
+  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
 // Timers 0/1/2 same addresses; Timers 3/4/5 at higher addresses.
-const PWM_PINS_MEGA = [
-  { ocrAddr: 0x47, pin: 13, label: 'OCR0A' }, // Timer0A → D13
-  { ocrAddr: 0x48, pin: 4, label: 'OCR0B' }, // Timer0B → D4
-  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL' }, // Timer1A → D11
-  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL' }, // Timer1B → D12
-  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A' }, // Timer2A → D10
-  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B' }, // Timer2B → D9
+const PWM_PINS_MEGA: PwmPinDef[] = [
+  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D13
+  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D4
+  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A → D11
+  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B → D12
+  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D10
+  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D9
   // Timer3 (0x80–0x8D, but OCR3A/B/C at 0x98/0x9A/0x9C)
-  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL' }, // Timer3A → D5
-  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL' }, // Timer3B → D2
-  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL' }, // Timer3C → D3
+  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0 }, // Timer3A → D5
+  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30 }, // Timer3B → D2
+  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c }, // Timer3C → D3
   // Timer4 (OCR4A/B/C at 0xA8/0xAA/0xAC)
-  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL' }, // Timer4A → D6
-  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL' }, // Timer4B → D7
-  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL' }, // Timer4C → D8
+  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0 }, // Timer4A → D6
+  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30 }, // Timer4B → D7
+  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c }, // Timer4C → D8
   // Timer5 (OCR5A/B/C at 0x128/0x12A/0x12C — extended I/O)
-  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL' }, // Timer5A → D46
-  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL' }, // Timer5B → D45
-  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL' }, // Timer5C → D44
+  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0 }, // Timer5A → D46
+  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30 }, // Timer5B → D45
+  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c }, // Timer5C → D44
 ];
 
 /**
@@ -296,18 +318,114 @@ const attiny85Timer0Config: AVRTimerConfig = {
   dividers: { 0: 0, 1: 1, 2: 8, 3: 64, 4: 256, 5: 1024, 6: 0, 7: 0 },
 };
 
-/** Ordered list of Mega ports with their avr8js configs */
-const MEGA_PORT_CONFIGS = [
+/**
+ * ── ATmega2560 interrupt wiring ─────────────────────────────────────────────
+ *
+ * avr8js's port configs carry the ATmega328P's interrupt vectors, and the
+ * Mega used them as they came: PCINT0 at word 6, which on the ATmega2560 is
+ * INT2's slot. A SoftwareSerial receiver on pin 10 (PB4) enables PCINT0, so
+ * the first edge from the other board vectored the core into an INT2 the
+ * sketch never defined; avr-libc's __bad_interrupt jumps to the reset vector,
+ * and the board rebooted on every byte ("RReRRReceiver Ready...", #397).
+ * PORTC and PORTD carried pin-change interrupts the chip does not have, and
+ * PORTE's INT4/INT5 (pins 2 and 3, the Mega's usual attachInterrupt pins)
+ * were not wired at all.
+ *
+ * The 2560's vectors are 4 bytes (JMP), so vector n sits at word 2n
+ * (iomxx0_1.h): INT0..INT7 = 1..8, PCINT0..PCINT2 = 9..11. Registers: EICRA
+ * 0x69 (ISC00..ISC31), EICRB 0x6a (ISC40..ISC71), EIMSK 0x3d, EIFR 0x3c,
+ * PCICR 0x68, PCIFR 0x3b, PCMSK0..2 0x6b..0x6d. Pins:
+ *   INT0..INT3   PD0..PD3  D21, D20, D19, D18
+ *   INT4..INT7   PE4..PE7  D2, D3, then two pads the header leaves out
+ *   PCINT0..7    PB0..PB7  D53, D52, D51, D50, D10..D13
+ *   PCINT8       PE0       D0
+ *   PCINT9..15   PJ0..PJ6  D15, D14, then pads the header leaves out
+ *   PCINT16..23  PK0..PK7  A8..A15
+ */
+const megaExtInt = (n: number): AVRExternalInterrupt => ({
+  EICR: n < 4 ? 0x69 : 0x6a,
+  EIMSK: 0x3d,
+  EIFR: 0x3c,
+  index: n,
+  iscOffset: (n % 4) * 2,
+  interrupt: 2 + 2 * n,
+});
+
+/** PCINTn's group: `mask` says which port bits belong to it, `offset` where
+ *  bit 0 of the port sits in PCMSKn. */
+const megaPinChange = (n: number, mask: number, offset: number): AVRPinChangeInterrupt => ({
+  PCIE: n,
+  PCICR: 0x68,
+  PCIFR: 0x3b,
+  PCMSK: 0x6b + n,
+  pinChangeInterrupt: 18 + 2 * n,
+  mask,
+  offset,
+});
+
+/** A port's registers alone: the ATmega328P interrupts avr8js attaches to
+ *  the same letter do not apply here. */
+const megaPortRegs = (c: AVRPortConfig): Pick<AVRPortConfig, 'PIN' | 'DDR' | 'PORT'> => ({
+  PIN: c.PIN,
+  DDR: c.DDR,
+  PORT: c.PORT,
+});
+
+/** Ordered list of Mega ports with their configs */
+const MEGA_PORT_CONFIGS: Array<{ name: string; config: AVRPortConfig }> = [
   { name: 'PORTA', config: portAConfig },
-  { name: 'PORTB', config: portBConfig },
-  { name: 'PORTC', config: portCConfig },
-  { name: 'PORTD', config: portDConfig },
-  { name: 'PORTE', config: portEConfig },
+  {
+    name: 'PORTB',
+    config: {
+      ...megaPortRegs(portBConfig),
+      pinChange: megaPinChange(0, 0xff, 0),
+      externalInterrupts: [],
+    },
+  },
+  { name: 'PORTC', config: { ...megaPortRegs(portCConfig), externalInterrupts: [] } },
+  {
+    name: 'PORTD',
+    config: {
+      ...megaPortRegs(portDConfig),
+      externalInterrupts: [megaExtInt(0), megaExtInt(1), megaExtInt(2), megaExtInt(3)],
+    },
+  },
+  {
+    name: 'PORTE',
+    config: {
+      ...megaPortRegs(portEConfig),
+      pinChange: megaPinChange(1, 0x01, 0),
+      externalInterrupts: [
+        null,
+        null,
+        null,
+        null,
+        megaExtInt(4),
+        megaExtInt(5),
+        megaExtInt(6),
+        megaExtInt(7),
+      ],
+    },
+  },
   { name: 'PORTF', config: portFConfig },
   { name: 'PORTG', config: portGConfig },
   { name: 'PORTH', config: portHConfig },
-  { name: 'PORTJ', config: portJConfig },
-  { name: 'PORTK', config: portKConfig },
+  {
+    name: 'PORTJ',
+    config: {
+      ...megaPortRegs(portJConfig),
+      pinChange: megaPinChange(1, 0x7f, 1),
+      externalInterrupts: [],
+    },
+  },
+  {
+    name: 'PORTK',
+    config: {
+      ...megaPortRegs(portKConfig),
+      pinChange: megaPinChange(2, 0xff, 0),
+      externalInterrupts: [],
+    },
+  },
   { name: 'PORTL', config: portLConfig },
 ];
 
@@ -1124,10 +1242,6 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       this.adc = new AVRADC(cpu, cfg.adc);
 
       // ── GPIO ports ──────────────────────────────────────────────────────
-      this.portB = new AVRIOPort(cpu, portBConfig);
-      this.portC = new AVRIOPort(cpu, portCConfig);
-      this.portD = new AVRIOPort(cpu, portDConfig);
-
       if (this.boardVariant === 'mega') {
         this.megaPorts.clear();
         this.megaPortValues.clear();
@@ -1135,6 +1249,18 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
           this.megaPorts.set(name, new AVRIOPort(cpu, config));
           this.megaPortValues.set(name, 0);
         }
+        // The three ports the Uno code paths name are the Mega's own
+        // instances. A second AVRIOPort on the same registers, which is what
+        // this used to build first, is a zombie: the later instance takes
+        // over its register hooks, but it stays in cpu.gpioPorts with the
+        // 328P's INT0/INT1 on PD2/PD3 and answers every EIMSK write.
+        this.portB = this.megaPorts.get('PORTB')!;
+        this.portC = this.megaPorts.get('PORTC')!;
+        this.portD = this.megaPorts.get('PORTD')!;
+      } else {
+        this.portB = new AVRIOPort(cpu, portBConfig);
+        this.portC = new AVRIOPort(cpu, portCConfig);
+        this.portD = new AVRIOPort(cpu, portDConfig);
       }
     }
 
@@ -1451,8 +1577,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     const timeMs = this.cpu.cycles / 16_000;
     const pins = this.pwmPins;
     for (let i = 0; i < pins.length; i++) {
-      const { ocrAddr, pin } = pins[i];
-      const ocrValue = this.cpu.data[ocrAddr];
+      const { ocrAddr, pin, comAddr, comMask } = pins[i] as PwmPinDef;
+      const connected = comAddr === undefined || (this.cpu.data[comAddr] & comMask!) !== 0;
+      const ocrValue = connected ? this.cpu.data[ocrAddr] : 0;
       if (ocrValue !== this.lastOcrValues[i]) {
         this.lastOcrValues[i] = ocrValue;
         this.pinManager.updatePwm(pin, ocrValue / 255, timeMs);

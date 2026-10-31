@@ -1046,16 +1046,38 @@ interface SourceCard {
   b: string;
 }
 
+/**
+ * The netlist's ideal sources, with 0 V sources folded away.
+ *
+ * A `V... DC 0` card fixes no voltage: it is a current sense in series (an
+ * ammeter, an LED, a regulator's output). It behaves as a wire, so its two
+ * nodes are merged and it is not itself a source. Without that, a regulator
+ * (its B source on an internal node, then the sense to VOUT) wired into a
+ * supply rail sat on a different node pair than the rail and the conflict
+ * went unreported.
+ */
 function parseSourceCards(netlist: string): SourceCard[] {
-  const out: SourceCard[] = [];
-  for (const raw of netlist.split('\n')) {
-    const line = raw.trim();
+  const raw: SourceCard[] = [];
+  const parent = new Map<string, string>();
+  const find = (n: string): string => {
+    let r = n;
+    while (parent.has(r)) r = parent.get(r)!;
+    return r;
+  };
+  for (const text of netlist.split('\n')) {
+    const line = text.trim();
     if (!line || line.startsWith('*') || line.startsWith('.')) continue;
     const m = /^([VB]\S*)\s+(\S+)\s+(\S+)/.exec(line);
     if (!m) continue;
-    out.push({ name: m[1]!, a: m[2]!, b: m[3]! });
+    if (/^V\S*\s+\S+\s+\S+\s+DC\s+0\s*$/i.test(line)) {
+      const x = find(m[2]!);
+      const y = find(m[3]!);
+      if (x !== y) parent.set(x === '0' ? y : x, x === '0' ? x : y);
+      continue;
+    }
+    raw.push({ name: m[1]!, a: m[2]!, b: m[3]! });
   }
-  return out;
+  return raw.map((c) => ({ name: c.name, a: find(c.a), b: find(c.b) }));
 }
 
 /** The sorted node-pair key findSourceConflicts groups ideal sources by. */

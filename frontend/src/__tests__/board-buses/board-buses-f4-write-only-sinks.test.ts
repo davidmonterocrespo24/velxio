@@ -113,6 +113,12 @@ function tftElement(id: string) {
 
 function qemuBoard() {
   const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+  // These cases connect the QEMU session right after: a running board, as Run
+  // makes it. The verdicts about where the controller runs wait for that (the
+  // engine is only decided at Run; see the registry's remote-gap sink).
+  useSimulatorStore.setState((s) => ({
+    boards: s.boards.map((b) => (b.id === id ? { ...b, running: true } : b)),
+  }));
   const shim = getBoardSimulator(id);
   const bridge = getEsp32Bridge(id)!;
   return { id, shim, bridge };

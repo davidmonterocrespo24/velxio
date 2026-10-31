@@ -501,14 +501,14 @@
       "p1": "Velxio は、マイクロコントローラエミュレータが内部でどのように動作するか — CPU 命令、メモリ管理、ペリフェラルのタイミング、低レベルアーキテクチャ — を個人的に探求することから始まりました。休暇中の学習プロジェクトとして始まったものが、すぐに大きなものに成長しました。",
       "p2": "アイデアはシンプルでした: <strong>ハードウェアを購入せず、ツールチェーンをインストールせず、クラウドアカウントも不要で、誰でもブラウザ上で Arduino、ESP32、Raspberry Pi ボードを直接シミュレートできたらどうだろう？</strong>",
       "p3": "Velxio v1 は Product Hunt と Hacker News でローンチされ、Arduino Uno と Raspberry Pi Pico をサポートしました。メーカーや組み込みコミュニティからのフィードバックは素晴らしく、プロジェクトを前進させました。",
-      "p4": "<strong>Velxio 2.0</strong> では、QEMU (lcgamboa フォーク) による ESP32 エミュレーション、実際の Linux を実行する Raspberry Pi 3、ESP32-C3 と CH32V003 の RISC-V サポート、リアルなセンサーシミュレーション (DHT22、HC-SR04、WS2812B NeoPixel)、および 5 つの CPU アーキテクチャにわたる 19 のボードを搭載 — すべて実際のコンパイル済みコードを実行します。",
+      "p4": "<strong>Velxio 2.0</strong> では、QEMU (lcgamboa フォーク) による ESP32 エミュレーション、実際の Linux を実行する Raspberry Pi 3、ESP32-C3 の RISC-V サポート、リアルなセンサーシミュレーション (DHT22、HC-SR04、WS2812B NeoPixel)、および 5 つの CPU アーキテクチャにわたる 19 のボードを搭載 — すべて実際のコンパイル済みコードを実行します。",
       "p5": "v2 のローンチは <strong>Hacker News のトップページに 20 時間以上掲載</strong>され、24 時間足らずで 600 近い GitHub スターと数千人の訪問者を獲得しました。現在、世界中の学生、教授、メーカーによって使用されています。"
     },
     "howItWorks": {
       "heading": "仕組み",
       "avrRp2040Body": "サイクル精度のエミュレーションが avr8js と rp2040js を使用してブラウザ内で完全に実行されます。シミュレーションにバックエンドは不要です。",
       "esp32Body": "Xtensa ESP32 および ESP32-S3 は、バックエンド QEMU (lcgamboa フォーク) 上で実際のフラッシュイメージ、GPIO、ADC、タイマーを使用して実行されます。",
-      "riscvBody": "ESP32-C3 (DevKit、XIAO、SuperMini) および CH32V003 は、QEMU lcgamboa フォークと libqemu-riscv32 を使用してエミュレートされ、Xtensa ESP32 と同じバックエンドパターンです。",
+      "riscvBody": "ESP32-C3 (DevKit、XIAO、SuperMini) は、QEMU lcgamboa フォークと libqemu-riscv32 を使用してエミュレートされ、Xtensa ESP32 と同じバックエンドパターンです。",
       "raspiBody": "QEMU raspi3b による完全な ARM Cortex-A53 Linux — 実際の Raspberry Pi OS を起動し、RPi.GPIO を使用して Python を実行します。"
     },
     "openSource": {

@@ -18,6 +18,7 @@ import ReactDOM from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   useOscilloscopeStore,
+  OSC_V_DIVS,
   type OscChannel,
   type OscSample,
   type TriggerMode,
@@ -33,7 +34,7 @@ import './Oscilloscope.css';
 // Horizontal divisions shown at once
 const NUM_DIVS = 10;
 /** Vertical divisions an analog channel's row spans. */
-const NUM_V_DIVS = 8;
+const NUM_V_DIVS = OSC_V_DIVS;
 
 /** Time/div options shown in the selector */
 const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [

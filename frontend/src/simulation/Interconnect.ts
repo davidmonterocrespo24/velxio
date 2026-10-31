@@ -35,8 +35,9 @@
  *     firing a feedback echo.
  */
 
-import type { BoardKind } from '../types/board';
+import { isPiBoardKind, isStm32BoardKind, type BoardKind } from '../types/board';
 import type { Wire } from '../types/wire';
+import { getProBoard } from '../lib/proBoardRegistry';
 import { boardPinToNumber } from '../utils/boardPinMapping';
 import { isUartWire } from '../utils/boardProtocols';
 import { busRegistry } from './buses/registry';
@@ -169,21 +170,22 @@ export function getChipNetLinks(): CrossBoardChipNet[] {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * The engine a board runs on decides how its pins and bytes are reached: a
+ * simulator in the tab (`setPinState`, `PinManager.onPinChange`) or a bridge
+ * to a worker (`sendPinEvent`, `bridge.onPinChange`). The store picks the
+ * engine the same way (createSimulator / startBoard): a QEMU-Linux board, an
+ * ESP32 and an STM32 get a bridge; everything else runs in the tab, the
+ * overlay boards that bring their own engine included
+ * (ProBoardDef.createSimulator: the DFRobot AVR boards, the RP2350 class).
+ *
+ * This was a closed list of OSS kinds, so an overlay AVR board matched no
+ * family and got no route at all: SoftwareSerial between two DFRduino Unos
+ * received nothing while the same sketches on two Arduino Unos worked
+ * (#397, second round).
+ */
 function isBrowserSim(boardKind: string): boolean {
-  // Browser-side simulators expose a `setPinState` method directly on the
-  // simulator instance (AVR, RP2040).  ESP32-C3 family was historically
-  // here when Esp32C3Simulator ran in-browser, but per the store's
-  // ESP32_RISCV_KINDS routing the c3 boards now go through the same
-  // Esp32Bridge (qemu-system-riscv32 via libqemu-riscv32.dll) as the
-  // Xtensa ESP32s — so they belong on the bridge side.
-  return (
-    boardKind === 'arduino-uno' ||
-    boardKind === 'arduino-nano' ||
-    boardKind === 'arduino-mega' ||
-    boardKind === 'attiny85' ||
-    boardKind === 'raspberry-pi-pico' ||
-    boardKind === 'pi-pico-w'
-  );
+  return !isEsp32Bridge(boardKind) && !isStm32Bridge(boardKind) && !isPi3Bridge(boardKind);
 }
 
 function isEsp32Bridge(boardKind: string): boolean {
@@ -201,20 +203,24 @@ function isEsp32Bridge(boardKind: string): boolean {
     boardKind === 'xiao-esp32-c3' ||
     boardKind === 'aitewinrobot-esp32c3-supermini' ||
     boardKind === 'xiao-c3' ||
-    boardKind === 'c3-supermini'
+    boardKind === 'c3-supermini' ||
+    // An overlay ESP32 board (esp32Family) runs through the same bridge,
+    // whichever engine stands behind it.
+    getProBoard(boardKind)?.esp32Family !== undefined
   );
 }
 
 function isPi3Bridge(boardKind: string): boolean {
-  // Pi Zero / 1 / 2 / 3 / 4 / 5 all use the same backend bridge
-  // (QEMU virt + virtio-serial). Exclude raspberry-pi-pico (RP2040).
-  return boardKind.startsWith('raspberry-pi-') && boardKind !== 'raspberry-pi-pico';
+  // Pi Zero / 1 / 2 / 3 / 4 / 5 and the overlay's QEMU-Linux boards
+  // (piFamily) all use the same backend bridge (QEMU virt + virtio-serial).
+  // Excludes raspberry-pi-pico (RP2040, in the tab).
+  return isPiBoardKind(boardKind);
 }
 
 function isStm32Bridge(boardKind: string): boolean {
   // STM32 family via libqemu-arm (Stm32Bridge). Same single-slot
   // onPinChange/onSerialData + sendPinEvent/sendSerialBytes shape as Esp32Bridge.
-  return boardKind === 'stm32-bluepill' || boardKind.startsWith('stm32-');
+  return isStm32BoardKind(boardKind);
 }
 
 /** Resolve `(componentId, pinName)` to a `(boardId, pinNumber)` pair. */

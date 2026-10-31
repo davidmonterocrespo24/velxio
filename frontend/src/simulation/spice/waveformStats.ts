@@ -48,6 +48,20 @@ export function peakToPeak(samples: readonly number[]): number {
 }
 
 /** True if the signal has any AC content above `epsilon` peak-to-peak. */
+/**
+ * The part of a transient a meter should read: the second half of the window.
+ *
+ * Every transient starts from t = 0 with the circuit at rest, and the window
+ * is sized to let it settle first (four periods of the slowest source). A
+ * meter that averaged the whole of it read the settling too: a rectifier's
+ * reservoir capacitor charging from 0 V pulled a 5 V regulator output down to
+ * "DC 3.47 V". The tail is steady state; very short traces are kept whole.
+ */
+export function steadyState(samples: readonly number[]): number[] {
+  if (samples.length < 8) return [...samples];
+  return samples.slice(Math.floor(samples.length / 2));
+}
+
 export function isAC(samples: readonly number[], epsilon = 1e-4): boolean {
   return peakToPeak(samples) > epsilon;
 }

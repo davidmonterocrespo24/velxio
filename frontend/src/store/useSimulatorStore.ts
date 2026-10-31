@@ -118,6 +118,9 @@ import {
 // payload so the worker has them before the firmware runs.
 const SENSOR_COMPONENT_MAP = SINGLE_WIRE_SENSOR_MODELS;
 
+/** Classic ESP32 ADC2 channel → GPIO (soc/adc_channel.h): ch0..9. */
+const ESP32_ADC2_GPIO = [4, 0, 2, 15, 13, 12, 14, 27, 25, 26];
+
 // ── I2C sensor pre-registration ───────────────────────────────────────────────
 // An I2C sensor's worker record is keyed by a slot of its own component
 // (i2cPartWorkerPin), not by a GPIO, and carries the component as its owner:
@@ -700,6 +703,13 @@ export class Esp32BridgeShim {
     }
     if (pin >= 36 && pin <= 39) return pin - 36; // GPIO 36→CH0 … 39→CH3
     if (pin >= 32 && pin <= 35) return pin - 28; // GPIO 32→CH4 … 35→CH7
+    // Classic ESP32 ADC2: GPIO4/0/2/15/13/12/14/27/25/26 → ch0..9, answered as
+    // 10 + ch (channels ≥ 10 are the second unit, the same convention the S3
+    // map above uses for GPIO11-20). Until 2026-10-29 these pins answered -1,
+    // so setAdcVoltage dropped the value and analogRead() read 0 on every
+    // engine: a pH probe on GPIO27 and an NTC on GPIO26 printed pH 0.0 / -90 C.
+    const adc2 = ESP32_ADC2_GPIO.indexOf(pin);
+    if (adc2 >= 0) return 10 + adc2;
     return -1;
   }
 
@@ -1839,6 +1849,50 @@ interface SimulatorState {
   clearBoardSerialOutput: (boardId: string) => void;
 }
 
+/**
+ * What the last re-route pass of recalculateAllWirePositions produced, and
+ * from which inputs. Every part calls that action once its pinInfo is
+ * readable, and the canvas adds settle timers on top: a 71-part project ran
+ * the whole router 70+ times on load, ~600 ms each, and froze the page for
+ * 47 s. When the wires are still the array the last pass stored and neither
+ * an endpoint nor an obstacle moved, the routes it would compute are the
+ * ones already stored.
+ */
+let lastRouted: { wires: readonly Wire[]; key: string } | null = null;
+
+/**
+ * Each wire's shape as decided, with the two ends it was decided for: the
+ * saved shape for a loaded project, the route computed after that. A pass
+ * re-routes an auto-routed wire only when its ends moved away from that
+ * (or its shape was replaced from outside). Without this, opening a project re-routed every
+ * auto-routed wire, so a wire could come back in a different shape than it
+ * was saved in although nobody touched it (17 of 40 public projects
+ * sampled on 2026-10-30).
+ */
+const routedFrom = new Map<string, string>();
+const endsKey = (w: Pick<Wire, 'start' | 'end' | 'waypoints'>) =>
+  [w.start.x, w.start.y, w.end.x, w.end.y, ...(w.waypoints ?? []).flatMap((p) => [p.x, p.y])]
+    .map((v) => Math.round(v * 10) / 10)
+    .join(',');
+/**
+ * Marker for a wire whose saved shape is kept whatever its ends resolve to
+ * on the first pass that finds both pins. Saved ends are often a few px off
+ * the pin they resolve to today (a rotated part, a part drawn by an older
+ * release), and that is not the user moving anything.
+ */
+const ADOPT_ENDS = '*';
+/**
+ * A loaded project's wires keep the shapes they were saved with. Only an
+ * auto-routed wire saved without a shape (never routed, e.g. one the agent
+ * placed) is routed.
+ */
+export function keepWireShapes(wires: readonly Wire[]): void {
+  routedFrom.clear();
+  for (const w of wires) {
+    if (!w.autoRouted || (w.waypoints?.length ?? 0) > 0) routedFrom.set(w.id, ADOPT_ENDS);
+  }
+}
+
 // ── Helper: create a simulator for a given board kind ─────────────────────
 function createSimulator(
   boardKind: BoardKind,
@@ -2829,6 +2883,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       );
       setComponents(normalizedComponents);
       setWires(payload.wires);
+      keepWireShapes(payload.wires);
 
       // Active board: prefer the saved one, fall back to the first.
       const targetActive =
@@ -4505,6 +4560,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // guided wires are hand-authored from birth.
         autoRouted: waypoints.length === 0,
       };
+      routedFrom.set(newWire.id, endsKey(newWire));
       set((state) => ({ wires: [...state.wires, newWire], wireInProgress: null }));
     },
 
@@ -4590,6 +4646,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     recalculateAllWirePositions: () => {
       const state = get();
+      // Wires whose two ends sit on a pin that is actually in the DOM. A
+      // part that has not mounted yet resolves to its corner, and routing
+      // hundreds of wires between corners (all overlapping each other) is
+      // what froze a 452-wire project on load for good on a slower machine:
+      // loadProjectState runs this on the next frame, before the parts
+      // render. Those wires keep their stored shape until the pass that
+      // runs once their part mounts.
+      const pinned = new Set<string>();
       const updatedWires = state.wires.map((wire) => {
         const updated = { ...wire };
 
@@ -4645,6 +4709,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         updated.end = endPos
           ? { ...wire.end, x: endPos.x, y: endPos.y }
           : { ...wire.end, x: endX, y: endY };
+        if (startPos && endPos) pinned.add(wire.id);
 
         return updated;
       });
@@ -4661,11 +4726,31 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // Sequential on purpose: each wire sees the already-re-routed shapes
       // of the ones before it, which is what lays parallel runs out as a
       // tidy side-by-side bus instead of a shuffle of overlaps.
+      //
+      // ONLY those, plus the hand-authored wires: never the stale shape a
+      // later auto-routed wire still carries from the previous pass. With
+      // those in, a pass routed against the leftovers of the pass before it,
+      // so the same project came out in a different shape depending on how
+      // many passes had run (on a slow network a pass ran before the parts
+      // were measured, and its leftovers bent the final routes). Without
+      // them a pass depends only on the endpoints and the parts, and running
+      // it again changes nothing.
       if (updatedWires.some((w) => w.autoRouted && !w.bb)) {
         const rectsById = collectComponentRects(state.components);
+        const key = JSON.stringify([
+          updatedWires.map((w) => [w.id, w.start.x, w.start.y, w.end.x, w.end.y, pinned.has(w.id)]),
+          rectsById.map(({ id, rect }) => [id, rect.x, rect.y, rect.w, rect.h]),
+        ]);
+        if (lastRouted && lastRouted.wires === state.wires && lastRouted.key === key) return;
+        const kept = new Set<string>();
+        for (const w of updatedWires) {
+          const basis = routedFrom.get(w.id);
+          if (basis === ADOPT_ENDS && pinned.has(w.id)) routedFrom.set(w.id, endsKey(w));
+          if (basis === ADOPT_ENDS || basis === endsKey(w)) kept.add(w.id);
+        }
         for (let i = 0; i < updatedWires.length; i++) {
           const wire = updatedWires[i];
-          if (!wire.autoRouted || wire.bb) continue;
+          if (!wire.autoRouted || wire.bb || !pinned.has(wire.id) || kept.has(wire.id)) continue;
           const rects = rectsById
             .filter((r) => r.id !== wire.start.componentId && r.id !== wire.end.componentId)
             .map((r) => r.rect);
@@ -4673,7 +4758,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             { x: wire.start.x, y: wire.start.y },
             { x: wire.end.x, y: wire.end.y },
             rects,
-            collectWireSegments(updatedWires, wire.id),
+            collectWireSegments(
+              updatedWires.filter(
+                (w, j) => pinned.has(w.id) && (j < i || !w.autoRouted || kept.has(w.id)),
+              ),
+              wire.id,
+            ),
           );
           // routed === null means the PREVIEW elbow (longer-axis-first) is
           // clear — so that exact elbow must be materialised. Storing []
@@ -4693,7 +4783,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               { x: wire.end.x, y: wire.end.y },
             ),
           };
+          routedFrom.set(wire.id, endsKey(updatedWires[i]));
         }
+        lastRouted = { wires: updatedWires, key };
       }
 
       set({ wires: updatedWires });

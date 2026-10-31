@@ -29,6 +29,36 @@ import { attachUartEndpoint } from '../buses';
 import { setBoardPinPull, type BoardPinHost } from '../customChips/busNets';
 import { isBusCapable, type GuestClock, type UartHandle } from '../buses/types';
 
+/**
+ * Compiled modules by their WASM, so a chip compiles once per page however
+ * many times its part re-attaches. The key is the base64 the project stores;
+ * a chip the user recompiles is a new key. Bounded: the entries are the few
+ * chips of the open project, and a page that outgrows the bound just compiles
+ * the oldest again.
+ */
+const compiledModules = new Map<string, WebAssembly.Module>();
+const COMPILED_MODULES_MAX = 16;
+
+export function compiledChipModule(wasmBase64: string): WebAssembly.Module | undefined {
+  const m = compiledModules.get(wasmBase64);
+  if (m) {
+    // Most recently used last, so the bound drops the stalest.
+    compiledModules.delete(wasmBase64);
+    compiledModules.set(wasmBase64, m);
+  }
+  return m;
+}
+
+export function rememberChipModule(wasmBase64: string, module: WebAssembly.Module): void {
+  compiledModules.delete(wasmBase64);
+  compiledModules.set(wasmBase64, module);
+  while (compiledModules.size > COMPILED_MODULES_MAX) {
+    const oldest = compiledModules.keys().next().value;
+    if (oldest === undefined) break;
+    compiledModules.delete(oldest);
+  }
+}
+
 // Physical-key (KeyboardEvent.code) -> Galaksija keyboard matrix offset, from
 // the libretro Galaksija core's keyMap. The chip's set_key takes this offset;
 // reading 0x2000+offset on the bus returns pressed/released.
@@ -450,9 +480,14 @@ PartSimulationRegistry.register('custom-chip', {
 
     (async () => {
       try {
-        const wasm = decodeWasmBase64(wasmBase64);
-        const inst = await ChipInstance.create({
-          wasm,
+        // Compiling is the slow, async half of a chip's creation, and it is
+        // done once per distinct WASM: a part re-attaches on every Run
+        // (hexEpoch) and every wire edit, and with the module in hand the
+        // instance is made synchronously, so the chip is back on its buses
+        // before the firmware's first instruction. Created with an await it
+        // was off the bus while setup() called begin(), and a driver that
+        // halts on a failed begin() (the Adafruit examples do) stayed dead.
+        const chipOptions = {
           componentId,
           pinManager: sim.pinManager,
           clock: guestClock,
@@ -465,8 +500,13 @@ PartSimulationRegistry.register('custom-chip', {
           strAttrs,
           display,
           romBytes,
-          log: (s) => console.log(`[chip:${componentId}] ${s.replace(/\n$/, '')}`),
-        });
+          log: (s: string) => console.log(`[chip:${componentId}] ${s.replace(/\n$/, '')}`),
+        };
+        const compiled = compiledChipModule(wasmBase64);
+        const inst = compiled
+          ? ChipInstance.createSync({ wasm: compiled, ...chipOptions })
+          : await ChipInstance.create({ wasm: decodeWasmBase64(wasmBase64), ...chipOptions });
+        if (!compiled && inst.module) rememberChipModule(wasmBase64, inst.module);
         if (disposed) {
           inst.dispose();
           return;

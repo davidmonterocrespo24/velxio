@@ -66,6 +66,15 @@ export interface NetResolver {
   boardKind(boardId: string): string | undefined;
   /** Board ids present in the project, in canvas order. */
   boards(): string[];
+  /**
+   * Whether the board's firmware is running. A wiring diagnostic is a verdict
+   * on the circuit the firmware is about to talk to, so the registry says it
+   * when the board runs and keeps quiet while the circuit is still being
+   * wired: the agent lands one wire per call, and a chip whose SDA arrived
+   * before its SCL is not miswired, it is half done. Optional: a resolver
+   * without it reports as the circuit changes.
+   */
+  running?(boardId: string): boolean;
 }
 
 // ── SPI ─────────────────────────────────────────────────────────────────────

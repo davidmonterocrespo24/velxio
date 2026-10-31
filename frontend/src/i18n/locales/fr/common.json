@@ -55,7 +55,7 @@
       },
       "engines": {
         "title": "5 moteurs d'émulation",
-        "desc": "AVR8 (ATmega328P, ATmega2560, ATtiny85), RP2040 (ARM Cortex-M0+), RV32IMC (ESP32-C3, CH32V003 via QEMU), Xtensa LX6/LX7 (ESP32 via QEMU) et ARM Cortex-A53 (Raspberry Pi 3 Linux)."
+        "desc": "AVR8 (ATmega328P, ATmega2560, ATtiny85), RP2040 (ARM Cortex-M0+), RV32IMC (ESP32-C3 via QEMU), Xtensa LX6/LX7 (ESP32 via QEMU) et ARM Cortex-A53 (Raspberry Pi 3 Linux)."
       },
       "customChips": {
         "title": "Puces personnalisées",

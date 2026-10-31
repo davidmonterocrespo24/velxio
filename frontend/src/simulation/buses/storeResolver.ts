@@ -107,5 +107,8 @@ export function createStoreNetResolver(getState: () => TraceState): NetResolver 
     boards(): string[] {
       return getState().boards.map((b) => b.id);
     },
+    running(boardId: string): boolean {
+      return getState().boards.find((b) => b.id === boardId)?.running === true;
+    },
   };
 }

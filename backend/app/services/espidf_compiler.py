@@ -1064,6 +1064,101 @@ _NETMASK = '255.255.255.0'
 _QEMU_WIFI_SSID = 'Espressif'
 _QEMU_WIFI_CHANNEL = 5
 
+# The virtual networks every engine beacons (the QEMU fork's access_point_info
+# and the js engines' ACCESS_POINTS), with their channels. A sketch that names
+# one of these keeps it: the station then joins THAT network and WiFi.SSID()
+# tells the truth. Any other SSID (the user's home network) is rewritten to
+# _QEMU_WIFI_SSID so the sketch connects without an edit. Wokwi-GUEST is the
+# guest SSID of sketches written against Wokwi; the QEMU fork does not beacon
+# it, so it maps to the simulator's own guest network on both engines.
+_VIRTUAL_WIFI_NETWORKS: dict[str, int] = {
+    'Velxio-GUEST': 6,
+    'PICSimLabWifi': 1,
+    'Espressif': 5,
+    'MasseyWifi': 10,
+}
+_WIFI_SSID_ALIASES: dict[str, str] = {'Wokwi-GUEST': 'Velxio-GUEST'}
+
+
+def _virtual_ssid(ssid: str) -> tuple[str, int]:
+    """The (SSID, channel) a sketch's SSID literal becomes in the simulator."""
+    ssid = _WIFI_SSID_ALIASES.get(ssid, ssid)
+    if ssid in _VIRTUAL_WIFI_NETWORKS:
+        return ssid, _VIRTUAL_WIFI_NETWORKS[ssid]
+    return _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL
+
+
+def _matching_paren(code: str, open_idx: int) -> int:
+    """Index of the ')' that closes the '(' at open_idx, or -1. Skips strings."""
+    depth = 0
+    quote: str | None = None
+    i = open_idx
+    while i < len(code):
+        c = code[i]
+        if quote:
+            if c == '\\':
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in '"\'':
+            quote = c
+        elif c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def _split_call_args(args: str) -> list[str]:
+    """Top-level comma split of a C argument list; nested calls and strings stay whole."""
+    parts: list[str] = []
+    depth = 0
+    quote: str | None = None
+    start = 0
+    i = 0
+    while i < len(args):
+        c = args[i]
+        if quote:
+            if c == '\\':
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c in '"\'':
+            quote = c
+        elif c in '([{':
+            depth += 1
+        elif c in ')]}':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            parts.append(args[start:i].strip())
+            start = i + 1
+        i += 1
+    parts.append(args[start:].strip())
+    return parts
+
+
+def _rewrite_calls(code: str, name_pattern: str, rewrite) -> str:
+    """Replace every `name(args)` call with rewrite(args) (None keeps the call)."""
+    out: list[str] = []
+    pos = 0
+    for m in re.finditer(name_pattern + r'\s*\(', code):
+        if m.start() < pos:
+            continue
+        close = _matching_paren(code, m.end() - 1)
+        if close < 0:
+            break
+        replacement = rewrite(code[m.end():close])
+        if replacement is None:
+            continue
+        out.append(code[pos:m.start()])
+        out.append(replacement)
+        pos = close + 1
+    out.append(code[pos:])
+    return ''.join(out)
+
 
 def effective_scope(allowed: set[str] | None, scope: tuple | None) -> set[str] | None:
     """The allow-list the merge filters by, given the manifest and what the
@@ -1870,8 +1965,8 @@ class ESPIDFCompiler:
         connect.
         """
         code = re.sub(
-            r'(#define\s+\w*SSID\w*\s+)"[^"]*"',
-            rf'\1"{_QEMU_WIFI_SSID}"',
+            r'(#define\s+\w*SSID\w*\s+)"([^"]*)"',
+            lambda m: f'{m.group(1)}"{_virtual_ssid(m.group(2))[0]}"',
             code,
             flags=re.IGNORECASE,
         )
@@ -1881,7 +1976,11 @@ class ESPIDFCompiler:
             code,
             flags=re.IGNORECASE,
         )
-        code = re.sub(r'(\.ssid\s*=\s*)"[^"]*"', rf'\1"{_QEMU_WIFI_SSID}"', code)
+        code = re.sub(
+            r'(\.ssid\s*=\s*)"([^"]*)"',
+            lambda m: f'{m.group(1)}"{_virtual_ssid(m.group(2))[0]}"',
+            code,
+        )
         code = re.sub(r'(\.password\s*=\s*)"[^"]*"', r'\1""', code)
         return code
 
@@ -1896,11 +1995,13 @@ class ESPIDFCompiler:
         """
         Normalize WiFi SSID/password/channel in Arduino sketches for QEMU.
 
-        QEMU's WiFi AP broadcasts _QEMU_WIFI_SSID on _QEMU_WIFI_CHANNEL with open auth.
-        This method rewrites the user's sketch so that:
-          - Any SSID string literal → _QEMU_WIFI_SSID
+        The simulated radios (the QEMU fork and the in-browser engines) beacon
+        the open networks in _VIRTUAL_WIFI_NETWORKS. This method rewrites the
+        user's sketch so that:
+          - An SSID literal naming one of them is kept (WiFi.SSID() stays true)
+          - Any other SSID literal → _QEMU_WIFI_SSID
           - Password → "" (open auth)
-          - Channel → _QEMU_WIFI_CHANNEL
+          - Channel → the network's channel when the SSID is known here
         The user's editor still shows their original code; only the compiled
         binary is modified.
         """
@@ -1911,15 +2012,23 @@ class ESPIDFCompiler:
         #    const char* ssid = "anything" → _QEMU_WIFI_SSID
         #    char ssid[] = "anything"      → _QEMU_WIFI_SSID
         #    #define WIFI_SSID "anything"   → _QEMU_WIFI_SSID
+        # The SSID each rewritten name now carries, so WiFi.begin(name, ...)
+        # can hint the channel of that network below.
+        ssid_of_name: dict[str, str] = {}
+
+        def _ssid_literal(m: re.Match) -> str:
+            ssid, _ = _virtual_ssid(m.group(3))
+            ssid_of_name[m.group(2)] = ssid
+            return f'{m.group(1)}"{ssid}"'
         code = re.sub(
-            r'((?:const\s+)?char\s*\*?\s*ssid\s*\[?\]?\s*=\s*)"[^"]*"',
-            rf'\1"{_QEMU_WIFI_SSID}"',
+            r'((?:const\s+)?char\s*\*?\s*(ssid)\s*\[?\]?\s*=\s*)"([^"]*)"',
+            _ssid_literal,
             code,
             flags=re.IGNORECASE
         )
         code = re.sub(
-            r'(#define\s+\w*SSID\w*\s+)"[^"]*"',
-            rf'\1"{_QEMU_WIFI_SSID}"',
+            r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"',
+            _ssid_literal,
             code,
             flags=re.IGNORECASE
         )
@@ -1930,22 +2039,27 @@ class ESPIDFCompiler:
         #    WiFi.begin(ssid, pass, N) → WiFi.begin(ssid, "", _QEMU_WIFI_CHANNEL)
         #    WiFi.begin(ssid)          → WiFi.begin(ssid, "", _QEMU_WIFI_CHANNEL)
 
-        def _rewrite_wifi_begin(m: re.Match) -> str:
-            args = m.group(1)
-            parts = [a.strip() for a in args.split(',')]
-            ssid_arg = parts[0]
-            # If SSID is a string literal, force to _QEMU_WIFI_SSID
-            if ssid_arg.startswith('"'):
-                ssid_arg = f'"{_QEMU_WIFI_SSID}"'
-            return f'WiFi.begin({ssid_arg}, "", {_QEMU_WIFI_CHANNEL})'
+        def _rewrite_wifi_begin(args: str) -> str | None:
+            if not args.strip():
+                return None  # WiFi.begin(): reconnect with stored credentials
+            ssid_arg = _split_call_args(args)[0]
+            # A string literal becomes the virtual network it names (or the
+            # default one), with that network's channel as the scan hint. A
+            # name whose definition was rewritten above hints the same way; any
+            # other expression (net.c_str(), a struct field) keeps its value and
+            # gets no hint: the station finds the channel by scanning, as on
+            # real hardware.
+            if ssid_arg.startswith('"') and ssid_arg.endswith('"'):
+                ssid, channel = _virtual_ssid(ssid_arg[1:-1])
+                return f'WiFi.begin("{ssid}", "", {channel})'
+            ssid = ssid_of_name.get(ssid_arg)
+            if ssid is not None:
+                return f'WiFi.begin({ssid_arg}, "", {_VIRTUAL_WIFI_NETWORKS[ssid]})'
+            return f'WiFi.begin({ssid_arg}, "")'
 
-        code = re.sub(
-            r'WiFi\.begin\s*\(([^)]+)\)',
-            _rewrite_wifi_begin,
-            code
-        )
+        code = _rewrite_calls(code, r'WiFi\.begin', _rewrite_wifi_begin)
 
-        logger.info('[espidf] WiFi normalized: SSID→%s, channel→%d, open auth', _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL)
+        logger.info('[espidf] WiFi normalized: unknown SSIDs→%s (channel %d), virtual ones kept, open auth', _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL)
         return code
 
     def _translate_sketch_to_espidf(self, sketch_code: str) -> str:

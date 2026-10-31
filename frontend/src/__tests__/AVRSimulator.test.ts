@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { PinManager } from '../simulation/PinManager';
+import { connectAllCompareOutputs } from './helpers/avrPwm';
 
 // ─── Mock requestAnimationFrame (not available in node) ──────────────────────
 // Depth-limited: calls cb once synchronously but prevents re-entrancy so that
@@ -162,6 +163,7 @@ describe('AVRSimulator — PWM OCR monitoring', () => {
 
     // Directly write a value to the OCR1AL register in CPU data memory
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     cpu.data[0x88] = 128; // 50% duty cycle
 
     // Simulate a frame tick to trigger OCR polling
@@ -193,6 +195,7 @@ describe('AVRSimulator — PWM OCR monitoring', () => {
     });
 
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     PWM_MAP.forEach(({ addr }, i) => {
       cpu.data[addr] = (i + 1) * 25; // 25, 50, 75, 100, 125, 150
     });

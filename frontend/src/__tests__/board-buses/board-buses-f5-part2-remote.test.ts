@@ -163,10 +163,18 @@ describe('QEMU boards: a target the worker has no model of', () => {
     cleanups.push(busRegistry.onDiagnostic((d) => seen.push(d)));
     return seen;
   }
+  /** The verdict waits for the board to run (the engine is only decided at
+   *  Run); a board that never starts hears nothing, like the wiring verdicts. */
+  function running(id: string): void {
+    useSimulatorStore.setState((s) => ({
+      boards: s.boards.map((b) => (b.id === id ? { ...b, running: true } : b)),
+    }));
+  }
 
   it('ESP32: a tab-only target is named, a worker-modelled one is not', () => {
     const seen = diagnostics();
     const id = useSimulatorStore.getState().addBoard('esp32', 0, 0);
+    running(id);
     target(id, 'tab-only', 'D21', 'D22');
     target(id, 'bmp-a', 'D21', 'D22', 'bmp280');
     const missing = seen.filter((d) => d.code === 'bus-remote-responder-missing');
@@ -176,6 +184,7 @@ describe('QEMU boards: a target the worker has no model of', () => {
   it('STM32: the same rule on its controllers', () => {
     const seen = diagnostics();
     const id = useSimulatorStore.getState().addBoard('stm32-bluepill', 0, 0);
+    running(id);
     target(id, 'tab-only', 'PB7', 'PB6');
     target(id, 'mpu', 'PB11', 'PB10', 'mpu6050');
     const missing = seen.filter((d) => d.code === 'bus-remote-responder-missing');
@@ -185,6 +194,7 @@ describe('QEMU boards: a target the worker has no model of', () => {
   it('an Uno (controller in the tab) never names it', () => {
     const seen = diagnostics();
     const id = useSimulatorStore.getState().addBoard('arduino-uno', 0, 0);
+    running(id);
     target(id, 'tab-only', 'A4', 'A5');
     expect(seen.filter((d) => d.code === 'bus-remote-responder-missing')).toEqual([]);
   });

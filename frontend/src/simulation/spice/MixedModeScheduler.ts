@@ -57,6 +57,16 @@ function pinKey(componentId: string, componentPinName: string): string {
   return `${componentId}|${componentPinName}`;
 }
 
+/** One idle slot, with a ceiling so a busy page still boots the solver.
+ *  No requestIdleCallback (Safari, node, vitest): the next macrotask. */
+function untilIdle(): Promise<void> {
+  return new Promise((resolve) => {
+    const g = globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    if (typeof g.requestIdleCallback === 'function') g.requestIdleCallback(() => resolve(), { timeout: 2500 });
+    else setTimeout(resolve, 0);
+  });
+}
+
 class MixedModeSchedulerImpl implements SpiceVoltageSource {
   private solver: SolverPort | null = null;
   private solverFactory: () => SolverPort = () => new NgSpiceWorkerAdapter();
@@ -81,11 +91,21 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
   }
 
   private async ensureSolver(): Promise<SolverPort> {
-    if (!this.solver) this.solver = this.solverFactory();
+    if (!this.solver) {
+      // The solver is a Worker that fetches a 24 MB WebAssembly module. Booting
+      // it the moment the editor mounts put that download on the wire together
+      // with the parts' own chunks, and a project page with 70 parts showed
+      // its circuit only when the module was through (48 to 56 s measured on
+      // velxio.dev, 2026-10-29). The first boot now waits for the browser to
+      // go idle once, so the parts land first; a re-solve finds it warm.
+      await untilIdle();
+      if (!this.solver) this.solver = this.solverFactory();
+    }
     if (!this.initPromise) this.initPromise = this.solver.init();
     await this.initPromise;
     return this.solver;
   }
+
 
   /**
    * Load a SPICE netlist plus the (component, pin) → SPICE-net map

@@ -511,14 +511,14 @@
       "p1": "Velxio comenzó como una exploración personal de cómo funcionan internamente los emuladores de microcontroladores — instrucciones de CPU, gestión de memoria, temporización de periféricos y arquitectura de bajo nivel. Lo que empezó como un proyecto de aprendizaje durante unas vacaciones rápidamente se convirtió en algo más grande.",
       "p2": "La idea era simple: <strong>¿y si cualquiera pudiera simular placas Arduino, ESP32 y Raspberry Pi directamente en el navegador, sin comprar hardware, sin instalar cadenas de herramientas, sin cuentas en la nube?</strong>",
       "p3": "Velxio v1 se lanzó en Product Hunt y Hacker News, compatible con Arduino Uno y Raspberry Pi Pico. La retroalimentación de la comunidad maker y de sistemas embebidos fue increíble — y empujó el proyecto hacia adelante.",
-      "p4": "<strong>Velxio 2.0</strong> incluyó emulación ESP32 a través de QEMU (usando el fork de lcgamboa), una Raspberry Pi 3 ejecutando Linux real, soporte RISC-V para ESP32-C3 y CH32V003, simulación realista de sensores (DHT22, HC-SR04, WS2812B NeoPixel), y 19 placas en 5 arquitecturas de CPU — todo ejecutando código compilado real.",
+      "p4": "<strong>Velxio 2.0</strong> incluyó emulación ESP32 a través de QEMU (usando el fork de lcgamboa), una Raspberry Pi 3 ejecutando Linux real, soporte RISC-V para ESP32-C3, simulación realista de sensores (DHT22, HC-SR04, WS2812B NeoPixel), y 19 placas en 5 arquitecturas de CPU — todo ejecutando código compilado real.",
       "p5": "El lanzamiento de v2 llegó a la <strong>portada de Hacker News durante más de 20 horas</strong>, alcanzando casi 600 estrellas en GitHub y miles de visitantes en menos de 24 horas. Ahora es utilizado por estudiantes, profesores y makers de todo el mundo."
     },
     "howItWorks": {
       "heading": "Cómo Funciona",
       "avrRp2040Body": "La emulación precisa de ciclos se ejecuta completamente en tu navegador usando avr8js y rp2040js. No se necesita backend para la simulación.",
       "esp32Body": "ESP32 y ESP32-S3 Xtensa se ejecutan en QEMU backend (fork de lcgamboa) con imágenes flash reales, GPIO, ADC y temporizadores.",
-      "riscvBody": "ESP32-C3 (DevKit, XIAO, SuperMini) y CH32V003 se emulan a través del fork de QEMU lcgamboa con libqemu-riscv32, el mismo patrón de backend que Xtensa ESP32.",
+      "riscvBody": "ESP32-C3 (DevKit, XIAO, SuperMini) se emulan a través del fork de QEMU lcgamboa con libqemu-riscv32, el mismo patrón de backend que Xtensa ESP32.",
       "raspiBody": "ARM Cortex-A53 Linux completo a través de QEMU raspi3b — arranca el sistema Raspberry Pi OS real y ejecuta Python con RPi.GPIO."
     },
     "openSource": {
