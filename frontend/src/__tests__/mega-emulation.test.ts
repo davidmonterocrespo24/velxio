@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { AVRSimulator } from '../simulation/AVRSimulator';
 import { PinManager } from '../simulation/PinManager';
+import { connectAllCompareOutputs } from './helpers/avrPwm';
 
 // ─── RAF stubs ────────────────────────────────────────────────────────────────
 
@@ -276,6 +277,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
     pm.onPwmChange(13, cb); // Mega: OCR0A → D13
 
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     cpu.data[0x47] = 128;
 
     // Call pollPwmRegisters directly — avoids RAF dependency in unit tests
@@ -294,6 +296,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
     pm.onPwmChange(5, cb);
 
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     cpu.data[0x98] = 200;
 
     (sim as any).pollPwmRegisters();
@@ -311,6 +314,7 @@ describe('AVRSimulator Mega — PWM OCR mapping differs from Uno', () => {
     pm.onPwmChange(6, cb);
 
     const cpu = (sim as any).cpu;
+    connectAllCompareOutputs(cpu);
     cpu.data[0xa8] = 100;
 
     (sim as any).pollPwmRegisters();

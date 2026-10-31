@@ -77,37 +77,52 @@ import { boardPinsFromPinManager } from './buses/boardPins';
  * - Pin state tracking via PinManager
  */
 
-// OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano)
-const PWM_PINS_UNO = [
-  { ocrAddr: 0x47, pin: 6, label: 'OCR0A' }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5, label: 'OCR0B' }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL' }, // Timer1A low byte → D9
-  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL' }, // Timer1B low byte → D10
-  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A' }, // Timer2A → D11
-  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B' }, // Timer2B → D3
+interface PwmPinDef {
+  ocrAddr: number;
+  pin: number;
+  label: string;
+  /** TCCRnA data address and COMnx mask; absent where the layout differs (ATtiny85). */
+  comAddr?: number;
+  comMask?: number;
+}
+
+// OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano).
+// comAddr/comMask: the channel's COMnx bits in TCCRnA. While they are 0 the
+// compare unit is disconnected from the pin and the pin is a plain GPIO, which
+// is how the Arduino core implements analogWrite(pin, 0) and
+// analogWrite(pin, 255): digitalWrite, OCR left as it was. Reading OCR alone
+// kept reporting the last duty, so the circuit solver held the pin at that
+// average voltage after analogWrite(0).
+const PWM_PINS_UNO: PwmPinDef[] = [
+  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A low byte → D9
+  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B low byte → D10
+  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
 // Timers 0/1/2 same addresses; Timers 3/4/5 at higher addresses.
-const PWM_PINS_MEGA = [
-  { ocrAddr: 0x47, pin: 13, label: 'OCR0A' }, // Timer0A → D13
-  { ocrAddr: 0x48, pin: 4, label: 'OCR0B' }, // Timer0B → D4
-  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL' }, // Timer1A → D11
-  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL' }, // Timer1B → D12
-  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A' }, // Timer2A → D10
-  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B' }, // Timer2B → D9
+const PWM_PINS_MEGA: PwmPinDef[] = [
+  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D13
+  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D4
+  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A → D11
+  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B → D12
+  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D10
+  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D9
   // Timer3 (0x80–0x8D, but OCR3A/B/C at 0x98/0x9A/0x9C)
-  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL' }, // Timer3A → D5
-  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL' }, // Timer3B → D2
-  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL' }, // Timer3C → D3
+  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0 }, // Timer3A → D5
+  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30 }, // Timer3B → D2
+  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c }, // Timer3C → D3
   // Timer4 (OCR4A/B/C at 0xA8/0xAA/0xAC)
-  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL' }, // Timer4A → D6
-  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL' }, // Timer4B → D7
-  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL' }, // Timer4C → D8
+  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0 }, // Timer4A → D6
+  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30 }, // Timer4B → D7
+  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c }, // Timer4C → D8
   // Timer5 (OCR5A/B/C at 0x128/0x12A/0x12C — extended I/O)
-  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL' }, // Timer5A → D46
-  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL' }, // Timer5B → D45
-  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL' }, // Timer5C → D44
+  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0 }, // Timer5A → D46
+  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30 }, // Timer5B → D45
+  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c }, // Timer5C → D44
 ];
 
 /**
@@ -1562,8 +1577,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     const timeMs = this.cpu.cycles / 16_000;
     const pins = this.pwmPins;
     for (let i = 0; i < pins.length; i++) {
-      const { ocrAddr, pin } = pins[i];
-      const ocrValue = this.cpu.data[ocrAddr];
+      const { ocrAddr, pin, comAddr, comMask } = pins[i] as PwmPinDef;
+      const connected = comAddr === undefined || (this.cpu.data[comAddr] & comMask!) !== 0;
+      const ocrValue = connected ? this.cpu.data[ocrAddr] : 0;
       if (ocrValue !== this.lastOcrValues[i]) {
         this.lastOcrValues[i] = ocrValue;
         this.pinManager.updatePwm(pin, ocrValue / 255, timeMs);
