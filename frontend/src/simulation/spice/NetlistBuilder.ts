@@ -182,13 +182,33 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
       }
     }
   }
+  // A part's pin names hint at a rail too, but only on a net no board pin
+  // names: a board's supply and ground pins are facts, a part's names are a
+  // guess. A potentiometer wired with its power pins swapped (its GND on the
+  // board's 3V3) turned the whole 3V3 net into ground (ground wins a clash),
+  // no rail source was emitted, and everything on that rail solved at 0 V
+  // (velxio/velxio-prod#21). Nets with only parts keep the hint.
+  const boardNamed = new Set<string>();
+  for (const board of boards) {
+    for (const pinName of [
+      ...(board.groundPinNames ?? []),
+      ...(board.vccPinNames ?? []),
+      ...(board.auxVolts !== undefined ? (board.auxPinNames ?? []) : []),
+      ...pinsReferencedByWires(board.id, wires),
+    ]) {
+      const key = pinKey(board.id, pinName);
+      if (uf.has(key) && isRailNet(uf.find(key))) boardNamed.add(uf.root(key));
+    }
+  }
   for (const comp of components) {
     if (skipCanonicalization(comp.metadataId)) continue;
     for (const pinName of pinsReferencedByWires(comp.id, wires)) {
+      const key = pinKey(comp.id, pinName);
+      if (boardNamed.has(uf.root(key))) continue;
       if (GROUND_PIN_RE.test(pinName)) {
-        uf.setCanonical(pinKey(comp.id, pinName), '0');
+        uf.setCanonical(key, '0');
       } else if (VCC_PIN_RE.test(pinName)) {
-        uf.setCanonical(pinKey(comp.id, pinName), 'vcc_rail');
+        uf.setCanonical(key, 'vcc_rail');
       }
     }
   }

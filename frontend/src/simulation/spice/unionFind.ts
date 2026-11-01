@@ -86,6 +86,12 @@ export class UnionFind {
     return this.parent.has(key);
   }
 
+  /** The representative key of the set containing `key` (not its canonical name). */
+  root(key: string): string {
+    this.add(key);
+    return this.findRoot(key);
+  }
+
   /** Iterate every (key, representative) pair. */
   *entries(): IterableIterator<[string, string]> {
     for (const key of this.parent.keys()) {

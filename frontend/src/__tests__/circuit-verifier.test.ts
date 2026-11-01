@@ -8,7 +8,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { verifyCircuit } from '../simulation/verify/circuitVerifier';
-import type { BuildNetlistInput } from '../simulation/spice/types';
+import { BOARD_PIN_GROUPS } from '../simulation/spice/boardPinGroups';
+import type { BoardForSpice, BuildNetlistInput } from '../simulation/spice/types';
 
 // ── Building blocks ──────────────────────────────────────────────────────
 
@@ -26,6 +27,21 @@ function res(id: string, ohms: string): BuildNetlistInput['components'][number] 
 
 function led(id: string, color = 'red'): BuildNetlistInput['components'][number] {
   return { id, metadataId: 'led', properties: { color } };
+}
+
+/** An ESP32 DevKit as storeAdapter builds it, its pins as `pins` says. */
+function esp32(pins: BoardForSpice['pins'] = {}): BoardForSpice {
+  const g = BOARD_PIN_GROUPS.esp32;
+  return {
+    id: 'esp32',
+    boardKind: 'esp32',
+    vcc: g.vcc,
+    pins,
+    groundPinNames: g.gnd,
+    vccPinNames: g.vcc_pins,
+    auxPinNames: g.aux?.pins,
+    auxVolts: g.aux?.volts,
+  };
 }
 
 function w(
@@ -114,6 +130,31 @@ describe('verifyCircuit — LED overcurrent', () => {
       // The LED itself should be tagged.
       const ledErr = result.errors.find((e) => e.code === 'led-overcurrent');
       expect(ledErr?.componentId).toBe('led1');
+    },
+  );
+});
+
+describe('verifyCircuit — an LED with nothing limiting its current (velxio-prod#21)', () => {
+  it(
+    'says so without a figure when the solve has none worth printing',
+    { timeout: 30_000 },
+    async () => {
+      // The pre-flight drives each wired GPIO from an ideal source, so an LED
+      // straight from a pin to GND solved at about 4e12 A and the message
+      // printed '3926842489288.00 A'.
+      const input: BuildNetlistInput = {
+        components: [led('led1')],
+        wires: [w('w1', ['esp32', '2'], ['led1', 'A']), w('w2', ['led1', 'C'], ['esp32', 'GND'])],
+        boards: [esp32({ '2': { type: 'digital', v: 3.3 } })],
+        analysis: { kind: 'op' },
+      };
+      const result = await verifyCircuit(input);
+      const err = result.errors.find((e) => e.code === 'led-overcurrent');
+      expect(err, JSON.stringify(result.errors)).toBeDefined();
+      expect(err!.componentId).toBe('led1');
+      expect(err!.message).toMatch(/no series resistor/);
+      expect(err!.message).not.toMatch(/\d{4,}/);
+      expect(err!.metric).toBeGreaterThan(1);
     },
   );
 });
@@ -467,18 +508,54 @@ describe('verifyCircuit — wiring ERC (bad connections)', () => {
   );
 
   it(
-    'errors when a VCC pin is wired directly to a GND pin',
+    'errors when a board supply pin is wired directly to a GND pin',
     { timeout: 30_000 },
     async () => {
-      const input: BuildNetlistInput = {
+      for (const supply of ['3V3', 'VIN']) {
+        const input: BuildNetlistInput = {
+          components: [],
+          wires: [w('w1', ['esp32', supply], ['esp32', 'GND'])], // the rail tied straight to GND
+          boards: [esp32()],
+          analysis: { kind: 'op' },
+        };
+        const result = await verifyCircuit(input);
+        const short = result.errors.find((e) => e.code === 'power-short');
+        expect(short, `${supply}: ${JSON.stringify(result.errors)}`).toBeDefined();
+        // It names the board's pin.
+        expect(short!.message).toContain(supply);
+      }
+    },
+  );
+
+  it(
+    'a potentiometer with its power pins swapped shorts nothing (velxio-prod#21)',
+    { timeout: 30_000 },
+    async () => {
+      // Corpus 0a8365df: the pot's GND on 3V3 and its VCC on GND. Judged by
+      // the pin names of each wire's two ends, the wire from the board's GND
+      // to the pot's VCC read as 'Power is shorted to ground'; 10 kOhm sit
+      // between the two rails. The same goes for a part whose own VCC and GND
+      // are wired together with nothing powering it: no supply is shorted.
+      const pot: BuildNetlistInput = {
+        components: [{ id: 'pot1', metadataId: 'potentiometer', properties: { value: 512 } }],
+        wires: [
+          w('w1', ['pot1', 'GND'], ['esp32', '3V3']),
+          w('w2', ['pot1', 'VCC'], ['esp32', 'GND']),
+          w('w3', ['pot1', 'SIG'], ['esp32', '35']),
+        ],
+        boards: [esp32()],
+        analysis: { kind: 'op' },
+      };
+      const own: BuildNetlistInput = {
         components: [{ id: 'o1', metadataId: 'ssd1306', properties: {} }],
-        wires: [w('w1', ['o1', '3V3'], ['o1', 'GND'])], // VCC tied straight to GND
+        wires: [w('w1', ['o1', '3V3'], ['o1', 'GND'])],
         boards: [],
         analysis: { kind: 'op' },
       };
-      const result = await verifyCircuit(input);
-      const codes = result.errors.map((e) => e.code);
-      expect(codes, JSON.stringify(result.errors)).toContain('power-short');
+      for (const input of [pot, own]) {
+        const result = await verifyCircuit(input);
+        expect(result.errors.map((e) => e.code), JSON.stringify(result.errors)).not.toContain('power-short');
+      }
     },
   );
 
