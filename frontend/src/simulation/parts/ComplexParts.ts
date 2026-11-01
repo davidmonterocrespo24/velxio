@@ -1072,16 +1072,32 @@ const ili9341Simulation: PartSimulationLogic = {
       }
     };
 
-    const scheduleFlush = () => {
-      if (!pendingFlush) return;
-      const now = performance.now();
-      if (firstWriteSinceFlush === 0) firstWriteSinceFlush = now;
-      if (now - firstWriteSinceFlush >= MAX_FLUSH_INTERVAL_MS) {
-        doFlush();
+    // Called for every pixel: it only counts the write. One timer checks every
+    // IDLE_FLUSH_MS whether writes came in since it was armed (then the burst is
+    // still going: wait again, up to MAX_FLUSH_INTERVAL_MS) or not (flush). A
+    // clearTimeout/setTimeout pair and a clock read per pixel were a third of
+    // the tab's time on a full-screen game at 15 frames per second.
+    let writeSeq = 0;
+    let armedSeq = 0;
+    const onIdleTimer = () => {
+      idleTimerId = null;
+      if (
+        writeSeq !== armedSeq &&
+        performance.now() - firstWriteSinceFlush < MAX_FLUSH_INTERVAL_MS
+      ) {
+        armedSeq = writeSeq;
+        idleTimerId = window.setTimeout(onIdleTimer, IDLE_FLUSH_MS);
         return;
       }
-      if (idleTimerId !== null) clearTimeout(idleTimerId);
-      idleTimerId = window.setTimeout(doFlush, IDLE_FLUSH_MS);
+      doFlush();
+    };
+    const scheduleFlush = () => {
+      if (!pendingFlush) return;
+      writeSeq++;
+      if (idleTimerId !== null) return;
+      if (firstWriteSinceFlush === 0) firstWriteSinceFlush = performance.now();
+      armedSeq = writeSeq;
+      idleTimerId = window.setTimeout(onIdleTimer, IDLE_FLUSH_MS);
     };
 
     // ── ILI9341 state ─────────────────────────────────────────────────

@@ -42,6 +42,8 @@ export interface RemoteI2cMapEntry {
   sda: number | null;
   scl: number | null;
   addresses: number[];
+  /** Also placed on another board's bus (a net wired to two boards). */
+  shared?: boolean;
 }
 
 /**
@@ -132,6 +134,8 @@ export class RemoteI2cLane {
                 sda: bus.sdaPin,
                 scl: m.sclPin,
                 addresses: [...m.addresses],
+                // On another board's bus as well: that guest changes the chip too.
+                ...(busRegistry.i2cPlacements(m.owner).length > 1 ? { shared: true } : {}),
               }
             : { owner: m.owner, bus_id: null, sda: null, scl: null, addresses: [...m.addresses] },
         );

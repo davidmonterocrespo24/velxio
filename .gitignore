@@ -55,6 +55,10 @@ frontend/src/pro
 
 # Temporary vitest config used to run pro overlay tests locally.
 frontend/pro-vitest.config.ts
+# Per-build pro overlay copies and their vitest configs (the engine perf harness's
+# staging builds); they hold private overlay code and are never committed.
+frontend/.*-overlay/
+frontend/.*-vitest.config.ts
 
 # Logs
 *.log

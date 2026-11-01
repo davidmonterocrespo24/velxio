@@ -22,7 +22,7 @@
 import { attachI2cTarget, busRegistry, type BusDiagnosticCode, type I2cTarget } from '../buses';
 import type { I2CDevice } from '../I2CBusManager';
 import { chipVirtualPin } from '../customChips/chipVirtualPin';
-import { hostsChipsInWorker } from '../customChips/simulatorBridges';
+import { hostsChipsInWorker, hostsI2cModel } from '../customChips/simulatorBridges';
 
 // The bridges stamp the clock too, and import it from where nothing else comes
 // with it.
@@ -202,7 +202,11 @@ export function attachI2cPart(opts: I2cPartOptions): I2cPartHandle {
   // registerSensor with false, and the Pi shim does for anything but a line
   // sensor, so the part is answered here and its INT pad is this tab's.
   let accepted = false;
-  if (worker && owner && workerHosted(sim)) {
+  // The engine runs a copy of its own next to the guest (an overlay's engine
+  // worker), and this one stays on the fabric: the record is filed, the part
+  // is still answered here (`remote` stays false).
+  const mirrored = !!worker && !!owner && !workerHosted(sim) && hostsI2cModel(sim, worker.type);
+  if (worker && owner && (workerHosted(sim) || mirrored)) {
     workerPin = i2cPartWorkerPin(owner);
     // `owner` is how the worker finds this record in the bus map the tab
     // sends, which says which controller the part's SDA is on.
@@ -218,7 +222,7 @@ export function attachI2cPart(opts: I2cPartOptions): I2cPartHandle {
   }
 
   return {
-    remote: workerPin !== null && accepted,
+    remote: workerPin !== null && accepted && !mirrored,
     updateWorker: (values) => {
       if (workerPin !== null) sim!.updateSensor?.(workerPin, values);
     },

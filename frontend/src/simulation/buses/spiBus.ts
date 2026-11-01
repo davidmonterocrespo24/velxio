@@ -33,7 +33,7 @@ export type DiagnosticSink = (d: BusDiagnostic) => void;
  *  A device that declares no MISO pin at all answers null anyway, unless it
  *  answers on its MOSI leg (`dataOut: 'mosi'`, a three-wire chip): then the
  *  one wired data line is what carries the answer. */
-function drives(m: SpiMember): boolean {
+export function drives(m: SpiMember): boolean {
   if (m.device.writeOnly) return false;
   if (m.desc.dataOut === 'mosi') return m.mosiPin !== undefined;
   return m.desc.pins.miso === undefined ? false : m.misoPin !== undefined;
@@ -62,6 +62,9 @@ export interface SpiMember {
   selected: boolean;
   /** Bits reversed on the way in and out: controller and chip disagree on order. */
   reverse: boolean;
+  /** Where the registry reads its chip select: a pin of this board at its active
+   *  level, a constant, or null when it is followed some other way (a chip's pin). */
+  select?: { pin: number; activeHigh: boolean } | { active: boolean } | null;
   /** Mode/order checked against the controller for the current selection. */
   checked: boolean;
 }
@@ -221,6 +224,14 @@ export class SpiBus {
           `${m.desc.modes.map((x) => MODE_NAMES[x]).join(', ')}; on hardware the data would be shifted.`,
       });
     }
+  }
+
+  /** The line's idle level when no member can ever drive MISO (none wired or
+   *  all write-only): every frame then reads it whatever is selected. Null
+   *  when some member can. */
+  idleMisoIfUndriven(): number | null {
+    for (const m of this.members.values()) if (drives(m)) return null;
+    return this.idleMiso;
   }
 
   /** One hardware frame. Returns the MISO the master reads for it. */
