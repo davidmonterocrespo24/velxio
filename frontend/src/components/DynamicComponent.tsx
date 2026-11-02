@@ -37,6 +37,7 @@ import { withPartPinOwnership, releasePartPins } from '../simulation/partPinOwne
 import { getMixedModeScheduler } from '../simulation/spice/MixedModeScheduler';
 import { getBoardLogicFamily } from '../simulation/LogicFamilies';
 import { getSensorControlForComponent } from '../simulation/sensorControlConfig';
+import { mountReseatPolicy } from '../utils/mountReseatPolicy';
 
 // Side-effect imports: register every web component we'll create at runtime.
 // `@wokwi/elements` covers the upstream catalog; `../velxio-elements` adds
@@ -283,7 +284,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       try {
         const pinInfo = (elementRef.current as any)?.pinInfo;
         if (pinInfo && Array.isArray(pinInfo) && pinInfo.length > 0) {
-          useSimulatorStore.getState().reseatComponentOnBreadboard(id);
+          // The overlay may keep the seats the part has, or wait (utils/mountReseatPolicy).
+          const policy = mountReseatPolicy(id, pinInfo.map((p: { name: string }) => p.name));
+          if (policy === 'wait') return false;
+          if (policy === 'reseat') useSimulatorStore.getState().reseatComponentOnBreadboard(id);
           return true;
         }
       } catch {

@@ -8,11 +8,12 @@ import React, { useState, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import {
-  exampleProjects,
+  exampleProjects as registeredExamples,
   subscribeProExamples,
   getProExamplesVersion,
   type ExampleProject,
 } from '../../data/examples';
+import { galleryExamples } from '../../lib/galleryExampleFilter';
 import { subscribeProBoards, getProBoardsVersion } from '../../lib/proBoardRegistry';
 import { BOARD_KIND_LABELS } from '../../types/board';
 import { parseSearchQuery, scoreSearch } from '../../utils/searchMatch';
@@ -105,6 +106,7 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
   // reload.
   useSyncExternalStore(subscribeProExamples, getProExamplesVersion, getProExamplesVersion);
   useSyncExternalStore(subscribeProBoards, getProBoardsVersion, getProBoardsVersion);
+  const exampleProjects = galleryExamples(registeredExamples);
 
   // The static tabs cover the OSS boards; every other board kind that appears
   // in the (possibly overlay-extended) gallery gets a tab of its own, labelled

@@ -90,6 +90,9 @@ export interface VerifierConfig {
   synthesizedPins?: ReadonlySet<string>;
 }
 
+/** Above this an LED's solved current is no physical figure: nothing in the circuit limits it. */
+const LED_UNLIMITED_AMPS = 1;
+
 export const DEFAULT_CONFIG: VerifierConfig = {
   shortCircuitAmps: 0.5,
   ledMaxAmps: 0.02,
@@ -280,25 +283,34 @@ export async function verifyCircuit(
     }
   }
 
-  // Power rail tied to ground: a wire directly joining a VCC-type pin and a
-  // GND-type pin shorts the supply to ground. When a board drives the rail and
-  // no battery/signal-generator source is present, the current-based
-  // short-circuit rule (which only inspects those sources) misses it — so name
-  // it structurally here. Blocking error.
+  // Power rail tied to ground: a board supply pin (one the board declares as
+  // its rail or aux rail, or a wired pin named like one) whose net is ground
+  // shorts that supply. When a board drives the rail and no battery/signal-
+  // generator source is present, the current-based short-circuit rule (which
+  // only inspects those sources) misses it — so name it structurally here.
+  // Judged on the nets, not on the pin names of a wire's two ends: those
+  // flagged a potentiometer wired with its power pins swapped, whose 10 kOhm
+  // track sits between the rails and shorts nothing (velxio/velxio-prod#21).
+  // Blocking error.
   const VCC_PIN_RE = /^(vcc|vdd|vcc_rail|5v|3v3|3\.3v)$/i;
-  const GND_PIN_RE = /^(gnd|vss|vee|ground|gnd\.\d+)$/i;
-  let powerShortReported = false;
-  for (const wire of input.wires) {
-    const a = wire.start.pinName;
-    const b = wire.end.pinName;
-    const shorted = (VCC_PIN_RE.test(a) && GND_PIN_RE.test(b)) || (GND_PIN_RE.test(a) && VCC_PIN_RE.test(b));
-    if (shorted && !powerShortReported) {
-      powerShortReported = true;
+  powerShort: for (const board of input.boards) {
+    const supplyPins = new Set([
+      ...(board.vccPinNames ?? []),
+      ...(board.auxVolts !== undefined ? (board.auxPinNames ?? []) : []),
+    ]);
+    for (const wire of input.wires) {
+      for (const end of [wire.start, wire.end]) {
+        if (end.componentId === board.id && VCC_PIN_RE.test(end.pinName)) supplyPins.add(end.pinName);
+      }
+    }
+    for (const pin of supplyPins) {
+      if (pinNetMap.get(`${board.id}:${pin}`) !== '0') continue;
       errors.push({
         severity: 'error',
         code: 'power-short',
-        message: `Power is shorted to ground — a wire connects a VCC pin (${a}) directly to a ground pin (${b}). Remove that connection; it would dump the full supply current through the wire.`,
+        message: `Power is shorted to ground — the ${pin} supply pin of ${board.id} is wired to ground (GND). Remove that connection; it would dump the full supply current through the wire.`,
       });
+      break powerShort;
     }
   }
 
@@ -804,7 +816,13 @@ export async function verifyCircuit(
         severity: 'error',
         code: 'led-overcurrent',
         componentId: led.id,
-        message: `LED ${led.id} is carrying ${formatAmps(i)} — above the 20 mA absolute maximum. Add or increase the series resistor.`,
+        // Past LED_UNLIMITED_AMPS the figure means nothing: an ideal source
+        // (the pre-flight's GPIO, a bench supply) across a bare LED solves at
+        // trillions of amperes (velxio/velxio-prod#21).
+        message:
+          i > LED_UNLIMITED_AMPS
+            ? `LED ${led.id} has nothing limiting its current (no series resistor) — a real LED would burn out at once. Add a series resistor.`
+            : `LED ${led.id} is carrying ${formatAmps(i)} — above the 20 mA absolute maximum. Add or increase the series resistor.`,
         metric: i,
       });
     } else if (i > 0 && i < config.ledMinAmps) {

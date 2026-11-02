@@ -347,6 +347,79 @@ describe('NetlistBuilder — aux supply rails (off-voltage supply pins, B16)', (
   });
 });
 
+describe('NetlistBuilder — a board names its supply and ground nets (velxio-prod#21)', () => {
+  const esp32 = (): BoardForSpice => {
+    const g = BOARD_PIN_GROUPS.esp32;
+    return {
+      id: 'esp32',
+      boardKind: 'esp32',
+      vcc: g.vcc,
+      pins: {},
+      groundPinNames: g.gnd,
+      vccPinNames: g.vcc_pins,
+      auxPinNames: g.aux?.pins,
+      auxVolts: g.aux?.volts,
+    };
+  };
+  const wire = (id: string, aId: string, aPin: string, bId: string, bPin: string) => ({
+    id,
+    start: { componentId: aId, pinName: aPin },
+    end: { componentId: bId, pinName: bPin },
+  });
+
+  it(
+    'a potentiometer with its power pins swapped keeps the board 3V3 on the rail, its wiper at the inverted divider',
+    { timeout: 30_000 },
+    async () => {
+      // Corpus 0a8365df: the pot's GND on the ESP32's 3V3 and its VCC on GND.
+      // The part's pin names used to win over the board's: the 3V3 net
+      // became ground, V_VCC_RAIL was never emitted, and the wiper and the
+      // divider beside it on the same 3V3 pin both read 0 V.
+      const { netlist, pinNetMap } = buildNetlist({
+        components: [
+          { id: 'pot1', metadataId: 'potentiometer', properties: { value: 256 } },
+          { id: 'r1', metadataId: 'resistor', properties: { value: '10k' } },
+          { id: 'r2', metadataId: 'resistor', properties: { value: '10k' } },
+        ],
+        wires: [
+          wire('w1', 'pot1', 'GND', 'esp32', '3V3'),
+          wire('w2', 'pot1', 'VCC', 'esp32', 'GND'),
+          wire('w3', 'pot1', 'SIG', 'esp32', '35'),
+          wire('w4', 'esp32', '3V3', 'r1', '1'),
+          wire('w5', 'r1', '2', 'r2', '1'),
+          wire('w6', 'r2', '2', 'esp32', 'GND'),
+        ],
+        boards: [esp32()],
+        analysis: { kind: 'op' },
+      });
+      expect(pinNetMap.get('esp32:3V3')).toBe('vcc_rail');
+      expect(pinNetMap.get('pot1:GND')).toBe('vcc_rail');
+      expect(pinNetMap.get('esp32:GND')).toBe('0');
+      expect(pinNetMap.get('pot1:VCC')).toBe('0');
+      expect(netlist).toMatch(/V_VCC_RAIL vcc_rail 0 DC 3\.3/);
+      const result = await runNetlist(netlist);
+      // value 256 of 1023 from the VCC end: the wiper sits 0.25 of the way
+      // up from the pin on GND, which is the 3V3 end here.
+      expect(result.dcValue(`v(${pinNetMap.get('esp32:35')})`)).toBeCloseTo(3.3 * (1 - 256 / 1023), 2);
+      expect(result.dcValue(`v(${pinNetMap.get('r1:2')})`)).toBeCloseTo(1.65, 2);
+    },
+  );
+
+  it('a net with no board pin keeps the parts\' pin-name hint', () => {
+    const { pinNetMap } = buildNetlist({
+      components: [
+        { id: 'o1', metadataId: 'ssd1306-i2c-4pin', properties: {} },
+        { id: 'o2', metadataId: 'ssd1306-i2c-4pin', properties: {} },
+      ],
+      wires: [wire('w1', 'o1', 'GND', 'o2', 'GND'), wire('w2', 'o1', 'VCC', 'o2', 'VCC')],
+      boards: [],
+      analysis: { kind: 'op' },
+    });
+    expect(pinNetMap.get('o1:GND')).toBe('0');
+    expect(pinNetMap.get('o1:VCC')).toBe('vcc_rail');
+  });
+});
+
 describe('NetlistBuilder — ESP32 internal pull-up (INPUT_PULLUP)', () => {
   // GPIO4 set INPUT_PULLUP, with a pushbutton from GPIO4 (1.l) to GND (2.l).
   // This is the canonical active-low button. Without the internal pull the

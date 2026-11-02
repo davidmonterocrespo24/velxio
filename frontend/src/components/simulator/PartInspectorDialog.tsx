@@ -31,6 +31,7 @@ import {
   type ExampleProject,
 } from '../../data/examples';
 import { stripBrandPrefix } from '../../utils/exampleToBuildNetlistInput';
+import { galleryExamples } from '../../lib/galleryExampleFilter';
 import { SdCardPanel } from './SdCardPanel';
 import type { UploadedSdFile } from '../../utils/sdCardFiles';
 import {
@@ -88,7 +89,7 @@ function displayCategory(cat: string): string {
  * metadata.id, so one lookup serves both dialogs.
  */
 function examplesForPart(id: string): ExampleProject[] {
-  return exampleProjects.filter(
+  return galleryExamples(exampleProjects).filter(
     (ex) =>
       ex.boardType === id ||
       ex.boardFilter === id ||

@@ -11,6 +11,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import type { BoardKind } from '../../types/board';
 import { boardDisplayName, isPiBoardKind } from '../../types/board';
 import { PiTerminal } from '../raspberry-pi/PiTerminal';
+import { serialMonitorText } from '../../store/serialMonitorText';
 
 // Short labels for tabs
 const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {
@@ -292,7 +293,7 @@ export const SerialMonitor: React.FC = () => {
                 // all CSI sequences (and keypad-mode toggles); a raw log <pre>
                 // can't act on any of them anyway. (xterm in PiTerminal still
                 // parses + answers them — this only cleans the dumb mirror.)
-                const text = activeBoard.serialOutput
+                const text = serialMonitorText(activeBoard)
                   .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
                   .replace(/\x1b[=>]/g, '')
                   // Line-editing bytes the guest shell echoes (DEL on

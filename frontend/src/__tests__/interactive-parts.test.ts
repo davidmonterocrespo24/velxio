@@ -11,6 +11,7 @@ import { LineSensorHub } from '../simulation/line/LineSensorHub';
 import type { LineHostPort } from '../simulation/line/LineHost';
 import { INITIAL_PAD, type PadEvent, type PadState } from '../simulation/line/padEvent';
 import { clearLineGaps, lineGaps } from '../simulation/line/requestLine';
+import { installPartTimeout } from '../simulation/parts/partUtils';
 
 // Side-effect imports — register all parts
 import '../simulation/parts/BasicParts';
@@ -149,6 +150,37 @@ describe('pir-motion-sensor — attachEvents', () => {
     cleanup();
     expect(el.removeEventListener).toHaveBeenCalledWith('click', expect.any(Function));
     expect(clearTimeout).toHaveBeenCalled(); // timer is now non-null → cleared
+  });
+
+  it('times its pulse through partTimeout, so an overlay can count it on the board clock', () => {
+    const asked: Array<[unknown, number]> = [];
+    let cancelled = 0;
+    installPartTimeout((simulator, _cb, ms) => {
+      asked.push([simulator, ms]);
+      return () => {
+        cancelled++;
+      };
+    });
+    try {
+      const logic = PartSimulationRegistry.get('pir-motion-sensor');
+      const el = makeElement();
+      const sim = makeSimulator();
+      const cleanup = logic!.attachEvents!(el, sim as any, pinMap({ OUT: 7 }));
+      const clickCb = (el.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([event]: [string]) => event === 'click',
+      )![1] as () => void;
+      clickCb();
+      expect(asked).toEqual([[sim, 3000]]);
+      // A second motion during the pulse cancels the first end and starts its 3 s again.
+      clickCb();
+      expect(cancelled).toBe(1);
+      expect(asked).toHaveLength(2);
+      cleanup();
+      expect(cancelled).toBe(2);
+      expect(setTimeout).not.toHaveBeenCalled();
+    } finally {
+      installPartTimeout(null);
+    }
   });
 
   it('returns no-op when OUT pin is not connected', () => {
