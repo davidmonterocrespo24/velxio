@@ -10,7 +10,7 @@ void eepromWrite(byte memAddr, byte data) {
   Wire.write(memAddr);
   Wire.write(data);
   Wire.endTransmission();
-  delay(5); // EEPROM write cycle
+  delay(5);  // EEPROM write cycle
 }
 
 byte eepromRead(byte memAddr) {
@@ -30,10 +30,11 @@ void setup() {
 
   // Write 8 bytes
   Serial.println("Writing 8 bytes...");
-  byte testData[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE};
+  byte testData[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE };
   for (int i = 0; i < 8; i++) {
     eepromWrite(i, testData[i]);
-    Serial.print("  ["); Serial.print(i);
+    Serial.print("  [");
+    Serial.print(i);
     Serial.print("] = 0x");
     if (testData[i] < 16) Serial.print('0');
     Serial.println(testData[i], HEX);
@@ -45,7 +46,8 @@ void setup() {
   int pass = 0;
   for (int i = 0; i < 8; i++) {
     byte val = eepromRead(i);
-    Serial.print("  ["); Serial.print(i);
+    Serial.print("  [");
+    Serial.print(i);
     Serial.print("] = 0x");
     if (val < 16) Serial.print('0');
     Serial.print(val, HEX);

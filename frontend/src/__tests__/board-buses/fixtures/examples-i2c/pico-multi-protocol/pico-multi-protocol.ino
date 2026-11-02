@@ -27,14 +27,15 @@ void setup() {
       Serial.println(addr, HEX);
     }
   }
-  Serial.print("  Total devices: "); Serial.println(found);
+  Serial.print("  Total devices: ");
+  Serial.println(found);
   Serial.println();
 
   // ── 2. I2C EEPROM R/W ──
   Serial.println("[I2C] EEPROM test at 0x50...");
   Wire.beginTransmission(0x50);
-  Wire.write(0x00); // register 0
-  Wire.write(0x42); // data
+  Wire.write(0x00);  // register 0
+  Wire.write(0x42);  // data
   Wire.endTransmission();
   delay(5);
 
@@ -59,7 +60,8 @@ void setup() {
   if (Wire.available() >= 3) {
     byte sec = ((Wire.read() & 0x7F) >> 4) * 10 + (Wire.read() & 0x0F);
     byte min2 = Wire.read();
-    (void)sec; (void)min2;
+    (void)sec;
+    (void)min2;
     Serial.println("  RTC responded OK");
   }
   Serial.println();
@@ -70,8 +72,10 @@ void setup() {
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
   byte tx = 0xAB;
   byte rx = SPI.transfer(tx);
-  Serial.print("  TX: 0x"); Serial.print(tx, HEX);
-  Serial.print("  RX: 0x"); Serial.println(rx, HEX);
+  Serial.print("  TX: 0x");
+  Serial.print(tx, HEX);
+  Serial.print("  RX: 0x");
+  Serial.println(rx, HEX);
   SPI.endTransaction();
   Serial.println();
 
@@ -79,7 +83,8 @@ void setup() {
   Serial.println("[ADC] Reading analog channels...");
   analogReadResolution(12);
   int a0 = analogRead(A0);
-  Serial.print("  A0 (GP26): "); Serial.println(a0);
+  Serial.print("  A0 (GP26): ");
+  Serial.println(a0);
   Serial.println();
 
   // ── 6. GPIO ──

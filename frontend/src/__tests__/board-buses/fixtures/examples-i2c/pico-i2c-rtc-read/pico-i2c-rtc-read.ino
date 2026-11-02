@@ -26,27 +26,39 @@ void loop() {
   // Read 7 bytes: sec, min, hr, dow, date, month, year
   Wire.requestFrom(0x68, 7);
   if (Wire.available() >= 7) {
-    byte sec   = bcdToDec(Wire.read() & 0x7F);
-    byte min   = bcdToDec(Wire.read());
-    byte hr    = bcdToDec(Wire.read() & 0x3F);
-    byte dow   = bcdToDec(Wire.read());
-    byte date  = bcdToDec(Wire.read());
+    byte sec = bcdToDec(Wire.read() & 0x7F);
+    byte min = bcdToDec(Wire.read());
+    byte hr = bcdToDec(Wire.read() & 0x3F);
+    byte dow = bcdToDec(Wire.read());
+    byte date = bcdToDec(Wire.read());
     byte month = bcdToDec(Wire.read());
-    byte year  = bcdToDec(Wire.read());
+    byte year = bcdToDec(Wire.read());
 
     // The chip counts the day of week 1 to 7 and leaves the meaning of the
     // numbers to whoever sets it. A clock nobody set counts Monday as 1.
-    const char* days[] = {"", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+    const char* days[] = { "", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
     Serial.print("Time: ");
-    if (hr < 10) Serial.print('0'); Serial.print(hr); Serial.print(':');
-    if (min < 10) Serial.print('0'); Serial.print(min); Serial.print(':');
-    if (sec < 10) Serial.print('0'); Serial.print(sec);
+    if (hr < 10) Serial.print('0');
+    Serial.print(hr);
+    Serial.print(':');
+    if (min < 10) Serial.print('0');
+    Serial.print(min);
+    Serial.print(':');
+    if (sec < 10) Serial.print('0');
+    Serial.print(sec);
     Serial.print("  Date: ");
-    Serial.print(days[dow]); Serial.print(' ');
-    if (date < 10) Serial.print('0'); Serial.print(date); Serial.print('/');
-    if (month < 10) Serial.print('0'); Serial.print(month); Serial.print('/');
-    Serial.print("20"); if (year < 10) Serial.print('0'); Serial.println(year);
+    Serial.print(days[dow]);
+    Serial.print(' ');
+    if (date < 10) Serial.print('0');
+    Serial.print(date);
+    Serial.print('/');
+    if (month < 10) Serial.print('0');
+    Serial.print(month);
+    Serial.print('/');
+    Serial.print("20");
+    if (year < 10) Serial.print('0');
+    Serial.println(year);
   } else {
     Serial.println("RTC not responding!");
   }
