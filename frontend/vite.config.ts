@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
 
 // https://vite.dev/config/
 // avr8js / rp2040js / @wokwi/elements are resolved from npm via package.json.
@@ -15,8 +17,32 @@ const proOverlayPath =
     ? path.resolve(process.env.PRO_OVERLAY_PATH)
     : path.resolve(__dirname, 'src/__pro_stub__')
 
+// The gallery thumbnails are served with a long max-age under a fixed URL, so
+// a refreshed thumbnail stayed hidden behind the old one in every browser and
+// at the CDN for up to 30 days. Their URL carries this version: a hash of
+// every thumbnail's name and bytes, so it changes exactly when one of them
+// does (utils/exampleThumbUrl.ts).
+function exampleThumbsVersion(): string {
+  const dir = path.resolve(__dirname, 'public/examples-thumbs')
+  let names: string[] = []
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.endsWith('.webp')).sort()
+  } catch {
+    return ''
+  }
+  const h = crypto.createHash('sha1')
+  for (const n of names) {
+    h.update(n)
+    h.update(fs.readFileSync(path.join(dir, n)))
+  }
+  return h.digest('hex').slice(0, 10)
+}
+
 export default defineConfig(({ command }) => ({
   plugins: [react()],
+  define: {
+    __EXAMPLE_THUMBS_VERSION__: JSON.stringify(exampleThumbsVersion()),
+  },
   resolve: {
     alias: {
       '@pro': proOverlayPath,

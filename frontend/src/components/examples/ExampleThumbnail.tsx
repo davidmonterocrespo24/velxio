@@ -17,6 +17,7 @@ import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { ExampleProject } from '../../data/examples';
 import { CircuitPreview } from './CircuitPreview';
+import { exampleThumbUrl } from '../../utils/exampleThumbUrl';
 
 interface Props {
   example: ExampleProject;
@@ -62,7 +63,7 @@ export const ExampleThumbnail = ({
 
   return (
     <img
-      src={`/examples-thumbs/${example.id}.webp`}
+      src={exampleThumbUrl(example.id)}
       alt={example.title}
       className="example-preview-image"
       style={style}
