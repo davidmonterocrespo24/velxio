@@ -33,11 +33,15 @@ export const circuitExamples: ExampleProject[] = [
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Voltage Divider — reads V_out = 5 * R2/(R1+R2)
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int raw = analogRead(A0);
   float v = raw * 5.0 / 1023.0;
-  Serial.print("V_out = "); Serial.print(v, 3); Serial.println(" V");
+  Serial.print("V_out = ");
+  Serial.print(v, 3);
+  Serial.println(" V");
   delay(500);
 }`,
     components: [
@@ -62,10 +66,15 @@ void loop() {
     code: `// RC Low-Pass Filter
 // PWM on pin 9 → R=10k → C=10uF → smooth DC on A0
 // DC steady-state: V_out ≈ duty × Vcc = 0.5 × 5 = 2.5 V
-void setup() { Serial.begin(9600); analogWrite(9, 128); } // 50% duty
+// 50% duty
+void setup() {
+  Serial.begin(9600);
+  analogWrite(9, 128);
+}
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("Filtered V = "); Serial.println(v, 2);
+  Serial.print("Filtered V = ");
+  Serial.println(v, 2);
   delay(200);
 }`,
     components: [
@@ -89,12 +98,16 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Wheatstone Bridge — detects R imbalance
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float vA = analogRead(A0) * 5.0 / 1023.0;
   float vB = analogRead(A1) * 5.0 / 1023.0;
   float diff = vA - vB;
-  Serial.print("V_diff = "); Serial.print(diff * 1000, 1); Serial.println(" mV");
+  Serial.print("V_diff = ");
+  Serial.print(diff * 1000, 1);
+  Serial.println(" mV");
   delay(500);
 }`,
     components: [
@@ -130,14 +143,18 @@ void loop() {
 #define NTC_T0 298.15
 #define NTC_BETA 3950.0
 
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int raw = analogRead(NTC_PIN);
   float v = raw * 5.0 / 1023.0;
   float rNtc = R_PULL * v / (5.0 - v);
-  float tK = 1.0 / (1.0/NTC_T0 + log(rNtc/NTC_R0)/NTC_BETA);
+  float tK = 1.0 / (1.0 / NTC_T0 + log(rNtc / NTC_R0) / NTC_BETA);
   float tC = tK - 273.15;
-  Serial.print("Temp = "); Serial.print(tC, 1); Serial.println(" C");
+  Serial.print("Temp = ");
+  Serial.print(tC, 1);
+  Serial.println(" C");
   delay(1000);
 }`,
     components: [
@@ -165,10 +182,14 @@ void loop() {
     difficulty: 'beginner',
     code: `// LED with current-limiting resistor
 // R = (5V - 2V) / 10mA = 300 ohm
-void setup() { pinMode(13, OUTPUT); }
+void setup() {
+  pinMode(13, OUTPUT);
+}
 void loop() {
-  digitalWrite(13, HIGH); delay(1000);
-  digitalWrite(13, LOW);  delay(1000);
+  digitalWrite(13, HIGH);
+  delay(1000);
+  digitalWrite(13, LOW);
+  delay(1000);
 }`,
     components: [
       UNO,
@@ -191,10 +212,13 @@ void loop() {
     code: `// Parallel Resistors — measure equivalent R via voltage divider
 // R_series = 10k, R_parallel = 1/(1/10k + 1/10k + 1/10k) = 3.33k
 // V_out = 5 * R_par / (R_ser + R_par) = 5 * 3.33 / 13.33 = 1.25V
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("V = "); Serial.println(v, 3);
+  Serial.print("V = ");
+  Serial.println(v, 3);
   delay(500);
 }`,
     components: [
@@ -223,11 +247,15 @@ void loop() {
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Potentiometer reader
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int raw = analogRead(A0);
   float pct = raw * 100.0 / 1023.0;
-  Serial.print("Position: "); Serial.print(pct, 1); Serial.println("%");
+  Serial.print("Position: ");
+  Serial.print(pct, 1);
+  Serial.println("%");
   delay(200);
 }`,
     components: [UNO, { type: 'wokwi-potentiometer', id: 'pot', x: 380, y: 160, properties: {} }],
@@ -246,11 +274,15 @@ void loop() {
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Photoresistor light sensor
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int raw = analogRead(A0);
   float lux = map(raw, 0, 1023, 0, 100);
-  Serial.print("Light: "); Serial.print(lux, 0); Serial.println("%");
+  Serial.print("Light: ");
+  Serial.print(lux, 0);
+  Serial.println("%");
   delay(300);
 }`,
     components: [
@@ -271,25 +303,33 @@ void loop() {
     category: 'circuits',
     difficulty: 'beginner',
     code: `// LED Bar Graph — 5 LEDs on pins 2-6
-void setup() { for(int i=2;i<=6;i++) pinMode(i,OUTPUT); }
+void setup() {
+  for (int i = 2; i <= 6; i++) pinMode(i, OUTPUT);
+}
 void loop() {
-  for(int i=2;i<=6;i++) { digitalWrite(i,HIGH); delay(200); }
-  for(int i=6;i>=2;i--) { digitalWrite(i,LOW);  delay(200); }
+  for (int i = 2; i <= 6; i++) {
+    digitalWrite(i, HIGH);
+    delay(200);
+  }
+  for (int i = 6; i >= 2; i--) {
+    digitalWrite(i, LOW);
+    delay(200);
+  }
 }`,
     components: [
       UNO,
       ...Array.from({ length: 5 }, (_, i) => ({
         type: 'wokwi-resistor',
         id: `r${i}`,
-        x: 350,
-        y: 60 + i * 50,
+        x: 380,
+        y: 40 + i * 90,
         properties: { value: '220' },
       })),
       ...Array.from({ length: 5 }, (_, i) => ({
         type: 'wokwi-led',
         id: `led${i}`,
-        x: 450,
-        y: 60 + i * 50,
+        x: 540,
+        y: 9 + i * 90,
         properties: { color: ['red', 'yellow', 'green', 'blue', 'white'][i] },
       })),
     ],
@@ -315,11 +355,12 @@ void loop() {
 void setup() {
   Serial.begin(9600);
   pinMode(8, OUTPUT);
-  digitalWrite(8, HIGH); // start charging
+  digitalWrite(8, HIGH);  // start charging
 }
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("V_cap = "); Serial.println(v, 3);
+  Serial.print("V_cap = ");
+  Serial.println(v, 3);
   delay(100);
 }`,
     components: [
@@ -346,10 +387,14 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// NPN switch — pin 9 drives base through 1k, collector drives LED
-void setup() { pinMode(9, OUTPUT); }
+void setup() {
+  pinMode(9, OUTPUT);
+}
 void loop() {
-  digitalWrite(9, HIGH); delay(1000);
-  digitalWrite(9, LOW);  delay(1000);
+  digitalWrite(9, HIGH);
+  delay(1000);
+  digitalWrite(9, LOW);
+  delay(1000);
 }`,
     components: [
       UNO,
@@ -379,10 +424,16 @@ void loop() {
     difficulty: 'intermediate',
     code: `// PNP high-side switch
 // Pin 9 LOW = load ON, Pin 9 HIGH = load OFF
-void setup() { pinMode(9, OUTPUT); }
+void setup() {
+  pinMode(9, OUTPUT);
+}
 void loop() {
-  digitalWrite(9, LOW);  delay(2000); // ON
-  digitalWrite(9, HIGH); delay(2000); // OFF
+  // ON
+  digitalWrite(9, LOW);
+  delay(2000);
+  // OFF
+  digitalWrite(9, HIGH);
+  delay(2000);
 }`,
     components: [
       UNO,
@@ -411,10 +462,18 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// MOSFET PWM LED dimmer
-void setup() { pinMode(9, OUTPUT); }
+void setup() {
+  pinMode(9, OUTPUT);
+}
 void loop() {
-  for(int b=0; b<=255; b+=5) { analogWrite(9, b); delay(30); }
-  for(int b=255; b>=0; b-=5) { analogWrite(9, b); delay(30); }
+  for (int b = 0; b <= 255; b += 5) {
+    analogWrite(9, b);
+    delay(30);
+  }
+  for (int b = 255; b >= 0; b -= 5) {
+    analogWrite(9, b);
+    delay(30);
+  }
 }`,
     components: [
       UNO,
@@ -446,7 +505,9 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Half-wave rectifier — observe on Serial plotter
-void setup() { Serial.begin(115200); }
+void setup() {
+  Serial.begin(115200);
+}
 void loop() {
   int raw = analogRead(A0);
   Serial.println(raw);
@@ -457,12 +518,12 @@ void loop() {
       {
         type: 'wokwi-signal-generator',
         id: 'sg1',
-        x: 300,
+        x: 360,
         y: 200,
         properties: { waveform: 'sine', frequency: 50, amplitude: 5, offset: 0 },
       },
-      { type: 'wokwi-diode-1n4007', id: 'd1', x: 400, y: 200, properties: {} },
-      { type: 'wokwi-resistor', id: 'rl', x: 500, y: 200, properties: { value: '1000' } },
+      { type: 'wokwi-diode-1n4007', id: 'd1', x: 460, y: 200, properties: {} },
+      { type: 'wokwi-resistor', id: 'rl', x: 560, y: 200, properties: { value: '1000' } },
     ],
     wires: [
       // SG out → diode anode → cathode → Rl → GND
@@ -483,17 +544,20 @@ void loop() {
     difficulty: 'intermediate',
     code: `// Zener 5.1V regulator
 // Input = 9V battery, Rs = 220 ohm, Zener clamps to 5.1V
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("V_regulated = "); Serial.println(v, 2);
+  Serial.print("V_regulated = ");
+  Serial.println(v, 2);
   delay(500);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-battery-9v', id: 'bat', x: 260, y: 160, properties: {} },
-      { type: 'wokwi-resistor', id: 'rs', x: 380, y: 100, properties: { value: '220' } },
-      { type: 'wokwi-zener-1n4733', id: 'z1', x: 480, y: 180, properties: {} },
+      { type: 'wokwi-battery-9v', id: 'bat', x: 360, y: 160, properties: {} },
+      { type: 'wokwi-resistor', id: 'rs', x: 480, y: 100, properties: { value: '220' } },
+      { type: 'wokwi-zener-1n4733', id: 'z1', x: 580, y: 180, properties: {} },
     ],
     wires: [
       // 9V battery → Rs → Zener cathode (regulated node → A0)
@@ -514,16 +578,18 @@ void loop() {
     difficulty: 'beginner',
     code: `// Schottky reverse-polarity protection
 // 1N5817: low Vf = 0.3V, minimal power loss
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   Serial.println("Protected circuit running...");
   delay(1000);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-battery-9v', id: 'bat', x: 260, y: 180, properties: {} },
-      { type: 'wokwi-diode-1n5817', id: 'd1', x: 380, y: 140, properties: {} },
-      { type: 'wokwi-resistor', id: 'rl', x: 500, y: 140, properties: { value: '1000' } },
+      { type: 'wokwi-battery-9v', id: 'bat', x: 360, y: 180, properties: {} },
+      { type: 'wokwi-diode-1n5817', id: 'd1', x: 480, y: 140, properties: {} },
+      { type: 'wokwi-resistor', id: 'rl', x: 600, y: 140, properties: { value: '1000' } },
     ],
     wires: [
       // Battery + → Schottky anode → cathode → load R → GND (battery −)
@@ -544,7 +610,9 @@ void loop() {
     difficulty: 'advanced',
     code: `// Common-emitter amplifier
 // Biased at Vcc/2, gain ~ -Rc/Re = -4.7
-void setup() { Serial.begin(115200); }
+void setup() {
+  Serial.begin(115200);
+}
 void loop() {
   int raw = analogRead(A0);
   Serial.println(raw);
@@ -552,18 +620,18 @@ void loop() {
 }`,
     components: [
       UNO,
-      { type: 'wokwi-resistor', id: 'rb1', x: 350, y: 60, properties: { value: '47000' } },
+      { type: 'wokwi-resistor', id: 'rb1', x: 470, y: 60, properties: { value: '47000' } },
       // 47k/15k puts the base at 1.2 V -> Ve 0.51 V -> Ic 0.51 mA -> collector at
       // ~2.6 V, i.e. the mid-rail bias the sketch comment promises, so the
       // output can swing both ways instead of clipping against a rail.
-      { type: 'wokwi-resistor', id: 'rb2', x: 350, y: 180, properties: { value: '15000' } },
-      { type: 'wokwi-resistor', id: 'rc', x: 450, y: 60, properties: { value: '4700' } },
-      { type: 'wokwi-resistor', id: 're', x: 450, y: 280, properties: { value: '1000' } },
-      { type: 'wokwi-bjt-2n2222', id: 'q1', x: 450, y: 170, properties: {} },
+      { type: 'wokwi-resistor', id: 'rb2', x: 470, y: 180, properties: { value: '15000' } },
+      { type: 'wokwi-resistor', id: 'rc', x: 570, y: 60, properties: { value: '4700' } },
+      { type: 'wokwi-resistor', id: 're', x: 570, y: 280, properties: { value: '1000' } },
+      { type: 'wokwi-bjt-2n2222', id: 'q1', x: 570, y: 170, properties: {} },
       {
         type: 'wokwi-signal-generator',
         id: 'sg1',
-        x: 240,
+        x: 360,
         y: 140,
         properties: { waveform: 'sine', frequency: 1000, amplitude: 0.05, offset: 0 },
       },
@@ -575,7 +643,7 @@ void loop() {
       // stayed pinned at Vcc and analogRead printed a flat 1021-1023 forever.
       // 1 uF is 159 ohm at the generator's 1 kHz: it passes the signal and
       // blocks the DC that was wrecking the bias.
-      { type: 'wokwi-capacitor', id: 'cin', x: 300, y: 140, properties: { value: '1u' } },
+      { type: 'wokwi-capacitor', id: 'cin', x: 420, y: 140, properties: { value: '1u' } },
     ],
     wires: [
       // Bias divider: 5V → Rb1 → (base) → Rb2 → GND
@@ -607,10 +675,18 @@ void loop() {
     difficulty: 'advanced',
     code: `// Darlington pair — beta-squared gain drives LED from tiny base current.
 // Fade in/out so you can SEE the Darlington proportionally amplifying.
-void setup() { pinMode(9, OUTPUT); }
+void setup() {
+  pinMode(9, OUTPUT);
+}
 void loop() {
-  for (int d = 0; d <= 255; d += 5) { analogWrite(9, d); delay(15); }
-  for (int d = 255; d >= 0; d -= 5) { analogWrite(9, d); delay(15); }
+  for (int d = 0; d <= 255; d += 5) {
+    analogWrite(9, d);
+    delay(15);
+  }
+  for (int d = 255; d >= 0; d -= 5) {
+    analogWrite(9, d);
+    delay(15);
+  }
 }`,
     components: [
       UNO,
@@ -648,23 +724,27 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Inverting amplifier — gain = -Rf/Rin = -10
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float vin = analogRead(A0) * 5.0 / 1023.0;
   float vout = analogRead(A1) * 5.0 / 1023.0;
-  Serial.print("Vin="); Serial.print(vin,2);
-  Serial.print(" Vout="); Serial.println(vout,2);
+  Serial.print("Vin=");
+  Serial.print(vin, 2);
+  Serial.print(" Vout=");
+  Serial.println(vout, 2);
   delay(500);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-potentiometer', id: 'pot', x: 260, y: 160, properties: {} },
-      { type: 'wokwi-resistor', id: 'rin', x: 350, y: 100, properties: { value: '1000' } },
-      { type: 'wokwi-resistor', id: 'rf', x: 450, y: 100, properties: { value: '10000' } },
+      { type: 'wokwi-potentiometer', id: 'pot', x: 360, y: 160, properties: {} },
+      { type: 'wokwi-resistor', id: 'rin', x: 450, y: 100, properties: { value: '1000' } },
+      { type: 'wokwi-resistor', id: 'rf', x: 550, y: 100, properties: { value: '10000' } },
       // IN+ bias divider — two 10k from 5V / GND keep IN+ at 2.5V
-      { type: 'wokwi-resistor', id: 'rbp1', x: 350, y: 240, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rbp2', x: 350, y: 320, properties: { value: '10000' } },
-      { type: 'wokwi-opamp-lm358', id: 'u1', x: 460, y: 200, properties: {} },
+      { type: 'wokwi-resistor', id: 'rbp1', x: 450, y: 240, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rbp2', x: 450, y: 320, properties: { value: '10000' } },
+      { type: 'wokwi-opamp-lm358', id: 'u1', x: 560, y: 200, properties: {} },
     ],
     wires: [
       // Pot → Vin (A0 probes the input)
@@ -694,12 +774,16 @@ void loop() {
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Voltage follower — Vout tracks Vin exactly
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float vin = analogRead(A0) * 5.0 / 1023.0;
   float vout = analogRead(A1) * 5.0 / 1023.0;
-  Serial.print("Vin="); Serial.print(vin,3);
-  Serial.print(" Vout="); Serial.println(vout,3);
+  Serial.print("Vin=");
+  Serial.print(vin, 3);
+  Serial.print(" Vout=");
+  Serial.println(vout, 3);
   delay(500);
 }`,
     components: [
@@ -725,22 +809,25 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Comparator — LED lights when pot > 2.5V
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float vpot = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("Pot = "); Serial.print(vpot,2);
+  Serial.print("Pot = ");
+  Serial.print(vpot, 2);
   Serial.println(vpot > 2.5 ? " > ref -> LED ON" : " < ref -> LED OFF");
   delay(300);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-potentiometer', id: 'pot', x: 280, y: 120, properties: {} },
+      { type: 'wokwi-potentiometer', id: 'pot', x: 360, y: 120, properties: {} },
       // Vref = 2.5V from two 10k from 5V/GND
-      { type: 'wokwi-resistor', id: 'rref1', x: 280, y: 240, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rref2', x: 280, y: 320, properties: { value: '10000' } },
-      { type: 'wokwi-opamp-lm358', id: 'u1', x: 400, y: 160, properties: {} },
-      { type: 'wokwi-resistor', id: 'rl', x: 520, y: 80, properties: { value: '220' } },
-      { type: 'wokwi-led', id: 'led1', x: 520, y: 200, properties: { color: 'green' } },
+      { type: 'wokwi-resistor', id: 'rref1', x: 360, y: 240, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rref2', x: 360, y: 320, properties: { value: '10000' } },
+      { type: 'wokwi-opamp-lm358', id: 'u1', x: 480, y: 160, properties: {} },
+      { type: 'wokwi-resistor', id: 'rl', x: 600, y: 80, properties: { value: '220' } },
+      { type: 'wokwi-led', id: 'led1', x: 600, y: 200, properties: { color: 'green' } },
     ],
     wires: [
       // Pot on IN+
@@ -767,28 +854,33 @@ void loop() {
     category: 'circuits',
     difficulty: 'advanced',
     code: `// Difference amplifier — Gain=10, Vout = 10*(V2-V1)
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float v1 = analogRead(A0) * 5.0 / 1023.0;
   float v2 = analogRead(A1) * 5.0 / 1023.0;
   float vout = analogRead(A2) * 5.0 / 1023.0;
-  Serial.print("V1="); Serial.print(v1,2);
-  Serial.print(" V2="); Serial.print(v2,2);
-  Serial.print(" Vout="); Serial.println(vout,2);
+  Serial.print("V1=");
+  Serial.print(v1, 2);
+  Serial.print(" V2=");
+  Serial.print(v2, 2);
+  Serial.print(" Vout=");
+  Serial.println(vout, 2);
   delay(500);
 }`,
     components: [
       UNO,
       // V1 → R1 → IN-, feedback Rf from OUT
-      { type: 'wokwi-resistor', id: 'r1', x: 350, y: 80, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rf', x: 350, y: 160, properties: { value: '100000' } },
+      { type: 'wokwi-resistor', id: 'r1', x: 470, y: 80, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rf', x: 470, y: 210, properties: { value: '100000' } },
       // V2 → R2 → IN+, Rg from IN+ to GND
-      { type: 'wokwi-resistor', id: 'r2', x: 350, y: 240, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rg', x: 350, y: 320, properties: { value: '100000' } },
-      { type: 'wokwi-opamp-lm358', id: 'u1', x: 460, y: 160, properties: {} },
+      { type: 'wokwi-resistor', id: 'r2', x: 470, y: 290, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rg', x: 470, y: 370, properties: { value: '100000' } },
+      { type: 'wokwi-opamp-lm358', id: 'u1', x: 580, y: 210, properties: {} },
       // Two bias pots to generate V1 and V2 (so the example has real inputs)
-      { type: 'wokwi-potentiometer', id: 'pot1', x: 240, y: 80, properties: {} },
-      { type: 'wokwi-potentiometer', id: 'pot2', x: 240, y: 240, properties: {} },
+      { type: 'wokwi-potentiometer', id: 'pot1', x: 360, y: 80, properties: {} },
+      { type: 'wokwi-potentiometer', id: 'pot2', x: 360, y: 290, properties: {} },
     ],
     wires: [
       // Pot1 provides V1
@@ -823,23 +915,27 @@ void loop() {
     category: 'circuits',
     difficulty: 'advanced',
     code: `// Schmitt trigger — cleans noisy input
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int raw = analogRead(A0);
   int out = analogRead(A1);
-  Serial.print(raw); Serial.print(","); Serial.println(out);
+  Serial.print(raw);
+  Serial.print(",");
+  Serial.println(out);
   delay(10);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-potentiometer', id: 'pot', x: 260, y: 160, properties: {} },
+      { type: 'wokwi-potentiometer', id: 'pot', x: 360, y: 160, properties: {} },
       // Vref = 2.5V divider on IN+
-      { type: 'wokwi-resistor', id: 'rref1', x: 370, y: 240, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rref2', x: 370, y: 320, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rref1', x: 470, y: 240, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rref2', x: 470, y: 320, properties: { value: '10000' } },
       // Positive feedback network: Rin from Vref to IN+, Rfb from OUT to IN+
-      { type: 'wokwi-resistor', id: 'rin', x: 420, y: 100, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rfb', x: 520, y: 100, properties: { value: '100000' } },
-      { type: 'wokwi-opamp-lm358', id: 'u1', x: 460, y: 200, properties: {} },
+      { type: 'wokwi-resistor', id: 'rin', x: 520, y: 100, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rfb', x: 620, y: 100, properties: { value: '100000' } },
+      { type: 'wokwi-opamp-lm358', id: 'u1', x: 560, y: 200, properties: {} },
     ],
     wires: [
       // Pot → IN- (inverting input, signal to compare)
@@ -878,10 +974,13 @@ void loop() {
     difficulty: 'intermediate',
     code: `// MCU + AND gate + transistor coexistence.
 // pin 5 = steady enable, pin 6 = blink. AND(5,6) -> transistor -> motor LED.
-void setup() { pinMode(5, OUTPUT); pinMode(6, OUTPUT); }
+void setup() {
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
+}
 void loop() {
-  digitalWrite(5, HIGH);                 // enable
-  digitalWrite(6, (millis() / 500) & 1); // ~1 Hz blink
+  digitalWrite(5, HIGH);                  // enable
+  digitalWrite(6, (millis() / 500) & 1);  // ~1 Hz blink
 }`,
     components: [
       UNO,
@@ -956,8 +1055,10 @@ void loop()  {}`,
     difficulty: 'beginner',
     code: `// XOR — LED on when switches differ (physical XOR gate drives LED)
 void setup() {
-  pinMode(2, INPUT_PULLUP); pinMode(3, INPUT_PULLUP);
-  pinMode(5, OUTPUT);       pinMode(6, OUTPUT);
+  pinMode(2, INPUT_PULLUP);
+  pinMode(3, INPUT_PULLUP);
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
 }
 void loop() {
   digitalWrite(5, !digitalRead(2));
@@ -965,11 +1066,11 @@ void loop() {
 }`,
     components: [
       UNO,
-      { type: 'wokwi-pushbutton', id: 'sw1', x: 260, y: 80, properties: {} },
-      { type: 'wokwi-pushbutton', id: 'sw2', x: 260, y: 180, properties: {} },
-      { type: 'velxio-logic-gate-xor', id: 'u1', x: 400, y: 130, properties: {} },
-      { type: 'wokwi-resistor', id: 'rl', x: 520, y: 60, properties: { value: '220' } },
-      { type: 'wokwi-led', id: 'led1', x: 520, y: 160, properties: { color: 'yellow' } },
+      { type: 'wokwi-pushbutton', id: 'sw1', x: 360, y: 80, properties: {} },
+      { type: 'wokwi-pushbutton', id: 'sw2', x: 360, y: 180, properties: {} },
+      { type: 'velxio-logic-gate-xor', id: 'u1', x: 500, y: 130, properties: {} },
+      { type: 'wokwi-resistor', id: 'rl', x: 620, y: 60, properties: { value: '220' } },
+      { type: 'wokwi-led', id: 'led1', x: 620, y: 160, properties: { color: 'yellow' } },
     ],
     wires: [
       w('w1', ['arduino-uno', '2'], ['sw1', '1.l']),
@@ -994,29 +1095,41 @@ void loop() {
     difficulty: 'intermediate',
     code: `// Software NAND SR latch simulation
 bool q = false;
-void setup() { Serial.begin(9600); pinMode(2,INPUT_PULLUP); pinMode(3,INPUT_PULLUP); pinMode(4,INPUT); pinMode(13,OUTPUT); }
+void setup() {
+  Serial.begin(9600);
+  pinMode(2, INPUT_PULLUP);
+  pinMode(3, INPUT_PULLUP);
+  pinMode(4, INPUT);
+  pinMode(13, OUTPUT);
+}
 void loop() {
   bool s = !digitalRead(2), r = !digitalRead(3);
-  if(s && !r) q = true;
-  if(r && !s) q = false;
-  digitalWrite(13, q);                 // software latch, mirrored on the LED
-  bool hw = digitalRead(4);            // the hardware latch, read back
-  Serial.print("S="); Serial.print(s); Serial.print(" R="); Serial.print(r);
-  Serial.print(" Q="); Serial.print(q); Serial.print(" Qhw="); Serial.println(hw);
+  if (s && !r) q = true;
+  if (r && !s) q = false;
+  digitalWrite(13, q);       // software latch, mirrored on the LED
+  bool hw = digitalRead(4);  // the hardware latch, read back
+  Serial.print("S=");
+  Serial.print(s);
+  Serial.print(" R=");
+  Serial.print(r);
+  Serial.print(" Q=");
+  Serial.print(q);
+  Serial.print(" Qhw=");
+  Serial.println(hw);
   delay(200);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-pushbutton', id: 'setBtn', x: 260, y: 80, properties: {} },
-      { type: 'wokwi-pushbutton', id: 'rstBtn', x: 260, y: 240, properties: {} },
+      { type: 'wokwi-pushbutton', id: 'setBtn', x: 360, y: 80, properties: {} },
+      { type: 'wokwi-pushbutton', id: 'rstBtn', x: 360, y: 290, properties: {} },
       // Pull-ups so S' and R' rest HIGH; pressing a button pulls LOW
-      { type: 'wokwi-resistor', id: 'rpuS', x: 320, y: 40, properties: { value: '10000' } },
-      { type: 'wokwi-resistor', id: 'rpuR', x: 320, y: 280, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rpuS', x: 420, y: 40, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'rpuR', x: 420, y: 330, properties: { value: '10000' } },
       // Cross-coupled NANDs
-      { type: 'velxio-logic-gate-nand', id: 'g1', x: 420, y: 100, properties: {} },
-      { type: 'velxio-logic-gate-nand', id: 'g2', x: 420, y: 220, properties: {} },
-      { type: 'wokwi-resistor', id: 'rl', x: 540, y: 60, properties: { value: '220' } },
-      { type: 'wokwi-led', id: 'qled', x: 540, y: 160, properties: { color: 'green' } },
+      { type: 'velxio-logic-gate-nand', id: 'g1', x: 520, y: 100, properties: {} },
+      { type: 'velxio-logic-gate-nand', id: 'g2', x: 520, y: 270, properties: {} },
+      { type: 'wokwi-resistor', id: 'rl', x: 640, y: 60, properties: { value: '220' } },
+      { type: 'wokwi-led', id: 'qled', x: 640, y: 210, properties: { color: 'green' } },
     ],
     wires: [
       // S' / R' pull-ups to 5V
@@ -1057,18 +1170,28 @@ void loop() {
     code: `// 1-bit full adder in software
 void setup() {
   Serial.begin(9600);
-  pinMode(2,INPUT_PULLUP); pinMode(3,INPUT_PULLUP); pinMode(4,INPUT_PULLUP);
-  pinMode(5,OUTPUT); pinMode(6,OUTPUT);
+  pinMode(2, INPUT_PULLUP);
+  pinMode(3, INPUT_PULLUP);
+  pinMode(4, INPUT_PULLUP);
+  pinMode(5, OUTPUT);
+  pinMode(6, OUTPUT);
 }
 void loop() {
-  bool a=!digitalRead(2), b=!digitalRead(3), cin=!digitalRead(4);
+  bool a = !digitalRead(2), b = !digitalRead(3), cin = !digitalRead(4);
   bool sum = a ^ b ^ cin;
-  bool cout = (a&b) | (cin&(a^b));
+  bool cout = (a & b) | (cin & (a ^ b));
   digitalWrite(5, sum);
   digitalWrite(6, cout);
-  Serial.print("A="); Serial.print(a); Serial.print(" B="); Serial.print(b);
-  Serial.print(" Cin="); Serial.print(cin); Serial.print(" Sum="); Serial.print(sum);
-  Serial.print(" Cout="); Serial.println(cout);
+  Serial.print("A=");
+  Serial.print(a);
+  Serial.print(" B=");
+  Serial.print(b);
+  Serial.print(" Cin=");
+  Serial.print(cin);
+  Serial.print(" Sum=");
+  Serial.print(sum);
+  Serial.print(" Cout=");
+  Serial.println(cout);
   delay(300);
 }`,
     components: [
@@ -1107,10 +1230,12 @@ void loop() {
     difficulty: 'beginner',
     code: `// 4-bit binary counter on LEDs
 int count = 0;
-void setup() { for(int i=2;i<=5;i++) pinMode(i,OUTPUT); }
+void setup() {
+  for (int i = 2; i <= 5; i++) pinMode(i, OUTPUT);
+}
 void loop() {
-  for(int i=0;i<4;i++) digitalWrite(i+2, (count>>i)&1);
-  count = (count+1) % 16;
+  for (int i = 0; i < 4; i++) digitalWrite(i + 2, (count >> i) & 1);
+  count = (count + 1) % 16;
   delay(500);
 }`,
     components: [
@@ -1119,14 +1244,14 @@ void loop() {
         type: 'wokwi-resistor',
         id: `r${i}`,
         x: 380,
-        y: 60 + i * 60,
+        y: 40 + i * 90,
         properties: { value: '220' },
       })),
       ...Array.from({ length: 4 }, (_, i) => ({
         type: 'wokwi-led',
         id: `led${i}`,
-        x: 460,
-        y: 60 + i * 60,
+        x: 540,
+        y: 9 + i * 90,
         properties: { color: ['red', 'yellow', 'green', 'blue'][i] },
       })),
     ],
@@ -1150,8 +1275,11 @@ void loop() {
     difficulty: 'intermediate',
     code: `// Logic probe — tests pin 7
 void setup() {
-  pinMode(10,OUTPUT); pinMode(11,OUTPUT); pinMode(12,OUTPUT); // R,Y,G
-  pinMode(7,INPUT);
+  // R,Y,G
+  pinMode(10, OUTPUT);
+  pinMode(11, OUTPUT);
+  pinMode(12, OUTPUT);
+  pinMode(7, INPUT);
   Serial.begin(9600);
 }
 void loop() {
@@ -1190,10 +1318,16 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Relay control via NPN transistor
-void setup() { pinMode(9, OUTPUT); }
+void setup() {
+  pinMode(9, OUTPUT);
+}
 void loop() {
-  digitalWrite(9, HIGH); delay(2000); // relay ON
-  digitalWrite(9, LOW);  delay(2000); // relay OFF
+  // relay ON
+  digitalWrite(9, HIGH);
+  delay(2000);
+  // relay OFF
+  digitalWrite(9, LOW);
+  delay(2000);
 }`,
     components: [
       UNO,
@@ -1226,14 +1360,21 @@ void loop() {
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Optocoupler 4N25 — MCU drives LED side, reads phototransistor side
-void setup() { pinMode(9,OUTPUT); Serial.begin(9600); }
+void setup() {
+  pinMode(9, OUTPUT);
+  Serial.begin(9600);
+}
 void loop() {
-  digitalWrite(9,HIGH); delay(500);
+  digitalWrite(9, HIGH);
+  delay(500);
   int val = analogRead(A0);
-  Serial.print("Isolated signal: "); Serial.println(val);
-  digitalWrite(9,LOW); delay(500);
+  Serial.print("Isolated signal: ");
+  Serial.println(val);
+  digitalWrite(9, LOW);
+  delay(500);
   val = analogRead(A0);
-  Serial.print("Isolated signal: "); Serial.println(val);
+  Serial.print("Isolated signal: ");
+  Serial.println(val);
 }`,
     components: [
       UNO,
@@ -1264,15 +1405,35 @@ void loop() {
 #define EN 9
 #define IN1 7
 #define IN2 8
-void setup() { pinMode(EN,OUTPUT); pinMode(IN1,OUTPUT); pinMode(IN2,OUTPUT); }
-void forward()  { digitalWrite(IN1,HIGH); digitalWrite(IN2,LOW);  analogWrite(EN,200); }
-void reverse()  { digitalWrite(IN1,LOW);  digitalWrite(IN2,HIGH); analogWrite(EN,200); }
-void brake()    { digitalWrite(IN1,LOW);  digitalWrite(IN2,LOW);  analogWrite(EN,0);   }
+void setup() {
+  pinMode(EN, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+}
+void forward() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  analogWrite(EN, 200);
+}
+void reverse() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  analogWrite(EN, 200);
+}
+void brake() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  analogWrite(EN, 0);
+}
 void loop() {
-  forward(); delay(2000);
-  brake();   delay(500);
-  reverse(); delay(2000);
-  brake();   delay(500);
+  forward();
+  delay(2000);
+  brake();
+  delay(500);
+  reverse();
+  delay(2000);
+  brake();
+  delay(500);
 }`,
     components: [
       UNO,
@@ -1307,20 +1468,26 @@ void loop() {
 #define EN 9
 #define IN1 7
 #define IN2 8
-void setup() { pinMode(EN,OUTPUT); pinMode(IN1,OUTPUT); pinMode(IN2,OUTPUT);
-  digitalWrite(IN1,HIGH); digitalWrite(IN2,LOW); }
+void setup() {
+  pinMode(EN, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+}
 void loop() {
   int pot = analogRead(A0);
   int speed = map(pot, 0, 1023, 0, 255);
   analogWrite(EN, speed);
-  Serial.print("Speed: "); Serial.println(speed);
+  Serial.print("Speed: ");
+  Serial.println(speed);
   delay(100);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-potentiometer', id: 'pot', x: 260, y: 200, properties: {} },
-      { type: 'velxio-motor-driver-l293d', id: 'u1', x: 420, y: 140, properties: {} },
-      { type: 'wokwi-resistor', id: 'rm', x: 560, y: 200, properties: { value: '5' } },
+      { type: 'wokwi-potentiometer', id: 'pot', x: 260, y: 290, properties: {} },
+      { type: 'velxio-motor-driver-l293d', id: 'u1', x: 420, y: 230, properties: {} },
+      { type: 'wokwi-resistor', id: 'rm', x: 560, y: 290, properties: { value: '5' } },
     ],
     wires: [
       // Pot → A0
@@ -1354,17 +1521,21 @@ void loop() {
     difficulty: 'beginner',
     code: `// 7805 power supply — regulated 5V from 9V battery
 // The 7805 provides stable 5V regardless of battery voltage (7-12V range)
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("Regulated voltage: "); Serial.print(v,2); Serial.println(" V");
+  Serial.print("Regulated voltage: ");
+  Serial.print(v, 2);
+  Serial.println(" V");
   delay(1000);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-battery-9v', id: 'bat', x: 260, y: 200, properties: {} },
-      { type: 'wokwi-reg-7805', id: 'u1', x: 380, y: 160, properties: {} },
-      { type: 'wokwi-resistor', id: 'rload', x: 500, y: 160, properties: { value: '1000' } },
+      { type: 'wokwi-battery-9v', id: 'bat', x: 260, y: 290, properties: {} },
+      { type: 'wokwi-reg-7805', id: 'u1', x: 380, y: 250, properties: {} },
+      { type: 'wokwi-resistor', id: 'rload', x: 500, y: 250, properties: { value: '1000' } },
     ],
     wires: [
       // Battery + → VIN ; battery − / GND pin → GND
@@ -1386,20 +1557,24 @@ void loop() {
     difficulty: 'intermediate',
     code: `// LM317 adjustable regulator
 // R1 = 240, R2 = 720 -> Vout = 1.25 * (1 + 720/240) = 5.0V
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float v = analogRead(A0) * 5.0 / 1023.0;
-  Serial.print("LM317 Vout = "); Serial.print(v,2); Serial.println(" V");
+  Serial.print("LM317 Vout = ");
+  Serial.print(v, 2);
+  Serial.println(" V");
   delay(500);
 }`,
     components: [
       UNO,
-      { type: 'wokwi-battery-9v', id: 'bat', x: 240, y: 220, properties: {} },
-      { type: 'wokwi-reg-lm317', id: 'u1', x: 360, y: 140, properties: {} },
+      { type: 'wokwi-battery-9v', id: 'bat', x: 240, y: 290, properties: {} },
+      { type: 'wokwi-reg-lm317', id: 'u1', x: 360, y: 210, properties: {} },
       // R1 = 240Ω between VOUT and ADJ, R2 = 720Ω between ADJ and GND
       // Vout = 1.25 * (1 + R2/R1) = 5.0V
       { type: 'wokwi-resistor', id: 'r1', x: 480, y: 100, properties: { value: '240' } },
-      { type: 'wokwi-resistor', id: 'r2', x: 480, y: 200, properties: { value: '720' } },
+      { type: 'wokwi-resistor', id: 'r2', x: 480, y: 270, properties: { value: '720' } },
       { type: 'wokwi-resistor', id: 'rload', x: 600, y: 100, properties: { value: '1000' } },
     ],
     wires: [
@@ -1427,12 +1602,16 @@ void loop() {
     code: `// Battery voltage monitor
 // R1=20k + R2=10k divider: V_adc = V_bat * 10k / 30k
 // V_bat = V_adc * 3
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   float vAdc = analogRead(A0) * 5.0 / 1023.0;
   float vBat = vAdc * 3.0;
-  Serial.print("Battery: "); Serial.print(vBat,1); Serial.println(" V");
-  if(vBat < 7.0) Serial.println("WARNING: Battery low!");
+  Serial.print("Battery: ");
+  Serial.print(vBat, 1);
+  Serial.println(" V");
+  if (vBat < 7.0) Serial.println("WARNING: Battery low!");
   delay(1000);
 }`,
     components: [
@@ -1441,9 +1620,9 @@ void loop() {
       // hung in the air, so A0 sat at 0 V and the sketch printed
       // "Battery: 0.0 V / WARNING: Battery low!" forever — the one thing this
       // example exists to show never happened.
-      { type: 'wokwi-battery-9v', id: 'bat', x: 250, y: 120, properties: {} },
-      { type: 'wokwi-resistor', id: 'r1', x: 350, y: 80, properties: { value: '20000' } },
-      { type: 'wokwi-resistor', id: 'r2', x: 350, y: 200, properties: { value: '10000' } },
+      { type: 'wokwi-battery-9v', id: 'bat', x: 360, y: 120, properties: {} },
+      { type: 'wokwi-resistor', id: 'r1', x: 460, y: 80, properties: { value: '20000' } },
+      { type: 'wokwi-resistor', id: 'r2', x: 460, y: 200, properties: { value: '10000' } },
     ],
     wires: [
       w('w0', ['bat', '+'], ['r1', '1'], '#ff0000'),
@@ -1504,10 +1683,20 @@ void loop() {
     difficulty: 'beginner',
     boardType: 'arduino-mega',
     code: `// Arduino Mega — 16-LED Knight Rider
-void setup() { for(int i=22;i<=37;i++) pinMode(i,OUTPUT); }
+void setup() {
+  for (int i = 22; i <= 37; i++) pinMode(i, OUTPUT);
+}
 void loop() {
-  for(int i=22;i<=37;i++) { digitalWrite(i,HIGH); delay(50); digitalWrite(i,LOW); }
-  for(int i=37;i>=22;i--) { digitalWrite(i,HIGH); delay(50); digitalWrite(i,LOW); }
+  for (int i = 22; i <= 37; i++) {
+    digitalWrite(i, HIGH);
+    delay(50);
+    digitalWrite(i, LOW);
+  }
+  for (int i = 37; i >= 22; i--) {
+    digitalWrite(i, HIGH);
+    delay(50);
+    digitalWrite(i, LOW);
+  }
 }`,
     // Sixteen LEDs, one per scanned pin: 22-29 are PORTA, 30-37 PORTC (in
     // reverse bit order). Until 2026-10 only the first eight were wired and
@@ -1554,14 +1743,19 @@ void loop() {
     code: `// Nano sensor station — NTC + LDR
 #define NTC_PIN A0
 #define LDR_PIN A1
-void setup() { Serial.begin(9600); }
+void setup() {
+  Serial.begin(9600);
+}
 void loop() {
   int tempRaw = analogRead(NTC_PIN);
   int lightRaw = analogRead(LDR_PIN);
   float tempV = tempRaw * 5.0 / 1023.0;
   float lightPct = lightRaw * 100.0 / 1023.0;
-  Serial.print("Temp_V="); Serial.print(tempV,2);
-  Serial.print("  Light="); Serial.print(lightPct,0); Serial.println("%");
+  Serial.print("Temp_V=");
+  Serial.print(tempV, 2);
+  Serial.print("  Light=");
+  Serial.print(lightPct, 0);
+  Serial.println("%");
   delay(1000);
 }`,
     components: [
@@ -1602,21 +1796,46 @@ void setup() {
   ledcAttach(B_PIN, 5000, 8);
 }
 void loop() {
-  for(int h=0; h<360; h+=5) {
-    float r,g,b;
+  for (int h = 0; h < 360; h += 5) {
+    float r, g, b;
     // HSV to RGB (S=1, V=1)
-    int i = h/60; float f = h/60.0-i;
-    switch(i%6) {
-      case 0: r=1; g=f;   b=0;   break;
-      case 1: r=1-f; g=1; b=0;   break;
-      case 2: r=0; g=1;   b=f;   break;
-      case 3: r=0; g=1-f; b=1;   break;
-      case 4: r=f; g=0;   b=1;   break;
-      case 5: r=1; g=0;   b=1-f; break;
+    int i = h / 60;
+    float f = h / 60.0 - i;
+    switch (i % 6) {
+      case 0:
+        r = 1;
+        g = f;
+        b = 0;
+        break;
+      case 1:
+        r = 1 - f;
+        g = 1;
+        b = 0;
+        break;
+      case 2:
+        r = 0;
+        g = 1;
+        b = f;
+        break;
+      case 3:
+        r = 0;
+        g = 1 - f;
+        b = 1;
+        break;
+      case 4:
+        r = f;
+        g = 0;
+        b = 1;
+        break;
+      case 5:
+        r = 1;
+        g = 0;
+        b = 1 - f;
+        break;
     }
-    ledcWrite(R_PIN, (int)(r*255));
-    ledcWrite(G_PIN, (int)(g*255));
-    ledcWrite(B_PIN, (int)(b*255));
+    ledcWrite(R_PIN, (int)(r * 255));
+    ledcWrite(G_PIN, (int)(g * 255));
+    ledcWrite(B_PIN, (int)(b * 255));
     delay(30);
   }
 }`,

@@ -46,9 +46,12 @@ void setup() {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-    display.setCursor(20, 60);  display.print(F("Velxio"));
-    display.setCursor(20, 100); display.print(F("ePaper"));
-    display.setCursor(20, 140); display.print(F("OK!"));
+    display.setCursor(20, 60);
+    display.print(F("Velxio"));
+    display.setCursor(20, 100);
+    display.print(F("ePaper"));
+    display.setCursor(20, 140);
+    display.print(F("OK!"));
   } while (display.nextPage());
   display.hibernate();
   Serial.println(F("done"));
@@ -104,9 +107,12 @@ void drawClock() {
   display.fillScreen(GxEPD_WHITE);
   display.setTextColor(GxEPD_BLACK);
   display.setFont(&FreeMonoBold12pt7b);
-  display.setCursor(8, 28);  display.print("Velxio Clock");
+  display.setCursor(8, 28);
+  display.print("Velxio Clock");
   display.setCursor(8, 64);
-  display.print("uptime: "); display.print(minutes); display.print("m");
+  display.print("uptime: ");
+  display.print(minutes);
+  display.print("m");
 }
 
 void setup() {
@@ -180,15 +186,20 @@ void setup() {
     display.fillScreen(GxEPD_WHITE);
     display.setTextColor(GxEPD_BLACK);
     display.setFont(&FreeMonoBold12pt7b);
-    display.setCursor(8, 28);  display.print("Velxio Weather");
-    display.setCursor(8, 64);  display.print("Temp:  22.5 C");
-    display.setCursor(8, 96);  display.print("RH:    48 %");
+    display.setCursor(8, 28);
+    display.print("Velxio Weather");
+    display.setCursor(8, 64);
+    display.print("Temp:  22.5 C");
+    display.setCursor(8, 96);
+    display.print("RH:    48 %");
   } while (display.nextPage());
   display.hibernate();
   Serial.println("frame done");
 }
 
-void loop() { delay(1000); }
+void loop() {
+  delay(1000);
+}
 `,
   components: [
     {
@@ -237,19 +248,22 @@ void drawLayout() {
   display.fillScreen(GxEPD_WHITE);
   display.setTextColor(GxEPD_BLACK);
   display.setFont(&FreeMonoBold18pt7b);
-  display.setCursor(20, 60);  display.print("Velxio Logbook");
+  display.setCursor(20, 60);
+  display.print("Velxio Logbook");
   display.drawLine(20, 80, 380, 80, GxEPD_BLACK);
 
   display.setFont(&FreeMonoBold9pt7b);
   const char* rows[][2] = {
-    {"Date",        "2026-04-29"},
-    {"Battery",     " 3.91 V"},
-    {"Cycles",      "  1024"},
-    {"Last refresh","  62 ms"},
+    { "Date", "2026-04-29" },
+    { "Battery", " 3.91 V" },
+    { "Cycles", "  1024" },
+    { "Last refresh", "  62 ms" },
   };
   for (uint8_t i = 0; i < 4; i++) {
-    display.setCursor(40, 120 + i * 28);  display.print(rows[i][0]);
-    display.setCursor(220, 120 + i * 28); display.print(rows[i][1]);
+    display.setCursor(40, 120 + i * 28);
+    display.print(rows[i][0]);
+    display.setCursor(220, 120 + i * 28);
+    display.print(rows[i][1]);
   }
 }
 
@@ -314,7 +328,8 @@ void drawDashboard() {
 
   // Title
   display.setFont(&FreeMonoBold24pt7b);
-  display.setCursor(40, 60);  display.print("Velxio Dashboard");
+  display.setCursor(40, 60);
+  display.print("Velxio Dashboard");
   display.drawLine(40, 80, 760, 80, GxEPD_BLACK);
 
   // Tiles
@@ -325,8 +340,10 @@ void drawDashboard() {
     int x = 50 + (i % 2) * 360;
     int y = 130 + (i / 2) * 140;
     display.drawRect(x, y, 320, 100, GxEPD_BLACK);
-    display.setCursor(x + 20, y + 38);  display.print(labels[i]);
-    display.setCursor(x + 20, y + 78);  display.print(values[i]);
+    display.setCursor(x + 20, y + 38);
+    display.print(labels[i]);
+    display.setCursor(x + 20, y + 78);
+    display.print(values[i]);
   }
 }
 
@@ -424,7 +441,9 @@ void setup() {
   Serial.println("frame done");
 }
 
-void loop() { delay(1000); }
+void loop() {
+  delay(1000);
+}
 `,
   components: [
     {

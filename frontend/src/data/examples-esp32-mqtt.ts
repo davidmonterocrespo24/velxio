@@ -21,10 +21,10 @@ const ESP32_MQTT_CODE = `// ESP32 + WiFi + MQTT (PubSubClient)
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-const char* WIFI_SSID   = "Velxio-GUEST";   // open AP the emulator advertises
+const char* WIFI_SSID = "Velxio-GUEST";  // open AP the emulator advertises
 const char* MQTT_BROKER = "broker.hivemq.com";
-const int   MQTT_PORT   = 1883;
-const int   LED         = 2;
+const int MQTT_PORT = 1883;
+const int LED = 2;
 
 WiFiClient net;
 PubSubClient mqtt(net);
@@ -41,7 +41,10 @@ void connectWiFi() {
   Serial.printf("WiFi: joining %s ...\\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) { delay(300); Serial.print("."); }
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
   Serial.printf("\\nWiFi connected, IP %s\\n", WiFi.localIP().toString().c_str());
 }
 

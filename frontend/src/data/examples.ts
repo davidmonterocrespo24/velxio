@@ -613,19 +613,18 @@ class SSD1306_SPI(SSD1306):
 
 static const char *TAG = "blink";
 
-void app_main(void)
-{
-    ESP_LOGI(TAG, "ESP-IDF blink starting");
-    gpio_reset_pin(LED_PIN);
-    gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
+void app_main(void) {
+  ESP_LOGI(TAG, "ESP-IDF blink starting");
+  gpio_reset_pin(LED_PIN);
+  gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
 
-    int level = 0;
-    while (1) {
-        level = !level;
-        gpio_set_level(LED_PIN, level);
-        ESP_LOGI(TAG, "LED %s", level ? "on" : "off");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+  int level = 0;
+  while (1) {
+    level = !level;
+    gpio_set_level(LED_PIN, level);
+    ESP_LOGI(TAG, "LED %s", level ? "on" : "off");
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
 }
 `,
       },
@@ -1347,10 +1346,14 @@ void setup() {
   Serial.begin(115200);
 }
 void loop() {
-  digitalWrite(PA1, HIGH); digitalWrite(PC13, LOW);
-  Serial.println("PA1 HIGH"); delay(700);
-  digitalWrite(PA1, LOW);  digitalWrite(PC13, HIGH);
-  Serial.println("PA1 LOW");  delay(700);
+  digitalWrite(PA1, HIGH);
+  digitalWrite(PC13, LOW);
+  Serial.println("PA1 HIGH");
+  delay(700);
+  digitalWrite(PA1, LOW);
+  digitalWrite(PC13, HIGH);
+  Serial.println("PA1 LOW");
+  delay(700);
 }`,
       },
       {
@@ -1446,10 +1449,14 @@ void setup() {
   Serial.begin(115200);
 }
 void loop() {
-  digitalWrite(PA1, HIGH); digitalWrite(PC13, LOW);
-  Serial.println("PA1 HIGH"); delay(350);
-  digitalWrite(PA1, LOW);  digitalWrite(PC13, HIGH);
-  Serial.println("PA1 LOW");  delay(350);
+  digitalWrite(PA1, HIGH);
+  digitalWrite(PC13, LOW);
+  Serial.println("PA1 HIGH");
+  delay(350);
+  digitalWrite(PA1, LOW);
+  digitalWrite(PC13, HIGH);
+  Serial.println("PA1 LOW");
+  delay(350);
 }`,
       },
       {
@@ -1694,26 +1701,37 @@ const uint8_t MPU = 0x68;
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin();              // I2C1: SCL=PB6, SDA=PB7
+  Wire.begin();  // I2C1: SCL=PB6, SDA=PB7
   // Wake the device (clear SLEEP bit in PWR_MGMT_1).
-  Wire.beginTransmission(MPU); Wire.write(0x6B); Wire.write(0x00); Wire.endTransmission();
+  Wire.beginTransmission(MPU);
+  Wire.write(0x6B);
+  Wire.write(0x00);
+  Wire.endTransmission();
   // WHO_AM_I (0x75) should read 0x68.
-  Wire.beginTransmission(MPU); Wire.write(0x75); Wire.endTransmission(false);
+  Wire.beginTransmission(MPU);
+  Wire.write(0x75);
+  Wire.endTransmission(false);
   Wire.requestFrom(MPU, (uint8_t)1);
   uint8_t who = Wire.read();
-  Serial.print("MPU6050 WHO_AM_I = 0x"); Serial.println(who, HEX);
+  Serial.print("MPU6050 WHO_AM_I = 0x");
+  Serial.println(who, HEX);
 }
 
 void loop() {
   // Burst-read the 6 accelerometer bytes starting at ACCEL_XOUT_H (0x3B).
-  Wire.beginTransmission(MPU); Wire.write(0x3B); Wire.endTransmission(false);
+  Wire.beginTransmission(MPU);
+  Wire.write(0x3B);
+  Wire.endTransmission(false);
   Wire.requestFrom(MPU, (uint8_t)6);
   int16_t ax = (Wire.read() << 8) | Wire.read();
   int16_t ay = (Wire.read() << 8) | Wire.read();
   int16_t az = (Wire.read() << 8) | Wire.read();
-  Serial.print("AX="); Serial.print(ax);
-  Serial.print("  AY="); Serial.print(ay);
-  Serial.print("  AZ="); Serial.println(az);
+  Serial.print("AX=");
+  Serial.print(ax);
+  Serial.print("  AY=");
+  Serial.print(ay);
+  Serial.print("  AZ=");
+  Serial.println(az);
   delay(1000);
 }`,
       },
@@ -1765,24 +1783,28 @@ void loop() {
 // Wiring: SDA -> PB7  |  SCL -> PB6  |  VCC -> 3V3  |  GND -> GND
 #include <Wire.h>
 
-const uint8_t DS_ADDR = 0x68;   // 'RTC' is a reserved STM32 HAL macro
+const uint8_t DS_ADDR = 0x68;  // 'RTC' is a reserved STM32 HAL macro
 
-uint8_t bcd2dec(uint8_t b) { return (b >> 4) * 10 + (b & 0x0F); }
+uint8_t bcd2dec(uint8_t b) {
+  return (b >> 4) * 10 + (b & 0x0F);
+}
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin();              // I2C1: SCL=PB6, SDA=PB7
+  Wire.begin();  // I2C1: SCL=PB6, SDA=PB7
   Serial.println("DS1307 RTC ready");
 }
 
 void loop() {
   // Read 7 timekeeping registers starting at 0x00.
-  Wire.beginTransmission(DS_ADDR); Wire.write(0x00); Wire.endTransmission(false);
+  Wire.beginTransmission(DS_ADDR);
+  Wire.write(0x00);
+  Wire.endTransmission(false);
   Wire.requestFrom(DS_ADDR, (uint8_t)7);
   uint8_t ss = bcd2dec(Wire.read() & 0x7F);
   uint8_t mm = bcd2dec(Wire.read());
   uint8_t hh = bcd2dec(Wire.read() & 0x3F);
-  Wire.read();                       // day-of-week (unused)
+  Wire.read();  // day-of-week (unused)
   uint8_t dd = bcd2dec(Wire.read());
   uint8_t mo = bcd2dec(Wire.read());
   uint8_t yy = bcd2dec(Wire.read());
@@ -1867,9 +1889,11 @@ void loop() {
   display.println("Pill F4");
   display.setTextSize(1);
   display.setCursor(0, 52);
-  display.print("count: "); display.print(counter);
+  display.print("count: ");
+  display.print(counter);
   display.display();
-  Serial.print("Frame: "); Serial.println(counter);
+  Serial.print("Frame: ");
+  Serial.println(counter);
   delay(1000);
 }`,
       },
@@ -1945,16 +1969,25 @@ void setup() {
 
 void loop() {
   float t = bmp.readTemperature();
-  float p = bmp.readPressure() / 100.0F;   // hPa
+  float p = bmp.readPressure() / 100.0F;  // hPa
   display.clearDisplay();
-  display.setTextSize(1); display.setCursor(0, 0);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
   display.println("Velxio Weather");
-  display.setTextSize(2); display.setCursor(0, 16);
-  display.print(t, 1); display.println(" C");
-  display.setTextSize(1); display.setCursor(0, 52);
-  display.print(p, 1); display.print(" hPa");
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.print(t, 1);
+  display.println(" C");
+  display.setTextSize(1);
+  display.setCursor(0, 52);
+  display.print(p, 1);
+  display.print(" hPa");
   display.display();
-  Serial.print("T="); Serial.print(t); Serial.print(" C  P="); Serial.print(p); Serial.println(" hPa");
+  Serial.print("T=");
+  Serial.print(t);
+  Serial.print(" C  P=");
+  Serial.print(p);
+  Serial.println(" hPa");
   delay(1000);
 }`,
       },
@@ -2037,7 +2070,7 @@ void loop() {
         y: 90,
         code: `// STM32 Blue Pill (F103) — 7-segment counter 0-9
 // Segments A..G on PA0..PA6, common cathode (COM -> GND).
-const int seg[7] = { PA0, PA1, PA2, PA3, PA4, PA5, PA6 }; // A B C D E F G
+const int seg[7] = { PA0, PA1, PA2, PA3, PA4, PA5, PA6 };  // A B C D E F G
 // Bit i (i=0..6) maps to segment seg[i]. 1 = segment lit.
 const uint8_t pattern[10] = {
   0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
@@ -2052,7 +2085,8 @@ void loop() {
   for (int d = 0; d < 10; d++) {
     uint8_t p = pattern[d];
     for (int i = 0; i < 7; i++) digitalWrite(seg[i], (p >> i) & 1);
-    Serial.print("digit = "); Serial.println(d);
+    Serial.print("digit = ");
+    Serial.println(d);
     delay(800);
   }
 }`,
@@ -2133,31 +2167,35 @@ const int PIN_R = PA0, PIN_G = PA1, PIN_B = PA2;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(PIN_R, OUTPUT); pinMode(PIN_G, OUTPUT); pinMode(PIN_B, OUTPUT);
+  pinMode(PIN_R, OUTPUT);
+  pinMode(PIN_G, OUTPUT);
+  pinMode(PIN_B, OUTPUT);
 }
 
 void show(bool r, bool g, bool b, const char* name) {
-  digitalWrite(PIN_R, r); digitalWrite(PIN_G, g); digitalWrite(PIN_B, b);
+  digitalWrite(PIN_R, r);
+  digitalWrite(PIN_G, g);
+  digitalWrite(PIN_B, b);
   Serial.println(name);
   delay(700);
 }
 
 void loop() {
-  show(true,  false, false, "RED");
-  show(false, true,  false, "GREEN");
-  show(false, false, true,  "BLUE");
-  show(true,  true,  false, "YELLOW");
-  show(false, true,  true,  "CYAN");
-  show(true,  false, true,  "MAGENTA");
+  show(true, false, false, "RED");
+  show(false, true, false, "GREEN");
+  show(false, false, true, "BLUE");
+  show(true, true, false, "YELLOW");
+  show(false, true, true, "CYAN");
+  show(true, false, true, "MAGENTA");
 }`,
       },
     ],
     code: '',
     components: [
-      { type: 'wokwi-resistor', id: 'r-rgb1-r', x: 320, y: 160, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb1-g', x: 320, y: 186, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb1-b', x: 320, y: 212, properties: { value: '220' } },
-      { type: 'wokwi-rgb-led', id: 'rgb1', x: 470, y: 150, properties: {} }],
+      { type: 'wokwi-resistor', id: 'r-rgb1-r', x: 280, y: 140, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb1-g', x: 280, y: 180, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb1-b', x: 280, y: 220, properties: { value: '220' } },
+      { type: 'wokwi-rgb-led', id: 'rgb1', x: 460, y: 110, properties: {} }],
     wires: [
       {
         id: 'rgb-r',
@@ -2342,24 +2380,29 @@ const int Ap = PA0, An = PA1, Bp = PA2, Bn = PA3;
 
 // Full-step order energizing one coil at a time: A+, B+, A-, B-
 const uint8_t seq[4][4] = {
-  { 1, 0, 0, 0 },   // A+
-  { 0, 0, 1, 0 },   // B+
-  { 0, 1, 0, 0 },   // A-
-  { 0, 0, 0, 1 },   // B-
+  { 1, 0, 0, 0 },  // A+
+  { 0, 0, 1, 0 },  // B+
+  { 0, 1, 0, 0 },  // A-
+  { 0, 0, 0, 1 },  // B-
 };
 
 void setup() {
   Serial.begin(115200);
-  pinMode(Ap, OUTPUT); pinMode(An, OUTPUT);
-  pinMode(Bp, OUTPUT); pinMode(Bn, OUTPUT);
+  pinMode(Ap, OUTPUT);
+  pinMode(An, OUTPUT);
+  pinMode(Bp, OUTPUT);
+  pinMode(Bn, OUTPUT);
   Serial.println("Stepper running");
 }
 
 void loop() {
   static int s = 0;
-  digitalWrite(Ap, seq[s][0]); digitalWrite(An, seq[s][1]);
-  digitalWrite(Bp, seq[s][2]); digitalWrite(Bn, seq[s][3]);
-  Serial.print("step "); Serial.println(s);
+  digitalWrite(Ap, seq[s][0]);
+  digitalWrite(An, seq[s][1]);
+  digitalWrite(Bp, seq[s][2]);
+  digitalWrite(Bn, seq[s][3]);
+  Serial.print("step ");
+  Serial.println(s);
   s = (s + 1) % 4;
   delay(300);
 }`,
@@ -2710,21 +2753,21 @@ void loop() {
       {
         type: 'wokwi-led',
         id: 'led-red',
-        x: 460,
+        x: 500,
         y: 100,
         properties: { color: 'red', pin: 13 },
       },
       {
         type: 'wokwi-led',
         id: 'led-yellow',
-        x: 460,
+        x: 500,
         y: 200,
         properties: { color: 'yellow', pin: 12 },
       },
       {
         type: 'wokwi-led',
         id: 'led-green',
-        x: 460,
+        x: 500,
         y: 300,
         properties: { color: 'green', pin: 11 },
       },
@@ -2735,21 +2778,21 @@ void loop() {
       {
         type: 'wokwi-resistor',
         id: 'r-red',
-        x: 320,
+        x: 360,
         y: 110,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-resistor',
         id: 'r-yellow',
-        x: 320,
+        x: 360,
         y: 210,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-resistor',
         id: 'r-green',
-        x: 320,
+        x: 360,
         y: 310,
         properties: { value: '220' },
       },
@@ -2943,7 +2986,7 @@ void loop() {
       {
         type: 'wokwi-led',
         id: 'led-1',
-        x: 460,
+        x: 500,
         y: 150,
         properties: { color: 'blue', pin: 9 },
       },
@@ -2951,7 +2994,7 @@ void loop() {
       {
         type: 'wokwi-resistor',
         id: 'r-led',
-        x: 320,
+        x: 360,
         y: 170,
         properties: { value: '220' },
       },
@@ -3064,9 +3107,9 @@ void loop() {
   delay(1000);
 }`,
     components: [
-      { type: 'wokwi-resistor', id: 'r-rgb-led-1-r', x: 180, y: 260, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb-led-1-g', x: 180, y: 286, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb-led-1-b', x: 180, y: 312, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb-led-1-r', x: 380, y: 120, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb-led-1-g', x: 380, y: 160, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb-led-1-b', x: 380, y: 200, properties: { value: '220' } },
       {
         type: 'wokwi-arduino-uno',
         id: 'arduino-uno',
@@ -3077,8 +3120,8 @@ void loop() {
       {
         type: 'wokwi-rgb-led',
         id: 'rgb-led-1',
-        x: 400,
-        y: 150,
+        x: 560,
+        y: 90,
         properties: {},
       },
     ],
@@ -3225,29 +3268,29 @@ void loop() {
       {
         type: 'wokwi-led',
         id: 'led-red',
-        x: 500,
-        y: 100,
+        x: 540,
+        y: 29,
         properties: { color: 'red', pin: 8 },
       },
       {
         type: 'wokwi-led',
         id: 'led-green',
-        x: 600,
-        y: 100,
+        x: 540,
+        y: 119,
         properties: { color: 'green', pin: 9 },
       },
       {
         type: 'wokwi-led',
         id: 'led-blue',
-        x: 500,
-        y: 200,
+        x: 540,
+        y: 209,
         properties: { color: 'blue', pin: 10 },
       },
       {
         type: 'wokwi-led',
         id: 'led-yellow',
-        x: 600,
-        y: 200,
+        x: 540,
+        y: 299,
         properties: { color: 'yellow', pin: 11 },
       },
       // Series 220Ω current limiters — one per LED.
@@ -3255,56 +3298,56 @@ void loop() {
         type: 'wokwi-resistor',
         id: 'r-led-red',
         x: 380,
-        y: 110,
+        y: 60,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-resistor',
         id: 'r-led-green',
         x: 380,
-        y: 130,
+        y: 150,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-resistor',
         id: 'r-led-blue',
         x: 380,
-        y: 210,
+        y: 240,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-resistor',
         id: 'r-led-yellow',
         x: 380,
-        y: 230,
+        y: 330,
         properties: { value: '220' },
       },
       {
         type: 'wokwi-pushbutton',
         id: 'button-red',
-        x: 450,
-        y: 300,
+        x: 380,
+        y: 430,
         properties: {},
       },
       {
         type: 'wokwi-pushbutton',
         id: 'button-green',
-        x: 550,
-        y: 300,
+        x: 500,
+        y: 430,
         properties: {},
       },
       {
         type: 'wokwi-pushbutton',
         id: 'button-blue',
-        x: 450,
-        y: 400,
+        x: 620,
+        y: 430,
         properties: {},
       },
       {
         type: 'wokwi-pushbutton',
         id: 'button-yellow',
-        x: 550,
-        y: 400,
+        x: 740,
+        y: 430,
         properties: {},
       },
     ],
@@ -3459,13 +3502,13 @@ void loop() {
 #include <Adafruit_ILI9341.h>
 #include <math.h>
 
-#define TFT_CS    17
-#define TFT_DC    20
-#define TFT_RST   21
-#define TFT_LED   22
-#define BTN_FWD   10
-#define BTN_BACK  11
-#define BTN_LEFT  12
+#define TFT_CS 17
+#define TFT_DC 20
+#define TFT_RST 21
+#define TFT_LED 22
+#define BTN_FWD 10
+#define BTN_BACK 11
+#define BTN_LEFT 12
 #define BTN_RIGHT 13
 
 Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
@@ -3473,22 +3516,22 @@ Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
 #define MAP_W 16
 #define MAP_H 16
 const uint8_t worldMap[MAP_H][MAP_W] = {
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-  {1,0,0,0,0,0,0,2,2,2,0,0,0,0,0,1},
-  {1,0,1,1,0,0,0,0,0,0,0,0,1,1,0,1},
-  {1,0,1,0,0,0,3,3,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,4,4,4,0,0,1},
-  {1,0,1,1,1,0,0,5,5,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,2,0,0,0,1},
-  {1,0,3,3,3,3,0,0,0,2,2,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1},
-  {1,0,0,0,0,5,5,0,0,3,0,0,0,0,0,1},
-  {1,4,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,4,0,0,0,2,2,2,0,0,0,0,0,5,0,1},
-  {1,4,0,0,0,0,0,0,0,0,3,3,3,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,4,4,4,4,4,4,0,0,0,0,0,0,1},
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1 },
+  { 1, 0, 1, 0, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 0, 0, 1 },
+  { 1, 0, 1, 1, 1, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1 },
+  { 1, 0, 3, 3, 3, 3, 0, 0, 0, 2, 2, 0, 0, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1 },
+  { 1, 0, 0, 0, 0, 5, 5, 0, 0, 3, 0, 0, 0, 0, 0, 1 },
+  { 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 4, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 5, 0, 1 },
+  { 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
 };
 
 float posX = 8.5f, posY = 8.5f;
@@ -3497,20 +3540,25 @@ float planeX = 0.0f, planeY = 0.66f;
 
 #define SCREEN_W 320
 #define SCREEN_H 240
-#define HUD_H    40
-#define VIEW_H   (SCREEN_H - HUD_H)
-#define HALF_VH  (VIEW_H / 2)
-#define SKY_COLOR   0x18C3
+#define HUD_H 40
+#define VIEW_H (SCREEN_H - HUD_H)
+#define HALF_VH (VIEW_H / 2)
+#define SKY_COLOR 0x18C3
 #define FLOOR_COLOR 0x4208
 
 uint16_t wallColor(uint8_t tile, bool nsFace) {
   uint16_t c;
   switch (tile) {
-    case 1: c = 0x8410; break;  // slate gray
-    case 2: c = 0xC800; break;  // blood red
-    case 3: c = 0x4A60; break;  // brown
-    case 4: c = 0x32A0; break;  // toxic green
-    case 5: c = 0xFD20; break;  // bronze door
+    // slate gray
+    case 1: c = 0x8410; break;
+    // blood red
+    case 2: c = 0xC800; break;
+    // brown
+    case 3: c = 0x4A60; break;
+    // toxic green
+    case 4: c = 0x32A0; break;
+    // bronze door
+    case 5: c = 0xFD20; break;
     default: c = 0xFFFF; break;
   }
   if (nsFace) c = (c >> 1) & 0x7BEFu;
@@ -3536,7 +3584,7 @@ void drawTitleScreen() {
   tft.setCursor(56, 200);
   tft.print("Press FWD to start");
   while (digitalRead(BTN_FWD) == HIGH) delay(40);
-  while (digitalRead(BTN_FWD) == LOW)  delay(40);
+  while (digitalRead(BTN_FWD) == LOW) delay(40);
 }
 
 void drawHUD() {
@@ -3549,7 +3597,7 @@ void drawHUD() {
 }
 
 void renderFrame() {
-  tft.fillRect(0, 0,       SCREEN_W, HALF_VH, SKY_COLOR);
+  tft.fillRect(0, 0, SCREEN_W, HALF_VH, SKY_COLOR);
   tft.fillRect(0, HALF_VH, SCREEN_W, HALF_VH, FLOOR_COLOR);
 
   for (int x = 0; x < SCREEN_W; x += 2) {
@@ -3563,34 +3611,51 @@ void renderFrame() {
 
     int stepX, stepY;
     float sideDistX, sideDistY;
-    if (rayDirX < 0) { stepX = -1; sideDistX = (posX - mapX)        * deltaDistX; }
-    else             { stepX =  1; sideDistX = (mapX + 1.0f - posX) * deltaDistX; }
-    if (rayDirY < 0) { stepY = -1; sideDistY = (posY - mapY)        * deltaDistY; }
-    else             { stepY =  1; sideDistY = (mapY + 1.0f - posY) * deltaDistY; }
+    if (rayDirX < 0) {
+      stepX = -1;
+      sideDistX = (posX - mapX) * deltaDistX;
+    } else {
+      stepX = 1;
+      sideDistX = (mapX + 1.0f - posX) * deltaDistX;
+    }
+    if (rayDirY < 0) {
+      stepY = -1;
+      sideDistY = (posY - mapY) * deltaDistY;
+    } else {
+      stepY = 1;
+      sideDistY = (mapY + 1.0f - posY) * deltaDistY;
+    }
 
     bool hit = false, nsFace = false;
-    int  iter = 0;
+    int iter = 0;
     while (!hit && iter++ < 64) {
-      if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; nsFace = false; }
-      else                       { sideDistY += deltaDistY; mapY += stepY; nsFace = true;  }
+      if (sideDistX < sideDistY) {
+        sideDistX += deltaDistX;
+        mapX += stepX;
+        nsFace = false;
+      } else {
+        sideDistY += deltaDistY;
+        mapY += stepY;
+        nsFace = true;
+      }
       if (mapX < 0 || mapY < 0 || mapX >= MAP_W || mapY >= MAP_H) break;
       if (worldMap[mapY][mapX] > 0) hit = true;
     }
     if (!hit) continue;
 
     float perpDist = nsFace
-      ? (mapY - posY + (1.0f - stepY) * 0.5f) / rayDirY
-      : (mapX - posX + (1.0f - stepX) * 0.5f) / rayDirX;
+                       ? (mapY - posY + (1.0f - stepY) * 0.5f) / rayDirY
+                       : (mapX - posX + (1.0f - stepX) * 0.5f) / rayDirX;
     if (perpDist < 0.0001f) perpDist = 0.0001f;
 
     int lineH = (int)(VIEW_H / perpDist);
     int drawStart = HALF_VH - lineH / 2;
-    int drawEnd   = HALF_VH + lineH / 2;
-    if (drawStart < 0)      drawStart = 0;
-    if (drawEnd   > VIEW_H) drawEnd   = VIEW_H;
+    int drawEnd = HALF_VH + lineH / 2;
+    if (drawStart < 0) drawStart = 0;
+    if (drawEnd > VIEW_H) drawEnd = VIEW_H;
 
     uint16_t color = wallColor(worldMap[mapY][mapX], nsFace);
-    tft.drawFastVLine(x,     drawStart, drawEnd - drawStart, color);
+    tft.drawFastVLine(x, drawStart, drawEnd - drawStart, color);
     tft.drawFastVLine(x + 1, drawStart, drawEnd - drawStart, color);
   }
 }
@@ -3599,9 +3664,9 @@ void setup() {
   Serial.begin(115200);
   pinMode(TFT_LED, OUTPUT);
   digitalWrite(TFT_LED, HIGH);
-  pinMode(BTN_FWD,   INPUT_PULLUP);
-  pinMode(BTN_BACK,  INPUT_PULLUP);
-  pinMode(BTN_LEFT,  INPUT_PULLUP);
+  pinMode(BTN_FWD, INPUT_PULLUP);
+  pinMode(BTN_BACK, INPUT_PULLUP);
+  pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
   tft.begin();
   tft.setRotation(3);
@@ -3613,7 +3678,7 @@ void setup() {
 
 unsigned long lastFrameMs = 0;
 const float MOVE_SPEED = 0.10f;
-const float ROT_SPEED  = 0.08f;
+const float ROT_SPEED = 0.08f;
 
 void loop() {
   unsigned long now = millis();
@@ -3637,8 +3702,14 @@ void loop() {
     x = x * cosf(a) - y * sinf(a);
     y = ox * sinf(a) + y * cosf(a);
   };
-  if (digitalRead(BTN_LEFT) == LOW)  { rotate(dirX, dirY,  ROT_SPEED); rotate(planeX, planeY,  ROT_SPEED); }
-  if (digitalRead(BTN_RIGHT) == LOW) { rotate(dirX, dirY, -ROT_SPEED); rotate(planeX, planeY, -ROT_SPEED); }
+  if (digitalRead(BTN_LEFT) == LOW) {
+    rotate(dirX, dirY, ROT_SPEED);
+    rotate(planeX, planeY, ROT_SPEED);
+  }
+  if (digitalRead(BTN_RIGHT) == LOW) {
+    rotate(dirX, dirY, -ROT_SPEED);
+    rotate(planeX, planeY, -ROT_SPEED);
+  }
   renderFrame();
 }
 `,
@@ -3880,7 +3951,7 @@ void loop() {
       {
         type: 'wokwi-ili9341',
         id: 'tft1',
-        x: 300,
+        x: 360,
         y: 30,
         properties: {},
       },
@@ -4138,9 +4209,9 @@ void loop() {
 }
 `,
     components: [
-      { type: 'wokwi-resistor', id: 'r-led-1-a', x: 280, y: 120, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-led-1-a', x: 360, y: 120, properties: { value: '220' } },
       { type: 'wokwi-arduino-uno', id: 'arduino-uno', x: 100, y: 100, properties: {} },
-      { type: 'wokwi-led', id: 'led-1', x: 400, y: 120, properties: { color: 'green' } },
+      { type: 'wokwi-led', id: 'led-1', x: 480, y: 120, properties: { color: 'green' } },
     ],
     wires: [
       {
@@ -5041,27 +5112,39 @@ void loop() {
   // Read 7 bytes: sec, min, hr, dow, date, month, year
   Wire.requestFrom(0x68, 7);
   if (Wire.available() >= 7) {
-    byte sec   = bcdToDec(Wire.read() & 0x7F);
-    byte min   = bcdToDec(Wire.read());
-    byte hr    = bcdToDec(Wire.read() & 0x3F);
-    byte dow   = bcdToDec(Wire.read());
-    byte date  = bcdToDec(Wire.read());
+    byte sec = bcdToDec(Wire.read() & 0x7F);
+    byte min = bcdToDec(Wire.read());
+    byte hr = bcdToDec(Wire.read() & 0x3F);
+    byte dow = bcdToDec(Wire.read());
+    byte date = bcdToDec(Wire.read());
     byte month = bcdToDec(Wire.read());
-    byte year  = bcdToDec(Wire.read());
+    byte year = bcdToDec(Wire.read());
 
     // The chip counts the day of week 1 to 7 and leaves the meaning of the
     // numbers to whoever sets it. A clock nobody set counts Monday as 1.
-    const char* days[] = {"", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+    const char* days[] = { "", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
 
     Serial.print("Time: ");
-    if (hr < 10) Serial.print('0'); Serial.print(hr); Serial.print(':');
-    if (min < 10) Serial.print('0'); Serial.print(min); Serial.print(':');
-    if (sec < 10) Serial.print('0'); Serial.print(sec);
+    if (hr < 10) Serial.print('0');
+    Serial.print(hr);
+    Serial.print(':');
+    if (min < 10) Serial.print('0');
+    Serial.print(min);
+    Serial.print(':');
+    if (sec < 10) Serial.print('0');
+    Serial.print(sec);
     Serial.print("  Date: ");
-    Serial.print(days[dow]); Serial.print(' ');
-    if (date < 10) Serial.print('0'); Serial.print(date); Serial.print('/');
-    if (month < 10) Serial.print('0'); Serial.print(month); Serial.print('/');
-    Serial.print("20"); if (year < 10) Serial.print('0'); Serial.println(year);
+    Serial.print(days[dow]);
+    Serial.print(' ');
+    if (date < 10) Serial.print('0');
+    Serial.print(date);
+    Serial.print('/');
+    if (month < 10) Serial.print('0');
+    Serial.print(month);
+    Serial.print('/');
+    Serial.print("20");
+    if (year < 10) Serial.print('0');
+    Serial.println(year);
   } else {
     Serial.println("RTC not responding!");
   }
@@ -5136,7 +5219,7 @@ void eepromWrite(byte memAddr, byte data) {
   Wire.write(memAddr);
   Wire.write(data);
   Wire.endTransmission();
-  delay(5); // EEPROM write cycle
+  delay(5);  // EEPROM write cycle
 }
 
 byte eepromRead(byte memAddr) {
@@ -5156,10 +5239,11 @@ void setup() {
 
   // Write 8 bytes
   Serial.println("Writing 8 bytes...");
-  byte testData[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE};
+  byte testData[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE };
   for (int i = 0; i < 8; i++) {
     eepromWrite(i, testData[i]);
-    Serial.print("  ["); Serial.print(i);
+    Serial.print("  [");
+    Serial.print(i);
     Serial.print("] = 0x");
     if (testData[i] < 16) Serial.print('0');
     Serial.println(testData[i], HEX);
@@ -5171,7 +5255,8 @@ void setup() {
   int pass = 0;
   for (int i = 0; i < 8; i++) {
     byte val = eepromRead(i);
-    Serial.print("  ["); Serial.print(i);
+    Serial.print("  [");
+    Serial.print(i);
     Serial.print("] = 0x");
     if (val < 16) Serial.print('0');
     Serial.print(val, HEX);
@@ -5386,14 +5471,19 @@ void loop() {
 
   // Internal temperature sensor on channel 4
   // T = 27 - (V - 0.706) / 0.001721
-  int tempRaw = analogRead(A3); // Channel 4 mapped to A3 by Pico core
+  int tempRaw = analogRead(A3);  // Channel 4 mapped to A3 by Pico core
   float voltage = tempRaw * 3.3f / 4095.0f;
   float tempC = 27.0f - (voltage - 0.706f) / 0.001721f;
 
-  Serial.print("A0: "); Serial.print(a0);
-  Serial.print("  A1: "); Serial.print(a1);
-  Serial.print("  A2: "); Serial.print(a2);
-  Serial.print("  Temp: "); Serial.print(tempC, 1); Serial.println(" C");
+  Serial.print("A0: ");
+  Serial.print(a0);
+  Serial.print("  A1: ");
+  Serial.print(a1);
+  Serial.print("  A2: ");
+  Serial.print(a2);
+  Serial.print("  Temp: ");
+  Serial.print(tempC, 1);
+  Serial.println(" C");
 
   delay(1000);
 }
@@ -5498,14 +5588,15 @@ void setup() {
       Serial.println(addr, HEX);
     }
   }
-  Serial.print("  Total devices: "); Serial.println(found);
+  Serial.print("  Total devices: ");
+  Serial.println(found);
   Serial.println();
 
   // ── 2. I2C EEPROM R/W ──
   Serial.println("[I2C] EEPROM test at 0x50...");
   Wire.beginTransmission(0x50);
-  Wire.write(0x00); // register 0
-  Wire.write(0x42); // data
+  Wire.write(0x00);  // register 0
+  Wire.write(0x42);  // data
   Wire.endTransmission();
   delay(5);
 
@@ -5530,7 +5621,8 @@ void setup() {
   if (Wire.available() >= 3) {
     byte sec = ((Wire.read() & 0x7F) >> 4) * 10 + (Wire.read() & 0x0F);
     byte min2 = Wire.read();
-    (void)sec; (void)min2;
+    (void)sec;
+    (void)min2;
     Serial.println("  RTC responded OK");
   }
   Serial.println();
@@ -5541,8 +5633,10 @@ void setup() {
   SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
   byte tx = 0xAB;
   byte rx = SPI.transfer(tx);
-  Serial.print("  TX: 0x"); Serial.print(tx, HEX);
-  Serial.print("  RX: 0x"); Serial.println(rx, HEX);
+  Serial.print("  TX: 0x");
+  Serial.print(tx, HEX);
+  Serial.print("  RX: 0x");
+  Serial.println(rx, HEX);
   SPI.endTransaction();
   Serial.println();
 
@@ -5550,7 +5644,8 @@ void setup() {
   Serial.println("[ADC] Reading analog channels...");
   analogReadResolution(12);
   int a0 = analogRead(A0);
-  Serial.print("  A0 (GP26): "); Serial.println(a0);
+  Serial.print("  A0 (GP26): ");
+  Serial.println(a0);
   Serial.println();
 
   // ── 6. GPIO ──
@@ -5750,7 +5845,7 @@ void loop() {
     code: `// Arduino Uno — one WS2812 pixel, three colours.
 #include <Adafruit_NeoPixel.h>
 
-#define PIN        6   // DIN. Any digital pin works.
+#define PIN 6  // DIN. Any digital pin works.
 #define NUM_PIXELS 1
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN, NEO_GRB + NEO_KHZ800);
@@ -5764,12 +5859,18 @@ void setup() {
 void loop() {
   // The colour ORDER flag only permutes these three bytes — it can never turn
   // a dark pixel on, so it is not the thing to change when nothing lights.
-  pixels.setPixelColor(0, pixels.Color(255, 0, 0)); pixels.show();
-  Serial.println("red");   delay(1000);
-  pixels.setPixelColor(0, pixels.Color(0, 255, 0)); pixels.show();
-  Serial.println("green"); delay(1000);
-  pixels.setPixelColor(0, pixels.Color(0, 0, 255)); pixels.show();
-  Serial.println("blue");  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+  pixels.show();
+  Serial.println("red");
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 255, 0));
+  pixels.show();
+  Serial.println("green");
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+  pixels.show();
+  Serial.println("blue");
+  delay(1000);
 }`,
     components: [
       { type: 'wokwi-neopixel', id: 'npx', x: 470, y: 180, properties: { r: 0, g: 0, b: 0 } },
@@ -5807,7 +5908,7 @@ void loop() {
     code: `// ESP32 — one WS2812 pixel on GPIO18, driven over RMT.
 #include <Adafruit_NeoPixel.h>
 
-#define PIN        18
+#define PIN 18
 #define NUM_PIXELS 1
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN, NEO_GRB + NEO_KHZ800);
@@ -5819,12 +5920,18 @@ void setup() {
 }
 
 void loop() {
-  pixels.setPixelColor(0, pixels.Color(255, 0, 0)); pixels.show();
-  Serial.println("red");   delay(1000);
-  pixels.setPixelColor(0, pixels.Color(0, 255, 0)); pixels.show();
-  Serial.println("green"); delay(1000);
-  pixels.setPixelColor(0, pixels.Color(0, 0, 255)); pixels.show();
-  Serial.println("blue");  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(255, 0, 0));
+  pixels.show();
+  Serial.println("red");
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 255, 0));
+  pixels.show();
+  Serial.println("green");
+  delay(1000);
+  pixels.setPixelColor(0, pixels.Color(0, 0, 255));
+  pixels.show();
+  Serial.println("blue");
+  delay(1000);
 }`,
     components: [
       { type: 'wokwi-neopixel', id: 'npx', x: 470, y: 180, properties: { r: 0, g: 0, b: 0 } },
@@ -5968,8 +6075,8 @@ cleanup()
 //   LED2_ON  / LED2_OFF  - Green LED (pin 9)
 //   ALL_ON   / ALL_OFF   - Both LEDs
 
-const int LED1 = 8;   // Red
-const int LED2 = 9;   // Green
+const int LED1 = 8;  // Red
+const int LED2 = 9;  // Green
 
 String buf = "";
 
@@ -5994,13 +6101,30 @@ void loop() {
 }
 
 void processCommand(const String& cmd) {
-  if      (cmd == "LED1_ON")  { digitalWrite(LED1, HIGH); Serial.println("LED1: ON");  }
-  else if (cmd == "LED1_OFF") { digitalWrite(LED1, LOW);  Serial.println("LED1: OFF"); }
-  else if (cmd == "LED2_ON")  { digitalWrite(LED2, HIGH); Serial.println("LED2: ON");  }
-  else if (cmd == "LED2_OFF") { digitalWrite(LED2, LOW);  Serial.println("LED2: OFF"); }
-  else if (cmd == "ALL_ON")   { digitalWrite(LED1, HIGH); digitalWrite(LED2, HIGH); Serial.println("Both: ON");  }
-  else if (cmd == "ALL_OFF")  { digitalWrite(LED1, LOW);  digitalWrite(LED2, LOW);  Serial.println("Both: OFF"); }
-  else if (cmd.length() > 0)  { Serial.print("Unknown: "); Serial.println(cmd); }
+  if (cmd == "LED1_ON") {
+    digitalWrite(LED1, HIGH);
+    Serial.println("LED1: ON");
+  } else if (cmd == "LED1_OFF") {
+    digitalWrite(LED1, LOW);
+    Serial.println("LED1: OFF");
+  } else if (cmd == "LED2_ON") {
+    digitalWrite(LED2, HIGH);
+    Serial.println("LED2: ON");
+  } else if (cmd == "LED2_OFF") {
+    digitalWrite(LED2, LOW);
+    Serial.println("LED2: OFF");
+  } else if (cmd == "ALL_ON") {
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+    Serial.println("Both: ON");
+  } else if (cmd == "ALL_OFF") {
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    Serial.println("Both: OFF");
+  } else if (cmd.length() > 0) {
+    Serial.print("Unknown: ");
+    Serial.println(cmd);
+  }
 }
 `,
       },
@@ -6738,25 +6862,25 @@ void loop() {
   }
 }`,
     components: [
-      { type: 'wokwi-led', id: 'led2', x: 420, y: 80, properties: { color: 'red' } },
-      { type: 'wokwi-led', id: 'led3', x: 460, y: 80, properties: { color: 'orange' } },
-      { type: 'wokwi-led', id: 'led4', x: 500, y: 80, properties: { color: 'yellow' } },
-      { type: 'wokwi-led', id: 'led5', x: 540, y: 80, properties: { color: 'green' } },
-      { type: 'wokwi-led', id: 'led6', x: 580, y: 80, properties: { color: 'blue' } },
-      { type: 'wokwi-led', id: 'led7', x: 620, y: 80, properties: { color: 'purple' } },
-      { type: 'wokwi-led', id: 'led8', x: 660, y: 80, properties: { color: 'white' } },
-      { type: 'wokwi-led', id: 'led9', x: 700, y: 80, properties: { color: 'red' } },
+      { type: 'wokwi-led', id: 'led2', x: 480, y: 80, properties: { color: 'red' } },
+      { type: 'wokwi-led', id: 'led3', x: 520, y: 80, properties: { color: 'orange' } },
+      { type: 'wokwi-led', id: 'led4', x: 560, y: 80, properties: { color: 'yellow' } },
+      { type: 'wokwi-led', id: 'led5', x: 600, y: 80, properties: { color: 'green' } },
+      { type: 'wokwi-led', id: 'led6', x: 640, y: 80, properties: { color: 'blue' } },
+      { type: 'wokwi-led', id: 'led7', x: 680, y: 80, properties: { color: 'purple' } },
+      { type: 'wokwi-led', id: 'led8', x: 720, y: 80, properties: { color: 'white' } },
+      { type: 'wokwi-led', id: 'led9', x: 760, y: 80, properties: { color: 'red' } },
       // 220 ohm between each GPIO and its LED — (5V - ~2V) / 220R ~= 14 mA,
       // under the LED's 20 mA. One series resistor per LED: without them the
       // circuit checker sees a short and blocks Run for the whole example.
-      { type: 'wokwi-resistor', id: 'mr-led2', x: 420, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led3', x: 460, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led4', x: 500, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led5', x: 540, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led6', x: 580, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led7', x: 620, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led8', x: 660, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'mr-led9', x: 700, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led2', x: 480, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led3', x: 520, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led4', x: 560, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led5', x: 600, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led6', x: 640, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led7', x: 680, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led8', x: 720, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'mr-led9', x: 760, y: 20, properties: { value: '220' } },
     ],
     wires: [
       {
@@ -6917,9 +7041,9 @@ void loop() {
 // Send '1' through '8' to toggle individual LEDs on pins 2-9
 // Send 'a' to turn all on, 'x' to turn all off
 
-const int LEDS[] = {2, 3, 4, 5, 6, 7, 8, 9};
+const int LEDS[] = { 2, 3, 4, 5, 6, 7, 8, 9 };
 const int N = 8;
-bool states[8] = {false};
+bool states[8] = { false };
 
 void setup() {
   for (int i = 0; i < N; i++) {
@@ -6938,36 +7062,43 @@ void loop() {
       int idx = c - '1';
       states[idx] = !states[idx];
       digitalWrite(LEDS[idx], states[idx] ? HIGH : LOW);
-      Serial.print("LED "); Serial.print(idx+1);
+      Serial.print("LED ");
+      Serial.print(idx + 1);
       Serial.println(states[idx] ? " ON" : " OFF");
     } else if (c == 'a') {
-      for (int i = 0; i < N; i++) { states[i] = true; digitalWrite(LEDS[i], HIGH); }
+      for (int i = 0; i < N; i++) {
+        states[i] = true;
+        digitalWrite(LEDS[i], HIGH);
+      }
       Serial.println("All LEDs ON");
     } else if (c == 'x') {
-      for (int i = 0; i < N; i++) { states[i] = false; digitalWrite(LEDS[i], LOW); }
+      for (int i = 0; i < N; i++) {
+        states[i] = false;
+        digitalWrite(LEDS[i], LOW);
+      }
       Serial.println("All LEDs OFF");
     }
   }
 }`,
     components: [
-      { type: 'wokwi-led', id: 'mled2', x: 420, y: 80, properties: { color: 'red' } },
-      { type: 'wokwi-led', id: 'mled3', x: 460, y: 80, properties: { color: 'orange' } },
-      { type: 'wokwi-led', id: 'mled4', x: 500, y: 80, properties: { color: 'yellow' } },
-      { type: 'wokwi-led', id: 'mled5', x: 540, y: 80, properties: { color: 'green' } },
-      { type: 'wokwi-led', id: 'mled6', x: 580, y: 80, properties: { color: 'blue' } },
-      { type: 'wokwi-led', id: 'mled7', x: 620, y: 80, properties: { color: 'purple' } },
-      { type: 'wokwi-led', id: 'mled8', x: 660, y: 80, properties: { color: 'white' } },
-      { type: 'wokwi-led', id: 'mled9', x: 700, y: 80, properties: { color: 'red' } },
+      { type: 'wokwi-led', id: 'mled2', x: 480, y: 80, properties: { color: 'red' } },
+      { type: 'wokwi-led', id: 'mled3', x: 520, y: 80, properties: { color: 'orange' } },
+      { type: 'wokwi-led', id: 'mled4', x: 560, y: 80, properties: { color: 'yellow' } },
+      { type: 'wokwi-led', id: 'mled5', x: 600, y: 80, properties: { color: 'green' } },
+      { type: 'wokwi-led', id: 'mled6', x: 640, y: 80, properties: { color: 'blue' } },
+      { type: 'wokwi-led', id: 'mled7', x: 680, y: 80, properties: { color: 'purple' } },
+      { type: 'wokwi-led', id: 'mled8', x: 720, y: 80, properties: { color: 'white' } },
+      { type: 'wokwi-led', id: 'mled9', x: 760, y: 80, properties: { color: 'red' } },
       // 220 ohm between each GPIO and its LED — (5V - ~2V) / 220R ~= 14 mA,
       // under the LED's 20 mA. One series resistor per LED, as everywhere else.
-      { type: 'wokwi-resistor', id: 'msr-mled2', x: 420, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled3', x: 460, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled4', x: 500, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled5', x: 540, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled6', x: 580, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled7', x: 620, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled8', x: 660, y: 20, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'msr-mled9', x: 700, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled2', x: 480, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled3', x: 520, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled4', x: 560, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled5', x: 600, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled6', x: 640, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled7', x: 680, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled8', x: 720, y: 20, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'msr-mled9', x: 760, y: 20, properties: { value: '220' } },
     ],
     wires: [
       {
@@ -7236,20 +7367,36 @@ void setRGB(bool r, bool g, bool b) {
 }
 
 void loop() {
-  setRGB(1,0,0); Serial.println("RED");   delay(600);
-  setRGB(0,1,0); Serial.println("GREEN"); delay(600);
-  setRGB(0,0,1); Serial.println("BLUE");  delay(600);
-  setRGB(1,1,0); Serial.println("YELLOW");delay(600);
-  setRGB(0,1,1); Serial.println("CYAN");  delay(600);
-  setRGB(1,0,1); Serial.println("MAGENTA");delay(600);
-  setRGB(1,1,1); Serial.println("WHITE"); delay(600);
-  setRGB(0,0,0); Serial.println("OFF");   delay(300);
+  setRGB(1, 0, 0);
+  Serial.println("RED");
+  delay(600);
+  setRGB(0, 1, 0);
+  Serial.println("GREEN");
+  delay(600);
+  setRGB(0, 0, 1);
+  Serial.println("BLUE");
+  delay(600);
+  setRGB(1, 1, 0);
+  Serial.println("YELLOW");
+  delay(600);
+  setRGB(0, 1, 1);
+  Serial.println("CYAN");
+  delay(600);
+  setRGB(1, 0, 1);
+  Serial.println("MAGENTA");
+  delay(600);
+  setRGB(1, 1, 1);
+  Serial.println("WHITE");
+  delay(600);
+  setRGB(0, 0, 0);
+  Serial.println("OFF");
+  delay(300);
 }`,
     components: [
-      { type: 'wokwi-resistor', id: 'r-c3-rgb1-r', x: 320, y: 160, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-c3-rgb1-g', x: 320, y: 186, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-c3-rgb1-b', x: 320, y: 212, properties: { value: '220' } },
-      { type: 'wokwi-rgb-led', id: 'c3-rgb1', x: 440, y: 160, properties: {} }],
+      { type: 'wokwi-resistor', id: 'r-c3-rgb1-r', x: 240, y: 120, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-c3-rgb1-g', x: 240, y: 160, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-c3-rgb1-b', x: 240, y: 200, properties: { value: '220' } },
+      { type: 'wokwi-rgb-led', id: 'c3-rgb1', x: 420, y: 90, properties: {} }],
     wires: [
       {
         id: 'c3-rw1',
@@ -7625,19 +7772,19 @@ void loop() {
 // Segments: a=12, b=13, c=14, d=25, e=26, f=27, g=32
 
 
-const int SEG[7] = {12, 13, 14, 25, 26, 27, 32};
+const int SEG[7] = { 12, 13, 14, 25, 26, 27, 32 };
 
 const bool DIGITS[10][7] = {
-  {1,1,1,1,1,1,0}, // 0
-  {0,1,1,0,0,0,0}, // 1
-  {1,1,0,1,1,0,1}, // 2
-  {1,1,1,1,0,0,1}, // 3
-  {0,1,1,0,0,1,1}, // 4
-  {1,0,1,1,0,1,1}, // 5
-  {1,0,1,1,1,1,1}, // 6
-  {1,1,1,0,0,0,0}, // 7
-  {1,1,1,1,1,1,1}, // 8
-  {1,1,1,1,0,1,1}, // 9
+  { 1, 1, 1, 1, 1, 1, 0 },  // 0
+  { 0, 1, 1, 0, 0, 0, 0 },  // 1
+  { 1, 1, 0, 1, 1, 0, 1 },  // 2
+  { 1, 1, 1, 1, 0, 0, 1 },  // 3
+  { 0, 1, 1, 0, 0, 1, 1 },  // 4
+  { 1, 0, 1, 1, 0, 1, 1 },  // 5
+  { 1, 0, 1, 1, 1, 1, 1 },  // 6
+  { 1, 1, 1, 0, 0, 0, 0 },  // 7
+  { 1, 1, 1, 1, 1, 1, 1 },  // 8
+  { 1, 1, 1, 1, 0, 1, 1 },  // 9
 };
 
 
@@ -7655,7 +7802,8 @@ void setup() {
 void loop() {
   for (int d = 0; d <= 9; d++) {
     showDigit(d);
-    Serial.print("Digit: "); Serial.println(d);
+    Serial.print("Digit: ");
+    Serial.println(d);
     delay(700);
   }
 }`,
@@ -7800,20 +7948,36 @@ void setup() {
 }
 
 void loop() {
-  setColor(255,   0,   0); Serial.println("RED");     delay(600);
-  setColor(  0, 255,   0); Serial.println("GREEN");   delay(600);
-  setColor(  0,   0, 255); Serial.println("BLUE");    delay(600);
-  setColor(255, 255,   0); Serial.println("YELLOW");  delay(600);
-  setColor(  0, 255, 255); Serial.println("CYAN");    delay(600);
-  setColor(255,   0, 255); Serial.println("MAGENTA"); delay(600);
-  setColor(255, 255, 255); Serial.println("WHITE");   delay(600);
-  setColor(  0,   0,   0); Serial.println("OFF");     delay(300);
+  setColor(255, 0, 0);
+  Serial.println("RED");
+  delay(600);
+  setColor(0, 255, 0);
+  Serial.println("GREEN");
+  delay(600);
+  setColor(0, 0, 255);
+  Serial.println("BLUE");
+  delay(600);
+  setColor(255, 255, 0);
+  Serial.println("YELLOW");
+  delay(600);
+  setColor(0, 255, 255);
+  Serial.println("CYAN");
+  delay(600);
+  setColor(255, 0, 255);
+  Serial.println("MAGENTA");
+  delay(600);
+  setColor(255, 255, 255);
+  Serial.println("WHITE");
+  delay(600);
+  setColor(0, 0, 0);
+  Serial.println("OFF");
+  delay(300);
 }`,
     components: [
-      { type: 'wokwi-resistor', id: 'r-rgb1-r', x: 320, y: 160, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb1-g', x: 320, y: 186, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-rgb1-b', x: 320, y: 212, properties: { value: '220' } },
-      { type: 'wokwi-rgb-led', id: 'rgb1', x: 440, y: 160, properties: {} }],
+      { type: 'wokwi-resistor', id: 'r-rgb1-r', x: 380, y: 120, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb1-g', x: 380, y: 160, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-rgb1-b', x: 380, y: 200, properties: { value: '220' } },
+      { type: 'wokwi-rgb-led', id: 'rgb1', x: 560, y: 90, properties: {} }],
     wires: [
       {
         id: 'w-r',
@@ -7957,19 +8121,33 @@ void setup() {
 }
 
 void loop() {
-  setRGB(1,0,0); Serial.println("RED");    delay(600);
-  setRGB(0,1,0); Serial.println("GREEN");  delay(600);
-  setRGB(0,0,1); Serial.println("BLUE");   delay(600);
-  setRGB(1,1,0); Serial.println("YELLOW"); delay(600);
-  setRGB(0,1,1); Serial.println("CYAN");   delay(600);
-  setRGB(1,0,1); Serial.println("MAGENTA");delay(600);
-  setRGB(0,0,0); Serial.println("OFF");    delay(300);
+  setRGB(1, 0, 0);
+  Serial.println("RED");
+  delay(600);
+  setRGB(0, 1, 0);
+  Serial.println("GREEN");
+  delay(600);
+  setRGB(0, 0, 1);
+  Serial.println("BLUE");
+  delay(600);
+  setRGB(1, 1, 0);
+  Serial.println("YELLOW");
+  delay(600);
+  setRGB(0, 1, 1);
+  Serial.println("CYAN");
+  delay(600);
+  setRGB(1, 0, 1);
+  Serial.println("MAGENTA");
+  delay(600);
+  setRGB(0, 0, 0);
+  Serial.println("OFF");
+  delay(300);
 }`,
     components: [
-      { type: 'wokwi-resistor', id: 'r-pico-rgb1-r', x: 320, y: 160, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-pico-rgb1-g', x: 320, y: 186, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-pico-rgb1-b', x: 320, y: 212, properties: { value: '220' } },
-      { type: 'wokwi-rgb-led', id: 'pico-rgb1', x: 440, y: 160, properties: {} }],
+      { type: 'wokwi-resistor', id: 'r-pico-rgb1-r', x: 220, y: 120, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-pico-rgb1-g', x: 220, y: 160, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-pico-rgb1-b', x: 220, y: 200, properties: { value: '220' } },
+      { type: 'wokwi-rgb-led', id: 'pico-rgb1', x: 400, y: 90, properties: {} }],
     wires: [
       {
         id: 'pr-r',
@@ -8031,7 +8209,7 @@ void loop() {
 
 #include <DHT.h>
 
-#define DHT_PIN  7
+#define DHT_PIN 7
 #define DHT_TYPE DHT22
 
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -8045,19 +8223,26 @@ void setup() {
 void loop() {
   delay(2000);
   float humidity = dht.readHumidity();
-  float tempC    = dht.readTemperature();
-  float tempF    = dht.readTemperature(true);
+  float tempC = dht.readTemperature();
+  float tempF = dht.readTemperature(true);
 
   if (isnan(humidity) || isnan(tempC)) {
     Serial.println("ERROR: Failed to read from DHT22!");
     return;
   }
 
-  Serial.print("Humidity   : "); Serial.print(humidity, 1); Serial.println(" %");
-  Serial.print("Temperature: "); Serial.print(tempC, 1);  Serial.print(" C  /  ");
-  Serial.print(tempF, 1); Serial.println(" F");
+  Serial.print("Humidity   : ");
+  Serial.print(humidity, 1);
+  Serial.println(" %");
+  Serial.print("Temperature: ");
+  Serial.print(tempC, 1);
+  Serial.print(" C  /  ");
+  Serial.print(tempF, 1);
+  Serial.println(" F");
   float heatIdx = dht.computeHeatIndex(tempF, humidity);
-  Serial.print("Heat Index : "); Serial.print(heatIdx, 1); Serial.println(" F");
+  Serial.print("Heat Index : ");
+  Serial.print(heatIdx, 1);
+  Serial.println(" F");
   Serial.println("---");
 }`,
     components: [
@@ -8128,7 +8313,9 @@ void loop() {
   if (cm < 0) {
     Serial.println("Out of range (> 4 m)");
   } else {
-    Serial.print("Distance: "); Serial.print(cm); Serial.println(" cm");
+    Serial.print("Distance: ");
+    Serial.print(cm);
+    Serial.println(" cm");
   }
   delay(500);
 }`,
@@ -8299,7 +8486,7 @@ void loop() {
 // LED    : pin 9 (PWM), current-limiting resistor 220 Ω
 
 #define PHOTO_PIN A0
-#define LED_PIN   9
+#define LED_PIN 9
 
 void setup() {
   Serial.begin(9600);
@@ -8308,25 +8495,28 @@ void setup() {
 }
 
 void loop() {
-  int raw     = analogRead(PHOTO_PIN);          // 0–1023
+  int raw = analogRead(PHOTO_PIN);  // 0–1023
   int percent = map(raw, 0, 1023, 0, 100);
   // Invert: brighter environment → lower LED brightness
-  int ledPWM  = map(raw, 0, 1023, 255, 0);
+  int ledPWM = map(raw, 0, 1023, 255, 0);
   analogWrite(LED_PIN, ledPWM);
 
-  Serial.print("Light: "); Serial.print(percent);
-  Serial.print("%  ADC="); Serial.print(raw);
-  Serial.print("  LED="); Serial.println(ledPWM);
+  Serial.print("Light: ");
+  Serial.print(percent);
+  Serial.print("%  ADC=");
+  Serial.print(raw);
+  Serial.print("  LED=");
+  Serial.println(ledPWM);
   delay(200);
 }`,
     components: [
-      { type: 'wokwi-photoresistor-sensor', id: 'uno-photo1', x: 430, y: 140, properties: {} },
-      { type: 'wokwi-led', id: 'uno-photo-led', x: 430, y: 280, properties: { color: 'yellow' } },
+      { type: 'wokwi-photoresistor-sensor', id: 'uno-photo1', x: 400, y: 230, properties: {} },
+      { type: 'wokwi-led', id: 'uno-photo-led', x: 400, y: 40, properties: { color: 'yellow' } },
       {
         type: 'wokwi-resistor',
         id: 'uno-photo-r',
-        x: 430,
-        y: 340,
+        x: 480,
+        y: 110,
         properties: { value: '220' },
       },
     ],
@@ -8383,22 +8573,22 @@ void loop() {
 #define NTC_PIN A1
 
 // Thermistor parameters for a 10 kΩ NTC (B = 3950)
-const float VCC         = 5.0;
-const float SERIES_R    = 10000.0;  // series resistor (10 kΩ)
-const float NOM_R       = 10000.0;  // nominal resistance at 25 °C
-const float B_COEFF     = 3950.0;   // Beta coefficient
-const float NOM_TEMP_K  = 298.15;   // 25 °C in Kelvin
+const float VCC = 5.0;
+const float SERIES_R = 10000.0;   // series resistor (10 kΩ)
+const float NOM_R = 10000.0;      // nominal resistance at 25 °C
+const float B_COEFF = 3950.0;     // Beta coefficient
+const float NOM_TEMP_K = 298.15;  // 25 °C in Kelvin
 
 float readTempC() {
-  int   raw  = analogRead(NTC_PIN);
-  float v    = raw * (VCC / 1023.0);
+  int raw = analogRead(NTC_PIN);
+  float v = raw * (VCC / 1023.0);
   // Divider modelled by Velxio's ntc-temperature-sensor:
   //   VCC → R_pull (10k) → A1 → R_NTC → GND.
   // Higher temperature → R_NTC drops → V FALLS, so
   //   r = R_pull * v / (VCC - v)
-  float r    = SERIES_R * v / (VCC - v);
+  float r = SERIES_R * v / (VCC - v);
   // Steinhart–Hart simplified equation
-  float st   = log(r / NOM_R) / B_COEFF + 1.0 / NOM_TEMP_K;
+  float st = log(r / NOM_R) / B_COEFF + 1.0 / NOM_TEMP_K;
   return (1.0 / st) - 273.15;
 }
 
@@ -8411,8 +8601,10 @@ void loop() {
   float tc = readTempC();
   float tf = tc * 9.0 / 5.0 + 32.0;
   Serial.print("Temperature: ");
-  Serial.print(tc, 2); Serial.print(" C  /  ");
-  Serial.print(tf, 2); Serial.println(" F");
+  Serial.print(tc, 2);
+  Serial.print(" C  /  ");
+  Serial.print(tf, 2);
+  Serial.println(" F");
   delay(1000);
 }`,
     components: [
@@ -8463,7 +8655,7 @@ void loop() {
 
 #include <DHT.h>
 
-#define DHT_PIN  7   // GPIO 7
+#define DHT_PIN 7  // GPIO 7
 #define DHT_TYPE DHT22
 
 DHT dht(DHT_PIN, DHT_TYPE);
@@ -8483,8 +8675,12 @@ void loop() {
     Serial.println("DHT22 read error!");
     return;
   }
-  Serial.print("Temp: "); Serial.print(t, 1); Serial.print(" C   ");
-  Serial.print("Humidity: "); Serial.print(h, 1); Serial.println(" %");
+  Serial.print("Temp: ");
+  Serial.print(t, 1);
+  Serial.print(" C   ");
+  Serial.print("Humidity: ");
+  Serial.print(h, 1);
+  Serial.println(" %");
 }`,
     components: [
       {
@@ -8553,7 +8749,9 @@ void loop() {
   if (cm < 0) {
     Serial.println("Out of range");
   } else {
-    Serial.print("Distance: "); Serial.print(cm); Serial.println(" cm");
+    Serial.print("Distance: ");
+    Serial.print(cm);
+    Serial.println(" cm");
   }
   delay(500);
 }`,
@@ -8675,10 +8873,18 @@ void setup() {
 }
 
 void loop() {
-  for (int a = 0; a <= 180; a += 3) { myServo.write(a); delay(20); }
-  Serial.println("180°"); delay(300);
-  for (int a = 180; a >= 0; a -= 3) { myServo.write(a); delay(20); }
-  Serial.println("0°");   delay(300);
+  for (int a = 0; a <= 180; a += 3) {
+    myServo.write(a);
+    delay(20);
+  }
+  Serial.println("180°");
+  delay(300);
+  for (int a = 180; a >= 0; a -= 3) {
+    myServo.write(a);
+    delay(20);
+  }
+  Serial.println("0°");
+  delay(300);
 }`,
     components: [{ type: 'wokwi-servo', id: 'pico-sv1', x: 420, y: 150, properties: {} }],
     wires: [
@@ -8716,18 +8922,18 @@ void loop() {
 
 #define NTC_PIN A0  // GP26 on Pico
 
-const float VCC        = 3.3;
-const float SERIES_R   = 10000.0;
-const float NOM_R      = 10000.0;
-const float B_COEFF    = 3950.0;
-const float NOM_TEMP_K = 298.15; // 25 °C
+const float VCC = 3.3;
+const float SERIES_R = 10000.0;
+const float NOM_R = 10000.0;
+const float B_COEFF = 3950.0;
+const float NOM_TEMP_K = 298.15;  // 25 °C
 
 float readTempC() {
-  int   raw = analogRead(NTC_PIN);
-  float v   = raw * (VCC / 1023.0);
+  int raw = analogRead(NTC_PIN);
+  float v = raw * (VCC / 1023.0);
   // VCC → R_pull → A1 → R_NTC → GND (the divider Velxio models)
-  float r   = SERIES_R * v / (VCC - v);
-  float st  = log(r / NOM_R) / B_COEFF + 1.0 / NOM_TEMP_K;
+  float r = SERIES_R * v / (VCC - v);
+  float st = log(r / NOM_R) / B_COEFF + 1.0 / NOM_TEMP_K;
   return (1.0 / st) - 273.15;
 }
 
@@ -8739,7 +8945,9 @@ void setup() {
 
 void loop() {
   float tc = readTempC();
-  Serial.print("Temperature: "); Serial.print(tc, 2); Serial.println(" C");
+  Serial.print("Temperature: ");
+  Serial.print(tc, 2);
+  Serial.println(" C");
   delay(1000);
 }`,
     components: [
@@ -8785,9 +8993,9 @@ void loop() {
 // Wiring: VERT → A0(GP26)  |  HORZ → A1(GP27)  |  SEL → D4(GP16)
 //         VCC → 3.3V  |  GND → GND
 
-#define JOY_VERT A0   // GP26
-#define JOY_HORZ A1   // GP27
-#define JOY_BTN  16   // GP16 (D4)
+#define JOY_VERT A0  // GP26
+#define JOY_HORZ A1  // GP27
+#define JOY_BTN 16   // GP16 (D4)
 
 void setup() {
   Serial.begin(115200);
@@ -8797,17 +9005,20 @@ void setup() {
 }
 
 void loop() {
-  int x   = analogRead(JOY_HORZ); // 0–1023
-  int y   = analogRead(JOY_VERT); // 0–1023
+  int x = analogRead(JOY_HORZ);  // 0–1023
+  int y = analogRead(JOY_VERT);  // 0–1023
   bool btn = (digitalRead(JOY_BTN) == LOW);
 
   // Map to -100..+100
   int xP = map(x, 0, 1023, -100, 100);
   int yP = map(y, 0, 1023, -100, 100);
 
-  Serial.print("X="); Serial.print(xP);
-  Serial.print("  Y="); Serial.print(yP);
-  Serial.print("  BTN="); Serial.println(btn ? "PRESSED" : "---");
+  Serial.print("X=");
+  Serial.print(xP);
+  Serial.print("  Y=");
+  Serial.print(yP);
+  Serial.print("  BTN=");
+  Serial.println(btn ? "PRESSED" : "---");
   delay(150);
 }`,
     components: [
@@ -9508,10 +9719,18 @@ void setup() {
 }
 
 void loop() {
-  for (int a = 0; a <= 180; a += 3) { myServo.write(a); delay(20); }
-  Serial.println("180 deg"); delay(300);
-  for (int a = 180; a >= 0; a -= 3) { myServo.write(a); delay(20); }
-  Serial.println("0 deg");   delay(300);
+  for (int a = 0; a <= 180; a += 3) {
+    myServo.write(a);
+    delay(20);
+  }
+  Serial.println("180 deg");
+  delay(300);
+  for (int a = 180; a >= 0; a -= 3) {
+    myServo.write(a);
+    delay(20);
+  }
+  Serial.println("0 deg");
+  delay(300);
 }`,
     components: [{ type: 'wokwi-servo', id: 'c3-sv1', x: 420, y: 150, properties: {} }],
     wires: [
@@ -9713,7 +9932,7 @@ void loop() {
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 BLEServer* pServer = nullptr;
@@ -9721,7 +9940,7 @@ BLECharacteristic* pCharacteristic = nullptr;
 bool deviceConnected = false;
 int counter = 0;
 
-class MyServerCallbacks: public BLEServerCallbacks {
+class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
     Serial.println("BLE client connected!");
@@ -9746,18 +9965,15 @@ void setup() {
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
-  BLEService *pService = pServer->createService(SERVICE_UUID);
+  BLEService* pService = pServer->createService(SERVICE_UUID);
   pCharacteristic = pService->createCharacteristic(
     CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_READ |
-    BLECharacteristic::PROPERTY_WRITE |
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
   pCharacteristic->addDescriptor(new BLE2902());
   pCharacteristic->setValue("Hello from Velxio C3!");
 
   pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
@@ -9959,7 +10175,7 @@ void loop() {
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 BLEServer* pServer = nullptr;
@@ -9967,7 +10183,7 @@ BLECharacteristic* pCharacteristic = nullptr;
 bool deviceConnected = false;
 int counter = 0;
 
-class MyServerCallbacks: public BLEServerCallbacks {
+class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
     deviceConnected = true;
     Serial.println("BLE client connected!");
@@ -9993,18 +10209,15 @@ void setup() {
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
-  BLEService *pService = pServer->createService(SERVICE_UUID);
+  BLEService* pService = pServer->createService(SERVICE_UUID);
   pCharacteristic = pService->createCharacteristic(
     CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_READ |
-    BLECharacteristic::PROPERTY_WRITE |
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
   pCharacteristic->addDescriptor(new BLE2902());
   pCharacteristic->setValue("Hello from Velxio!");
 
   pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   pAdvertising->start();
@@ -10532,22 +10745,22 @@ void loop() {
 #include "esp_camera.h"
 
 // AI-Thinker ESP32-CAM pinout
-#define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26
-#define SIOC_GPIO_NUM     27
-#define Y9_GPIO_NUM       35
-#define Y8_GPIO_NUM       34
-#define Y7_GPIO_NUM       39
-#define Y6_GPIO_NUM       36
-#define Y5_GPIO_NUM       21
-#define Y4_GPIO_NUM       19
-#define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
-#define VSYNC_GPIO_NUM    25
-#define HREF_GPIO_NUM     23
-#define PCLK_GPIO_NUM     22
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
 
 void setup() {
   Serial.begin(115200);
@@ -10556,25 +10769,29 @@ void setup() {
 
   camera_config_t cfg = {};
   cfg.ledc_channel = LEDC_CHANNEL_0;
-  cfg.ledc_timer   = LEDC_TIMER_0;
-  cfg.pin_d0 = Y2_GPIO_NUM; cfg.pin_d1 = Y3_GPIO_NUM;
-  cfg.pin_d2 = Y4_GPIO_NUM; cfg.pin_d3 = Y5_GPIO_NUM;
-  cfg.pin_d4 = Y6_GPIO_NUM; cfg.pin_d5 = Y7_GPIO_NUM;
-  cfg.pin_d6 = Y8_GPIO_NUM; cfg.pin_d7 = Y9_GPIO_NUM;
-  cfg.pin_xclk     = XCLK_GPIO_NUM;
-  cfg.pin_pclk     = PCLK_GPIO_NUM;
-  cfg.pin_vsync    = VSYNC_GPIO_NUM;
-  cfg.pin_href     = HREF_GPIO_NUM;
+  cfg.ledc_timer = LEDC_TIMER_0;
+  cfg.pin_d0 = Y2_GPIO_NUM;
+  cfg.pin_d1 = Y3_GPIO_NUM;
+  cfg.pin_d2 = Y4_GPIO_NUM;
+  cfg.pin_d3 = Y5_GPIO_NUM;
+  cfg.pin_d4 = Y6_GPIO_NUM;
+  cfg.pin_d5 = Y7_GPIO_NUM;
+  cfg.pin_d6 = Y8_GPIO_NUM;
+  cfg.pin_d7 = Y9_GPIO_NUM;
+  cfg.pin_xclk = XCLK_GPIO_NUM;
+  cfg.pin_pclk = PCLK_GPIO_NUM;
+  cfg.pin_vsync = VSYNC_GPIO_NUM;
+  cfg.pin_href = HREF_GPIO_NUM;
   cfg.pin_sccb_sda = SIOD_GPIO_NUM;
   cfg.pin_sccb_scl = SIOC_GPIO_NUM;
-  cfg.pin_pwdn     = PWDN_GPIO_NUM;
-  cfg.pin_reset    = RESET_GPIO_NUM;
+  cfg.pin_pwdn = PWDN_GPIO_NUM;
+  cfg.pin_reset = RESET_GPIO_NUM;
   cfg.xclk_freq_hz = 20000000;
   cfg.pixel_format = PIXFORMAT_JPEG;
-  cfg.frame_size   = FRAMESIZE_QVGA;
+  cfg.frame_size = FRAMESIZE_QVGA;
   cfg.jpeg_quality = 12;
-  cfg.fb_count     = 1;
-  cfg.fb_location  = CAMERA_FB_IN_DRAM;
+  cfg.fb_count = 1;
+  cfg.fb_location = CAMERA_FB_IN_DRAM;
 
   esp_err_t err = esp_camera_init(&cfg);
   if (err != ESP_OK) {
@@ -10632,35 +10849,35 @@ void loop() {
 //   MOSI→ 13   SCK → 12   MISO unused
 
 #include "esp_camera.h"
-#include "img_converters.h"   // jpg2rgb565 — built into esp32-camera
+#include "img_converters.h"  // jpg2rgb565 — built into esp32-camera
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 
 // Camera pins (AI-Thinker)
-#define PWDN_GPIO_NUM     32
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM      0
-#define SIOD_GPIO_NUM     26
-#define SIOC_GPIO_NUM     27
-#define Y9_GPIO_NUM       35
-#define Y8_GPIO_NUM       34
-#define Y7_GPIO_NUM       39
-#define Y6_GPIO_NUM       36
-#define Y5_GPIO_NUM       21
-#define Y4_GPIO_NUM       19
-#define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
-#define VSYNC_GPIO_NUM    25
-#define HREF_GPIO_NUM     23
-#define PCLK_GPIO_NUM     22
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
 
 // TFT pins
-#define TFT_CS    15
-#define TFT_DC    14
-#define TFT_RST    2
-#define TFT_MOSI  13
-#define TFT_SCK   12
+#define TFT_CS 15
+#define TFT_DC 14
+#define TFT_RST 2
+#define TFT_MOSI 13
+#define TFT_SCK 12
 
 SPIClass tftSPI(VSPI);
 Adafruit_ILI9341 tft = Adafruit_ILI9341(&tftSPI, TFT_DC, TFT_CS, TFT_RST);
@@ -10670,8 +10887,8 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(&tftSPI, TFT_DC, TFT_CS, TFT_RST);
 // no longer the dominant cost in the emulator.
 #define PREVIEW_W 160
 #define PREVIEW_H 120
-#define PREVIEW_X  80
-#define PREVIEW_Y  60
+#define PREVIEW_X 80
+#define PREVIEW_Y 60
 static uint8_t rgbBuf[PREVIEW_W * PREVIEW_H * 2];
 
 #define STATUS_REFRESH_EVERY 5
@@ -10695,7 +10912,7 @@ void draw_status_bar(uint32_t bytes_in, bool decoded) {
   tft.printf("fps %4.1f   fails %u   nulls %u",
              fps, (unsigned)decode_fails, (unsigned)null_fb);
   tft.fillCircle(308, 14, 6,
-    (frame_count & 1) ? ILI9341_GREEN : ILI9341_DARKGREEN);
+                 (frame_count & 1) ? ILI9341_GREEN : ILI9341_DARKGREEN);
 }
 
 void setup() {
@@ -10709,7 +10926,8 @@ void setup() {
   tft.fillScreen(ILI9341_NAVY);
   tft.setTextSize(3);
   tft.setTextColor(ILI9341_WHITE);
-  tft.setCursor(20, 10); tft.print("VELXIO");
+  tft.setCursor(20, 10);
+  tft.print("VELXIO");
   tft.setTextSize(1);
   tft.setCursor(20, 38);
   tft.setTextColor(ILI9341_CYAN);
@@ -10717,23 +10935,29 @@ void setup() {
 
   camera_config_t cfg = {};
   cfg.ledc_channel = LEDC_CHANNEL_0;
-  cfg.ledc_timer   = LEDC_TIMER_0;
-  cfg.pin_d0 = Y2_GPIO_NUM; cfg.pin_d1 = Y3_GPIO_NUM;
-  cfg.pin_d2 = Y4_GPIO_NUM; cfg.pin_d3 = Y5_GPIO_NUM;
-  cfg.pin_d4 = Y6_GPIO_NUM; cfg.pin_d5 = Y7_GPIO_NUM;
-  cfg.pin_d6 = Y8_GPIO_NUM; cfg.pin_d7 = Y9_GPIO_NUM;
-  cfg.pin_xclk = XCLK_GPIO_NUM;  cfg.pin_pclk = PCLK_GPIO_NUM;
-  cfg.pin_vsync = VSYNC_GPIO_NUM; cfg.pin_href = HREF_GPIO_NUM;
+  cfg.ledc_timer = LEDC_TIMER_0;
+  cfg.pin_d0 = Y2_GPIO_NUM;
+  cfg.pin_d1 = Y3_GPIO_NUM;
+  cfg.pin_d2 = Y4_GPIO_NUM;
+  cfg.pin_d3 = Y5_GPIO_NUM;
+  cfg.pin_d4 = Y6_GPIO_NUM;
+  cfg.pin_d5 = Y7_GPIO_NUM;
+  cfg.pin_d6 = Y8_GPIO_NUM;
+  cfg.pin_d7 = Y9_GPIO_NUM;
+  cfg.pin_xclk = XCLK_GPIO_NUM;
+  cfg.pin_pclk = PCLK_GPIO_NUM;
+  cfg.pin_vsync = VSYNC_GPIO_NUM;
+  cfg.pin_href = HREF_GPIO_NUM;
   cfg.pin_sccb_sda = SIOD_GPIO_NUM;
   cfg.pin_sccb_scl = SIOC_GPIO_NUM;
   cfg.pin_pwdn = PWDN_GPIO_NUM;
   cfg.pin_reset = RESET_GPIO_NUM;
   cfg.xclk_freq_hz = 20000000;
   cfg.pixel_format = PIXFORMAT_JPEG;
-  cfg.frame_size   = FRAMESIZE_QVGA;
+  cfg.frame_size = FRAMESIZE_QVGA;
   cfg.jpeg_quality = 12;
-  cfg.fb_count     = 1;
-  cfg.fb_location  = CAMERA_FB_IN_DRAM;
+  cfg.fb_count = 1;
+  cfg.fb_location = CAMERA_FB_IN_DRAM;
 
   esp_err_t err = esp_camera_init(&cfg);
   if (err != ESP_OK) {
@@ -10891,16 +11115,16 @@ void loop() {
 #include <Adafruit_ILI9341.h>
 #include <math.h>
 
-#define TFT_SCK  18
+#define TFT_SCK 18
 #define TFT_MOSI 23
 #define TFT_MISO 19
-#define TFT_DC    2
-#define TFT_CS    5
-#define TFT_RST   4
+#define TFT_DC 2
+#define TFT_CS 5
+#define TFT_RST 4
 
-#define BTN_FWD   32
-#define BTN_BACK  33
-#define BTN_LEFT  25
+#define BTN_FWD 32
+#define BTN_BACK 33
+#define BTN_LEFT 25
 #define BTN_RIGHT 26
 
 #define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
@@ -10914,31 +11138,31 @@ static const int SCREEN_H = 240;
 #define MAP_W 16
 #define MAP_H 16
 const uint8_t worldMap[MAP_H][MAP_W] = {
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-  {1,0,0,0,0,0,0,2,2,2,0,0,0,0,0,1},
-  {1,0,1,1,0,0,0,0,0,0,0,0,3,3,0,1},
-  {1,0,1,0,0,0,4,4,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,5,5,5,0,0,1},
-  {1,0,1,1,1,0,0,2,2,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,3,0,0,0,1},
-  {1,0,4,4,4,4,0,0,0,2,2,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,5,5,1},
-  {1,0,0,0,0,3,3,0,0,4,0,0,0,0,0,1},
-  {1,0,2,2,0,0,0,0,0,0,0,1,1,0,0,1},
-  {1,0,0,0,0,0,5,5,0,0,0,0,0,0,0,1},
-  {1,0,3,0,0,0,0,0,0,2,2,2,0,0,0,1},
-  {1,0,0,0,4,4,0,0,0,0,0,0,0,3,0,1},
-  {1,0,0,0,0,0,0,0,5,0,0,0,0,0,0,1},
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 0, 1 },
+  { 1, 0, 1, 0, 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 0, 0, 1 },
+  { 1, 0, 1, 1, 1, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1 },
+  { 1, 0, 4, 4, 4, 4, 0, 0, 0, 2, 2, 0, 0, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 1 },
+  { 1, 0, 0, 0, 0, 3, 3, 0, 0, 4, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 0, 3, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 1 },
+  { 1, 0, 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 3, 0, 1 },
+  { 1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
 };
 
 static uint16_t wallColor(uint8_t t) {
   switch (t) {
-    case 1: return RGB565(150, 150, 165); // slate
-    case 2: return RGB565(190,  35,  35); // blood
-    case 3: return RGB565(165, 100,  45); // brown
-    case 4: return RGB565( 45, 180,  70); // toxic green
-    case 5: return RGB565(180, 140,  50); // bronze door
+    case 1: return RGB565(150, 150, 165);  // slate
+    case 2: return RGB565(190, 35, 35);    // blood
+    case 3: return RGB565(165, 100, 45);   // brown
+    case 4: return RGB565(45, 180, 70);    // toxic green
+    case 5: return RGB565(180, 140, 50);   // bronze door
   }
   return RGB565(100, 100, 100);
 }
@@ -10946,11 +11170,13 @@ static uint16_t wallColor(uint8_t t) {
 // Darken an RGB565 colour by a 0..256 factor (256 = unchanged).
 static uint16_t shade(uint16_t c, uint16_t f) {
   uint16_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
-  r = (r * f) >> 8; g = (g * f) >> 8; b = (b * f) >> 8;
+  r = (r * f) >> 8;
+  g = (g * f) >> 8;
+  b = (b * f) >> 8;
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-const uint16_t CEIL_COLOR  = RGB565(28, 28, 44);
+const uint16_t CEIL_COLOR = RGB565(28, 28, 44);
 const uint16_t FLOOR_COLOR = RGB565(48, 42, 36);
 
 // Player camera (DDA raycaster state).
@@ -10965,10 +11191,10 @@ int fpsWhole = 0, fpsFrac = 0;
 static void rotate(float a) {
   float od = dirX;
   dirX = dirX * cosf(a) - dirY * sinf(a);
-  dirY = od   * sinf(a) + dirY * cosf(a);
+  dirY = od * sinf(a) + dirY * cosf(a);
   float op = planeX;
   planeX = planeX * cosf(a) - planeY * sinf(a);
-  planeY = op     * sinf(a) + planeY * cosf(a);
+  planeY = op * sinf(a) + planeY * cosf(a);
 }
 
 static bool isWall(float x, float y) {
@@ -10986,10 +11212,22 @@ static void moveStep(float dist) {
 
 static void handleInput() {
   bool any = false;
-  if (digitalRead(BTN_FWD)   == LOW) { moveStep( 0.10f); any = true; }
-  if (digitalRead(BTN_BACK)  == LOW) { moveStep(-0.10f); any = true; }
-  if (digitalRead(BTN_LEFT)  == LOW) { rotate( 0.06f);   any = true; }
-  if (digitalRead(BTN_RIGHT) == LOW) { rotate(-0.06f);   any = true; }
+  if (digitalRead(BTN_FWD) == LOW) {
+    moveStep(0.10f);
+    any = true;
+  }
+  if (digitalRead(BTN_BACK) == LOW) {
+    moveStep(-0.10f);
+    any = true;
+  }
+  if (digitalRead(BTN_LEFT) == LOW) {
+    rotate(0.06f);
+    any = true;
+  }
+  if (digitalRead(BTN_RIGHT) == LOW) {
+    rotate(-0.06f);
+    any = true;
+  }
   if (!any) {
     // Auto-demo: walk forward, slowly pan, and turn hard if about to hit a wall.
     rotate(0.013f);
@@ -11011,17 +11249,37 @@ static void renderFrame() {
 
     int stepX, stepY;
     float sideX, sideY;
-    if (rayDirX < 0) { stepX = -1; sideX = (posX - mapX) * deltaX; }
-    else             { stepX =  1; sideX = (mapX + 1.0f - posX) * deltaX; }
-    if (rayDirY < 0) { stepY = -1; sideY = (posY - mapY) * deltaY; }
-    else             { stepY =  1; sideY = (mapY + 1.0f - posY) * deltaY; }
+    if (rayDirX < 0) {
+      stepX = -1;
+      sideX = (posX - mapX) * deltaX;
+    } else {
+      stepX = 1;
+      sideX = (mapX + 1.0f - posX) * deltaX;
+    }
+    if (rayDirY < 0) {
+      stepY = -1;
+      sideY = (posY - mapY) * deltaY;
+    } else {
+      stepY = 1;
+      sideY = (mapY + 1.0f - posY) * deltaY;
+    }
 
     int side = 0;
     uint8_t tile = 1;
     for (int guard = 0; guard < 64; guard++) {
-      if (sideX < sideY) { sideX += deltaX; mapX += stepX; side = 0; }
-      else               { sideY += deltaY; mapY += stepY; side = 1; }
-      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) { tile = 1; break; }
+      if (sideX < sideY) {
+        sideX += deltaX;
+        mapX += stepX;
+        side = 0;
+      } else {
+        sideY += deltaY;
+        mapY += stepY;
+        side = 1;
+      }
+      if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) {
+        tile = 1;
+        break;
+      }
       tile = worldMap[mapY][mapX];
       if (tile != 0) break;
     }
@@ -11031,7 +11289,7 @@ static void renderFrame() {
 
     int lineH = (int)(SCREEN_H / perp);
     int drawStart = SCREEN_H / 2 - lineH / 2;
-    int drawEnd   = SCREEN_H / 2 + lineH / 2;
+    int drawEnd = SCREEN_H / 2 + lineH / 2;
     if (drawStart < 0) drawStart = 0;
     if (drawEnd > SCREEN_H - 1) drawEnd = SCREEN_H - 1;
 
@@ -11066,14 +11324,14 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("VELXIO DOOM raycaster -- ESP32 + ILI9341 (Adafruit, HW SPI)");
-  pinMode(BTN_FWD,   INPUT_PULLUP);
-  pinMode(BTN_BACK,  INPUT_PULLUP);
-  pinMode(BTN_LEFT,  INPUT_PULLUP);
+  pinMode(BTN_FWD, INPUT_PULLUP);
+  pinMode(BTN_BACK, INPUT_PULLUP);
+  pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
 
   tftSPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
-  tft.begin(40000000); // 40 MHz nominal SPI
-  tft.setRotation(1);  // landscape 320x240
+  tft.begin(40000000);  // 40 MHz nominal SPI
+  tft.setRotation(1);   // landscape 320x240
   tft.fillScreen(RGB565(0, 0, 0));
   tft.setTextSize(3);
   tft.setTextColor(RGB565(0, 255, 80));
@@ -11100,7 +11358,7 @@ void loop() {
     // FPS x10 (tenths), integer math to avoid %f (nano newlib has no float printf).
     uint32_t fps_x10 = (10u * 1000u * 10u) / dms;
     fpsWhole = fps_x10 / 10;
-    fpsFrac  = fps_x10 % 10;
+    fpsFrac = fps_x10 % 10;
     fpsT0 = now;
     Serial.print("STAT frame=");
     Serial.print(frames);
@@ -11577,10 +11835,10 @@ except KeyboardInterrupt:
       },
     ],
     components: [
-      { type: 'wokwi-resistor', id: 'r-pi4-rgb-r', x: 440, y: 160, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-pi4-rgb-g', x: 440, y: 186, properties: { value: '220' } },
-      { type: 'wokwi-resistor', id: 'r-pi4-rgb-b', x: 440, y: 212, properties: { value: '220' } },
-      { type: 'wokwi-rgb-led', id: 'pi4-rgb', x: 560, y: 160, properties: {} }],
+      { type: 'wokwi-resistor', id: 'r-pi4-rgb-r', x: 470, y: 140, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-pi4-rgb-g', x: 470, y: 180, properties: { value: '220' } },
+      { type: 'wokwi-resistor', id: 'r-pi4-rgb-b', x: 470, y: 220, properties: { value: '220' } },
+      { type: 'wokwi-rgb-led', id: 'pi4-rgb', x: 650, y: 110, properties: {} }],
     wires: [
       {
         id: 'w-r',
