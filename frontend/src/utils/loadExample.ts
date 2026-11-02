@@ -17,6 +17,7 @@ import { getInstalledLibraries, installLibrary } from '../services/libraryServic
 import { trackOpenExample } from './analytics';
 import { stripBrandPrefix } from './exampleToBuildNetlistInput';
 import { resolveExampleSdFiles } from './sdCardFiles';
+import { exampleWireCorners } from './exampleWireRoutes';
 
 export interface LibraryInstallProgress {
   total: number;
@@ -143,6 +144,9 @@ export async function loadExample(
   const sdFilesByBoard = await Promise.all(
     (example.boards ?? []).map((eb) => resolveExampleSdFiles(eb.sdFiles)),
   );
+  // The wire corners made for this example offline (fixed data, nothing is
+  // routed here), read before the canvas changes for the same reason.
+  const storedCorners = await exampleWireCorners(example);
 
   const {
     setComponents,
@@ -268,12 +272,12 @@ export async function loadExample(
     );
 
     setWires(
-      (example.wires ?? []).map((wire) => ({
+      (example.wires ?? []).map((wire, i) => ({
         id: wire.id,
         start: { componentId: wire.start.componentId, pinName: wire.start.pinName, x: 0, y: 0 },
         end: { componentId: wire.end.componentId, pinName: wire.end.pinName, x: 0, y: 0 },
         color: wire.color,
-        waypoints: wire.waypoints ?? [],
+        waypoints: wire.waypoints ?? storedCorners?.[i] ?? [],
       })),
     );
     recalculateAllWirePositions();
@@ -415,7 +419,7 @@ export async function loadExample(
       isBoardComponent(id) && liveActiveBoardId ? liveActiveBoardId : id;
 
     setWires(
-      (example.wires ?? []).map((wire) => ({
+      (example.wires ?? []).map((wire, i) => ({
         id: wire.id,
         start: {
           componentId: remapBoardId(wire.start.componentId),
@@ -430,7 +434,7 @@ export async function loadExample(
           y: 0,
         },
         color: wire.color,
-        waypoints: wire.waypoints ?? [],
+        waypoints: wire.waypoints ?? storedCorners?.[i] ?? [],
       })),
     );
     recalculateAllWirePositions();
