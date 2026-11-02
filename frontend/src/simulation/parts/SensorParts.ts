@@ -19,7 +19,7 @@
 
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { requestLine, releaseLineGap, recordPartGap } from '../line/requestLine';
-import { setAdcVoltage, emitPropertyChange, analogRailVolts, guestMillis, elementNumber } from './partUtils';
+import { setAdcVoltage, emitPropertyChange, analogRailVolts, guestMillis, elementNumber, partTimeout } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
 import { sensorControlDefault } from '../sensorControlConfig';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
@@ -1110,15 +1110,16 @@ PartSimulationRegistry.register('pir-motion-sensor', {
 
     simulator.setPinState(pin, false); // idle LOW
 
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    // The 3 s count on the board's clock where an overlay installs one (partTimeout).
+    let cancel: (() => void) | null = null;
 
     const triggerMotion = () => {
-      if (timer !== null) clearTimeout(timer);
+      cancel?.();
       simulator.setPinState(pin, true);
       console.log('[PIR] Motion detected → OUT HIGH');
-      timer = setTimeout(() => {
+      cancel = partTimeout(simulator, () => {
         simulator.setPinState(pin, false);
-        timer = null;
+        cancel = null;
         console.log('[PIR] Motion ended → OUT LOW');
       }, 3000);
     };
@@ -1131,7 +1132,7 @@ PartSimulationRegistry.register('pir-motion-sensor', {
 
     return () => {
       element.removeEventListener('click', triggerMotion);
-      if (timer !== null) clearTimeout(timer);
+      cancel?.();
       unregisterSensorUpdate(componentId);
     };
   },

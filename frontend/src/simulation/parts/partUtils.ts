@@ -94,6 +94,32 @@ export function guestMillis(simulator: AnySimulator): number | null {
   return null;
 }
 
+/** A part's one-shot timer: run `cb` once `ms` have passed; the result cancels it. */
+export type PartTimeout = (simulator: AnySimulator, cb: () => void, ms: number) => () => void;
+
+const wallTimeout: PartTimeout = (_simulator, cb, ms) => {
+  const t = setTimeout(cb, ms);
+  return () => clearTimeout(t);
+};
+
+let partTimeoutImpl: PartTimeout = wallTimeout;
+
+/**
+ * Overlay seam: the clock a part's timed output counts on. The default is the
+ * wall clock (setTimeout, what every part used); an overlay can install one
+ * that counts the board's guest time, so a pulse lasts what the sketch sees
+ * whatever speed the board is emulated at (velxio/velxio-prod#23). Pass null
+ * to restore the default.
+ */
+export function installPartTimeout(fn: PartTimeout | null): void {
+  partTimeoutImpl = fn ?? wallTimeout;
+}
+
+/** Run `cb` once `ms` have passed on `simulator`'s board, by the installed clock; returns what cancels it. */
+export function partTimeout(simulator: AnySimulator, cb: () => void, ms: number): () => void {
+  return partTimeoutImpl(simulator, cb, ms);
+}
+
 /**
  * Supply rail the analog front end of THIS board runs on, in volts.
  *
