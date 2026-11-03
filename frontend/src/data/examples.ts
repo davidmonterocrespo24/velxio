@@ -11084,36 +11084,44 @@ void loop() {
 
   {
     id: 'esp32-doom',
-    title: 'ESP32 Doom — Raycaster (ILI9341)',
+    title: 'ESP32 Doom: Handheld Shooter (ILI9341)',
     description:
-      'A Wolfenstein / early-Doom style first-person raycaster on an ESP32 + ILI9341 320x240 colour TFT. The whole screen is redrawn every frame over hardware SPI (VSPI) with Adafruit_ILI9341 block writes (one startWrite/endWrite burst per frame), plus distance fog and darker E/W faces for depth. Four buttons move and turn the player; an auto-demo walks the 16x16 map when idle. Built as an emulation-speed benchmark — it overlays the on-device FPS and prints frame/FPS stats over Serial.',
+      'A first-person shooter on an ESP32 wired like a handheld console: an ILI9341 320x240 TFT, a four-button D-pad and A/B action buttons. Textured walls, a cast floor and ceiling with distance fog, robots that chase you, slimes that spit acid, doors, medkits, ammo, a blaster with muzzle flash, a status bar and harder waves each time the map is cleared. Every view column is built in a buffer and sent as one SPI burst, so nothing flickers. An attract-mode demo plays until you press a button, and FPS stats go out over Serial.',
     libraries: ['Adafruit GFX Library', 'Adafruit ILI9341', 'Adafruit BusIO'],
     category: 'games',
     difficulty: 'advanced',
     boardType: 'esp32',
-    tags: ['esp32', 'doom', 'raycaster', 'ili9341', 'tft', '3d', 'game', 'benchmark'],
+    tags: ['esp32', 'doom', 'fps', 'raycaster', 'ili9341', 'tft', '3d', 'game', 'gamepad', 'benchmark'],
     code: `/*
- * VELXIO DOOM - ESP32 raycaster on an ILI9341 320x240 color TFT.
+ * VELXIO DOOM - a first-person shooter on an ESP32 + ILI9341 320x240 TFT.
  *
- * Purpose: stress-test Velxio's QEMU ESP32 emulation by redrawing the whole
- * 320x240 screen every frame with a Wolfenstein/early-Doom style raycaster.
- * Rendering uses Adafruit_ILI9341 over HARDWARE SPI (VSPI) with the fast
- * block-transfer transaction API: a single startWrite()/endWrite() per frame
- * and writeFastVLine() column fills, so each frame is one big SPI burst
- * (the path QEMU forwards to the display sim as batched bytes).
+ * Textured walls, a cast floor and ceiling with distance fog, robots that
+ * hunt you down, slimes that spit acid, doors, medkits and ammo, a blaster
+ * with muzzle flash, a status bar and levels that get harder each time the
+ * map is cleared. With no input an attract-mode demo plays itself.
  *
- * Every 10 frames it prints "STAT frame=.. t_ms=.. devfps=.." over Serial so
- * the host can compute BOTH on-device FPS (frames per emulated second) and
- * emulation speed (frames per real wall-clock second).
+ * Controls (console layout, every button active-LOW to GND):
+ *   D-pad  UP=32  DOWN=33  LEFT=25  RIGHT=15   walk / turn
+ *   A = 22  FIRE (hold for auto-fire)
+ *   B = 21  tap: open the door in front of you
+ *           hold + LEFT/RIGHT: strafe
+ *
+ * Rendering: each of the 320 view columns is built in a 200-pixel buffer
+ * (walls, floor, ceiling, sprites, weapon, text) and sent as ONE SPI burst
+ * (setAddrWindow + writePixels) over hardware SPI (VSPI). Nothing is ever
+ * painted twice, so the picture does not flicker. The status bar below the
+ * view is redrawn only when a number changes.
+ *
+ * Every 10 frames it prints "STAT frame=.. t_ms=.. devfps=.." over Serial,
+ * plus one "EVT ..." line per kill, pickup, level and death.
  *
  * Wiring (VSPI):  SCK=18  MOSI=23  MISO=19  CS=5  DC=2  RST=4  LED/VCC=3V3
- * Buttons (active-LOW, INPUT_PULLUP, other leg to GND):
- *   FWD=32  BACK=33  LEFT=25  RIGHT=26   (auto-demo runs with no input)
  */
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 #include <math.h>
+#include "glcdfont.c"  // the 5x7 font Adafruit GFX uses, for in-view text
 
 #define TFT_SCK 18
 #define TFT_MOSI 23
@@ -11122,52 +11130,328 @@ void loop() {
 #define TFT_CS 5
 #define TFT_RST 4
 
-#define BTN_FWD 32
-#define BTN_BACK 33
+#define BTN_UP 32
+#define BTN_DOWN 33
 #define BTN_LEFT 25
-#define BTN_RIGHT 26
+#define BTN_RIGHT 15
+#define BTN_A 22
+#define BTN_B 21
 
 #define RGB565(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
+#define INK RGB565(8, 8, 8)  // "black" that is not the transparent key 0
 
 SPIClass tftSPI(VSPI);
 Adafruit_ILI9341 tft = Adafruit_ILI9341(&tftSPI, TFT_DC, TFT_CS, TFT_RST);
 
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;
+#define SCREEN_W 320
+#define VIEW_H 200
+#define HORIZON 100
+#define WALL_SCALE 240.0f
+#define HUD_Y 200
 
-#define MAP_W 16
-#define MAP_H 16
-const uint8_t worldMap[MAP_H][MAP_W] = {
-  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
-  { 1, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 1 },
-  { 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 0, 1 },
-  { 1, 0, 1, 0, 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 1 },
-  { 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 0, 0, 1 },
-  { 1, 0, 1, 1, 1, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 1 },
-  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1 },
-  { 1, 0, 4, 4, 4, 4, 0, 0, 0, 2, 2, 0, 0, 0, 0, 1 },
-  { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 1 },
-  { 1, 0, 0, 0, 0, 3, 3, 0, 0, 4, 0, 0, 0, 0, 0, 1 },
-  { 1, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1 },
-  { 1, 0, 0, 0, 0, 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 1 },
-  { 1, 0, 3, 0, 0, 0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 1 },
-  { 1, 0, 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 3, 0, 1 },
-  { 1, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 1 },
-  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+// ---------------------------------------------------------------- the map
+// 1-5 walls (texture = digit), 9 = door (opens with B).
+#define MAP_W 20
+#define MAP_H 20
+const char *const MAP_SRC[MAP_H] = {
+  "11111111111111111111",
+  "12222210000000444441",
+  "12000020000000400041",
+  "12000090000000900041",
+  "12000020000000400041",
+  "12222220000000444441",
+  "10000000000000000001",
+  "10000330000000033001",
+  "10000300000000003001",
+  "10000000000000000001",
+  "10000000055000000001",
+  "10000000055000000001",
+  "10000000000000000001",
+  "11111191111111911111",
+  "15000000050000000051",
+  "15000000050000000051",
+  "15005500000000550051",
+  "15000000050000000051",
+  "15555555555555555551",
+  "11111111111111111111",
 };
+uint8_t level[MAP_H][MAP_W];
 
-static uint16_t wallColor(uint8_t t) {
-  switch (t) {
-    case 1: return RGB565(150, 150, 165);  // slate
-    case 2: return RGB565(190, 35, 35);    // blood
-    case 3: return RGB565(165, 100, 45);   // brown
-    case 4: return RGB565(45, 180, 70);    // toxic green
-    case 5: return RGB565(180, 140, 50);   // bronze door
-  }
-  return RGB565(100, 100, 100);
+// ---------------------------------------------------------------- textures
+#define TEX 32
+#define NTEX 7  // 1..5 walls, 6 door
+uint16_t tex[NTEX][TEX * TEX];  // column-major: [x * TEX + y]
+
+static uint32_t rngState = 0x1234567;
+static uint32_t rnd() {
+  rngState ^= rngState << 13;
+  rngState ^= rngState >> 17;
+  rngState ^= rngState << 5;
+  return rngState;
+}
+static int clamp255(int v) {
+  return v < 0 ? 0 : (v > 255 ? 255 : v);
+}
+static uint16_t rgbn(int r, int g, int b, int n) {
+  int d = n ? (int)(rnd() % (2 * n + 1)) - n : 0;
+  return RGB565(clamp255(r + d), clamp255(g + d), clamp255(b + d));
+}
+static void tput(int t, int x, int y, uint16_t c) {
+  tex[t][x * TEX + y] = c;
 }
 
-// Darken an RGB565 colour by a 0..256 factor (256 = unchanged).
+static void makeTextures() {
+  for (int x = 0; x < TEX; x++) {
+    for (int y = 0; y < TEX; y++) {
+      // 1: slate blocks
+      bool m1 = (y % 16 == 0) || (x == ((y / 16) % 2 ? 16 : 0));
+      tput(1, x, y, m1 ? rgbn(45, 45, 55, 6) : rgbn(125, 125, 140, 14));
+      // 2: red brick
+      int off = (y / 8) % 2 ? 8 : 0;
+      bool m2 = (y % 8 == 0) || ((x + off) % 16 == 0);
+      tput(2, x, y, m2 ? rgbn(70, 60, 55, 5) : rgbn(165, 40, 32, 18));
+      // 3: wooden planks
+      int plank = x / 8;
+      int grain = (int)(18.0f * sinf(y * 0.55f + plank * 1.7f + x * 0.3f));
+      tput(3, x, y, (x % 8 == 0) ? rgbn(50, 30, 15, 4) : rgbn(150 + grain, 92 + grain / 2, 42, 8));
+      // 4: tech panel with a glowing strip
+      uint16_t c4 = rgbn(40, 70, 55, 6);
+      if (x == 0 || y == 0) c4 = rgbn(90, 120, 105, 4);
+      if (x == 31 || y == 31) c4 = rgbn(20, 35, 28, 3);
+      if (y >= 14 && y <= 17) c4 = (x % 4 == 0) ? RGB565(20, 90, 40) : RGB565(60, 255, 120);
+      tput(4, x, y, c4);
+      // 5: bronze plates with a bevel
+      int px = x % 16, py = y % 16;
+      uint16_t c5 = rgbn(170, 125, 50, 10);
+      if (px == 0 || py == 0) c5 = rgbn(220, 180, 90, 6);
+      if (px == 15 || py == 15) c5 = rgbn(90, 60, 25, 5);
+      tput(5, x, y, c5);
+      // 6: steel door, hazard band, centre seam
+      uint16_t c6 = rgbn(105, 110, 120, 8);
+      if (y >= 12 && y <= 19) c6 = ((x + y) / 4) % 2 ? RGB565(230, 190, 20) : INK;
+      if (x == 15 || x == 16) c6 = RGB565(30, 30, 36);
+      if (x == 0 || x == 31) c6 = RGB565(60, 60, 70);
+      tput(6, x, y, c6);
+    }
+  }
+  // bolts on the bronze plates
+  for (int bx = 0; bx < 2; bx++)
+    for (int by = 0; by < 2; by++) {
+      tput(5, bx * 16 + 7, by * 16 + 7, RGB565(250, 230, 160));
+      tput(5, bx * 16 + 8, by * 16 + 8, RGB565(80, 55, 20));
+    }
+  // rivets on the tech panel
+  tput(4, 3, 3, RGB565(170, 190, 180));
+  tput(4, 28, 3, RGB565(170, 190, 180));
+  tput(4, 3, 28, RGB565(170, 190, 180));
+  tput(4, 28, 28, RGB565(170, 190, 180));
+}
+
+// ---------------------------------------------------------------- sprites
+#define SPR 32
+enum {
+  S_BOT_A,
+  S_BOT_B,
+  S_BOT_HIT,
+  S_BOT_DEAD,
+  S_SLIME_A,
+  S_SLIME_B,
+  S_SLIME_DEAD,
+  S_ACID,
+  S_MED,
+  S_AMMO,
+  NSPR
+};
+uint16_t spr[NSPR][SPR * SPR];  // column-major, 0 = transparent
+
+static void sRect(int s, int x0, int y0, int x1, int y1, uint16_t c) {
+  for (int x = x0; x <= x1; x++)
+    for (int y = y0; y <= y1; y++)
+      if (x >= 0 && x < SPR && y >= 0 && y < SPR) spr[s][x * SPR + y] = c;
+}
+static void sEll(int s, int cx, int cy, int rx, int ry, uint16_t c) {
+  for (int x = cx - rx; x <= cx + rx; x++)
+    for (int y = cy - ry; y <= cy + ry; y++) {
+      float dx = (float)(x - cx) / rx, dy = (float)(y - cy) / ry;
+      if (dx * dx + dy * dy <= 1.0f && x >= 0 && x < SPR && y >= 0 && y < SPR) spr[s][x * SPR + y] = c;
+    }
+}
+
+static void drawBot(int s, int legShift, bool hit) {
+  uint16_t dark = RGB565(55, 58, 70), mid = RGB565(120, 124, 140), hi = RGB565(190, 195, 210);
+  // legs and feet
+  sRect(s, 9, 22 - legShift, 12, 31 - legShift, dark);
+  sRect(s, 19, 22 + legShift - 2, 22, 29 + legShift, dark);
+  sRect(s, 7, 30 - legShift, 13, 31 - legShift, mid);
+  sRect(s, 18, 30, 24, 31, mid);
+  // claws
+  int armY = hit ? 7 : 14;
+  sRect(s, 2, armY, 5, armY + 7, dark);
+  sRect(s, 26, armY, 29, armY + 7, dark);
+  sRect(s, 1, armY, 2, armY + 2, hi);
+  sRect(s, 29, armY, 30, armY + 2, hi);
+  // body, band, dome
+  sEll(s, 16, 15, 11, 9, mid);
+  sRect(s, 6, 18, 26, 20, dark);
+  sEll(s, 16, 10, 7, 3, hi);
+  // eye
+  sEll(s, 16, 14, 4, 4, INK);
+  sEll(s, 16, 14, 2, 2, hit ? RGB565(255, 240, 120) : RGB565(235, 30, 30));
+  spr[s][15 * SPR + 13] = RGB565(255, 200, 200);
+  // antenna
+  sRect(s, 16, 2, 16, 6, dark);
+  sRect(s, 15, 1, 17, 2, RGB565(255, 60, 60));
+}
+
+static void makeSprites() {
+  memset(spr, 0, sizeof(spr));
+  drawBot(S_BOT_A, 0, false);
+  drawBot(S_BOT_B, 2, false);
+  drawBot(S_BOT_HIT, 0, true);
+  // bot scrap pile
+  sEll(S_BOT_DEAD, 16, 28, 13, 4, RGB565(55, 58, 70));
+  sRect(S_BOT_DEAD, 6, 24, 11, 27, RGB565(120, 124, 140));
+  sRect(S_BOT_DEAD, 20, 25, 26, 28, RGB565(90, 92, 105));
+  sEll(S_BOT_DEAD, 15, 26, 2, 1, RGB565(120, 20, 20));
+
+  uint16_t g = RGB565(60, 190, 60), gd = RGB565(25, 110, 30), gl = RGB565(170, 255, 150);
+  for (int f = 0; f < 2; f++) {
+    int s = f ? S_SLIME_B : S_SLIME_A;
+    int cy = f ? 24 : 22, rx = f ? 14 : 12, ry = f ? 7 : 9;
+    sEll(s, 16, cy, rx, ry, gd);
+    sEll(s, 16, cy - 1, rx - 1, ry - 1, g);
+    sEll(s, 11, cy - 4, 3, 2, gl);
+    sEll(s, 12, cy - 1, 3, 3, RGB565(240, 240, 240));
+    sEll(s, 21, cy - 1, 3, 3, RGB565(240, 240, 240));
+    sEll(s, 13, cy, 1, 1, INK);
+    sEll(s, 22, cy, 1, 1, INK);
+    sRect(s, 12, cy + 4, 20, cy + 5, gd);
+    sRect(s, 7, cy + ry - 1, 8, 31, g);  // drips
+    sRect(s, 24, cy + ry - 2, 24, 31, g);
+  }
+  sEll(S_SLIME_DEAD, 16, 30, 14, 2, gd);
+  sEll(S_SLIME_DEAD, 14, 30, 8, 1, g);
+
+  sEll(S_ACID, 16, 16, 7, 7, RGB565(70, 200, 40));
+  sEll(S_ACID, 16, 16, 5, 5, RGB565(140, 255, 90));
+  sEll(S_ACID, 15, 15, 2, 2, RGB565(230, 255, 210));
+
+  // medkit
+  sRect(S_MED, 6, 16, 25, 31, RGB565(150, 150, 150));
+  sRect(S_MED, 7, 17, 24, 30, RGB565(235, 235, 235));
+  sRect(S_MED, 14, 18, 17, 29, RGB565(220, 30, 30));
+  sRect(S_MED, 9, 22, 22, 25, RGB565(220, 30, 30));
+  // ammo crate
+  sRect(S_AMMO, 6, 20, 25, 31, RGB565(70, 80, 30));
+  sRect(S_AMMO, 7, 21, 24, 30, RGB565(105, 120, 45));
+  for (int k = 0; k < 3; k++) {
+    sRect(S_AMMO, 8 + k * 6, 12, 11 + k * 6, 20, RGB565(230, 200, 40));
+    sRect(S_AMMO, 8 + k * 6, 12, 11 + k * 6, 13, RGB565(255, 245, 170));
+  }
+  sRect(S_AMMO, 7, 25, 24, 26, RGB565(60, 66, 25));
+}
+
+// ---------------------------------------------------------------- weapon
+#define WPN_W 48
+#define WPN_H 40
+uint16_t wpn[2][WPN_W * WPN_H];  // [0] idle, [1] firing
+static void wRect(int f, int x0, int y0, int x1, int y1, uint16_t c) {
+  for (int x = x0; x <= x1; x++)
+    for (int y = y0; y <= y1; y++)
+      if (x >= 0 && x < WPN_W && y >= 0 && y < WPN_H) wpn[f][x * WPN_H + y] = c;
+}
+static void wDisc(int f, int cx, int cy, int r, uint16_t c) {
+  for (int x = cx - r; x <= cx + r; x++)
+    for (int y = cy - r; y <= cy + r; y++)
+      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r) wRect(f, x, y, x, y, c);
+}
+static void makeWeapon() {
+  memset(wpn, 0, sizeof(wpn));
+  for (int f = 0; f < 2; f++) {
+    if (f) {
+      wDisc(f, 24, 7, 8, RGB565(255, 140, 20));
+      wDisc(f, 24, 7, 5, RGB565(255, 220, 60));
+      wDisc(f, 24, 7, 2, RGB565(255, 255, 230));
+    }
+    wRect(f, 20, 12, 27, 27, RGB565(60, 62, 72));   // barrel
+    wRect(f, 22, 12, 23, 27, RGB565(130, 134, 150));  // highlight
+    wRect(f, 19, 12, 28, 14, RGB565(35, 36, 42));   // muzzle
+    wRect(f, 14, 24, 33, 36, RGB565(90, 92, 105));  // body
+    wRect(f, 14, 24, 33, 25, RGB565(150, 152, 165));
+    wRect(f, 17, 28, 30, 31, f ? RGB565(200, 255, 220) : RGB565(40, 220, 120));  // energy cell
+    wRect(f, 11, 33, 36, 39, RGB565(200, 150, 110));  // hand
+    for (int k = 0; k < 4; k++) wRect(f, 14 + k * 6, 34, 14 + k * 6, 39, RGB565(150, 100, 70));
+  }
+}
+
+// ---------------------------------------------------------------- game state
+float posX, posY, dirX, dirY, planeX, planeY;
+int health = 100, ammo = 30, kills = 0, killsNeeded = 0, levelNo = 1;
+
+enum { M_DEMO, M_PLAY, M_DEAD };
+int mode = M_DEMO;
+
+enum { K_BOT, K_SLIME, K_ACID, K_MED, K_AMMO };
+enum { ST_ALIVE, ST_DEAD, ST_GONE };
+struct Actor {
+  float x, y, vx, vy;
+  uint8_t kind, state;
+  int8_t hp;
+  uint8_t pain;
+  int16_t cool;   // ms until it may attack again
+  uint16_t anim;  // ms accumulator for the walk cycle
+  bool seen, moving;
+};
+#define MAX_ACT 32
+Actor act[MAX_ACT];
+
+struct Spawn {
+  float x, y;
+  uint8_t kind;
+};
+const Spawn ENEMIES[] = {
+  { 3.5f, 3.5f, K_BOT }, { 16.5f, 3.5f, K_SLIME }, { 4.5f, 9.5f, K_SLIME }, { 16.5f, 9.5f, K_BOT },
+  { 11.5f, 15.5f, K_BOT }, { 3.5f, 15.5f, K_SLIME }, { 16.5f, 16.5f, K_BOT }, { 13.5f, 7.5f, K_BOT },
+  { 6.5f, 11.5f, K_SLIME }, { 2.5f, 14.5f, K_BOT },
+};
+const Spawn PICKUPS[] = {
+  { 2.5f, 2.5f, K_MED }, { 17.5f, 4.5f, K_AMMO }, { 10.5f, 15.5f, K_MED },
+  { 2.5f, 16.5f, K_AMMO }, { 12.5f, 6.5f, K_AMMO }, { 17.5f, 14.5f, K_MED },
+};
+#define N_ENEMIES (sizeof(ENEMIES) / sizeof(ENEMIES[0]))
+#define N_PICKUPS (sizeof(PICKUPS) / sizeof(PICKUPS[0]))
+
+// effects and timers (ms)
+int fireCool = 0, flashMs = 0, hurtMs = 0, gotMs = 0, bannerMs = 0, clearMs = 0;
+float bobPhase = 0;
+bool walking = false;
+uint32_t levelStartMs = 0;  // enemies hold fire for the first 3 s of a level
+bool hudDirty = true;  // repaint the whole status bar on the next frame
+char banner1[28] = "", banner2[28] = "";
+uint16_t bannerColor = 0;
+
+// input
+bool bUp, bDown, bLeft, bRight, bA, bB, prevA = false, prevB = false;
+uint32_t lastMs = 0;
+
+// per-frame render data
+float zbuf[SCREEN_W];
+struct Proj {
+  int16_t left, top, size;
+  float depth;
+  uint8_t sprite, actor, white;
+  uint16_t fog;
+};
+Proj proj[MAX_ACT];
+int nproj = 0;
+uint16_t colbuf[VIEW_H];
+uint16_t floorCol[VIEW_H][2], ceilCol[VIEW_H][2];
+float rowDist[VIEW_H];
+
+uint32_t frames = 0, fpsT0 = 0;
+int fpsWhole = 0, fpsFrac = 0;
+
+// ---------------------------------------------------------------- helpers
 static uint16_t shade(uint16_t c, uint16_t f) {
   uint16_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
   r = (r * f) >> 8;
@@ -11176,94 +11460,429 @@ static uint16_t shade(uint16_t c, uint16_t f) {
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-const uint16_t CEIL_COLOR = RGB565(28, 28, 44);
-const uint16_t FLOOR_COLOR = RGB565(48, 42, 36);
-
-// Player camera (DDA raycaster state).
-float posX = 8.5f, posY = 8.5f;
-float dirX = -1.0f, dirY = 0.0f;
-float planeX = 0.0f, planeY = 0.66f;
-
-uint32_t frames = 0;
-uint32_t fpsT0 = 0;
-int fpsWhole = 0, fpsFrac = 0;
-
-static void rotate(float a) {
-  float od = dirX;
-  dirX = dirX * cosf(a) - dirY * sinf(a);
-  dirY = od * sinf(a) + dirY * cosf(a);
-  float op = planeX;
-  planeX = planeX * cosf(a) - planeY * sinf(a);
-  planeY = op * sinf(a) + planeY * cosf(a);
-}
-
 static bool isWall(float x, float y) {
   int mx = (int)x, my = (int)y;
-  if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return true;
-  return worldMap[my][mx] != 0;
+  if (x < 0 || y < 0 || mx >= MAP_W || my >= MAP_H) return true;
+  return level[my][mx] != 0;
 }
 
-static void moveStep(float dist) {
-  float nx = posX + dirX * dist;
-  float ny = posY + dirY * dist;
-  if (!isWall(nx, posY)) posX = nx;
-  if (!isWall(posX, ny)) posY = ny;
+static bool blocked(float x, float y) {
+  const float r = 0.22f;
+  return isWall(x - r, y - r) || isWall(x + r, y - r) || isWall(x - r, y + r) || isWall(x + r, y + r);
 }
 
-static void handleInput() {
-  bool any = false;
-  if (digitalRead(BTN_FWD) == LOW) {
-    moveStep(0.10f);
-    any = true;
+static bool lineOfSight(float ax, float ay, float bx, float by) {
+  float dx = bx - ax, dy = by - ay;
+  int n = (int)(sqrtf(dx * dx + dy * dy) * 4.0f) + 1;
+  for (int i = 1; i < n; i++)
+    if (isWall(ax + dx * i / n, ay + dy * i / n)) return false;
+  return true;
+}
+
+static void rotate(float a) {
+  float c = cosf(a), s = sinf(a);
+  float od = dirX;
+  dirX = dirX * c - dirY * s;
+  dirY = od * s + dirY * c;
+  float op = planeX;
+  planeX = planeX * c - planeY * s;
+  planeY = op * s + planeY * c;
+}
+
+static void playerMove(float dx, float dy) {
+  if (!blocked(posX + dx, posY)) posX += dx;
+  if (!blocked(posX, posY + dy)) posY += dy;
+}
+
+static void setBanner(const char *a, const char *b, uint16_t color, int ms) {
+  strncpy(banner1, a, sizeof(banner1) - 1);
+  strncpy(banner2, b, sizeof(banner2) - 1);
+  bannerColor = color;
+  bannerMs = ms;
+}
+
+static int addActor(float x, float y, uint8_t kind) {
+  for (int i = 0; i < MAX_ACT; i++) {
+    if (act[i].state != ST_GONE) continue;
+    memset(&act[i], 0, sizeof(Actor));
+    act[i].x = x;
+    act[i].y = y;
+    act[i].kind = kind;
+    act[i].state = ST_ALIVE;
+    act[i].hp = (kind == K_BOT ? 3 : 2) + (levelNo - 1) / 2;
+    act[i].cool = kind == K_SLIME ? 600 + rnd() % 900 : 0;
+    return i;
   }
-  if (digitalRead(BTN_BACK) == LOW) {
-    moveStep(-0.10f);
-    any = true;
+  return -1;
+}
+
+static void loadLevel(int n) {
+  levelNo = n;
+  for (int y = 0; y < MAP_H; y++)
+    for (int x = 0; x < MAP_W; x++) level[y][x] = MAP_SRC[y][x] - '0';
+  for (int i = 0; i < MAX_ACT; i++) act[i].state = ST_GONE;
+  int count = 3 + 2 * n;
+  if (count > (int)N_ENEMIES) count = N_ENEMIES;
+  for (int i = 0; i < count; i++) addActor(ENEMIES[i].x, ENEMIES[i].y, ENEMIES[i].kind);
+  for (unsigned i = 0; i < N_PICKUPS; i++) addActor(PICKUPS[i].x, PICKUPS[i].y, PICKUPS[i].kind);
+  kills = 0;
+  killsNeeded = count;
+  levelStartMs = millis();
+  hudDirty = true;
+  posX = 9.5f;
+  posY = 8.5f;
+  dirX = 0.0f;
+  dirY = -1.0f;
+  planeX = 0.66f;
+  planeY = 0.0f;
+  char buf[20];
+  snprintf(buf, sizeof(buf), "LEVEL %d", n);
+  setBanner(buf, mode == M_DEMO ? "PRESS ANY BUTTON" : "CLEAR THE MAP", RGB565(255, 220, 60), 2500);
+  Serial.print("EVT level ");
+  Serial.println(n);
+}
+
+static void newGame() {
+  health = 100;
+  ammo = 30;
+  loadLevel(1);
+}
+
+static void hurtPlayer(int dmg) {
+  if (mode != M_PLAY) return;  // the demo is invincible
+  health -= dmg;
+  hurtMs = 250;
+  if (health <= 0) {
+    health = 0;
+    mode = M_DEAD;
+    setBanner("YOU DIED", "PRESS FIRE", RGB565(255, 60, 40), 0);
+    Serial.println("EVT died");
   }
-  if (digitalRead(BTN_LEFT) == LOW) {
-    rotate(0.06f);
-    any = true;
+}
+
+// ---------------------------------------------------------------- input
+static void readInput() {
+  bUp = digitalRead(BTN_UP) == LOW;
+  bDown = digitalRead(BTN_DOWN) == LOW;
+  bLeft = digitalRead(BTN_LEFT) == LOW;
+  bRight = digitalRead(BTN_RIGHT) == LOW;
+  bA = digitalRead(BTN_A) == LOW;
+  bB = digitalRead(BTN_B) == LOW;
+}
+
+static void tryOpenDoor() {
+  for (float d = 0.5f; d <= 1.5f; d += 0.25f) {
+    int mx = (int)(posX + dirX * d), my = (int)(posY + dirY * d);
+    if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return;
+    if (level[my][mx] == 9) {
+      level[my][mx] = 0;
+      Serial.println("EVT door");
+      return;
+    }
+    if (level[my][mx] != 0) return;
   }
-  if (digitalRead(BTN_RIGHT) == LOW) {
-    rotate(-0.06f);
-    any = true;
+}
+
+static void shoot() {
+  if (fireCool > 0) return;
+  if (ammo <= 0) {
+    if (mode == M_PLAY) setBanner("NO AMMO", "", RGB565(255, 80, 40), 600);
+    fireCool = 300;
+    return;
   }
-  if (!any) {
-    // Auto-demo: walk forward, slowly pan, and turn hard if about to hit a wall.
-    rotate(0.013f);
-    moveStep(0.05f);
-    if (isWall(posX + dirX * 0.25f, posY + dirY * 0.25f)) rotate(0.25f);
+  if (mode == M_PLAY) ammo--;
+  fireCool = 280;
+  flashMs = 90;
+  // Hitscan along the crosshair: the nearest enemy whose sprite covers the
+  // centre column in front of the wall there (proj is sorted far to near).
+  for (int p = nproj - 1; p >= 0; p--) {
+    Actor &a = act[proj[p].actor];
+    if (a.state != ST_ALIVE || (a.kind != K_BOT && a.kind != K_SLIME)) continue;
+    int margin = proj[p].size / 5;
+    if (SCREEN_W / 2 < proj[p].left + margin || SCREEN_W / 2 > proj[p].left + proj[p].size - margin) continue;
+    if (proj[p].depth > zbuf[SCREEN_W / 2]) continue;
+    a.pain = 3;
+    a.seen = true;
+    if (--a.hp <= 0) {
+      a.state = ST_DEAD;
+      kills++;
+      Serial.print("EVT kill ");
+      Serial.print(kills);
+      Serial.print('/');
+      Serial.println(killsNeeded);
+    }
+    return;
   }
+}
+
+static void playerControl(float dt) {
+  float move = 2.6f * dt, turn = 2.3f * dt;
+  walking = false;
+  if (bUp) {
+    playerMove(dirX * move, dirY * move);
+    walking = true;
+  }
+  if (bDown) {
+    playerMove(-dirX * move, -dirY * move);
+    walking = true;
+  }
+  if (bB) {  // B held: LEFT/RIGHT strafe along the camera plane
+    float sx = planeX / 0.66f * move, sy = planeY / 0.66f * move;
+    if (bLeft) playerMove(-sx, -sy), walking = true;
+    if (bRight) playerMove(sx, sy), walking = true;
+  } else {
+    if (bLeft) rotate(-turn);
+    if (bRight) rotate(turn);
+  }
+  if (bB && !prevB) tryOpenDoor();
+  if (bA) shoot();
+}
+
+// Attract mode: wander, face the nearest visible enemy and shoot it.
+static void demoPilot(float dt) {
+  int target = -1;
+  float best = 9.0f;
+  for (int i = 0; i < MAX_ACT; i++) {
+    Actor &a = act[i];
+    if (a.state != ST_ALIVE || (a.kind != K_BOT && a.kind != K_SLIME)) continue;
+    float dx = a.x - posX, dy = a.y - posY, d = sqrtf(dx * dx + dy * dy);
+    if (d < best && lineOfSight(posX, posY, a.x, a.y)) {
+      best = d;
+      target = i;
+    }
+  }
+  walking = true;
+  if (target >= 0) {
+    float dx = act[target].x - posX, dy = act[target].y - posY, d = sqrtf(dx * dx + dy * dy);
+    float cross = dirX * dy - dirY * dx;  // > 0: target is to the right
+    float dot = (dirX * dx + dirY * dy) / d;
+    if (cross > 0.05f * d || dot < 0) rotate(2.0f * dt);
+    else if (cross < -0.05f * d) rotate(-2.0f * dt);
+    else shoot();
+    if (best > 3.0f) playerMove(dirX * 1.2f * dt, dirY * 1.2f * dt);
+  } else {
+    rotate(0.35f * dt);
+    float step = 1.6f * dt;
+    if (blocked(posX + dirX * 0.6f, posY + dirY * 0.6f)) {
+      tryOpenDoor();
+      rotate(1.2f);
+    } else {
+      playerMove(dirX * step, dirY * step);
+    }
+  }
+  if (bUp || bDown || bLeft || bRight || bA || bB) {
+    mode = M_PLAY;
+    newGame();
+    Serial.println("EVT start");
+  }
+}
+
+// ---------------------------------------------------------------- actors
+static void actorMove(int i, float dx, float dy) {
+  Actor &a = act[i];
+  if (!blocked(a.x + dx, a.y)) a.x += dx;
+  if (!blocked(a.x, a.y + dy)) a.y += dy;
+}
+
+static void updateActors(float dt) {
+  int ms = (int)(dt * 1000.0f);
+  for (int i = 0; i < MAX_ACT; i++) {
+    Actor &a = act[i];
+    if (a.pain) a.pain--;  // the hit flash fades on corpses too
+    if (a.state != ST_ALIVE) continue;
+    float dx = posX - a.x, dy = posY - a.y;
+    float d = sqrtf(dx * dx + dy * dy);
+    if (a.cool > -1000) a.cool -= ms;
+    a.moving = false;
+
+    if (a.kind == K_MED || a.kind == K_AMMO) {
+      if (d < 0.5f && mode != M_DEAD) {
+        if (a.kind == K_MED && health < 100) {
+          health = health + 25 > 100 ? 100 : health + 25;
+          a.state = ST_GONE;
+          gotMs = 200;
+          setBanner("+25 HEALTH", "", RGB565(120, 255, 120), 900);
+          Serial.println("EVT medkit");
+        } else if (a.kind == K_AMMO) {
+          ammo += 12;
+          a.state = ST_GONE;
+          gotMs = 200;
+          setBanner("+12 AMMO", "", RGB565(255, 230, 80), 900);
+          Serial.println("EVT ammo");
+        }
+      }
+      continue;
+    }
+    if (a.kind == K_ACID) {
+      a.x += a.vx * dt;
+      a.y += a.vy * dt;
+      if (isWall(a.x, a.y)) a.state = ST_GONE;
+      else if (d < 0.4f) {
+        a.state = ST_GONE;
+        hurtPlayer(7);
+      }
+      continue;
+    }
+    if (!a.seen && d < 8.0f && lineOfSight(a.x, a.y, posX, posY)) a.seen = true;
+    if (!a.seen || mode == M_DEAD) continue;
+    bool armed = millis() - levelStartMs > 3000;
+    float ux = dx / d, uy = dy / d;
+    if (a.kind == K_BOT) {
+      if (d > 0.75f) {
+        float sp = (1.1f + 0.15f * levelNo) * dt;
+        actorMove(i, ux * sp, uy * sp);
+        a.moving = true;
+      } else if (armed && a.cool <= 0) {
+        hurtPlayer(5);
+        a.cool = 1000;
+        a.pain = 0;
+      }
+    } else {  // slime: keep its distance and spit
+      if (d > 3.0f) {
+        actorMove(i, ux * 0.8f * dt, uy * 0.8f * dt);
+        a.moving = true;
+      }
+      if (armed && a.cool <= 0 && d < 9.0f && lineOfSight(a.x, a.y, posX, posY)) {
+        int b = addActor(a.x + ux * 0.4f, a.y + uy * 0.4f, K_ACID);
+        if (b >= 0) {
+          act[b].vx = ux * 3.0f;
+          act[b].vy = uy * 3.0f;
+        }
+        a.cool = 2000 + rnd() % 1500 - levelNo * 100;
+      }
+    }
+    if (a.moving) a.anim += ms;
+  }
+}
+
+// ---------------------------------------------------------------- rendering
+static void precomputeRows() {
+  for (int y = 0; y < VIEW_H; y++) {
+    int dy = (y >= HORIZON) ? y - HORIZON : HORIZON - 1 - y;
+    float d = (WALL_SCALE * 0.5f) / (dy + 0.5f);
+    rowDist[y] = d;
+    float fog = 1.0f - d / 12.0f;
+    if (fog < 0.12f) fog = 0.12f;
+    uint16_t f = (uint16_t)(fog * 256.0f);
+    floorCol[y][0] = shade(RGB565(92, 80, 66), f);
+    floorCol[y][1] = shade(RGB565(64, 55, 46), f);
+    ceilCol[y][0] = shade(RGB565(52, 54, 70), f);
+    ceilCol[y][1] = shade(RGB565(38, 40, 52), f);
+  }
+}
+
+static int spriteFor(int i) {
+  Actor &a = act[i];
+  bool step = (a.anim / 220) % 2;
+  switch (a.kind) {
+    case K_BOT:
+      if (a.state == ST_DEAD) return S_BOT_DEAD;
+      if (a.cool > 600) return S_BOT_HIT;  // just struck
+      return step ? S_BOT_B : S_BOT_A;
+    case K_SLIME:
+      if (a.state == ST_DEAD) return S_SLIME_DEAD;
+      return step ? S_SLIME_B : S_SLIME_A;
+    case K_ACID: return S_ACID;
+    case K_MED: return S_MED;
+  }
+  return S_AMMO;
+}
+
+static void projectSprites() {
+  nproj = 0;
+  float invDet = 1.0f / (planeX * dirY - dirX * planeY);
+  for (int i = 0; i < MAX_ACT; i++) {
+    Actor &a = act[i];
+    if (a.state == ST_GONE) continue;
+    float sx = a.x - posX, sy = a.y - posY;
+    float tx = invDet * (dirY * sx - dirX * sy);
+    float ty = invDet * (-planeY * sx + planeX * sy);
+    if (ty < 0.2f || ty > 16.0f) continue;
+    float scale = (a.kind == K_MED || a.kind == K_AMMO) ? 0.45f : (a.kind == K_ACID ? 0.4f : 0.9f);
+    float lift = (a.kind == K_ACID) ? 0.3f : 0.0f;
+    int size = (int)(scale * WALL_SCALE / ty);
+    if (size < 2) continue;
+    int cx = (int)((SCREEN_W / 2) * (1.0f + tx / ty));
+    int bottom = HORIZON + (int)(WALL_SCALE * (0.5f - lift) / ty);
+    Proj &p = proj[nproj++];
+    p.left = cx - size / 2;
+    p.top = bottom - size;
+    p.size = size;
+    p.depth = ty;
+    p.sprite = spriteFor(i);
+    p.actor = i;
+    p.white = a.pain > 0;
+    float fog = 1.0f - ty / 14.0f;
+    if (a.kind == K_ACID) fog = 1.0f;  // it glows
+    p.fog = (uint16_t)((fog < 0.2f ? 0.2f : fog) * 256.0f);
+  }
+  // far to near (insertion sort; there are only a few)
+  for (int i = 1; i < nproj; i++) {
+    Proj t = proj[i];
+    int j = i - 1;
+    while (j >= 0 && proj[j].depth < t.depth) {
+      proj[j + 1] = proj[j];
+      j--;
+    }
+    proj[j + 1] = t;
+  }
+}
+
+static void textColumn(int x, const char *s, int scale, int y0, uint16_t color) {
+  int len = strlen(s);
+  if (!len) return;
+  int cw = 6 * scale, w = len * cw, x0 = SCREEN_W / 2 - w / 2;
+  if (x < x0 - 6 || x >= x0 + w + 6) return;
+  for (int y = y0 - 4; y < y0 + 8 * scale + 3 && y < VIEW_H; y++)
+    if (y >= 0) colbuf[y] = (colbuf[y] >> 2) & 0x39E7;
+  int rel = x - x0;
+  if (rel < 0 || rel >= w) return;
+  int cx = (rel % cw) / scale;
+  if (cx >= 5) return;
+  uint8_t bits = pgm_read_byte(&font[(uint8_t)s[rel / cw] * 5 + cx]);
+  for (int r = 0; r < 8; r++)
+    if ((bits >> r) & 1)
+      for (int k = 0; k < scale; k++) colbuf[y0 + r * scale + k] = color;
 }
 
 static void renderFrame() {
+  projectSprites();
+  int wbx = 0, wby = 0;  // weapon bob / recoil
+  if (walking) {
+    wbx = (int)(sinf(bobPhase) * 7.0f);
+    wby = (int)(fabsf(cosf(bobPhase)) * 6.0f);
+  }
+  if (flashMs > 0) wby -= 6;
+  int wx0 = SCREEN_W / 2 - WPN_W + wbx, wy0 = VIEW_H - WPN_H * 2 + 8 + wby;
+  int wf = flashMs > 0 ? 1 : 0;
+  bool showText = banner1[0] && (bannerMs > 0 || mode == M_DEAD);
+  bool demoBlink = mode == M_DEMO && !showText && (millis() / 600) % 2;
+
   tft.startWrite();
   for (int x = 0; x < SCREEN_W; x++) {
     float cameraX = 2.0f * x / (float)SCREEN_W - 1.0f;
-    float rayDirX = dirX + planeX * cameraX;
-    float rayDirY = dirY + planeY * cameraX;
+    float rdx = dirX + planeX * cameraX;
+    float rdy = dirY + planeY * cameraX;
 
     int mapX = (int)posX, mapY = (int)posY;
-    float deltaX = (rayDirX == 0.0f) ? 1e30f : fabsf(1.0f / rayDirX);
-    float deltaY = (rayDirY == 0.0f) ? 1e30f : fabsf(1.0f / rayDirY);
-
+    float deltaX = (rdx == 0.0f) ? 1e30f : fabsf(1.0f / rdx);
+    float deltaY = (rdy == 0.0f) ? 1e30f : fabsf(1.0f / rdy);
     int stepX, stepY;
     float sideX, sideY;
-    if (rayDirX < 0) {
+    if (rdx < 0) {
       stepX = -1;
       sideX = (posX - mapX) * deltaX;
     } else {
       stepX = 1;
       sideX = (mapX + 1.0f - posX) * deltaX;
     }
-    if (rayDirY < 0) {
+    if (rdy < 0) {
       stepY = -1;
       sideY = (posY - mapY) * deltaY;
     } else {
       stepY = 1;
       sideY = (mapY + 1.0f - posY) * deltaY;
     }
-
     int side = 0;
     uint8_t tile = 1;
     for (int guard = 0; guard < 64; guard++) {
@@ -11280,90 +11899,273 @@ static void renderFrame() {
         tile = 1;
         break;
       }
-      tile = worldMap[mapY][mapX];
+      tile = level[mapY][mapX];
       if (tile != 0) break;
     }
-
     float perp = (side == 0) ? (sideX - deltaX) : (sideY - deltaY);
     if (perp < 0.05f) perp = 0.05f;
+    zbuf[x] = perp;
 
-    int lineH = (int)(SCREEN_H / perp);
-    int drawStart = SCREEN_H / 2 - lineH / 2;
-    int drawEnd = SCREEN_H / 2 + lineH / 2;
-    if (drawStart < 0) drawStart = 0;
-    if (drawEnd > SCREEN_H - 1) drawEnd = SCREEN_H - 1;
-
-    // Distance fog + darker E/W faces for a sense of depth.
-    float fog = 1.0f - perp / 16.0f;
-    if (fog < 0.18f) fog = 0.18f;
+    // texture column, shaded once for this distance
+    float wallX = (side == 0) ? posY + perp * rdy : posX + perp * rdx;
+    wallX -= floorf(wallX);
+    int texX = (int)(wallX * TEX);
+    if ((side == 0 && rdx < 0) || (side == 1 && rdy > 0)) texX = TEX - 1 - texX;
+    float fog = 1.0f - perp / 12.0f;
+    if (fog < 0.12f) fog = 0.12f;
     uint16_t f = (uint16_t)(fog * 256.0f);
-    if (side == 1) f = (f * 180) >> 8;
-    uint16_t col = shade(wallColor(tile), f);
+    if (side == 1) f = (f * 190) >> 8;
+    const uint16_t *src = &tex[tile == 9 ? 6 : (tile > 5 ? 1 : tile)][texX * TEX];
+    uint16_t texcol[TEX];
+    for (int t = 0; t < TEX; t++) texcol[t] = shade(src[t], f);
 
-    if (drawStart > 0)
-      tft.writeFastVLine(x, 0, drawStart, CEIL_COLOR);
-    tft.writeFastVLine(x, drawStart, drawEnd - drawStart + 1, col);
-    if (drawEnd < SCREEN_H - 1)
-      tft.writeFastVLine(x, drawEnd + 1, SCREEN_H - 1 - drawEnd, FLOOR_COLOR);
+    int lineH = (int)(WALL_SCALE / perp);
+    int drawStart = HORIZON - lineH / 2;
+    int drawEnd = HORIZON + lineH / 2;
+    if (drawStart < 0) drawStart = 0;
+    if (drawEnd > VIEW_H - 1) drawEnd = VIEW_H - 1;
+
+    // ceiling and floor: cast each row onto the map for a tiled pattern
+    for (int y = 0; y < drawStart; y++) {
+      float d = rowDist[y];
+      int tx = (int)((posX + d * rdx) * 2.0f), ty = (int)((posY + d * rdy) * 2.0f);
+      colbuf[y] = ceilCol[y][(tx ^ ty) & 1];
+    }
+    uint32_t step = ((uint32_t)TEX << 16) / (uint32_t)lineH;
+    uint32_t texPos = (uint32_t)(drawStart - HORIZON + lineH / 2) * step;
+    for (int y = drawStart; y <= drawEnd; y++) {
+      colbuf[y] = texcol[(texPos >> 16) & (TEX - 1)];
+      texPos += step;
+    }
+    for (int y = drawEnd + 1; y < VIEW_H; y++) {
+      float d = rowDist[y];
+      int tx = (int)((posX + d * rdx) * 2.0f), ty = (int)((posY + d * rdy) * 2.0f);
+      colbuf[y] = floorCol[y][(tx ^ ty) & 1];
+    }
+
+    // sprites, far to near, clipped by the wall depth
+    for (int p = 0; p < nproj; p++) {
+      Proj &s = proj[p];
+      if (x < s.left || x >= s.left + s.size || s.depth >= perp) continue;
+      int sx = ((x - s.left) * SPR) / s.size;
+      const uint16_t *sc = &spr[s.sprite][sx * SPR];
+      uint16_t scol[SPR];
+      for (int t = 0; t < SPR; t++)
+        scol[t] = sc[t] ? (s.white ? RGB565(255, 255, 255) : shade(sc[t], s.fog)) : 0;
+      int y0 = s.top < 0 ? 0 : s.top;
+      int y1 = s.top + s.size;
+      if (y1 > VIEW_H) y1 = VIEW_H;
+      uint32_t sstep = ((uint32_t)SPR << 16) / (uint32_t)s.size;
+      uint32_t spos = (uint32_t)(y0 - s.top) * sstep;
+      for (int y = y0; y < y1; y++) {
+        uint16_t c = scol[(spos >> 16) & (SPR - 1)];
+        if (c) colbuf[y] = c;
+        spos += sstep;
+      }
+    }
+
+    // crosshair
+    if (mode != M_DEAD) {
+      if (x >= SCREEN_W / 2 - 4 && x <= SCREEN_W / 2 + 4 && x != SCREEN_W / 2) colbuf[HORIZON] = RGB565(120, 255, 140);
+      if (x == SCREEN_W / 2)
+        for (int y = HORIZON - 4; y <= HORIZON + 4; y++)
+          if (y != HORIZON) colbuf[y] = RGB565(120, 255, 140);
+    }
+
+    // weapon, 2x scaled
+    if (mode != M_DEAD && x >= wx0 && x < wx0 + WPN_W * 2) {
+      const uint16_t *wc = &wpn[wf][((x - wx0) >> 1) * WPN_H];
+      for (int y = wy0 < 0 ? 0 : wy0; y < VIEW_H; y++) {
+        int wy = (y - wy0) >> 1;
+        if (wy >= WPN_H) break;
+        if (wc[wy]) colbuf[y] = wc[wy];
+      }
+    }
+
+    // full-screen tints
+    if (mode == M_DEAD) {
+      for (int y = 0; y < VIEW_H; y++) colbuf[y] = ((colbuf[y] >> 1) & 0x7BEF) + 0x7800;
+    } else if (hurtMs > 0) {  // 3/4 picture + a quarter of red
+      for (int y = 0; y < VIEW_H; y++) {
+        uint16_t c = colbuf[y];
+        colbuf[y] = ((c >> 1) & 0x7BEF) + ((c >> 2) & 0x39E7) + 0x3800;
+      }
+    } else if (gotMs > 0) {
+      for (int y = 0; y < VIEW_H; y++) colbuf[y] = ((colbuf[y] >> 1) & 0x7BEF) + 0x39E0;
+    }
+
+    if (showText) {
+      textColumn(x, banner1, 3, 46, bannerColor);
+      textColumn(x, banner2, 1, 78, RGB565(230, 230, 230));
+    } else if (demoBlink) {
+      textColumn(x, "DEMO - PRESS ANY BUTTON", 1, 12, RGB565(255, 220, 60));
+    }
+
+    tft.setAddrWindow(x, 0, 1, VIEW_H);
+    tft.writePixels(colbuf, VIEW_H);
   }
   tft.endWrite();
 }
 
-static void drawHud() {
-  tft.fillRect(0, 0, 168, 16, RGB565(0, 0, 0));
-  tft.setTextSize(1);
-  tft.setTextColor(RGB565(0, 255, 80));
-  tft.setCursor(4, 4);
-  tft.print("VELXIO DOOM  FPS ");
-  tft.print(fpsWhole);
-  tft.print('.');
-  tft.print(fpsFrac);
+// ---------------------------------------------------------------- status bar
+const uint16_t HUD_BG = RGB565(28, 28, 34);
+
+static void hudField(int x, int w, const char *txt, uint16_t color) {
+  tft.setTextSize(2);
+  tft.setTextColor(color, HUD_BG);
+  tft.setCursor(x, HUD_Y + 18);
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%-*s", w, txt);
+  tft.print(buf);
 }
 
+static void drawHud(bool force) {
+  static int cHp = -1, cAmmo = -1, cKills = -1, cLvl = -1, cFps = -1;
+  char buf[16];
+  if (force) {
+    tft.fillRect(0, HUD_Y, SCREEN_W, 240 - HUD_Y, HUD_BG);
+    tft.drawFastHLine(0, HUD_Y, SCREEN_W, RGB565(90, 90, 110));
+    tft.setTextSize(1);
+    tft.setTextColor(RGB565(150, 150, 165), HUD_BG);
+    tft.setCursor(8, HUD_Y + 6);
+    tft.print("HEALTH");
+    tft.setCursor(92, HUD_Y + 6);
+    tft.print("AMMO");
+    tft.setCursor(160, HUD_Y + 6);
+    tft.print("KILLS");
+    tft.setCursor(246, HUD_Y + 6);
+    tft.print("LEVEL");
+    cHp = cAmmo = cKills = cLvl = cFps = -1;
+  }
+  if (health != cHp) {
+    cHp = health;
+    snprintf(buf, sizeof(buf), "%d%%", health);
+    uint16_t c = health > 50 ? RGB565(90, 255, 110) : (health > 25 ? RGB565(255, 220, 60) : RGB565(255, 70, 50));
+    hudField(8, 4, buf, c);
+  }
+  if (ammo != cAmmo) {
+    cAmmo = ammo;
+    snprintf(buf, sizeof(buf), "%d", ammo);
+    hudField(92, 3, buf, ammo > 5 ? RGB565(255, 220, 60) : RGB565(255, 70, 50));
+  }
+  int k = kills * 100 + killsNeeded;
+  if (k != cKills) {
+    cKills = k;
+    snprintf(buf, sizeof(buf), "%d/%d", kills, killsNeeded);
+    hudField(160, 5, buf, RGB565(235, 235, 240));
+  }
+  if (levelNo != cLvl) {
+    cLvl = levelNo;
+    snprintf(buf, sizeof(buf), "%d", levelNo);
+    hudField(246, 2, buf, RGB565(120, 200, 255));
+  }
+  int fps10 = fpsWhole * 10 + fpsFrac;
+  if (fps10 != cFps) {
+    cFps = fps10;
+    tft.setTextSize(1);
+    tft.setTextColor(RGB565(0, 200, 80), HUD_BG);
+    tft.setCursor(290, HUD_Y + 6);
+    snprintf(buf, sizeof(buf), "%2d.%d", fpsWhole, fpsFrac);
+    tft.print(buf);
+    tft.setCursor(290, HUD_Y + 18);
+    tft.print("FPS");
+  }
+}
+
+// ---------------------------------------------------------------- main
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("VELXIO DOOM raycaster -- ESP32 + ILI9341 (Adafruit, HW SPI)");
-  pinMode(BTN_FWD, INPUT_PULLUP);
-  pinMode(BTN_BACK, INPUT_PULLUP);
+  Serial.println("VELXIO DOOM -- ESP32 + ILI9341 (Adafruit, HW SPI)");
+  pinMode(BTN_UP, INPUT_PULLUP);
+  pinMode(BTN_DOWN, INPUT_PULLUP);
   pinMode(BTN_LEFT, INPUT_PULLUP);
   pinMode(BTN_RIGHT, INPUT_PULLUP);
+  pinMode(BTN_A, INPUT_PULLUP);
+  pinMode(BTN_B, INPUT_PULLUP);
 
   tftSPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
   tft.begin(40000000);  // 40 MHz nominal SPI
   tft.setRotation(1);   // landscape 320x240
-  tft.fillScreen(RGB565(0, 0, 0));
-  tft.setTextSize(3);
-  tft.setTextColor(RGB565(0, 255, 80));
-  tft.setCursor(36, 96);
+  tft.fillScreen(INK);
+  tft.setTextSize(4);
+  tft.setTextColor(RGB565(200, 30, 20));
+  tft.setCursor(30, 70);
   tft.print("VELXIO DOOM");
   tft.setTextSize(1);
   tft.setTextColor(RGB565(180, 180, 180));
-  tft.setCursor(60, 140);
-  tft.print("raycaster emulation benchmark");
-  delay(600);
-  fpsT0 = millis();
+  tft.setCursor(52, 130);
+  tft.print("D-PAD move   A fire   B door/strafe");
+
+  makeTextures();
+  makeSprites();
+  makeWeapon();
+  precomputeRows();
+  for (int i = 0; i < MAX_ACT; i++) act[i].state = ST_GONE;
+  loadLevel(1);
+  delay(800);
+  lastMs = fpsT0 = millis();
 }
 
 void loop() {
-  handleInput();
+  uint32_t now = millis();
+  float dt = (now - lastMs) / 1000.0f;
+  if (dt > 0.1f) dt = 0.1f;
+  int ms = (int)(dt * 1000.0f);
+  lastMs = now;
+
+  readInput();
+  if (mode == M_DEMO) demoPilot(dt);
+  else if (mode == M_PLAY) playerControl(dt);
+  else if (bA && !prevA) {  // dead: FIRE restarts
+    mode = M_PLAY;
+    newGame();
+  }
+  prevA = bA;
+  prevB = bB;
+
+  updateActors(dt);
+  if (walking) bobPhase += dt * 9.0f;
+  fireCool -= ms;
+  flashMs -= ms;
+  hurtMs -= ms;
+  gotMs -= ms;
+  if (bannerMs > 0) {
+    bannerMs -= ms;
+    if (bannerMs <= 0 && mode != M_DEAD) banner1[0] = banner2[0] = 0;
+  }
+  if (kills >= killsNeeded && mode != M_DEAD) {
+    if (clearMs == 0) {
+      clearMs = 2500;
+      setBanner("LEVEL CLEAR", "NEXT WAVE INCOMING", RGB565(90, 255, 110), 2500);
+      Serial.println("EVT clear");
+    } else {
+      clearMs -= ms;
+      if (clearMs <= 0) {
+        clearMs = 0;
+        loadLevel(levelNo + 1);
+      }
+    }
+  }
+
   renderFrame();
-  drawHud();
+  drawHud(hudDirty);
+  hudDirty = false;
   frames++;
 
   if (frames % 10 == 0) {
-    uint32_t now = millis();
-    uint32_t dms = now - fpsT0;
+    uint32_t t = millis();
+    uint32_t dms = t - fpsT0;
     if (dms == 0) dms = 1;
-    // FPS x10 (tenths), integer math to avoid %f (nano newlib has no float printf).
+    // FPS x10 (tenths), integer math (nano newlib has no float printf).
     uint32_t fps_x10 = (10u * 1000u * 10u) / dms;
     fpsWhole = fps_x10 / 10;
     fpsFrac = fps_x10 % 10;
-    fpsT0 = now;
+    fpsT0 = t;
     Serial.print("STAT frame=");
     Serial.print(frames);
     Serial.print(" t_ms=");
-    Serial.print(now);
+    Serial.print(t);
     Serial.print(" devfps=");
     Serial.print(fpsWhole);
     Serial.print('.');
@@ -11372,17 +12174,23 @@ void loop() {
 }
 `,
     components: [
-      { type: 'wokwi-ili9341', id: 'tft1', x: 380, y: 40, properties: {} },
-      { type: 'wokwi-pushbutton', id: 'btn_fwd', x: 360, y: 330, properties: { color: 'green' } },
-      { type: 'wokwi-pushbutton', id: 'btn_back', x: 470, y: 330, properties: { color: 'red' } },
-      { type: 'wokwi-pushbutton', id: 'btn_left', x: 580, y: 330, properties: { color: 'blue' } },
       {
-        type: 'wokwi-pushbutton',
-        id: 'btn_right',
-        x: 690,
-        y: 330,
-        properties: { color: 'yellow' },
+        type: 'wokwi-ili9341',
+        id: 'tft1',
+        x: 358,
+        y: 2,
+        // Turned a quarter clockwise: the sketch draws landscape
+        // (setRotation(1)), so this is the angle at which the picture reads
+        // upright, and it brings the pin header to the left edge, facing the
+        // board.
+        properties: { rotation: 90 },
       },
+      { type: 'wokwi-pushbutton', id: 'btn_up', x: 107, y: 370, properties: { color: 'black' } },
+      { type: 'wokwi-pushbutton', id: 'btn_down', x: 107, y: 486, properties: { color: 'black' } },
+      { type: 'wokwi-pushbutton', id: 'btn_left', x: 38, y: 428, properties: { color: 'black' } },
+      { type: 'wokwi-pushbutton', id: 'btn_right', x: 176, y: 428, properties: { color: 'black' } },
+      { type: 'wokwi-pushbutton', id: 'btn_b', x: 340, y: 430, properties: { color: 'blue' } },
+      { type: 'wokwi-pushbutton', id: 'btn_a', x: 430, y: 400, properties: { color: 'red' } },
     ],
     wires: [
       {
@@ -11435,56 +12243,80 @@ void loop() {
       },
       {
         id: 'd-gnd',
-        start: { componentId: 'esp32', pinName: 'GND' },
+        start: { componentId: 'esp32', pinName: 'GND2' },
         end: { componentId: 'tft1', pinName: 'GND' },
         color: '#2c3e50',
       },
       {
-        id: 'd-bf-s',
+        id: 'd-btn_up',
         start: { componentId: 'esp32', pinName: '32' },
-        end: { componentId: 'btn_fwd', pinName: '1.l' },
+        end: { componentId: 'btn_up', pinName: '1.l' },
         color: '#16a085',
       },
       {
-        id: 'd-bf-g',
-        start: { componentId: 'esp32', pinName: 'GND' },
-        end: { componentId: 'btn_fwd', pinName: '2.l' },
-        color: '#000000',
-      },
-      {
-        id: 'd-bb-s',
+        id: 'd-btn_down',
         start: { componentId: 'esp32', pinName: '33' },
-        end: { componentId: 'btn_back', pinName: '1.l' },
-        color: '#c0392b',
+        end: { componentId: 'btn_down', pinName: '1.l' },
+        color: '#27ae60',
       },
       {
-        id: 'd-bb-g',
-        start: { componentId: 'esp32', pinName: 'GND2' },
-        end: { componentId: 'btn_back', pinName: '2.l' },
-        color: '#000000',
-      },
-      {
-        id: 'd-bl-s',
+        id: 'd-btn_left',
         start: { componentId: 'esp32', pinName: '25' },
         end: { componentId: 'btn_left', pinName: '1.l' },
         color: '#2980b9',
       },
       {
-        id: 'd-bl-g',
+        id: 'd-btn_right',
+        start: { componentId: 'esp32', pinName: '15' },
+        end: { componentId: 'btn_right', pinName: '1.r' },
+        color: '#8e44ad',
+      },
+      {
+        id: 'd-btn_b',
+        start: { componentId: 'esp32', pinName: '21' },
+        end: { componentId: 'btn_b', pinName: '1.l' },
+        color: '#f39c12',
+      },
+      {
+        id: 'd-btn_a',
+        start: { componentId: 'esp32', pinName: '22' },
+        end: { componentId: 'btn_a', pinName: '1.l' },
+        color: '#c0392b',
+      },
+      {
+        id: 'd-gnd0',
         start: { componentId: 'esp32', pinName: 'GND' },
         end: { componentId: 'btn_left', pinName: '2.l' },
         color: '#000000',
       },
       {
-        id: 'd-br-s',
-        start: { componentId: 'esp32', pinName: '26' },
-        end: { componentId: 'btn_right', pinName: '1.l' },
-        color: '#f39c12',
+        id: 'd-gnd1',
+        start: { componentId: 'btn_up', pinName: '2.r' },
+        end: { componentId: 'btn_right', pinName: '2.l' },
+        color: '#000000',
       },
       {
-        id: 'd-br-g',
-        start: { componentId: 'esp32', pinName: 'GND2' },
+        id: 'd-gnd2',
+        start: { componentId: 'btn_left', pinName: '2.r' },
+        end: { componentId: 'btn_down', pinName: '2.l' },
+        color: '#000000',
+      },
+      {
+        id: 'd-gnd3',
+        start: { componentId: 'btn_down', pinName: '2.r' },
         end: { componentId: 'btn_right', pinName: '2.l' },
+        color: '#000000',
+      },
+      {
+        id: 'd-gnd4',
+        start: { componentId: 'btn_right', pinName: '2.r' },
+        end: { componentId: 'btn_b', pinName: '2.l' },
+        color: '#000000',
+      },
+      {
+        id: 'd-gnd5',
+        start: { componentId: 'btn_b', pinName: '2.r' },
+        end: { componentId: 'btn_a', pinName: '2.l' },
         color: '#000000',
       },
     ],
