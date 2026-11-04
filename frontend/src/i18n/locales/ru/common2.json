@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "Загрузить прошивку",
       "recordLabel": "Записать симуляцию",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Прошить",
+        "title": "Прошить реальную плату по USB",
+        "pick": "Какую плату прошить?",
+        "active": "активная"
+      }
     },
     "fileExplorer": {
       "workspace": "РАБОЧАЯ ОБЛАСТЬ",

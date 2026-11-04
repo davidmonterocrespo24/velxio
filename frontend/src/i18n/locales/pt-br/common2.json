@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "Enviar firmware",
       "recordLabel": "Gravar simulação",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Gravar placa",
+        "title": "Gravar em uma placa real via USB",
+        "pick": "Qual placa gravar?",
+        "active": "ativa"
+      }
     },
     "fileExplorer": {
       "workspace": "WORKSPACE",

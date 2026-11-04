@@ -88,8 +88,12 @@ import { BOARD_KIND_FQBN, boardDisplayName } from '../../types/board';
 import { blockedByBoardGate } from '../../lib/proBoardGate';
 import { FlashModal } from './FlashModal';
 import { isTauri as isTauriRuntimeFn } from '../../desktop/tauriBridge';
-import { webFlashAvailable, webFlashMpyAvailable } from '../../lib/proWebFlash';
-import { boardKindHasUf2 } from '../../utils/uf2Download';
+import {
+  OPEN_FLASH_EVENT,
+  boardFlashSupport,
+  requestFlashDialog,
+  type OpenFlashDetail,
+} from '../../lib/flashRequest';
 import { isEsp32Family } from '../../types/boardOptions';
 import { BoardOptionsModal } from './BoardOptionsModal';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
@@ -489,6 +493,22 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Cached Tauri-runtime probe — used to gate the "Flash to real
   // board" menu item in web builds. Hooks-stable across re-renders.
   const isTauriRuntime = useRef(isTauriRuntimeFn()).current;
+  // Every way into the Flash dialog (board context menu, the toolbar button
+  // next to Run, an overlay such as the agent's chat card) arrives as one
+  // window event; this canvas is its only listener. A board that cannot be
+  // flashed here is ignored rather than opening a dialog that would fail.
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<OpenFlashDetail>).detail;
+      const st = useSimulatorStore.getState();
+      const id = detail?.boardId ?? st.activeBoardId;
+      const target = st.boards.find((b) => b.id === id);
+      if (!target || boardFlashSupport(target, isTauriRuntime).disabled) return;
+      setFlashModalFor(target.id);
+    };
+    window.addEventListener(OPEN_FLASH_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_FLASH_EVENT, onOpen);
+  }, [isTauriRuntime]);
 
   // Click vs drag detection
   const [clickStartTime, setClickStartTime] = useState<number>(0);
@@ -3829,34 +3849,29 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           // boards also program from a .uf2 dropped on their BOOTSEL drive,
           // which needs no flasher at all, so their entry is always there:
           // without a flasher the dialog offers the download.
-          const isMpy = board.languageMode === 'micropython';
-          const webFlashOk = webFlashAvailable(board.boardKind);
-          const uf2Only = !isTauriRuntime && !webFlashOk && !isMpy && boardKindHasUf2(board.boardKind);
-          if (isTauriRuntime || webFlashOk || uf2Only) {
-            // MicroPython boards don't compile to a flash image — the store
-            // keeps the 'micropython-loaded' sentinel. They flash only when
-            // the overlay implements the MicroPython path (firmware install
-            // + raw-REPL file upload); no compile step is required there,
-            // the workspace files are always available.
-            const mpyWebOk =
-              isMpy && !isTauriRuntime && webFlashMpyAvailable(board.boardKind);
-            // Arduino/ESP-IDF boards are always flashable: the Flash dialog
-            // compiles first when there is no build (or a stale one).
+          // The same gate the toolbar button and overlays use (lib/flashRequest).
+          // MicroPython boards don't compile to a flash image — the store
+          // keeps the 'micropython-loaded' sentinel. They flash only when
+          // the overlay implements the MicroPython path (firmware install
+          // + raw-REPL file upload); Arduino/ESP-IDF boards are always
+          // flashable: the Flash dialog compiles first when there is no build.
+          const flash = boardFlashSupport(board, isTauriRuntime);
+          if (flash.route) {
             actions.push({
               id: 'flash',
               label: t('editor.canvas.flashToBoard'),
-              disabled: isMpy ? !mpyWebOk : false,
-              title: isMpy
-                ? mpyWebOk
-                  ? t('editor.canvas.flashHint.mpy')
-                  : t('editor.canvas.flashHint.mpyUnavailable')
-                : uf2Only
+              disabled: flash.disabled,
+              title: flash.micropython
+                ? flash.disabled
+                  ? t('editor.canvas.flashHint.mpyUnavailable')
+                  : t('editor.canvas.flashHint.mpy')
+                : flash.route === 'uf2'
                   ? t('editor.canvas.flashHint.uf2Download')
                   : board.compiledProgram
                     ? t('editor.canvas.flashHint.ready')
                     : t('editor.canvas.flashHint.willCompile'),
               onSelect: () => {
-                setFlashModalFor(boardContextMenu.boardId);
+                requestFlashDialog(boardContextMenu.boardId, 'context_menu');
                 setBoardContextMenu(null);
               },
             });

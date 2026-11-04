@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "Firmware hochladen",
       "recordLabel": "Simulation aufzeichnen",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Flashen",
+        "title": "Auf ein echtes Board per USB flashen",
+        "pick": "Welches Board flashen?",
+        "active": "aktiv"
+      }
     },
     "fileExplorer": {
       "workspace": "ARBEITSBEREICH",

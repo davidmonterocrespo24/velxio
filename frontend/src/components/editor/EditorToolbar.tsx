@@ -6,6 +6,8 @@ import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
 import { useSimulatorStore, piRerunScript, keepWireShapes } from '../../store/useSimulatorStore';
 import { decideEngine } from '../../lib/instantEngine';
 import { blockedByBoardGate } from '../../lib/proBoardGate';
+import { boardFlashSupport, requestFlashDialog } from '../../lib/flashRequest';
+import { onWebFlashImplChange } from '../../lib/proWebFlash';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { type VerificationResult } from '../../simulation/verify/circuitVerifier';
 import { verifyCircuitFromStore } from '../../simulation/verify/verifyFromStore';
@@ -213,6 +215,8 @@ export const EditorToolbar = ({
   // project is one system — running a subset is almost never intended), with a
   // split-menu to still run just the active board. Single-board is unchanged.
   const isMultiBoard = boards.length > 1;
+  // Boards this build/browser can put on real hardware (lib/flashRequest).
+  const flashTargets = boards.filter((b) => !boardFlashSupport(b).disabled);
 
   // A "run target" is a board OR a programmable custom-chip (a CPU that runs a
   // ROM). When there is more than one target — two boards, a board + a chip, or
@@ -273,6 +277,15 @@ export const EditorToolbar = ({
   // Split-button menu for the multi-board Run control ("Run all" / "Run active only").
   const [runMenuOpen, setRunMenuOpen] = useState(false);
   const runMenuRef = useRef<HTMLDivElement>(null);
+  // "Flash to real board" next to Run. It used to live only in the board's
+  // context menu, where almost nobody found it. One flashable board flashes
+  // at the click; several open a picker (each board has its own program).
+  const [flashMenuOpen, setFlashMenuOpen] = useState(false);
+  const flashMenuRef = useRef<HTMLDivElement>(null);
+  // The overlay installs its web flasher after a dynamic import: re-render
+  // when it lands, or the button stays hidden until something else changes.
+  const [, setFlashImplTick] = useState(0);
+  useEffect(() => onWebFlashImplChange(() => setFlashImplTick((n) => n + 1)), []);
 
   // Open the Library Manager when another component (e.g. the velxio.json entry
   // in the FileExplorer) asks for it via a window event. Avoids prop-drilling
@@ -332,6 +345,24 @@ export const EditorToolbar = ({
       document.removeEventListener('keydown', onEsc);
     };
   }, [runMenuOpen]);
+
+  useEffect(() => {
+    if (!flashMenuOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (flashMenuRef.current && !flashMenuRef.current.contains(e.target as Node)) {
+        setFlashMenuOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFlashMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [flashMenuOpen]);
 
   // Compile All / Run All — runs sequentially, logs to console (no dialog)
   const [compileAllRunning, setCompileAllRunning] = useState(false);
@@ -1960,6 +1991,69 @@ export const EditorToolbar = ({
                 <path d="M3 3v5h5" />
               </svg>
             </button>
+
+            {/* Flash to real board — one board flashes at the click, several
+                open a picker. The dialog itself (port, compile, progress)
+                is the canvas's FlashModal, reached through the open event. */}
+            {flashTargets.length > 0 && (
+              <div className="tb-run-split" ref={flashMenuRef}>
+                <button
+                  onClick={() => {
+                    if (flashTargets.length === 1) {
+                      requestFlashDialog(flashTargets[0].id, 'toolbar');
+                    } else {
+                      setFlashMenuOpen((o) => !o);
+                    }
+                  }}
+                  disabled={compiling || verifying}
+                  className="tb-btn tb-btn-flash"
+                  title={t('editor.toolbar.flash.title', 'Flash to a real board over USB')}
+                  aria-haspopup={flashTargets.length > 1 ? 'true' : undefined}
+                  aria-expanded={flashTargets.length > 1 ? flashMenuOpen : undefined}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 2v8M8.5 6.5 12 10l3.5-3.5" />
+                    <rect x="7" y="12.5" width="10" height="8.5" rx="1.5" />
+                    <path d="M4 15h3M4 18.5h3M17 15h3M17 18.5h3" />
+                  </svg>
+                  <span className="tb-flash-label">{t('editor.toolbar.flash.label', 'Flash')}</span>
+                </button>
+                {flashTargets.length > 1 && flashMenuOpen && (
+                  <div className="tb-run-menu" role="menu">
+                    <div className="tb-run-menu-title">
+                      {t('editor.toolbar.flash.pick', 'Flash which board?')}
+                    </div>
+                    {flashTargets.map((b) => (
+                      <button
+                        key={b.id}
+                        role="menuitem"
+                        className="tb-run-menu-item"
+                        onClick={() => {
+                          setFlashMenuOpen(false);
+                          requestFlashDialog(b.id, 'toolbar');
+                        }}
+                      >
+                        {boardDisplayName(b)}
+                        {b.id === activeBoardId && (
+                          <span className="tb-run-menu-tag">
+                            {t('editor.toolbar.flash.active', 'active')}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {targetCount > 1 && (
               <>

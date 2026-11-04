@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "上传固件",
       "recordLabel": "录制仿真",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "烧录",
+        "title": "通过 USB 烧录到真实开发板",
+        "pick": "烧录哪块开发板？",
+        "active": "当前"
+      }
     },
     "fileExplorer": {
       "workspace": "工作区",

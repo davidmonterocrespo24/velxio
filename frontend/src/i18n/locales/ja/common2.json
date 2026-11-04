@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "ファームウェアをアップロード",
       "recordLabel": "シミュレーションを録画",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "書き込み",
+        "title": "USB で実機ボードに書き込む",
+        "pick": "どのボードに書き込みますか？",
+        "active": "アクティブ"
+      }
     },
     "fileExplorer": {
       "workspace": "ワークスペース",
