@@ -852,6 +852,40 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         </div>
       )}
 
+      {/* Keyboard key bound to this pushbutton. Always visible, not in the
+          hover-only label below: it used to live there and nobody saw that a
+          game's buttons could be played from the keyboard. Absolutely
+          positioned, so it never moves the pins. */}
+      {isKeyBindable(metadata.id) && typeof properties.key === 'string' && properties.key && (
+        <span
+          className="velxio-keycap"
+          title={`Keyboard: ${formatKeyLabel(properties.key)}`}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: '-10px',
+            left: '-8px',
+            minWidth: '16px',
+            textAlign: 'center',
+            fontSize: '10px',
+            padding: '1px 5px',
+            borderRadius: '4px',
+            backgroundColor: '#2d2d2d',
+            color: '#f0f0f0',
+            border: '1px solid #6a6a6a',
+            borderBottomWidth: '2px',
+            fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
+            fontWeight: 700,
+            lineHeight: '1.3',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            zIndex: 6,
+          }}
+        >
+          {formatKeyLabel(properties.key)}
+        </span>
+      )}
+
       {/* Runtime-burnout smoke badge (P4) */}
       {isBurnt && (
         <div
@@ -925,25 +959,6 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
             </svg>
             SD files
           </button>
-        )}
-        {isKeyBindable(metadata.id) && typeof properties.key === 'string' && properties.key && (
-          <span
-            style={{
-              fontSize: '9px',
-              padding: '1px 5px',
-              borderRadius: '3px',
-              backgroundColor: '#2d2d2d',
-              color: '#ddd',
-              border: '1px solid #555',
-              borderBottomWidth: '2px',
-              fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', monospace",
-              fontWeight: 600,
-              lineHeight: '1.3',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {formatKeyLabel(properties.key)}
-          </span>
         )}
         {properties.protocol && (
           <span
