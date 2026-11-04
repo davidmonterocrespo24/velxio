@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "Carica firmware",
       "recordLabel": "Registra simulazione",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Programma",
+        "title": "Programma una scheda reale via USB",
+        "pick": "Quale scheda programmare?",
+        "active": "attiva"
+      }
     },
     "fileExplorer": {
       "workspace": "WORKSPACE",

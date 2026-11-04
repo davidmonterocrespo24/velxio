@@ -44,7 +44,13 @@
       "uploadFirmwareLabel": "Upload firmware",
       "recordLabel": "Record simulation",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Flash",
+        "title": "Flash to a real board over USB",
+        "pick": "Flash which board?",
+        "active": "active"
+      }
     },
     "fileExplorer": {
       "workspace": "WORKSPACE",

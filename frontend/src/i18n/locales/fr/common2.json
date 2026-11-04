@@ -42,7 +42,13 @@
       "uploadFirmwareLabel": "Téléverser le firmware",
       "recordLabel": "Enregistrer la simulation",
       "themeToLight": "Switch to light theme",
-      "themeToDark": "Switch to dark theme"
+      "themeToDark": "Switch to dark theme",
+      "flash": {
+        "label": "Flasher",
+        "title": "Flasher sur une vraie carte via USB",
+        "pick": "Quelle carte flasher ?",
+        "active": "active"
+      }
     },
     "fileExplorer": {
       "workspace": "ESPACE DE TRAVAIL",

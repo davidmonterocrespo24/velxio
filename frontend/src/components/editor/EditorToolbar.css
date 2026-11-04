@@ -121,6 +121,29 @@
   color: var(--color-feedback-error);
 }
 
+/* Flash to real board — labelled on purpose: as an icon in a context menu
+   nobody found it. Same accent as Compile; the label drops in compact mode. */
+.tb-btn-flash {
+  width: auto;
+  min-width: 28px;
+  gap: 4px;
+  padding: 0 7px;
+  /* A tinted pill even when compact mode drops the label: next to the
+     plain Run / Stop / Reset icons it has to read as its own action. */
+  background: var(--color-accent-soft);
+  color: var(--color-action-primary);
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 600;
+}
+.tb-btn-flash:hover:not(:disabled) {
+  background: var(--color-accent-soft-strong);
+  color: var(--color-action-primary-hover);
+}
+.unified-toolbar.unified-toolbar--compact .tb-flash-label {
+  display: none;
+}
+
 /* Reset */
 .tb-btn-reset:hover:not(:disabled) {
   background: var(--wb-4);
@@ -463,6 +486,17 @@
 .tb-run-menu-item:hover:not(:disabled) {
   background: var(--color-wash-hover);
   color: var(--wb-13);
+}
+.tb-run-menu-title {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  color: var(--wb-10);
+}
+.tb-run-menu-tag {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--wb-10);
 }
 .tb-run-menu-item:disabled {
   opacity: 0.5;

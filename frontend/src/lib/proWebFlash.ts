@@ -160,10 +160,29 @@ export interface WebFlashImpl {
 }
 
 let _impl: WebFlashImpl | null = null;
+const _listeners = new Set<() => void>();
 
 /** Installed by the pro overlay (mountPro). Pass null to clear (hot reload). */
 export function installWebFlashImpl(impl: WebFlashImpl | null): void {
   _impl = impl;
+  // The overlay installs after a dynamic import, so a component that asked
+  // webFlashAvailable() during the first render got `false`; tell it to ask
+  // again. Listener errors never reach the installer.
+  for (const fn of _listeners) {
+    try {
+      fn();
+    } catch {
+      /* a broken listener must not stop the install */
+    }
+  }
+}
+
+/** Called whenever the flasher is installed or cleared. Returns unsubscribe. */
+export function onWebFlashImplChange(fn: () => void): () => void {
+  _listeners.add(fn);
+  return () => {
+    _listeners.delete(fn);
+  };
 }
 
 /** The overlay's flasher, or null in a pure OSS build. */
