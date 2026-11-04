@@ -219,6 +219,12 @@ export interface ChipInstanceOptions {
   /** Logical chip pin name → real Arduino pin number (resolved from wires). */
   wires?: Map<string, number>;
   /**
+   * Pins no wire reaches. They are in `wires` all the same, under the chip's
+   * own synthetic pin (the key the circuit solve reads and writes for the
+   * pad), so a key says nothing about a wire: vx_pin_wired asks this set.
+   */
+  unwired?: ReadonlySet<string>;
+  /**
    * The resistors the MODULE carries on its lines, by chip pin name (a key of
    * `wires`): the 10k pull-ups of a Grove 4-Digit Display on CLK and DIO, a
    * DS18B20 module's 4.7k on DQ. Each is a weak driver of the board pin that
@@ -289,6 +295,7 @@ export class ChipInstance {
   private remoteModel: string | undefined;
   private drivesWires: (() => boolean) | null;
   private wires: Map<string, number>;
+  private unwired: ReadonlySet<string>;
   private pulls: Record<string, 'up' | 'down'>;
   private attrs: Map<string, number>;
   private strAttrs: Map<string, string>;
@@ -400,6 +407,7 @@ export class ChipInstance {
     this.busPads = opts.busPads ?? {};
     this.remoteModel = opts.remoteModel ?? undefined;
     this.wires = opts.wires ?? new Map();
+    this.unwired = opts.unwired ?? new Set();
     this.pulls = opts.pulls ?? {};
     this.attrs = opts.attrs ?? new Map();
     this.strAttrs = opts.strAttrs ?? new Map();
@@ -1032,7 +1040,10 @@ export class ChipInstance {
   private _pin_wired(handle: number): number {
     const p = this.pins[handle];
     if (!p) return 0;
-    if (p.arduinoPin != null) return 1;
+    // An unwired pad has a key too (its synthetic pin, see `unwired`), so the
+    // key alone answered 1 for every pin of a canvas chip, and a model whose
+    // UI control stands in for a missing wire never let the control take over.
+    if (p.arduinoPin != null && !this.unwired.has(p.name)) return 1;
     return padNet(this.componentId, this._padOf(p)) !== undefined ? 1 : 0;
   }
 

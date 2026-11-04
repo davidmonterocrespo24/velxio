@@ -36,6 +36,7 @@ import '../../simulation/parts/ComplexParts';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { busRegistry } from '../../simulation/buses/registry';
+import { syntheticNetPin } from '../../simulation/customChips/syntheticPins';
 import type { BusDiagnostic, NetResolver, PinRef, ResolvedPin } from '../../simulation/buses/types';
 
 // ── Frame clock ──────────────────────────────────────────────────────────────
@@ -737,6 +738,108 @@ describe('a chip on software SPI (Uno)', () => {
 });
 
 // ── Gallery MCP3008 ─────────────────────────────────────────────────────────
+
+// ── The gallery 74HC595, bit by bit (#409) ───────────────────────────────────
+//
+// The model used to take whole bytes from the bus: the register became the last
+// byte, QH' echoed the previous byte, a clock count that was not a multiple of
+// 8 was lost, and every chip on the clock got the controller's byte, so a
+// daisy chain showed the same byte on every chip. It now shifts one bit per
+// SRCLK rising edge, puts stage H on QH' at the falling edge, and keeps the
+// byte path for hardware SPI only (the existing cases above).
+
+describe('the gallery 74HC595 on shiftOut() (Uno)', () => {
+  /** Clock `bits` by hand: SER to each level, one SRCLK pulse per bit. */
+  function clockBits(con: SketchConsole, ser: number, srclk: number, bits: number[]): void {
+    for (const b of bits) {
+      con.cmd(`${b ? 'h' : 'l'} ${ser}`);
+      con.cmd(`h ${srclk}`);
+      con.cmd(`l ${srclk}`);
+    }
+  }
+
+  it('two chips in a chain (QH to the next SER): the first byte sent ends up in the far chip', async () => {
+    const { sim, con } = uno();
+    // A chip-to-chip net, the key the canvas gives a wire with no board pin on it.
+    const link = syntheticNetPin('sr-chain-test');
+    // Same SRCLK and RCLK, A's QH on B's SER. A's Q0..Q3 on D5..D8, B's on A0..A3.
+    await attachChip(sim, 'srA', 'sn74hc595', galleryJson('sn74hc595'), {
+      SER: 2, SRCLK: 3, RCLK: 4, QH: link, Q0: 5, Q1: 6, Q2: 7, Q3: 8,
+    });
+    await attachChip(sim, 'srB', 'sn74hc595', galleryJson('sn74hc595'), {
+      SER: link, SRCLK: 3, RCLK: 4, Q0: 14, Q1: 15, Q2: 16, Q3: 17,
+    });
+    run(sim, con);
+    con.cmd('s 2 3 05');
+    con.cmd('s 2 3 0A');
+    latch(con, 4);
+    // Low nibble A (the last byte), high nibble B (the first one).
+    expect(readPins(con, [5, 6, 7, 8, 14, 15, 16, 17]).toString(16)).toBe('5a');
+  });
+
+  it('a clock count that is not a multiple of 8 shifts that many bits', async () => {
+    const { sim, con } = uno();
+    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), SR_GPIO);
+    run(sim, con);
+    con.cmd('s 2 3 A5');
+    clockBits(con, 2, 3, [1, 1, 1, 1]);
+    latch(con, 4);
+    // 1010 0101, four more ones in: 0101 1111.
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('5f');
+  });
+
+  it('RCLK in the middle of a byte latches the register as it stands', async () => {
+    const { sim, con } = uno();
+    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), SR_GPIO);
+    run(sim, con);
+    con.cmd('s 2 3 FF');
+    clockBits(con, 2, 3, [0, 0, 0]);
+    latch(con, 4);
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('f8');
+  });
+
+  it('SRCLR low clears the shift register and ignores clocks; the outputs wait for RCLK', async () => {
+    const { sim, con } = uno();
+    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), { ...SR_GPIO, SRCLR: 9 });
+    run(sim, con);
+    con.cmd('h 9');
+    con.cmd('s 2 3 A5');
+    latch(con, 4);
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('a5');
+    con.cmd('l 9');
+    // The storage register is not cleared: Q keeps A5 until the next RCLK.
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('a5');
+    con.cmd('s 2 3 FF'); // clocked while SRCLR is held low: no effect
+    con.cmd('h 9');
+    latch(con, 4);
+    expect(readPins(con, SR_GPIO_Q)).toBe(0);
+  });
+
+  it("OE high releases Q0..Q7 without touching QH' or the storage register", async () => {
+    const { sim, con } = uno();
+    const link = syntheticNetPin('sr-oe-test');
+    await attachChip(sim, 'sr', 'sn74hc595', galleryJson('sn74hc595'), { ...SR_GPIO, OE: 9, QH: link });
+    run(sim, con);
+    con.cmd('l 9');
+    con.cmd('s 2 3 FF');
+    latch(con, 4);
+    readPins(con, SR_GPIO_Q); // the Q pads as inputs on the sketch's side
+    const inject = (level: boolean) => {
+      for (const p of SR_GPIO_Q) sim.setPinState(p, level);
+    };
+    inject(false);
+    // Driven: the chip's HIGH wins over a level put on its pads.
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('ff');
+    con.cmd('h 9');
+    inject(false);
+    // Released: whoever else is on the pads has them.
+    expect(readPins(con, SR_GPIO_Q)).toBe(0);
+    // QH' is stage H of the shift register, outside OE's reach.
+    expect(sim.pinManager.getPinState(link)).toBe(true);
+    con.cmd('l 9');
+    expect(readPins(con, SR_GPIO_Q).toString(16)).toBe('ff');
+  });
+});
 
 describe('the gallery MCP3008 chip (Uno)', () => {
   // CS D10, hardware SPI; CH0 wired to D9, CH1 wired to GND.

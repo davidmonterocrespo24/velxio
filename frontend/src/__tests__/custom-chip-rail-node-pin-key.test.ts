@@ -10,9 +10,12 @@
  * twin reading push buttons worked.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts/CustomChipPart';
 import { ChipInstance } from '../simulation/customChips';
+import type { ChipInstanceOptions } from '../simulation/customChips/ChipRuntime';
 import { syntheticChipPin } from '../simulation/customChips/syntheticPins';
 import { PinManager } from '../simulation/PinManager';
 import { useSimulatorStore } from '../store/useSimulatorStore';
@@ -42,8 +45,10 @@ describe('custom-chip pin keys', () => {
     } as never);
 
     let captured: Map<string, number> | null = null;
-    vi.spyOn(ChipInstance, 'create').mockImplementation(async (opts: { wires: Map<string, number> }) => {
-      captured = opts.wires;
+    let unwired: ReadonlySet<string> | undefined;
+    vi.spyOn(ChipInstance, 'create').mockImplementation(async (opts: ChipInstanceOptions) => {
+      captured = opts.wires ?? null;
+      unwired = opts.unwired;
       return { start() {}, dispose() {}, tickTimers() {} } as never;
     });
 
@@ -59,6 +64,48 @@ describe('custom-chip pin keys', () => {
     expect(captured!.get('D7')).toBe(syntheticChipPin(CHIP, 'D7'));
     // Unwired: the synthetic pin rests LOW, which is what the missing key read.
     expect(captured!.get('DS')).toBe(syntheticChipPin(CHIP, 'DS'));
+    // A key is no wire: the runtime is told which pads nothing reaches, so
+    // vx_pin_wired keeps answering 0 for DS. The rail pad IS wired.
+    expect([...(unwired ?? [])]).toEqual(['DS']);
     detach?.();
+  });
+});
+
+describe('vx_pin_wired on a pad that only has its synthetic key', () => {
+  const WASM = new Uint8Array(
+    readFileSync(
+      fileURLToPath(
+        new URL('./board-buses/fixtures/chips-abi-parity/abi-probe.wasm', import.meta.url),
+      ),
+    ),
+  );
+  /** The probe's pin index for AIN (abi-probe.c: P_AIN). */
+  const P_AIN = 5;
+
+  async function probe(unwired?: ReadonlySet<string>): Promise<number> {
+    const chip = await ChipInstance.create({
+      wasm: WASM,
+      componentId: 'probe-wired',
+      pinManager: new PinManager(),
+      wires: new Map([['AIN', syntheticChipPin('probe-wired', 'AIN')]]),
+      unwired,
+      attrs: new Map(),
+      strAttrs: new Map(),
+      log: () => {},
+    });
+    chip.start();
+    const fn = (chip as unknown as { exports: Record<string, (n: number) => number> }).exports
+      .pin_wired;
+    const wired = fn(P_AIN);
+    chip.dispose();
+    return wired;
+  }
+
+  // Since every pad got a key (the rail fix above), the key alone answered 1
+  // for a pad in the air, and a model whose UI control stands in for a
+  // missing wire never let the control take over.
+  it('answers 0 for a pad no wire reaches, 1 once it is on a net', async () => {
+    expect(await probe(new Set(['AIN']))).toBe(0);
+    expect(await probe()).toBe(1);
   });
 });

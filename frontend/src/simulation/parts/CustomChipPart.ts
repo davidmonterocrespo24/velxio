@@ -440,9 +440,13 @@ PartSimulationRegistry.register('custom-chip', {
     // report 2026-10-23: a 74HC165 reading relay contacts never saw them).
     // The synthetic pin is what the solve reads and writes for the pad.
     const wires = new Map<string, number>();
+    // The trace's null is "no wire reaches the pad" (a rail is -1): the pin
+    // gets its synthetic key all the same, and vx_pin_wired answers 0 for it.
+    const unwired = new Set<string>();
     for (const name of pins) {
       if (!name) continue;
       const arduinoPin = getArduinoPin(name);
+      if (arduinoPin === null) unwired.add(name);
       wires.set(
         name,
         arduinoPin !== null && arduinoPin >= 0 ? arduinoPin : syntheticChipPin(componentId, name),
@@ -495,6 +499,7 @@ PartSimulationRegistry.register('custom-chip', {
           // are wired to when it calls vx_i2c_attach, on whichever controller
           // that is (Wire1, the XIAO RP2040's I2C1) or on none.
           wires,
+          unwired,
           pulls,
           attrs,
           strAttrs,
