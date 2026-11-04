@@ -272,9 +272,10 @@
       "rotate": "旋转",
       "delete": "删除",
       "cancel": "取消",
-      "keyboardKey": "键盘按键",
-      "assignKey": "分配按键",
-      "pressAKey": "请按一个键…",
+      "keyboardKey": "键盘控制",
+      "assignKey": "点击后按下一个键",
+      "pressAKey": "现在请按一个键（Esc 取消）",
+      "keyboardHint": "仿真运行时，按住此键即按下按钮。",
       "clearKey": "移除按键绑定",
       "keyInUse": "也已分配给另一个按钮，两个按钮会同时按下。"
     },

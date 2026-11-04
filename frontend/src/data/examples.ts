@@ -11086,7 +11086,7 @@ void loop() {
     id: 'esp32-doom',
     title: 'ESP32 Doom: Handheld Shooter (ILI9341)',
     description:
-      'A first-person shooter on an ESP32 wired like a handheld console: an ILI9341 320x240 TFT, a four-button D-pad and A/B action buttons. Textured walls, a cast floor and ceiling with distance fog, robots that chase you, slimes that spit acid, doors, medkits, ammo, a blaster with muzzle flash, a status bar and harder waves each time the map is cleared. Every view column is built in a buffer and sent as one SPI burst, so nothing flickers. An attract-mode demo plays until you press a button, and FPS stats go out over Serial.',
+      'A first-person shooter on an ESP32 wired like a handheld console: an ILI9341 320x240 TFT, a four-button D-pad and A/B action buttons. Textured walls, a cast floor and ceiling with distance fog, robots that chase you, slimes that spit acid, doors, medkits, ammo, a blaster with muzzle flash, a status bar and harder waves each time the map is cleared. Every view column is built in a buffer and sent as one SPI burst, so nothing flickers. An attract-mode demo plays until you press a button, and FPS stats go out over Serial. On a computer, play with the arrow keys, Z for A and X for B.',
     libraries: ['Adafruit GFX Library', 'Adafruit ILI9341', 'Adafruit BusIO'],
     category: 'games',
     difficulty: 'advanced',
@@ -12185,12 +12185,12 @@ void loop() {
         // board.
         properties: { rotation: 90 },
       },
-      { type: 'wokwi-pushbutton', id: 'btn_up', x: 107, y: 370, properties: { color: 'black' } },
-      { type: 'wokwi-pushbutton', id: 'btn_down', x: 107, y: 486, properties: { color: 'black' } },
-      { type: 'wokwi-pushbutton', id: 'btn_left', x: 38, y: 428, properties: { color: 'black' } },
-      { type: 'wokwi-pushbutton', id: 'btn_right', x: 176, y: 428, properties: { color: 'black' } },
-      { type: 'wokwi-pushbutton', id: 'btn_b', x: 340, y: 430, properties: { color: 'blue' } },
-      { type: 'wokwi-pushbutton', id: 'btn_a', x: 430, y: 400, properties: { color: 'red' } },
+      { type: 'wokwi-pushbutton', id: 'btn_up', x: 107, y: 370, properties: { color: 'black', key: 'ArrowUp' } },
+      { type: 'wokwi-pushbutton', id: 'btn_down', x: 107, y: 486, properties: { color: 'black', key: 'ArrowDown' } },
+      { type: 'wokwi-pushbutton', id: 'btn_left', x: 38, y: 428, properties: { color: 'black', key: 'ArrowLeft' } },
+      { type: 'wokwi-pushbutton', id: 'btn_right', x: 176, y: 428, properties: { color: 'black', key: 'ArrowRight' } },
+      { type: 'wokwi-pushbutton', id: 'btn_b', x: 340, y: 430, properties: { color: 'blue', key: 'x' } },
+      { type: 'wokwi-pushbutton', id: 'btn_a', x: 430, y: 400, properties: { color: 'red', key: 'z' } },
     ],
     wires: [
       {

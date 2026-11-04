@@ -329,6 +329,7 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
               )}
             </div>
           </div>
+          <div className="keybind-help">{t('editor.componentProps.keyboardHint')}</div>
           {keyInUseElsewhere && (
             <div className="keybind-hint">{t('editor.componentProps.keyInUse')}</div>
           )}

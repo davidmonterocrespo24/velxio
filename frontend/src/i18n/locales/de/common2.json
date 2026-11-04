@@ -272,9 +272,10 @@
       "rotate": "Drehen",
       "delete": "Löschen",
       "cancel": "Abbrechen",
-      "keyboardKey": "Tastaturtaste",
-      "assignKey": "Taste zuweisen",
-      "pressAKey": "Taste drücken…",
+      "keyboardKey": "Tastatursteuerung",
+      "assignKey": "Klicken, dann eine Taste drücken",
+      "pressAKey": "Jetzt eine Taste drücken (Esc bricht ab)",
+      "keyboardHint": "Während die Simulation läuft, drückt das Halten dieser Taste den Knopf.",
       "clearKey": "Tastenzuweisung entfernen",
       "keyInUse": "Auch einem anderen Button zugewiesen — beide werden zusammen gedrückt."
     },

@@ -636,3 +636,30 @@
     max-height: none;
   }
 }
+
+/* Keyboard control: its own small card, so it reads as a feature of the
+   part rather than one more raw property row. */
+.pid-keybind {
+  margin-top: 10px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--wb-7);
+  border-radius: 8px;
+  background: var(--wb-2);
+}
+
+.pid-keybind-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wb-13);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pid-keybind-help {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--wb-11);
+}

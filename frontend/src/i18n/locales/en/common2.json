@@ -281,9 +281,10 @@
       "rotate": "Rotate",
       "delete": "Delete",
       "cancel": "Cancel",
-      "keyboardKey": "Keyboard key",
-      "assignKey": "Assign key",
-      "pressAKey": "Press a key…",
+      "keyboardKey": "Keyboard control",
+      "assignKey": "Click, then press a key",
+      "pressAKey": "Press a key now (Esc cancels)",
+      "keyboardHint": "While the simulation runs, holding this key presses the button.",
       "clearKey": "Remove key binding",
       "keyInUse": "Also assigned to another button — both will press together."
     },

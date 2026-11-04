@@ -272,9 +272,10 @@
       "rotate": "回転",
       "delete": "削除",
       "cancel": "キャンセル",
-      "keyboardKey": "キーボードキー",
-      "assignKey": "キーを割り当て",
-      "pressAKey": "キーを押してください…",
+      "keyboardKey": "キーボード操作",
+      "assignKey": "クリックしてからキーを押す",
+      "pressAKey": "キーを押してください（Escで取消）",
+      "keyboardHint": "シミュレーション中、このキーを押している間ボタンが押されます。",
       "clearKey": "キー割り当てを解除",
       "keyInUse": "他のボタンにも割り当てられています。同時に押されます。"
     },

@@ -834,7 +834,13 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
               {isKeyBindable(componentMetadata.id) && (
                 <div className="pid-keybind">
                   <div className="pid-row">
-                    <label className="pid-row-label">{t('editor.componentProps.keyboardKey')}</label>
+                    <label className="pid-keybind-title">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="2" y="6" width="20" height="12" rx="2" />
+                        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+                      </svg>
+                      {t('editor.componentProps.keyboardKey')}
+                    </label>
                     <div className="keybind-controls">
                       <button
                         type="button"
@@ -861,6 +867,7 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
                       )}
                     </div>
                   </div>
+                  <div className="pid-keybind-help">{t('editor.componentProps.keyboardHint')}</div>
                   {keyInUseElsewhere && (
                     <div className="keybind-hint">{t('editor.componentProps.keyInUse')}</div>
                   )}

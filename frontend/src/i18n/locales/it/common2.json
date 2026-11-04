@@ -272,9 +272,10 @@
       "rotate": "Ruota",
       "delete": "Elimina",
       "cancel": "Annulla",
-      "keyboardKey": "Tasto della tastiera",
-      "assignKey": "Assegna tasto",
-      "pressAKey": "Premi un tasto…",
+      "keyboardKey": "Controllo da tastiera",
+      "assignKey": "Fai clic e premi un tasto",
+      "pressAKey": "Premi un tasto ora (Esc annulla)",
+      "keyboardHint": "Durante la simulazione, tenere premuto questo tasto preme il pulsante.",
       "clearKey": "Rimuovi il tasto",
       "keyInUse": "Assegnato anche a un altro pulsante: verranno premuti insieme."
     },

@@ -31,7 +31,8 @@ describe('keyButtonBindings', () => {
   it('formats key labels for the keycap badge', () => {
     expect(formatKeyLabel('a')).toBe('A');
     expect(formatKeyLabel(' ')).toBe('Space');
-    expect(formatKeyLabel('ArrowUp')).toBe('Up');
+    expect(formatKeyLabel('ArrowUp')).toBe('↑');
+    expect(formatKeyLabel('ArrowRight')).toBe('→');
     expect(formatKeyLabel('Enter')).toBe('Enter');
   });
 

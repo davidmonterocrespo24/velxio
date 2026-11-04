@@ -272,9 +272,10 @@
       "rotate": "Pivoter",
       "delete": "Supprimer",
       "cancel": "Annuler",
-      "keyboardKey": "Touche du clavier",
-      "assignKey": "Assigner une touche",
-      "pressAKey": "Appuyez sur une touche…",
+      "keyboardKey": "Contrôle au clavier",
+      "assignKey": "Cliquez puis appuyez sur une touche",
+      "pressAKey": "Appuyez sur une touche (Échap annule)",
+      "keyboardHint": "Pendant la simulation, maintenir cette touche appuie sur le bouton.",
       "clearKey": "Supprimer le raccourci",
       "keyInUse": "Aussi assignée à un autre bouton — les deux seront pressés ensemble."
     },

@@ -497,9 +497,22 @@
 .keybind-chip--empty {
   font-family: inherit;
   font-weight: 500;
-  color: var(--wb-11);
-  border-style: dashed;
+  color: var(--color-action-primary);
+  background-color: transparent;
+  border-color: var(--color-action-primary);
   border-bottom-width: 1px;
+}
+
+.keybind-chip--empty:hover {
+  background-color: var(--color-accent-soft);
+}
+
+/* One line under the chip saying what the binding does. */
+.keybind-help {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--wb-11);
 }
 
 .keybind-chip--capturing {

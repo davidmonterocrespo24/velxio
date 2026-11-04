@@ -274,9 +274,10 @@
       "rotate": "Rotar",
       "delete": "Eliminar",
       "cancel": "Cancelar",
-      "keyboardKey": "Tecla del teclado",
-      "assignKey": "Asignar tecla",
-      "pressAKey": "Pulsa una tecla…",
+      "keyboardKey": "Control con el teclado",
+      "assignKey": "Haz clic y pulsa una tecla",
+      "pressAKey": "Pulsa una tecla ahora (Esc cancela)",
+      "keyboardHint": "Con la simulación en marcha, mantener esta tecla pulsa el botón.",
       "clearKey": "Quitar tecla",
       "keyInUse": "También asignada a otro botón: se pulsarán a la vez."
     },

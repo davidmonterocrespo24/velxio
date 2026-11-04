@@ -41,13 +41,13 @@ export function formatKeyLabel(key: string): string {
     case ' ':
       return 'Space';
     case 'ArrowUp':
-      return 'Up';
+      return '↑';
     case 'ArrowDown':
-      return 'Down';
+      return '↓';
     case 'ArrowLeft':
-      return 'Left';
+      return '←';
     case 'ArrowRight':
-      return 'Right';
+      return '→';
     default:
       return key.length === 1 ? key.toUpperCase() : key;
   }
