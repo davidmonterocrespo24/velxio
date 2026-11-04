@@ -2011,19 +2011,23 @@ export const EditorToolbar = ({
                   aria-haspopup={flashTargets.length > 1 ? 'true' : undefined}
                   aria-expanded={flashTargets.length > 1 ? flashMenuOpen : undefined}
                 >
+                  {/* A chip with the program going into it: the same 24-grid,
+                      2px round-cap stroke as the wrench and reset beside it. */}
                   <svg
-                    width="16"
-                    height="16"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    aria-hidden="true"
                   >
-                    <path d="M12 2v8M8.5 6.5 12 10l3.5-3.5" />
-                    <rect x="7" y="12.5" width="10" height="8.5" rx="1.5" />
-                    <path d="M4 15h3M4 18.5h3M17 15h3M17 18.5h3" />
+                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                    <path d="M12 8v7" />
+                    <path d="m9 12 3 3 3-3" />
+                    <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
                   </svg>
                   <span className="tb-flash-label">{t('editor.toolbar.flash.label', 'Flash')}</span>
                 </button>
