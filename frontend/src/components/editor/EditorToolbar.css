@@ -127,18 +127,21 @@
   width: auto;
   min-width: 28px;
   gap: 4px;
-  padding: 0 7px;
-  /* A tinted pill even when compact mode drops the label: next to the
-     plain Run / Stop / Reset icons it has to read as its own action. */
-  background: var(--color-accent-soft);
+  padding: 0 5px;
+  /* The accent colour, like Compile, sets it apart from the grey Reset; no
+     resting background: a filled square is how this strip says "toggled on"
+     (the 3D view button), and the first version read exactly like that. */
   color: var(--color-action-primary);
   font-size: 12px;
   font-family: inherit;
   font-weight: 600;
 }
 .tb-btn-flash:hover:not(:disabled) {
-  background: var(--color-accent-soft-strong);
+  background: var(--color-accent-soft);
   color: var(--color-action-primary-hover);
+}
+.tb-btn-flash:active:not(:disabled) {
+  background: var(--color-accent-soft-strong);
 }
 .unified-toolbar.unified-toolbar--compact .tb-flash-label {
   display: none;
