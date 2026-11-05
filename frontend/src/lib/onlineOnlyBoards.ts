@@ -412,6 +412,15 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
       "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='9' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='9' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='15' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='21' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='27' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='33' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='39' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='45' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='12' width='2.4' height='7' fill='#b9c0c6'/><rect x='51' y='41' width='2.4' height='7' fill='#b9c0c6'/><rect x='6' y='18' width='48' height='24' rx='2' fill='#1b1b1e' stroke='#08080a' stroke-width='1'/><path d='M6 26 A4 4 0 0 1 6 34' fill='#2c2c30'/><text x='31' y='33' font-family='monospace' font-size='8' font-weight='600' fill='#e6e6e6' text-anchor='middle'>3008</text></svg>",
   },
   {
+    id: 'pro-mcp4725',
+    label: 'MCP4725 12-bit DAC (I2C)',
+    description:
+      'One 12-bit analog output over I2C, a real voltage in the circuit solve for meters, loads and op-amps - available in the online editor',
+    category: 'analog',
+    thumbnailSvg:
+      "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='4' y='10' width='52' height='40' rx='3' fill='#1d4e89' stroke='#12345e' stroke-width='1'/><circle cx='10' cy='17' r='2.8' fill='#c9a23a'/><circle cx='18' cy='17' r='2.8' fill='#c9a23a'/><circle cx='26' cy='17' r='2.8' fill='#c9a23a'/><circle cx='34' cy='17' r='2.8' fill='#c9a23a'/><circle cx='42' cy='17' r='2.8' fill='#c9a23a'/><circle cx='50' cy='17' r='2.8' fill='#c9a23a'/><rect x='23' y='25' width='14' height='8' rx='1' fill='#17171a'/><rect x='14' y='26' width='5' height='3' rx='0.6' fill='#c8a978'/><rect x='41' y='26' width='5' height='3' rx='0.6' fill='#1f1f1f'/><text x='30' y='45' font-family='monospace' font-size='8' font-weight='600' fill='#eef3fa' text-anchor='middle'>4725</text></svg>",
+  },
+  {
     id: 'pro-pcm5102a',
     label: 'PCM5102A I2S Stereo DAC',
     description:
