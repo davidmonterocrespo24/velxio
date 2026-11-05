@@ -532,19 +532,28 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
     id: 'dfr-line-tracker',
     label: 'Gravity: Digital Line Tracking Sensor',
     description:
-      'Infrared line tracker (SEN0017): LOW over the black tape, HIGH on the white floor, and a 3D robot mat that drives it - available in the online editor',
+      'Infrared line tracker (SEN0017): LOW over the black tape, HIGH on the white floor - available in the online editor',
     category: 'input',
     thumbnailSvg:
-      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="16" y="4" width="32" height="50" rx="5" fill="#141414"/><circle cx="26" cy="18" r="5" fill="#c9d8ff"/><circle cx="38" cy="18" r="5" fill="#1b1b22" stroke="#555"/><circle cx="23" cy="38" r="2.6" fill="#ff3b30"/><rect x="24" y="54" width="16" height="6" rx="1" fill="#fef6d4"/></svg>',
+      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M22 56 V11 A7 7 0 0 1 29 4 H35 A7 7 0 0 1 42 11 V56 Z" fill="#141414" stroke="#2e2e2e"/><circle cx="29" cy="10" r="1.6" fill="#c3c8ce"/><circle cx="35" cy="10" r="1.6" fill="#c3c8ce"/><circle cx="29" cy="17" r="1.6" fill="#c3c8ce"/><circle cx="35" cy="17" r="1.6" fill="#c3c8ce"/><circle cx="26" cy="27" r="3" fill="#ff3b30" opacity="0.45"/><rect x="24.6" y="26" width="2.8" height="2" fill="#ff3b30"/><circle cx="32" cy="36" r="5.6" fill="#d99c43"/><circle cx="32" cy="36" r="2.4" fill="#fff"/><rect x="24" y="44" width="5" height="5.6" rx="0.6" fill="#fff"/><text x="26.5" y="48.6" font-family="Arial" font-weight="700" font-size="5" text-anchor="middle" fill="#111">D</text><rect x="24.5" y="51" width="15" height="7" rx="1" fill="#fef6d4" stroke="#cfc39a" stroke-width="0.5"/></svg>',
   },
   {
     id: 'dfr-urm09-trig',
     label: 'Gravity: URM09 Ultrasonic Sensor (Trig)',
     description:
-      'Ultrasonic ranger (SEN0388), 2-500 cm on one trigger/echo pin, with a slider or a 3D world feeding the distance - available in the online editor',
+      'Ultrasonic ranger (SEN0388), 2-500 cm on one trigger/echo pin - available in the online editor',
     category: 'input',
     thumbnailSvg:
-      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="10" width="48" height="44" rx="6" fill="#141414"/><circle cx="30" cy="32" r="16" fill="#b9bdc4"/><circle cx="30" cy="32" r="12" fill="#2b2d31"/><rect x="54" y="24" width="6" height="16" rx="1" fill="#fef6d4"/></svg>',
+      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="27" y="40" width="10" height="7" rx="1" fill="#fef6d4" stroke="#cfc39a" stroke-width="0.5"/><rect x="2" y="15" width="60" height="29" rx="3" fill="#141414" stroke="#2e2e2e"/><circle cx="5.6" cy="18.6" r="2.2" fill="#d99c43"/><circle cx="58.4" cy="18.6" r="2.2" fill="#d99c43"/><circle cx="5.6" cy="40.4" r="2.2" fill="#d99c43"/><circle cx="58.4" cy="40.4" r="2.2" fill="#d99c43"/><circle cx="18" cy="30" r="11" fill="#1c1d20"/><circle cx="18" cy="30" r="8.6" fill="#55585e"/><circle cx="18" cy="30" r="8.6" fill="none" stroke="#0e0e10" stroke-width="1.4"/><circle cx="18" cy="30" r="5.6" fill="none" stroke="#0e0e10" stroke-width="1.4"/><circle cx="18" cy="30" r="2" fill="#cfd4d9"/><circle cx="46" cy="30" r="11" fill="#1c1d20"/><circle cx="46" cy="30" r="8.6" fill="#55585e"/><circle cx="46" cy="30" r="8.6" fill="none" stroke="#0e0e10" stroke-width="1.4"/><circle cx="46" cy="30" r="5.6" fill="none" stroke="#0e0e10" stroke-width="1.4"/><circle cx="46" cy="30" r="2" fill="#cfd4d9"/></svg>',
+  },
+  {
+    id: 'dfr-urm37',
+    label: 'URM37 V5.0 Ultrasonic Sensor',
+    description:
+      'Ultrasonic ranger (SEN0001), PWM mode: a LOW echo pulse of 50 us per cm, 2-500 cm - available in the online editor',
+    category: 'input',
+    thumbnailSvg:
+      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="20" width="60" height="26" rx="3" fill="#141414" stroke="#2e2e2e"/><rect x="18.8" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="22.1" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="25.4" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="28.7" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="32" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="35.3" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="38.599999999999994" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="41.9" y="13" width="1.2" height="9" fill="#d9b247"/><rect x="45.2" y="13" width="1.2" height="9" fill="#d9b247"/><circle cx="14" cy="34" r="9.5" fill="#1c1d20"/><circle cx="14" cy="34" r="7.4" fill="#55585e"/><circle cx="14" cy="34" r="7.4" fill="none" stroke="#0e0e10" stroke-width="1.3"/><circle cx="14" cy="34" r="4.6" fill="none" stroke="#0e0e10" stroke-width="1.3"/><circle cx="50" cy="34" r="9.5" fill="#1c1d20"/><circle cx="50" cy="34" r="7.4" fill="#55585e"/><circle cx="50" cy="34" r="7.4" fill="none" stroke="#0e0e10" stroke-width="1.3"/><circle cx="50" cy="34" r="4.6" fill="none" stroke="#0e0e10" stroke-width="1.3"/><circle cx="14" cy="34" r="1.6" fill="#cfd4d9"/><circle cx="50" cy="34" r="1.6" fill="#cfd4d9"/></svg>',
   },
   {
     id: 'dfr-c4001-mmwave',
