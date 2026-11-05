@@ -980,12 +980,21 @@ function makePinPwmHandler(boardId: string) {
 }
 
 /** The one place a PWM observation reaches a pin, whichever path it came by. */
-function applyPinPwm(pm: PinManager, pin: number, dutyPct: number, freqHz?: number): void {
+export function applyPinPwm(pm: PinManager, pin: number, dutyPct: number, freqHz?: number): void {
   // The frequency rides alongside, when the engine knows it: a speaker reads it
   // back with getPwmFreq to play the sketch's actual note, and a servo to turn
   // the duty into a real pulse width.
   if (freqHz && freqHz > 0) pm.setPwmFreq(pin, freqHz);
   pm.updatePwm(pin, dutyPct / 100);
+  // An LEDC channel at duty 0 holds its pad LOW. The pad's GPIO latch is not
+  // what drives it while the GPIO matrix routes the LEDC signal there, and it
+  // can be HIGH for reasons that have nothing to do with the PWM (the solver's
+  // input feedback before the sketch attached the channel, a digitalWrite
+  // before ledcAttach). collectPinStates falls back to that latch whenever the
+  // duty is 0, so ledcWrite(pin, 0) used to put 3.3 V into the circuit: an RC
+  // filter behind it sat at full scale instead of 0 V. A later digitalWrite
+  // after ledcDetach still sets the latch as usual.
+  if (dutyPct <= 0) pm.setPinState(pin, false, 'mcu');
 }
 
 /**

@@ -364,7 +364,7 @@ export const infraredExamples: ExampleProject[] = [
       },
       {
         id: 'w-gnd',
-        start: { componentId: 'esp32', pinName: 'GND.1' },
+        start: { componentId: 'esp32', pinName: 'GND' },
         end: { componentId: 'ir1', pinName: 'GND' },
         color: '#000000',
       },
