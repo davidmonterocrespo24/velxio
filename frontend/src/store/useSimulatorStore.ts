@@ -1,3 +1,4 @@
+import { deviceFiles } from '../utils/projectOnlyFiles';
 import { create } from 'zustand';
 import { decideEngine, getInstantEngine } from '../lib/instantEngine';
 import {
@@ -1376,7 +1377,8 @@ export async function piSyncAndRunScript(boardId: string, boardKind: string): Pr
   const home = (proDef?.guestHome ?? '/home/pi').replace(/\/+$/, '');
   const board = useSimulatorStore.getState().boards.find((b) => b.id === boardId);
   const groupId = board?.activeFileGroupId ?? `group-${boardId}`;
-  const groupFiles = useEditorStore.getState().getGroupFiles(groupId);
+  // Project-only files (utils/projectOnlyFiles) stay out of the guest.
+  const groupFiles = deviceFiles(useEditorStore.getState().getGroupFiles(groupId));
   const files = groupFiles.map((f) => ({ path: `${home}/${f.name}`, content: f.content }));
   try {
     const { uploadFilesToPi } = await import('../utils/piUpload');
@@ -3015,8 +3017,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     loadMicroPythonProgram: async (
       boardId: string,
-      files: Array<{ name: string; content: string }>,
+      projectFiles: Array<{ name: string; content: string }>,
     ) => {
+      // Project-only files (utils/projectOnlyFiles) never land on the board's
+      // filesystem: the RP2040/RP2350 path writes every file it gets to LittleFS.
+      const files = deviceFiles(projectFiles);
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
       if (!BOARD_SUPPORTS_MICROPYTHON.has(board.boardKind)) return;

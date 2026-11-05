@@ -10,6 +10,7 @@
  * the Flash dialog).
  */
 import type { BoardInstance } from '../types/board';
+import { deviceFiles } from './projectOnlyFiles';
 
 export interface FingerprintFile {
   name: string;
@@ -20,8 +21,10 @@ export function fingerprintSources(
   board: Pick<BoardInstance, 'languageMode' | 'boardOptions'>,
   files: readonly FingerprintFile[],
 ): string {
+  // Project-only files (utils/projectOnlyFiles) are not built, so editing one
+  // does not make the last build stale.
   const canonical =
-    [...files]
+    deviceFiles(files)
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
       .map((f) => `${f.name}\u0000${f.content}`)
       .join('\u0001') +

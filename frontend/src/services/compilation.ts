@@ -1,3 +1,4 @@
+import { deviceFiles } from '../utils/projectOnlyFiles';
 import axios from 'axios';
 import { getApiBase } from '../lib/apiBase';
 import type { ESP32BoardOptions, SpiffsFile } from '../types/boardOptions';
@@ -242,12 +243,15 @@ function readQueueInfo(status: CompileStatusResponse): Omit<
  * waiting for everything at the end.
  */
 export async function compileCode(
-  files: SketchFile[],
+  projectFiles: SketchFile[],
   board: string = 'arduino:avr:uno',
   projectId?: string | null,
   onProgress?: CompileProgress,
   extras?: CompileExtras,
 ): Promise<CompileResult> {
+  // Files that stay with the project (utils/projectOnlyFiles) never reach the
+  // compiler, so editing one neither rebuilds nor busts the compile cache.
+  const files = deviceFiles(projectFiles);
   // Overlay seam: a project that ships a prebuilt image instead of sources the
   // server can build returns it here. No provider in OSS builds -> null.
   const prebuilt = await (

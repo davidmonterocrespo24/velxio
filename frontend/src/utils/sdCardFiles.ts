@@ -10,6 +10,7 @@
  * Uint8Array disk image handed to the `microsd-card` simulation part via
  * `element.sdImageData`.
  */
+import { isProjectOnlyFile } from './projectOnlyFiles';
 import { buildFat16Image, normalizeSdPath, type SdFile, type BuildFatOptions } from './fatImage';
 
 export interface WorkspaceFileLike {
@@ -82,7 +83,7 @@ export function buildProjectSdImage(
   // "MUSIC/a.txt" and "music/a.txt" are the same file.
   const byName = new Map<string, SdFile>();
   for (const f of workspaceFiles) {
-    if (SD_EXCLUDED_SOURCES.test(f.name)) continue;
+    if (SD_EXCLUDED_SOURCES.test(f.name) || isProjectOnlyFile(f.name)) continue;
     const name = normalizeSdPath(f.name);
     if (!name) continue;
     byName.set(name.toLowerCase(), { name, data: new TextEncoder().encode(f.content) });
