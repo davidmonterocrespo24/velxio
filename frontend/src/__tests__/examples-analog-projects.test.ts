@@ -93,8 +93,8 @@ describe('analog projects for the blog post', () => {
           id: 'esp32',
           boardKind: 'esp32',
           vcc: 3.3,
-          pins: { D25: { type: 'pwm', duty: 3.0 / 3.3 } },
-          groundPinNames: ['GND', 'GND.1', 'GND.2'],
+          pins: { '25': { type: 'pwm', duty: 3.0 / 3.3 } },
+          groundPinNames: ['GND', 'GND2'],
           vccPinNames: ['3V3'],
         },
       ];
@@ -104,7 +104,7 @@ describe('analog projects for the blog post', () => {
     };
     const v = await run(example('esp32-pwm-dac-lm358-12v'));
     expect(v('u1:OUT')).toBeCloseTo(11.1, 0);
-    expect(v('esp32:D34')).toBeCloseTo((11.1 * 22) / 122, 1);
+    expect(v('esp32:34')).toBeCloseTo((11.1 * 22) / 122, 1);
     // V+ disconnected: the op-amp is back on the ESP32's 3.3 V and stops near 2 V.
     const ex = example('esp32-pwm-dac-lm358-12v');
     const unpowered = await run({ ...ex, wires: ex.wires.filter((w) => w.id !== 'w4') });

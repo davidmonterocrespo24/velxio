@@ -626,7 +626,9 @@ void loop() {
 // powered from the 15 V bench supply on its V+ pin: an op-amp cannot put out
 // more than its supply, and on the ESP32's 3.3 V an LM358 stops near 2 V.
 // A 100k/22k divider brings the output back under 3.3 V for GPIO34, so the
-// sketch prints what it got next to what it asked for.
+// sketch prints what it got next to what it asked for. The ESP32's ADC sees
+// nothing under about 0.14 V (Espressif rates it from 150 mV up), so the 0 V
+// step prints about 0.8 V while the voltmeter shows 0.
 
 const int PWM_PIN = 25;
 const int SENSE_PIN = 34;
@@ -637,7 +639,6 @@ const float targets[] = {0.0, 3.0, 6.0, 9.0, 12.0};
 void setup() {
   Serial.begin(115200);
   ledcAttach(PWM_PIN, 5000, 12);               // 5 kHz, duty 0..4095
-  analogSetPinAttenuation(SENSE_PIN, ADC_11db);
 }
 
 void loop() {
@@ -659,97 +660,99 @@ void loop() {
         y: 0,
         properties: { waveform: 'dc', offset: 15, frequency: 1000, amplitude: 0 },
       },
-      { type: 'wokwi-resistor', id: 'r1', x: -560, y: 135.65, properties: { value: '10000' } },
+      { type: 'wokwi-resistor', id: 'r1', x: -560, y: 162.35, properties: { value: '10000' } },
       {
         type: 'velxio-capacitor-electrolytic',
         id: 'c1',
         x: -480,
-        y: 160,
+        y: 187,
         properties: { value: '10u' },
       },
-      { type: 'wokwi-opamp-lm358', id: 'u1', x: -400, y: 129.3, properties: {} },
-      { type: 'wokwi-resistor', id: 'rf', x: -390, y: 215, properties: { value: '27000' } },
-      { type: 'wokwi-resistor', id: 'rg', x: -390, y: 250, properties: { value: '10000' } },
-      { type: 'velxio-instr-voltmeter', id: 'vm', x: -260, y: 120, properties: {} },
-      { type: 'wokwi-resistor', id: 'rt', x: -120, y: 97.45, properties: { value: '100000' } },
-      { type: 'wokwi-resistor', id: 'rb', x: -20, y: 230, properties: { value: '22000' } },
+      { type: 'wokwi-opamp-lm358', id: 'u1', x: -400, y: 156, properties: {} },
+      { type: 'wokwi-resistor', id: 'rf', x: -390, y: 242, properties: { value: '27000' } },
+      { type: 'wokwi-resistor', id: 'rg', x: -390, y: 277, properties: { value: '10000' } },
+      { type: 'velxio-instr-voltmeter', id: 'vm', x: -260, y: 147, properties: {} },
+      { type: 'wokwi-resistor', id: 'rt', x: -120, y: 111.35, properties: { value: '100000' } },
+      { type: 'wokwi-resistor', id: 'rb', x: -120, y: 205, properties: { value: '22000' } },
     ],
     wires: [
-      // PWM out, under the circuit, into the filter.
-      w('w1', ['esp32', 'D25'], ['r1', '1'], C_SIG, [
-        [20, 141.3],
-        [20, 300],
-        [-580, 300],
-        [-580, 141.3],
+      // PWM out, over the top of the circuit, into the filter.
+      w('w1', ['esp32', '25'], ['r1', '1'], C_SIG, [
+        [40, 168],
+        [40, -30],
+        [-610, -30],
+        [-610, 168],
       ]),
-      w('w2', ['r1', '2'], ['u1', 'IN+'], C_SIG, [[-450, 141.3]]),
+      w('w2', ['r1', '2'], ['u1', 'IN+'], C_SIG, [[-450, 168]]),
       w('w3', ['c1', '+'], ['r1', '2'], C_SIG, [
-        [-471.4, 225],
-        [-490, 225],
-        [-490, 141.3],
+        [-471.4, 252],
+        [-490, 252],
+        [-490, 168],
       ]),
       // The op-amp's supply: 15 V on V+, ground on V-.
       w('w4', ['psu', 'SIG'], ['u1', 'V+'], C_PWR, [[-360, 24]]),
-      w('w5', ['psu', 'GND'], ['esp32', 'GND.2'], C_GND, [
+      w('w5', ['psu', 'GND'], ['esp32', 'GND'], C_GND, [
         [-500, 48],
         [-500, 330],
         [30, 330],
-        [30, 199],
+        [30, 244],
       ]),
-      w('w6', ['u1', 'V-'], ['esp32', 'GND.2'], C_GND, [
-        [-360, 205],
-        [-430, 205],
+      w('w6', ['u1', 'V-'], ['esp32', 'GND'], C_GND, [
+        [-360, 232],
+        [-430, 232],
         [-430, 330],
         [30, 330],
-        [30, 199],
+        [30, 244],
       ]),
-      w('w7', ['c1', '−'], ['esp32', 'GND.2'], C_GND, [
+      w('w7', ['c1', '−'], ['esp32', 'GND'], C_GND, [
         [-454.5, 330],
         [30, 330],
-        [30, 199],
+        [30, 244],
       ]),
       // Gain of 3.7: 27k from OUT to IN-, 10k from IN- to ground.
       w('w8', ['u1', 'IN-'], ['rf', '1'], C_SIG, [
-        [-410, 181.3],
-        [-410, 220.65],
+        [-410, 208],
+        [-410, 247.65],
       ]),
       w('w9', ['rf', '2'], ['u1', 'OUT'], C_OUT, [
-        [-310, 220.65],
-        [-310, 161.3],
+        [-310, 247.65],
+        [-310, 188],
       ]),
       w('w10', ['u1', 'IN-'], ['rg', '1'], C_SIG, [
-        [-410, 181.3],
-        [-410, 255.65],
+        [-410, 208],
+        [-410, 282.65],
       ]),
-      w('w11', ['rg', '2'], ['esp32', 'GND.2'], C_GND, [
-        [-300, 255.65],
+      w('w11', ['rg', '2'], ['esp32', 'GND'], C_GND, [
+        [-300, 282.65],
         [-300, 330],
         [30, 330],
-        [30, 199],
+        [30, 244],
       ]),
       // The output on the voltmeter and, divided by 5.55, on GPIO34.
       w('w12', ['u1', 'OUT'], ['vm', 'V+'], C_OUT, [
-        [-290, 161.3],
-        [-290, 144],
+        [-290, 188],
+        [-290, 171],
       ]),
-      w('w13', ['vm', 'V-'], ['esp32', 'GND.2'], C_GND, [
-        [-270, 168],
+      w('w13', ['vm', 'V-'], ['esp32', 'GND'], C_GND, [
+        [-270, 195],
         [-270, 330],
         [30, 330],
-        [30, 199],
+        [30, 244],
       ]),
       w('w14', ['rt', '1'], ['vm', 'V+'], C_OUT, [
-        [-275, 103.1],
-        [-275, 144],
+        [-275, 117],
+        [-275, 171],
       ]),
-      w('w15', ['rt', '2'], ['esp32', 'D34'], C_SIG, [[0, 103.1]]),
-      w('w16', ['rb', '1'], ['esp32', 'D34'], C_SIG, [
-        [-30, 235.65],
-        [-30, 103.1],
+      w('w15', ['rt', '2'], ['esp32', '34'], C_SIG, [[0, 117]]),
+      w('w16', ['rb', '2'], ['esp32', '34'], C_SIG, [
+        [-40, 210.65],
+        [-40, 117],
       ]),
-      w('w17', ['rb', '2'], ['esp32', 'GND.2'], C_GND, [
-        [45, 235.65],
-        [45, 199],
+      w('w17', ['rb', '1'], ['esp32', 'GND'], C_GND, [
+        [-130, 210.65],
+        [-130, 330],
+        [30, 330],
+        [30, 244],
       ]),
     ],
     tags: [
