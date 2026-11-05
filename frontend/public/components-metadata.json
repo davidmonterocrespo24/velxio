@@ -456,12 +456,12 @@
       ],
       "properties": [],
       "defaultValues": {},
-      "pinCount": 3,
+      "pinCount": 5,
       "id": "opamp-lm324",
       "tagName": "wokwi-opamp-lm324",
       "name": "LM324 (Quad Op-Amp)",
       "category": "analog",
-      "description": "Quad single-supply op-amp. Same electrical spec as LM358, four channels per package."
+      "description": "Quad single-supply op-amp (one channel per part), electrically like the LM358. Power it through V+ and V-: the output swings from V- to about 1.5 V below V+. Unwired, it runs from the board's logic rail and ground."
     },
     {
       "thumbnail": "",
@@ -474,12 +474,12 @@
       ],
       "properties": [],
       "defaultValues": {},
-      "pinCount": 3,
+      "pinCount": 5,
       "id": "opamp-lm358",
       "tagName": "wokwi-opamp-lm358",
       "name": "LM358 (Dual Op-Amp)",
       "category": "analog",
-      "description": "Dual single-supply op-amp. Output swings close to both rails. Ideal for MCU-powered signal conditioning."
+      "description": "Dual single-supply op-amp (one channel per part). Power it through V+ and V-: the output swings from near V- to about 1.5 V below V+, so a 15 V supply gives 0..13.5 V. V+ and V- left unwired run it from the board's logic rail and ground (3.3 V on an ESP32: the output stops near 2 V)."
     },
     {
       "thumbnail": "",
@@ -492,12 +492,12 @@
       ],
       "properties": [],
       "defaultValues": {},
-      "pinCount": 3,
+      "pinCount": 5,
       "id": "opamp-lm741",
       "tagName": "wokwi-opamp-lm741",
       "name": "LM741 (Op-Amp)",
       "category": "analog",
-      "description": "Classic general-purpose op-amp. Requires ~1.5V of headroom from each supply rail. Used in didactic circuits."
+      "description": "Classic general-purpose op-amp. Power it through V+ and V- (for example +12 V and -12 V); the output stays about 1.5 V inside each rail. V+ and V- left unwired run it from the board's logic rail and ground. Used in didactic circuits."
     },
     {
       "thumbnail": "",
@@ -646,12 +646,12 @@
       ],
       "properties": [],
       "defaultValues": {},
-      "pinCount": 3,
+      "pinCount": 5,
       "id": "opamp-tl072",
       "tagName": "wokwi-opamp-tl072",
       "name": "TL072 (JFET Op-Amp)",
       "category": "analog",
-      "description": "JFET-input dual op-amp. Very high input impedance, low noise — audio and instrumentation."
+      "description": "JFET-input op-amp (one channel of the dual). Very high input impedance, low noise: audio and instrumentation. Power it through V+ and V-; the output stays about 2 V inside each rail. Unwired, it runs from the board's logic rail and ground."
     },
     {
       "id": "arduino-mega",

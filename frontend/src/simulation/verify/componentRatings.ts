@@ -61,6 +61,13 @@ export const COMPONENT_RATINGS: Record<string, ComponentRating> = {
   mpu6050: { label: 'MPU6050 IMU', supplyPins: [{ name: 'VCC', absMaxVoltage: 6 }], gndPins: ['GND'] },
   servo: { label: 'servo motor', supplyPins: [{ name: 'V+', absMaxVoltage: 7.2 }], gndPins: ['GND'] },
   neopixel: { label: 'NeoPixel', supplyPins: [{ name: 'VDD', absMaxVoltage: 6 }], gndPins: ['VSS', 'GND'] },
+  // Op-amps: the supply across V+ and V- (V- unwired is circuit ground), from
+  // the datasheets' absolute maximum ratings: 32 V single supply for the
+  // LM358 / LM324, ±18 V (36 V) for the LM741 and TL072.
+  'opamp-lm358': { label: 'LM358 op-amp', supplyPins: [{ name: 'V+', absMaxVoltage: 32 }], gndPins: ['V-'] },
+  'opamp-lm324': { label: 'LM324 op-amp', supplyPins: [{ name: 'V+', absMaxVoltage: 32 }], gndPins: ['V-'] },
+  'opamp-lm741': { label: 'LM741 op-amp', supplyPins: [{ name: 'V+', absMaxVoltage: 36 }], gndPins: ['V-'] },
+  'opamp-tl072': { label: 'TL072 op-amp', supplyPins: [{ name: 'V+', absMaxVoltage: 36 }], gndPins: ['V-'] },
 
   // ── Boards (checked against their own supply pins) ─────────────────────────
   // Each board self-drives its VCC rail to its logic voltage, so normal use

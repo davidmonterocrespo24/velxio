@@ -83,6 +83,34 @@ describe('analog projects for the blog post', () => {
     expect(ledV(day)).toBeLessThan(1.5);
   });
 
+  it('ESP32 PWM to 12 V: the LM358 on its 15 V V+ amplifies the filtered PWM by 3.7, and GPIO34 reads it back divided', async () => {
+    // The PWM's DC equivalent, as the solve stamps it: a duty of 3.0/3.3 on
+    // GPIO25 is 3.0 V on the filter, 11.1 V wanted at the output.
+    const run = async (ex: ExampleProject) => {
+      const input = exampleToBuildNetlistInput(ex, { analysis: { kind: 'op' } });
+      input.boards = [
+        {
+          id: 'esp32',
+          boardKind: 'esp32',
+          vcc: 3.3,
+          pins: { D25: { type: 'pwm', duty: 3.0 / 3.3 } },
+          groundPinNames: ['GND', 'GND.1', 'GND.2'],
+          vccPinNames: ['3V3'],
+        },
+      ];
+      const built = buildNetlist(input);
+      const result = await runNetlist(built.netlist);
+      return (pin: string) => result.dcValue(`v(${built.pinNetMap.get(pin)})`);
+    };
+    const v = await run(example('esp32-pwm-dac-lm358-12v'));
+    expect(v('u1:OUT')).toBeCloseTo(11.1, 0);
+    expect(v('esp32:D34')).toBeCloseTo((11.1 * 22) / 122, 1);
+    // V+ disconnected: the op-amp is back on the ESP32's 3.3 V and stops near 2 V.
+    const ex = example('esp32-pwm-dac-lm358-12v');
+    const unpowered = await run({ ...ex, wires: ex.wires.filter((w) => w.id !== 'w4') });
+    expect(unpowered('u1:OUT')).toBeLessThan(2.6);
+  });
+
   it('thermostat: the comparator turns the fan LED on above the set point', async () => {
     const cool = await solve(example('analog-thermostat-comparator', { ntc: { temperature: 25 } }));
     const hot = await solve(example('analog-thermostat-comparator', { ntc: { temperature: 32 } }));
