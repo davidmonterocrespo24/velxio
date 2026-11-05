@@ -520,6 +520,24 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
       '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="28" width="14" height="8" rx="2" fill="#2a2e33" stroke="#4a5057"/><rect x="16" y="26" width="6" height="12" rx="1.5" fill="#a7adb5"/><rect x="22" y="10" width="40" height="44" rx="5" fill="#141414"/><circle cx="30" cy="18" r="5" fill="#d99c43"/><circle cx="30" cy="18" r="2.1" fill="#fff"/><circle cx="54" cy="18" r="5" fill="#d99c43"/><circle cx="54" cy="18" r="2.1" fill="#fff"/><circle cx="30" cy="46" r="5" fill="#d99c43"/><circle cx="30" cy="46" r="2.1" fill="#fff"/><circle cx="54" cy="46" r="5" fill="#d99c43"/><circle cx="54" cy="46" r="2.1" fill="#fff"/><path d="M42 24 c4 6 6 8 6 11 a6 6 0 0 1 -12 0 c0 -3 2 -5 6 -11 z" fill="none" stroke="#fff" stroke-width="1.6"/></svg>',
   },
   {
+    id: 'dfr-line-tracker',
+    label: 'Gravity: Digital Line Tracking Sensor',
+    description:
+      'Infrared line tracker (SEN0017): LOW over the black tape, HIGH on the white floor, and a 3D robot mat that drives it - available in the online editor',
+    category: 'input',
+    thumbnailSvg:
+      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="16" y="4" width="32" height="50" rx="5" fill="#141414"/><circle cx="26" cy="18" r="5" fill="#c9d8ff"/><circle cx="38" cy="18" r="5" fill="#1b1b22" stroke="#555"/><circle cx="23" cy="38" r="2.6" fill="#ff3b30"/><rect x="24" y="54" width="16" height="6" rx="1" fill="#fef6d4"/></svg>',
+  },
+  {
+    id: 'dfr-urm09-trig',
+    label: 'Gravity: URM09 Ultrasonic Sensor (Trig)',
+    description:
+      'Ultrasonic ranger (SEN0388), 2-500 cm on one trigger/echo pin, with a slider or a 3D world feeding the distance - available in the online editor',
+    category: 'input',
+    thumbnailSvg:
+      '<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="10" width="48" height="44" rx="6" fill="#141414"/><circle cx="30" cy="32" r="16" fill="#b9bdc4"/><circle cx="30" cy="32" r="12" fill="#2b2d31"/><rect x="54" y="24" width="6" height="16" rx="1" fill="#fef6d4"/></svg>',
+  },
+  {
     id: 'dfr-c4001-mmwave',
     label: 'Gravity: C4001 24GHz mmWave Radar',
     description:
