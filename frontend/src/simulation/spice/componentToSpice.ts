@@ -40,6 +40,44 @@ export type Mapper = (
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/** An op-amp's supply nets: its V+ and V- pins, null for a pin left unwired. */
+function opampSupply(netLookup: NetLookup): { vp: string | null; vm: string | null } {
+  return { vp: netLookup('V+'), vm: netLookup('V-') };
+}
+
+/**
+ * A saturating op-amp: V_out = clamp(gain · (V+in − V-in), V- + lo, V+ − hi).
+ *
+ * A supply pin that is wired puts its net in the clamp, so an LM741 on ±12 V
+ * swings to ±10.5 V. One left unwired is the board's logic rail (V+) or
+ * ground (V-), as numbers, which is exactly the netlist these parts produced
+ * before they had supply pins. A wired V+ also draws the part's quiescent
+ * current, `iq`, the resistor that keeps a supply net with nothing else on it
+ * from floating.
+ */
+function behaviouralOpamp(
+  comp: ComponentForSpice,
+  netLookup: NetLookup,
+  ctx: MapperContext,
+  p: { gain: number; rin: string; lo: number; hi: number; iq: string },
+): SpiceEmission | null {
+  const inp = netLookup('IN+');
+  const inn = netLookup('IN-');
+  const out = netLookup('OUT');
+  if (!inp || !inn || !out) return null;
+  const { vp, vm } = opampSupply(netLookup);
+  const vLo = vm ? `V(${vm})+${p.lo}` : `${p.lo}`;
+  const vHi = vp ? `V(${vp})-${p.hi}` : `${ctx.vcc - p.hi}`;
+  const cards = [
+    `R_${comp.id}_inp ${inp} 0 ${p.rin}`,
+    `R_${comp.id}_inn ${inn} 0 ${p.rin}`,
+    `B_${comp.id} ${out} 0 V = max(${vLo}, min(${vHi}, ${p.gain}*(V(${inp})-V(${inn}))))`,
+    `R_${comp.id}_out ${out} 0 1Meg`,
+  ];
+  if (vp) cards.push(`R_${comp.id}_iq ${vp} ${vm ?? '0'} ${p.iq}`);
+  return { cards, modelsUsed: new Set() };
+}
+
 function twoPin(
   comp: ComponentForSpice,
   netLookup: NetLookup,
@@ -412,12 +450,16 @@ const MAPPERS: Record<string, Mapper> = {
   },
 
   // ── Real op-amp part numbers (behavioral, saturation-clamped) ─────────────
-  // All 4 mappers follow the same shape:
+  // The three behavioural mappers follow the same shape:
   //   V_out = clamp(A · (V_in+ − V_in-), Vsat_lo, Vsat_hi)
-  // Rails are derived from ctx.vcc. Single-supply assumption: output saturates
-  // between a low rail (ground + headroom) and a high rail (vcc − headroom).
-  // Headroom is chip-specific (LM358/LM324 are near rail-to-rail output,
-  // LM741 needs ~1.5 V, TL072 with JFET input needs ~2 V).
+  // The output saturates between a low rail (V- + headroom) and a high rail
+  // (V+ − headroom). Headroom is chip-specific (LM324 swings close to its
+  // negative rail, LM741 needs ~1.5 V from each, TL072 with JFET input ~2 V).
+  // The LM358 is a real macro-model whose supply pins carry the same rails.
+  //
+  // The rails are the part's V+ and V- pins (see opampSupply). Unwired, they
+  // are the board's logic rail and ground, the only supply an op-amp had
+  // before the pins existed, so a circuit drawn then solves as it always did.
   //
   // Input impedance is 1 MΩ differential + a 10 MΩ common-mode load so the
   // netlist never has floating inputs during DC.
@@ -429,71 +471,23 @@ const MAPPERS: Record<string, Mapper> = {
     // Phase 1d #9: real LM358 macro-model subckt enabled now that
     // Phase 1d #2 added `.options gmin=1e-10 gminsteps=20 sourcesteps=10
     // method=gear maxord=2` to both adapters — the subckt converges
-    // where the prior `.op` skipped.  Power rails wire implicitly to
-    // vcc_rail / 0 (the canvas doesn't draw op-amp power pins).
-    // Real slew rate (~0.5 V/µs), GBW (~1 MHz), and rail headroom
-    // come for free vs the prior behavioural B-source clamp.
+    // where the prior `.op` skipped. Real slew rate (~0.5 V/µs), GBW
+    // (~1 MHz), and rail headroom come for free vs the prior behavioural
+    // B-source clamp. Its supply pins take the part's V+ / V- nets.
+    const { vp, vm } = opampSupply(netLookup);
     return {
-      cards: [`X_${comp.id} ${inp} ${inn} vcc_rail 0 ${out} LM358`],
+      cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
       modelsUsed: new Set([LM358_SUBCKT]),
     };
   },
-  'opamp-lm741': (comp, netLookup, ctx) => {
-    const inp = netLookup('IN+');
-    const inn = netLookup('IN-');
-    const out = netLookup('OUT');
-    if (!inp || !inn || !out) return null;
-    const A = 2e5;
-    const vLo = 1.5;
-    const vHi = ctx.vcc - 1.5;
-    return {
-      cards: [
-        `R_${comp.id}_inp ${inp} 0 2Meg`,
-        `R_${comp.id}_inn ${inn} 0 2Meg`,
-        `B_${comp.id} ${out} 0 V = max(${vLo}, min(${vHi}, ${A}*(V(${inp})-V(${inn}))))`,
-        `R_${comp.id}_out ${out} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'opamp-tl072': (comp, netLookup, ctx) => {
-    const inp = netLookup('IN+');
-    const inn = netLookup('IN-');
-    const out = netLookup('OUT');
-    if (!inp || !inn || !out) return null;
-    const A = 2e5;
-    const vLo = 2.0;
-    const vHi = ctx.vcc - 2.0;
-    return {
-      cards: [
-        // JFET input: huge Z_in — model with 1 TΩ
-        `R_${comp.id}_inp ${inp} 0 1T`,
-        `R_${comp.id}_inn ${inn} 0 1T`,
-        `B_${comp.id} ${out} 0 V = max(${vLo}, min(${vHi}, ${A}*(V(${inp})-V(${inn}))))`,
-        `R_${comp.id}_out ${out} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'opamp-lm324': (comp, netLookup, ctx) => {
-    // Quad op-amp — electrically identical to LM358 per-channel
-    const inp = netLookup('IN+');
-    const inn = netLookup('IN-');
-    const out = netLookup('OUT');
-    if (!inp || !inn || !out) return null;
-    const A = 1e5;
-    const vLo = 0.05;
-    const vHi = ctx.vcc - 1.5;
-    return {
-      cards: [
-        `R_${comp.id}_inp ${inp} 0 10Meg`,
-        `R_${comp.id}_inn ${inn} 0 10Meg`,
-        `B_${comp.id} ${out} 0 V = max(${vLo}, min(${vHi}, ${A}*(V(${inp})-V(${inn}))))`,
-        `R_${comp.id}_out ${out} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
+  'opamp-lm741': (comp, netLookup, ctx) =>
+    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' }),
+  // JFET input: huge Z_in, modelled with 1 TΩ
+  'opamp-tl072': (comp, netLookup, ctx) =>
+    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' }),
+  // Quad op-amp — electrically identical to LM358 per-channel
+  'opamp-lm324': (comp, netLookup, ctx) =>
+    behaviouralOpamp(comp, netLookup, ctx, { gain: 1e5, rin: '10Meg', lo: 0.05, hi: 1.5, iq: '82k' }),
 
   // ── Linear voltage regulators ────────────────────────────────────────────
   // Behavioral model: V_out = min(V_in - V_dropout, V_nom). Dropout voltage
