@@ -15,6 +15,12 @@ import {
 } from '../../data/examples';
 import { galleryExamples } from '../../lib/galleryExampleFilter';
 import { subscribeProBoards, getProBoardsVersion } from '../../lib/proBoardRegistry';
+import {
+  facetMatches,
+  getGalleryFacets,
+  getGalleryFacetsVersion,
+  subscribeGalleryFacets,
+} from '../../lib/galleryFacets';
 import { BOARD_KIND_LABELS } from '../../types/board';
 import { parseSearchQuery, scoreSearch } from '../../utils/searchMatch';
 import { exampleSearchFields } from '../../utils/exampleSearch';
@@ -92,6 +98,26 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
     },
     [setSearchParams],
   );
+  // Extension facets (lib/galleryFacets): on/off filters such as "has a 3D
+  // world", linkable like the board as `/examples?facet=<id>`.
+  useSyncExternalStore(subscribeGalleryFacets, getGalleryFacetsVersion, getGalleryFacetsVersion);
+  const facets = getGalleryFacets();
+  const selectedFacetId = searchParams.get('facet');
+  const activeFacet = facets.find((f) => f.id === selectedFacetId) ?? null;
+  const setSelectedFacet = useCallback(
+    (id: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) next.set('facet', id);
+          else next.delete('facet');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [selectedCategory, setSelectedCategory] = useState<ExampleProject['category'] | 'all'>(
     'all',
   );
@@ -153,7 +179,8 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
         (selectedBoard === 'retro' ? isRetro(example) : getBoardFilter(example) === selectedBoard);
       const catMatch = selectedCategory === 'all' || example.category === selectedCategory;
       const diffMatch = selectedDifficulty === 'all' || example.difficulty === selectedDifficulty;
-      return boardMatch && catMatch && diffMatch;
+      const facetMatch = !activeFacet || facetMatches(activeFacet, example);
+      return boardMatch && catMatch && diffMatch && facetMatch;
     })
     .sort((a, b) => {
       // Order by board following the boardTabs order (so Arduino Uno comes
@@ -312,6 +339,13 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
       onClear: () => setSelectedDifficulty('all'),
     });
   }
+  if (activeFacet) {
+    activeChips.push({
+      key: 'facet',
+      label: activeFacet.label(),
+      onClear: () => setSelectedFacet(null),
+    });
+  }
   if (search.trim()) {
     activeChips.push({
       key: 'search',
@@ -324,6 +358,7 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
     setSelectedBoard('all');
     setSelectedCategory('all');
     setSelectedDifficulty('all');
+    setSelectedFacet(null);
   };
 
   return (
@@ -412,6 +447,44 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
             </option>
           ))}
         </select>
+
+        {facets.map((facet) => {
+          const on = activeFacet?.id === facet.id;
+          const count = exampleProjects.filter((ex) => facetMatches(facet, ex)).length;
+          return (
+            <button
+              key={facet.id}
+              type="button"
+              className={'examples-facet' + (on ? ' examples-facet--on' : '')}
+              aria-pressed={on}
+              title={facet.title?.()}
+              onClick={() => {
+                setSelectedFacet(on ? null : facet.id);
+                if (!on) facet.onActivate?.();
+              }}
+            >
+              {facet.iconPaths?.length ? (
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  {facet.iconPaths.map((d) => (
+                    <path key={d} d={d} />
+                  ))}
+                </svg>
+              ) : null}
+              <span>{facet.label()}</span>
+              <span className="examples-facet-count">{count}</span>
+            </button>
+          );
+        })}
 
         <span className="examples-count">
           {t('examples.matchCount', { count: filteredExamples.length })}

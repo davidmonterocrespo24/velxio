@@ -73,6 +73,37 @@
   border-color: var(--accent, var(--color-action-primary));
 }
 
+/* Extension facets (lib/galleryFacets): pill toggles beside the dropdowns. */
+.examples-facet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.examples-facet:hover {
+  background: var(--bg-elevated);
+}
+.examples-facet:focus-visible {
+  outline: 2px solid var(--accent, var(--color-action-primary));
+  outline-offset: 2px;
+}
+.examples-facet--on {
+  border-color: var(--accent, var(--color-action-primary));
+  color: var(--accent, var(--color-action-primary));
+}
+.examples-facet-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .examples-count {
   color: var(--text-muted);
   font-size: 13px;
