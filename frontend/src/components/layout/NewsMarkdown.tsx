@@ -112,7 +112,7 @@ export function NewsMarkdown({
             );
           }
           if (href && isImageHref(href) && (!text || text === href)) {
-            return <img src={href} alt="" loading="lazy" />;
+            return <img src={href} alt="" />;
           }
           const isButton = title === 'button';
           return (
@@ -128,8 +128,10 @@ export function NewsMarkdown({
             </a>
           );
         },
+        // Not lazy: getNextNews() loaded these before the modal opened, and lazy
+        // would only add a layout pass before the picture shows.
         img: ({ src, alt }) => (
-          <img src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} loading="lazy" />
+          <img src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} />
         ),
       }}
     >

@@ -106,9 +106,57 @@ async function ossFeedNext(): Promise<NewsPost | null> {
   return post;
 }
 
+/** Longest wait for a post's pictures before the modal opens anyway. */
+export const NEWS_IMAGE_WAIT_MS = 4000;
+const NEWS_IMAGE_MAX = 6;
+const IMAGE_URL_RE = /https?:\/\/[^\s()<>"'\]]+?\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#][^\s()<>"'\]]*)?(?=[\s)"'\]>]|$)/gi;
+
+/** The picture URLs a post body shows (markdown images and bare image
+ *  links), in order, without repeats. */
+export function newsImageUrls(md: string): string[] {
+  const out: string[] = [];
+  for (const m of md.matchAll(IMAGE_URL_RE)) {
+    if (!out.includes(m[0])) out.push(m[0]);
+    if (out.length >= NEWS_IMAGE_MAX) break;
+  }
+  return out;
+}
+
 /**
- * Resolve the next news post to show, or null. Never throws — news is
- * strictly best-effort and must not disturb the editor.
+ * Fetch and decode a post's pictures before the modal opens. A picture
+ * that arrives after the modal pushes the text down while it is being
+ * read; one already in the document's image list lays out at its real
+ * size on the first frame. Bounded: after `timeoutMs` the post is shown
+ * anyway, and a picture that fails never holds it.
+ */
+export function preloadNewsImages(md: string, timeoutMs = NEWS_IMAGE_WAIT_MS): Promise<void> {
+  const urls = newsImageUrls(md);
+  if (!urls.length || typeof Image === 'undefined') return Promise.resolve();
+  const loads = urls.map(
+    (src) =>
+      new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          if (typeof img.decode === 'function') img.decode().then(() => resolve(), () => resolve());
+          else resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = src;
+      }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    Promise.all(loads).then(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Resolve the next news post to show, or null, with its pictures already
+ * loaded (see preloadNewsImages). Never throws — news is strictly
+ * best-effort and must not disturb the editor.
  */
 export async function getNextNews(): Promise<NewsPost | null> {
   try {
@@ -118,7 +166,9 @@ export async function getNextNews(): Promise<NewsPost | null> {
         new Promise<void>((resolve) => setTimeout(resolve, SOURCE_WAIT_MS)),
       ]);
     }
-    return _source ? await _source() : await ossFeedNext();
+    const post = _source ? await _source() : await ossFeedNext();
+    if (post && typeof post.body_md === 'string') await preloadNewsImages(post.body_md);
+    return post;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.debug('[oss] news source failed:', err);
