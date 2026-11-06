@@ -7,6 +7,7 @@ import type { WorkspaceFile } from '../../store/useEditorStore';
 import { useSimulatorStore, keepWireShapes } from '../../store/useSimulatorStore';
 import { installChipFileSync, ensureChipWasm, flushChipFileSync } from '../../services/chipFiles';
 import { getChipActions, getChipActionsVersion, subscribeChipActions } from '../../lib/chipActions';
+import { fileIconFor, getFileIconsVersion, subscribeFileIcons } from '../../lib/fileIcons';
 import type { BoardKind } from '../../types/board';
 import { boardDisplayName, isKnownBoardKind, isPiBoardKind } from '../../types/board';
 import { importProjectFile, PROJECT_FILE_ACCEPT } from '../../utils/importProject';
@@ -338,9 +339,50 @@ const BOARD_COLOR: Record<BoardKind, string> = {
   'stm32-netduino2': '#ce93d8',
 };
 
+/** A web page: the file outline with a pair of code brackets. */
+const IcoHtml = () => (
+  <svg
+    width="22"
+    height="22"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <polyline points="10 12 8 14.5 10 17" />
+    <polyline points="14 12 16 14.5 14 17" />
+  </svg>
+);
+
 function FileIcon({ name }: { name: string }) {
+  // Re-render when an extension registers its icons (lib/fileIcons).
+  useSyncExternalStore(subscribeFileIcons, getFileIconsVersion, getFileIconsVersion);
+  const rule = fileIconFor(name);
+  if (rule) {
+    return (
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={rule.color ?? 'currentColor'}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {rule.paths.map((d) => (
+          <path key={d} d={d} />
+        ))}
+      </svg>
+    );
+  }
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (['h', 'hpp'].includes(ext)) return <IcoHeader />;
+  if (['html', 'htm'].includes(ext)) return <IcoHtml />;
   return <IcoFile />;
 }
 

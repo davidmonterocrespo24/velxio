@@ -23,6 +23,11 @@ function getLanguage(filename: string): string {
   if (ext === 'py') return 'python';
   if (ext === 'json') return 'json';
   if (ext === 'md') return 'markdown';
+  // Web files (a page served by an ESP32 sketch, an extension's scene page):
+  // Monaco ships these languages, they only needed naming.
+  if (ext === 'html' || ext === 'htm') return 'html';
+  if (ext === 'css') return 'css';
+  if (ext === 'js' || ext === 'mjs') return 'javascript';
   if (ext === 'hex') return 'plaintext';
   return 'plaintext';
 }
