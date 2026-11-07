@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import string
 import subprocess
@@ -2514,6 +2515,93 @@ class ESPIDFCompiler:
             props[key.strip().lower()] = value.strip()
         return props
 
+    # What an archive's file name and an ldflags token may hold to be written
+    # into the generated CMakeLists. Both come from the library's own files;
+    # a quote, a parenthesis or a `$` would end or expand the CMake argument
+    # they sit in, so anything else is dropped with a warning.
+    _PRECOMPILED_SAFE_NAME = re.compile(r'[A-Za-z0-9_.+-]+')
+    _PRECOMPILED_SAFE_FLAG = re.compile(r'[A-Za-z0-9_.,=+:/@-]+')
+
+    def _precompiled_link(
+        self, lib_root: Path, has_src_layout: bool, idf_target: str | None,
+    ) -> dict | None:
+        """What arduino-cli links for a precompiled library on this chip.
+
+        The library specification's `precompiled` field: `true` is a mixed
+        library (the archive is linked and the sources always compile), `full`
+        replaces the sources with the archive when there is one for the board
+        (and falls back to the sources when there is not). The archives live
+        in the library's source dir under the board's build.mcu: `src/<mcu>/`
+        for the recursive layout, `<lib>/<mcu>/` for the flat one.
+        arduino-esp32's build.mcu is the chip name on every board, so it is
+        the IDF target this build compiles for. (arduino-cli tries
+        `<mcu>/<fpu>-<float-abi>` first when the compile flags carry -mfpu and
+        -mfloat-abi; no ESP32 target's flags do.)
+
+        From that folder arduino-cli links every lib*.a (`-L<folder> -l<name>`)
+        and every other .a as an object, and adds the library's `ldflags`.
+        Shared objects (.so) cannot go into a firmware image and are skipped.
+
+        Returns None when there is nothing to link here (not precompiled, no
+        target, or no folder for it: arduino-cli then builds the sources as it
+        would any library's), else a dict with `archives` (Paths, sorted),
+        `ldflags` (tokens) and `skip_sources`.
+        """
+        if not idf_target:
+            return None
+        props = self._parse_library_properties(lib_root)
+        mode = props.get('precompiled', '')
+        if mode not in ('true', 'full'):
+            return None
+        name = props.get('name') or lib_root.name
+        folder = (lib_root / 'src' if has_src_layout else lib_root) / idf_target
+        logger.info(f'[espidf] library "{name}" has been declared precompiled ({mode})')
+        if not folder.is_dir():
+            logger.info(
+                f'[espidf] precompiled library in "{folder}" not found — '
+                f'building "{name}" from its sources'
+            )
+            return None
+        logger.info(f'[espidf] using precompiled library in "{folder}"')
+
+        archives: list[Path] = []
+        for entry in sorted(folder.iterdir()):
+            if not entry.is_file() or entry.suffix not in ('.a', '.so'):
+                continue
+            if entry.suffix == '.so':
+                logger.warning(
+                    f'[espidf] "{name}": {entry.name} is a shared object — '
+                    f'a firmware image links statically; skipped'
+                )
+                continue
+            if not self._PRECOMPILED_SAFE_NAME.fullmatch(entry.name):
+                logger.warning(
+                    f'[espidf] "{name}": archive name {entry.name!r} cannot be '
+                    f'written into the build files; skipped'
+                )
+                continue
+            archives.append(entry)
+
+        raw = props.get('ldflags', '')
+        try:
+            tokens = shlex.split(raw)
+        except ValueError:
+            tokens = raw.split()
+        ldflags: list[str] = []
+        for token in tokens:
+            if self._PRECOMPILED_SAFE_FLAG.fullmatch(token):
+                ldflags.append(token)
+            else:
+                logger.warning(
+                    f'[espidf] "{name}": ldflags token {token!r} is not a plain '
+                    f'linker flag; dropped'
+                )
+        return {
+            'archives': archives,
+            'ldflags': ldflags,
+            'skip_sources': mode == 'full',
+        }
+
     def _library_supports_esp32(self, lib_root: Path) -> bool:
         """True if the library may be used on the ESP32 platform.
 
@@ -2867,10 +2955,15 @@ class ESPIDFCompiler:
         merged_libs: dict[str, str] | None = None,
         denied: set[str] | None = None,
         speculative_out: set[str] | None = None,
+        idf_target: str | None = None,
     ) -> tuple[list[str], dict[str, str]]:
         """
         BFS over ext_headers (and transitive includes) to discover all external
         Arduino libraries and merge them into a single 'user_libs_all' IDF component.
+
+        `idf_target` (the chip this build is for) lets a precompiled library
+        link the archive it ships for that chip, as arduino-cli does (see
+        _precompiled_link). None links no archive.
 
         `allowed_libraries` (P2 — project library manifest / scope): when not
         None, a USER-installed library (from arduino_libs) is merged only if its
@@ -2945,6 +3038,13 @@ class ESPIDFCompiler:
         root_header_owner: dict[str, str] = {}
         lib_prefix_by_name: dict[str, str] = {}
         used_prefixes: set[str] = set()
+        # Precompiled libraries (velxio/velxio-prod#87): what each one links
+        # on this target (None = nothing, see _precompiled_link), and the
+        # archives copied into the component for the CMakeLists, in
+        # resolution order.
+        precompiled_by_lib: dict[str, dict | None] = {}
+        precompiled_links: list[dict] = []
+        precompiled_dirs: set[str] = set()
 
         headers_to_resolve: list[str] = list(ext_headers)
         # Headers the SKETCH itself included. The config-header guard below
@@ -3160,6 +3260,14 @@ class ESPIDFCompiler:
                 # silently-picked copy; legacy mode interleaves them under the
                 # component root (first-resolved wins).
                 first_copy = lib_dir_name not in lib_prefix_by_name
+                if lib_dir_name not in precompiled_by_lib:
+                    precompiled_by_lib[lib_dir_name] = self._precompiled_link(
+                        lib_root, has_src_layout, idf_target,
+                    )
+                precompiled = precompiled_by_lib[lib_dir_name]
+                # precompiled=full with an archive for this chip: arduino-cli
+                # links the archive INSTEAD of compiling the sources.
+                skip_sources = bool(precompiled and precompiled['skip_sources'])
                 if _PER_LIB_ROOTS:
                     if first_copy:
                         _prefix = _sanitise_lib_dirname(lib_dir_name)
@@ -3194,6 +3302,8 @@ class ESPIDFCompiler:
                         shutil.copy2(f, dest)
                         seen_names.add(file_key)
                     if f.suffix in ('.cpp', '.c') and file_key not in cpp_files:
+                        if skip_sources:
+                            continue
                         # A source the library #includes as text is a fragment,
                         # not a translation unit. Copy it (the includer needs
                         # the file on disk) but never hand it to the compiler.
@@ -3208,6 +3318,30 @@ class ESPIDFCompiler:
                             )
                             continue
                         cpp_files.append(file_key)
+
+                if precompiled is not None and first_copy:
+                    # The archives for this chip, copied next to the sources
+                    # under a stable component-relative path (the CMakeLists
+                    # must not change from one compile to the next, or a warm
+                    # build dir reconfigures), one directory per library.
+                    _pc_dir = '.precompiled/' + (
+                        lib_prefix or _sanitise_lib_dirname(lib_dir_name)
+                    )
+                    if _pc_dir in precompiled_dirs:
+                        _n = 2
+                        while f'{_pc_dir}_{_n}' in precompiled_dirs:
+                            _n += 1
+                        _pc_dir = f'{_pc_dir}_{_n}'
+                    precompiled_dirs.add(_pc_dir)
+                    (comp_dir / _pc_dir).mkdir(parents=True, exist_ok=True)
+                    for _archive in precompiled['archives']:
+                        shutil.copy2(_archive, comp_dir / _pc_dir / _archive.name)
+                    precompiled_links.append({
+                        'lib': lib_dir_name,
+                        'dir': _pc_dir,
+                        'archives': [a.name for a in precompiled['archives']],
+                        'ldflags': precompiled['ldflags'],
+                    })
 
                 if _PER_LIB_ROOTS and first_copy:
                     # arduino-cli's `SourceDir`: `<lib>/src` for the recursive
@@ -3523,6 +3657,63 @@ class ESPIDFCompiler:
         _priv_cmake_line = (
             f'    {priv_include_dirs_line}\n' if priv_include_dirs_line else ''
         )
+
+        # Precompiled archives (velxio/velxio-prod#87), linked the way IDF
+        # links its own blobs (esp_wifi, esp_phy): an imported library per
+        # archive that REQUIRES what this component requires, so the core and
+        # the IDF components the archive calls come after it on the link
+        # line. With sources, it requires this component too, so a callback
+        # one of the library's own sources defines resolves whatever the link
+        # order. arduino-cli does not need that: it links inside
+        # --start-group. Without sources, idf_component_register() made an
+        # INTERFACE library, where only INTERFACE is accepted (and there is
+        # nothing to call back into).
+        precompiled_block = ''
+        if precompiled_links:
+            _link_kw = 'PUBLIC' if cpp_files else 'INTERFACE'
+            _reqs = ' '.join(
+                (['${COMPONENT_NAME}'] if cpp_files else [])
+                + [arduino_comp_name] + extra_requires.split()
+            )
+            _lines = [
+                '# Precompiled libraries (library.properties precompiled=true|full):',
+                '# what each ships for this chip in src/<build.mcu>/, and its',
+                '# ldflags, linked as arduino-cli links them.',
+            ]
+            _n = 0
+            for _link in precompiled_links:
+                for _name in _link['archives']:
+                    _n += 1
+                    _tgt = f'velxio_precompiled_{_n}'
+                    _lines.append(
+                        f'add_prebuilt_library({_tgt} '
+                        f'"${{CMAKE_CURRENT_LIST_DIR}}/{_link["dir"]}/{_name}"'
+                    )
+                    _lines.append(f'    REQUIRES {_reqs})')
+                    _lines.append(
+                        f'target_link_libraries(${{COMPONENT_LIB}} {_link_kw} {_tgt})'
+                    )
+                if _link['ldflags']:
+                    # arduino-cli passes -L<folder> with them, so an
+                    # `ldflags=-l<name>` naming the library's archive resolves.
+                    _lines.append(
+                        'target_link_directories(${COMPONENT_LIB} INTERFACE '
+                        f'"${{CMAKE_CURRENT_LIST_DIR}}/{_link["dir"]}")'
+                    )
+                    _lines.append(
+                        'target_link_libraries(${COMPONENT_LIB} INTERFACE '
+                        + ' '.join(f'"{_t}"' for _t in _link['ldflags'])
+                        + ')'
+                    )
+            precompiled_block = '\n'.join(_lines) + '\n'
+            logger.info(
+                f'[espidf] precompiled archives linked for {idf_target}: '
+                + ', '.join(
+                    f'{_l["lib"]} -> {_l["archives"]}'
+                    + (f' ldflags {_l["ldflags"]}' if _l['ldflags'] else '')
+                    for _l in precompiled_links
+                )
+            )
         cmake_content = (
             '# Auto-generated by Velxio — user libraries as one IDF component.\n'
             '# Each library keeps its own subtree and exports exactly ONE include\n'
@@ -3538,6 +3729,7 @@ class ESPIDFCompiler:
             ')\n'
             f'{defs_block}'
             f'{warns_block}'
+            f'{precompiled_block}'
         )
         cmake_path = comp_dir / 'CMakeLists.txt'
         cmake_path.write_text(cmake_content, encoding='utf-8')
@@ -6044,6 +6236,7 @@ class ESPIDFCompiler:
                     merged_libs=merged_libs_report,
                     denied=denied_libraries,
                     speculative_out=speculative_out,
+                    idf_target=idf_target,
                 )
 
             # Patch main/CMakeLists.txt — INCLUDE_DIRS for user_libs_all.
