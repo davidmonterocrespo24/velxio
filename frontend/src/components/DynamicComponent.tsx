@@ -38,6 +38,7 @@ import { getMixedModeScheduler } from '../simulation/spice/MixedModeScheduler';
 import { getBoardLogicFamily } from '../simulation/LogicFamilies';
 import { getSensorControlForComponent } from '../simulation/sensorControlConfig';
 import { mountReseatPolicy } from '../utils/mountReseatPolicy';
+import { tagOwnsPointer } from '../utils/partOwnsPointer';
 
 // Side-effect imports: register every web component we'll create at runtime.
 // `@wokwi/elements` covers the upstream catalog; `../velxio-elements` adds
@@ -398,10 +399,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       // attachEvents but no internal pointer handler, so clicks on them
       // SHOULD bubble. With the broad guard, those dialogs never opened.
       //
-      // The whitelist below is tight on purpose: only add a tag name when
-      // the wokwi element actually has its own pointerdown handler that
-      // the user needs to reach. If a new interactive part is added,
-      // append its tag here.
+      // The whitelist (utils/partOwnsPointer.ts) is tight on purpose: only
+      // add a tag name when the wokwi element actually has its own
+      // pointerdown handler that the user needs to reach. Its test scans
+      // @wokwi/elements and fails when such an element is missing.
       const target = e.target as HTMLElement;
       // The part's own shortcut chip (SD files) is a button: it must neither
       // start a drag nor reach the canvas selection logic.
@@ -412,16 +413,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       const tag = target.tagName?.toLowerCase() ?? '';
       const ownsPointer =
         interactionRunning &&
-        (tag === 'wokwi-pushbutton' ||
-          tag === 'wokwi-pushbutton-6mm' ||
-          tag === 'wokwi-potentiometer' ||
-          tag === 'wokwi-slide-potentiometer' ||
-          tag === 'wokwi-slide-switch' ||
-          tag === 'wokwi-dip-switch-8' ||
-          tag === 'wokwi-analog-joystick' ||
-          tag === 'wokwi-ky-040' ||
-          tag === 'wokwi-membrane-keypad' ||
-          tag === 'wokwi-rotary-dialer' ||
+        (tagOwnsPointer(tag) ||
           // Rule-6a escape hatch: a (possibly private-overlay) element whose
           // surface IS the interaction — a touch screen — declares it via a
           // property instead of this list growing pro tag names. While the
