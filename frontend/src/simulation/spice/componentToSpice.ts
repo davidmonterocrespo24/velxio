@@ -603,12 +603,14 @@ const MAPPERS: Record<string, Mapper> = {
     const neg = netLookup('−') ?? netLookup('-') ?? netLookup('GND');
     if (!pos || !neg) return null;
     const mode = String(comp.properties.mode ?? 'dc').toLowerCase();
-    const voltage = Number(comp.properties.voltage ?? 5);
-    const currentLimit = Math.max(0.01, Number(comp.properties.currentLimit ?? 1));
+    // Read like every other field (valueParser): "9V", "500m" and "1k" are
+    // numbers. Number() made them NaN and ngspice refused the whole deck.
+    const voltage = parseValueWithUnits(comp.properties.voltage, 5);
+    const currentLimit = Math.max(0.01, parseValueWithUnits(comp.properties.currentLimit, 1));
     const esr = Math.max(0.01, voltage / (currentLimit * 1.5));
     let source: string;
     if (mode === 'ac') {
-      const freq = Number(comp.properties.frequency ?? 50);
+      const freq = parseValueWithUnits(comp.properties.frequency, 50);
       source = `SIN(0 ${voltage} ${freq})`;
     } else {
       source = `DC ${voltage}`;
@@ -635,9 +637,11 @@ const MAPPERS: Record<string, Mapper> = {
     const gnd = netLookup('GND') ?? netLookup('-') ?? netLookup('−');
     if (!sig || !gnd) return null;
     const waveform = String(comp.properties.waveform ?? 'sine').toLowerCase();
-    const freq = Number(comp.properties.frequency ?? 1000);
-    const amp = Number(comp.properties.amplitude ?? 1);
-    const off = Number(comp.properties.offset ?? 0);
+    // "1k", "3V" and "500mV" are values (valueParser); Number() made them NaN
+    // and the deck was rejected with nothing pointing at the field.
+    const freq = parseValueWithUnits(comp.properties.frequency, 1000);
+    const amp = parseValueWithUnits(comp.properties.amplitude, 1);
+    const off = parseValueWithUnits(comp.properties.offset, 0);
     let source: string;
     if (waveform === 'square') {
       const period = 1 / freq;
@@ -1150,8 +1154,8 @@ const MAPPERS: Record<string, Mapper> = {
     // Coil pins must be present — without them the relay can't be energised.
     // COM is required too; without it, neither NO nor NC contact is useful.
     if (!cp || !cn || !com) return null;
-    const coilR = Number(comp.properties.coil_resistance ?? 70);
-    const coilV = Number(comp.properties.coil_voltage ?? 5);
+    const coilR = parseValueWithUnits(comp.properties.coil_resistance, 70);
+    const coilV = parseValueWithUnits(comp.properties.coil_voltage, 5);
     // The contacts follow the voltage ACROSS the coil, not its current. With
     // a fixed R the two are proportional (I = V_coil / R), so a threshold in
     // volts is the same test as one in amps, and it stays right for every

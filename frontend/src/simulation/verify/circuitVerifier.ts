@@ -28,11 +28,14 @@ import { UnionFind } from '../spice/unionFind';
 import { BOARD_PIN_GROUPS, auxRailNetName, railVolts } from '../spice/boardPinGroups';
 import { hasInternalNets } from '../../utils/breadboardNets';
 import type { BuildNetlistInput, ElectricalSolveResult } from '../spice/types';
+import { readValueField, unreadableValues } from '../spice/valueFields';
+import { formatQuantity } from '../spice/valueParser';
 import { COMPONENT_RATINGS } from './componentRatings';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
   | 'solver-failed'
+  | 'invalid-value'
   | 'source-conflict'
   | 'unstable-solve'
   | 'short-circuit'
@@ -146,6 +149,28 @@ export async function verifyCircuit(
             ? `e-paper panel: ${gap.why}`
             : `${gap.sensorType} on GPIO ${gap.pin} will not answer here: ${gap.why}`,
     });
+  }
+
+  // ── Fields whose text is not a value (no solve) ───────────────────────
+  // A resistance, a capacitance, a supply voltage or a generator frequency
+  // the value parser cannot read ("4,7k", "1 000", "5 V DC") is simulated
+  // with the field's default, so the circuit on screen is not the one that
+  // runs. Say which field and what it runs with. Before the shared parser
+  // such a text became some other number ("4,7k" was 4k) or NaN, and one
+  // NaN made ngspice reject the whole circuit with a bare "circuit not
+  // parsed" (velxio/velxio-prod#105, #118). Blocking, with Run anyway.
+  for (const comp of input.components) {
+    for (const bad of unreadableValues(comp)) {
+      errors.push({
+        severity: 'error',
+        code: 'invalid-value',
+        componentId: comp.id,
+        message:
+          `${comp.metadataId} ${comp.id}: its ${bad.field.label} "${String(bad.raw)}" is not a value ` +
+          `the simulator can read (${bad.why}). It runs with ${formatQuantity(bad.field.fallback, bad.field.unit)} ` +
+          `until the field is fixed.`,
+      });
+    }
   }
 
   // ── Buses a Raspberry Pi has only on fixed pins (no solve) ────────────
@@ -657,7 +682,7 @@ export async function verifyCircuit(
     };
     for (const comp of input.components) {
       if (comp.metadataId !== 'relay') continue;
-      const coilV = Number(comp.properties.coil_voltage ?? 5);
+      const coilV = readValueField(comp, 'coil_voltage');
       if (!Number.isFinite(coilV) || coilV <= 0) continue;
       const coilNets = new Set<string>();
       for (const pinName of ['COIL+', 'COIL-']) {
@@ -775,10 +800,9 @@ export async function verifyCircuit(
       continue;
     }
     const i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
+    // The limit the netlist was built with (valueFields): "500m" is 0.5 A.
     const perInstanceLimit =
-      src.metadataId === 'power-supply'
-        ? Number(src.properties?.currentLimit ?? config.shortCircuitAmps)
-        : config.shortCircuitAmps;
+      src.metadataId === 'power-supply' ? readValueField(src, 'currentLimit') : config.shortCircuitAmps;
     const threshold = Number.isFinite(perInstanceLimit) && perInstanceLimit > 0
       ? perInstanceLimit
       : config.shortCircuitAmps;
@@ -974,14 +998,15 @@ function sourceInfo(
   if (id === 'battery-9v') return { posPins: ['+'], volts: 9 };
   if (id === 'battery-aa') return { posPins: ['+'], volts: 1.5 };
   if (id === 'battery-coin-cell') return { posPins: ['+'], volts: 3 };
+  // The numbers the netlist was built with (valueFields), so "12V" is 12.
   if (id === 'power-supply') {
-    return { posPins: ['+', 'SIG', 'VCC'], volts: Math.abs(Number(comp.properties.voltage ?? 5)) };
+    return { posPins: ['+', 'SIG', 'VCC'], volts: Math.abs(readValueField(comp, 'voltage')) };
   }
   if (id === 'signal-generator') {
-    const off = Number(comp.properties.offset ?? 0);
+    const off = readValueField(comp, 'offset');
     const amp = String(comp.properties.waveform ?? 'sine').toLowerCase() === 'dc'
       ? 0
-      : Number(comp.properties.amplitude ?? 0);
+      : readValueField(comp, 'amplitude');
     return { posPins: ['SIG', '+'], volts: Math.abs(off) + Math.abs(amp) };
   }
   return null;

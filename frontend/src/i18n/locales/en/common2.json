@@ -470,7 +470,10 @@
       "productPage": "Product page",
       "datasheetPage": "Specifications",
       "sensorValues": "Sensor values",
-      "sensorValuesHint": "Where the sensor starts when the simulation runs, and where Reset brings it back. Dragging its slider during a run does not change these."
+      "sensorValuesHint": "Where the sensor starts when the simulation runs, and where Reset brings it back. Dragging its slider during a run does not change these.",
+      "valueComma": "Use a dot for decimals (4.7k, not 4,7k).",
+      "valueInvalid": "Not a value: write e.g. 4.7k, 4k7, 100n or 1M.",
+      "valueSimulatesAs": "Simulates as"
     },
     "flash": {
       "title": "Flash {{board}}",

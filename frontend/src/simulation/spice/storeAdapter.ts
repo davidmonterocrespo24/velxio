@@ -20,6 +20,7 @@ import type { BoardKind } from '../../types/board';
 import { boardPinGroupFor } from './boardPinGroups';
 import { parseValueWithUnits } from './valueParser';
 import { PASSIVE_PRESETS } from './componentToSpice';
+import { readValueField } from './valueFields';
 
 // Minimum transient stop time so RC/decoupling networks reach steady-state
 // even if the source is very high frequency.
@@ -124,7 +125,9 @@ function pickDynamicAnalysis(
     if (c.metadataId !== 'signal-generator') continue;
     const waveform = String(c.properties.waveform ?? 'sine').toLowerCase();
     if (waveform === 'dc') continue;
-    const freq = Number(c.properties.frequency ?? 0);
+    // The frequency the mapper emitted: "2k" is 2000 Hz (it was NaN here, and
+    // the circuit was solved as .op), a missing one is the mapper's default.
+    const freq = readValueField(c, 'frequency');
     if (freq > 0) frequencies.push(freq);
   }
 

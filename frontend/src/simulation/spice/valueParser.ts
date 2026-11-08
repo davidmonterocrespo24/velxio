@@ -2,9 +2,10 @@
  * Read the value a user types into a part's field: "4.7k", "4k7", "100nF",
  * "1M", "1Meg", "50Hz", "9V", "500mA", "10 µF".
  *
- * Every value field reads through this one parser, so the same text means
- * the same number everywhere. The rules follow ngspice where that cannot
- * surprise anybody, and the SI
+ * Every field the simulator reads as a number goes through this one parser
+ * (resistors, capacitors, inductors, the power supply, the signal generator;
+ * see valueFields.ts), so the same text means the same number everywhere.
+ * The rules follow ngspice where that cannot surprise anybody, and the SI
  * convention of schematic editors (KiCad's SI notation, Falstad) where
  * SPICE's would:
  *
@@ -24,8 +25,10 @@
  *     "farad", which ngspice would read as femto + "arad".
  *
  * A text that follows none of this is NOT turned into some number: parseValue
- * says why, and parseValueWithUnits hands back the caller's default. Before,
- * "1,5k" was silently 1k.
+ * says why, parseValueWithUnits hands back the caller's default, and the
+ * circuit check reports the field (circuitVerifier, invalid-value). Before,
+ * "1,5k" was silently 1k and a generator frequency of "1k" became NaN, which
+ * made ngspice reject the whole circuit (velxio/velxio-prod#118).
  */
 
 /** Why a text is not a value. */

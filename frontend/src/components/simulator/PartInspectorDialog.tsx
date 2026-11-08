@@ -64,6 +64,7 @@ import {
 } from '../../utils/pinInspectorLayout';
 import { showConfirmDialog } from '../../store/useMessageDialogStore';
 import { scalableSvgThumbnail } from '../../utils/svgThumbnail';
+import { valueFieldOf, readoutOf } from '../../simulation/spice/valueFields';
 // The keybind chips and the SD Card panel keep their existing class names and
 // styles — both live in ComponentPropertyDialog.css, imported here so the old
 // dialog file can eventually retire without orphaning them.
@@ -727,16 +728,41 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
                     </div>
                   );
                 }
+                // A number the simulator reads (a resistance, a supply voltage, a
+                // generator frequency): say what the text means ("= 4.7 kΩ"), or
+                // that it is not a value and what the simulation uses instead.
+                const valueField = valueFieldOf(componentMetadata.id, prop.name);
+                const readout = valueField ? readoutOf(valueField, current) : null;
                 return (
-                  <div key={prop.name} className="pid-row">
-                    <label className="pid-row-label">{prop.description || prop.name}</label>
-                    <input
-                      type={prop.control === 'number' ? 'number' : 'text'}
-                      className="pid-input"
-                      value={current}
-                      disabled={readOnly}
-                      onChange={(e) => onPropertyChange?.(componentId, prop.name, e.target.value)}
-                    />
+                  <div key={prop.name} className="pid-row-group">
+                    <div className="pid-row">
+                      <label className="pid-row-label">{prop.description || prop.name}</label>
+                      <input
+                        type={prop.control === 'number' ? 'number' : 'text'}
+                        className={`pid-input${readout && !readout.ok ? ' pid-input--invalid' : ''}`}
+                        value={current}
+                        disabled={readOnly}
+                        aria-invalid={readout && !readout.ok ? true : undefined}
+                        title={readout && !readout.ok ? readout.why : undefined}
+                        onChange={(e) => onPropertyChange?.(componentId, prop.name, e.target.value)}
+                      />
+                    </div>
+                    {readout &&
+                      (readout.ok ? (
+                        <div className="pid-value-readout">= {readout.text}</div>
+                      ) : (
+                        <div className="pid-value-error" role="alert">
+                          {readout.comma
+                            ? t('editor.inspector.valueComma', {
+                                defaultValue: 'Use a dot for decimals (4.7k, not 4,7k).',
+                              })
+                            : t('editor.inspector.valueInvalid', {
+                                defaultValue: 'Not a value: write e.g. 4.7k, 4k7, 100n or 1M.',
+                              })}{' '}
+                          {t('editor.inspector.valueSimulatesAs', { defaultValue: 'Simulates as' })}{' '}
+                          {readout.fallback}
+                        </div>
+                      ))}
                   </div>
                 );
               })}
