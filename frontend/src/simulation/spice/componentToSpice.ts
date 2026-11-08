@@ -542,7 +542,13 @@ const MAPPERS: Record<string, Mapper> = {
   // ── Linear voltage regulators ────────────────────────────────────────────
   // Behavioral model: V_out = min(V_in - V_dropout, V_nom). Dropout voltage
   // ≈ 2V for classic 78xx / 79xx series. When V_in is too low, V_out drops
-  // to (V_in − V_dropout), matching real-chip behaviour in under-voltage.
+  // to (V_in − V_dropout), matching real-chip behaviour in under-voltage,
+  // down to 0 V and no further: the pass transistor only sources from VIN
+  // ("the output of the device does not sink current", TI LM340 8.1.2).
+  // Unclamped, 0 V in gave -2 V out (+2 V on a 7905), and the input mirror
+  // pushed the load's reverse current into VIN, so a supply's reservoir
+  // capacitor sat at 2 V before anything had powered it
+  // (velxio/velxio-prod#130).
   // Pin names: VIN, VOUT, GND (for 78xx) — for 79xx GND swaps to be a
   // reference rail since V_out is negative.
   'reg-7805': (comp, netLookup) => {
@@ -551,7 +557,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 5)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `max(0, min(V(${vin})-V(${gnd})-2, 5))`),
       modelsUsed: new Set(),
       supplies: [vout],
     };
@@ -562,7 +568,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 12)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `max(0, min(V(${vin})-V(${gnd})-2, 12))`),
       modelsUsed: new Set(),
       supplies: [vout],
     };
@@ -574,7 +580,7 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `max(V(${vin})-V(${gnd})+2, -5)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `min(0, max(V(${vin})-V(${gnd})+2, -5))`),
       modelsUsed: new Set(),
       supplies: [vout],
     };
@@ -594,7 +600,7 @@ const MAPPERS: Record<string, Mapper> = {
         vin,
         '0',
         vout,
-        `V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25)`,
+        `max(0, V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25))`,
       ),
       modelsUsed: new Set(),
       supplies: [vout],
