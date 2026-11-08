@@ -23,6 +23,7 @@
  */
 import { lineGaps } from '../line/requestLine';
 import { buildNetlist, sanitizeSpiceId } from '../spice/NetlistBuilder';
+import { MIN_SUPPLY_LIMIT_A } from '../spice/componentToSpice';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
 import { BOARD_PIN_GROUPS, auxRailNetName, railVolts } from '../spice/boardPinGroups';
@@ -780,9 +781,11 @@ export async function verifyCircuit(
   // value.
   //
   // power-supply components carry a per-instance `currentLimit` property
-  // that overrides the global short-circuit threshold — that matches what
-  // a real bench supply does: a 100mA-limited supply trips at 100mA, a
-  // 5A-limited supply tolerates up to 5A before flagging fault.
+  // that overrides the global short-circuit threshold. The supply's model
+  // (componentToSpice) holds its voltage up to that limit and then holds the
+  // current, so a supply asked for more sits AT the limit: the reading is
+  // the limit plus a hair (setpoint / gain), or a hair under it from the
+  // solver's tolerance. Flag it from 0.1 % under the limit (#96).
   const sourceComponents = input.components.filter((c) =>
     /^(battery|signal-generator|power-supply)/.test(c.metadataId),
   );
@@ -800,20 +803,19 @@ export async function verifyCircuit(
       continue;
     }
     const i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
-    // The limit the netlist was built with (valueFields): "500m" is 0.5 A.
-    const perInstanceLimit =
-      src.metadataId === 'power-supply' ? readValueField(src, 'currentLimit') : config.shortCircuitAmps;
-    const threshold = Number.isFinite(perInstanceLimit) && perInstanceLimit > 0
-      ? perInstanceLimit
+    const isPsu = src.metadataId === 'power-supply';
+    // The limit the netlist was built with (valueFields): "500m" is 0.5 A,
+    // and never under the floor the model applies.
+    const threshold = isPsu
+      ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
-    if (i >= threshold) {
-      const isPsu = src.metadataId === 'power-supply';
+    if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
       errors.push({
         severity: 'error',
         code: isPsu ? 'source-overload' : 'short-circuit',
         componentId: src.id,
         message: isPsu
-          ? `Power supply ${src.id} is being asked for ${formatAmps(i)} — past its ${formatAmps(threshold)} current limit. A real bench supply would foldback or cut out. Raise the currentLimit or add more series resistance to the load.`
+          ? `Power supply ${src.id} is at its ${formatAmps(threshold)} current limit: the load asks for more, so the supply holds ${formatAmps(i)} and lets its voltage drop (constant current). Raise the currentLimit or add more series resistance to the load.`
           : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
         metric: i,
       });

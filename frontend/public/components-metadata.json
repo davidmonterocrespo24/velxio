@@ -561,7 +561,7 @@
           "type": "number",
           "defaultValue": 1,
           "control": "text",
-          "description": "Maximum sourced current in A. The verifier warns when exceeded."
+          "description": "Current limit in A. Below it the supply holds its voltage; at it the supply holds the current and its voltage drops. The circuit check reports a load at the limit."
         }
       ],
       "defaultValues": {
@@ -575,7 +575,7 @@
       "tagName": "wokwi-signal-generator",
       "name": "Regulated Power Supply",
       "category": "analog",
-      "description": "Bench DC/AC power supply with optional current limit. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The current limit is enforced by the circuit verifier — if any load pulls more than the configured amperage, Run is blocked with a 'source-overload' warning, mimicking a real bench supply's foldback behavior."
+      "description": "Bench DC/AC power supply with a current limit. It holds its voltage (constant voltage, about 10 mΩ output resistance) until the load asks for more than the current limit, then holds the current and lets its voltage drop (constant current), like a real bench supply. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The circuit check reports a supply at its limit ('source-overload') before Run."
     },
     {
       "thumbnail": "",
