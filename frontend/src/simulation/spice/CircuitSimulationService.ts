@@ -32,6 +32,7 @@ import { buildNetlist, sanitizeSpiceId } from './NetlistBuilder';
 import type { TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
+import { transientShortfall } from './transientShortfall';
 
 /** What the service needs from the simulator store. */
 export interface SimulatorStorePort {
@@ -740,7 +741,11 @@ export class CircuitSimulationService {
       }
       timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches };
     }
-    return { nodeVoltages, branchCurrents, timeWaveforms, warnings: result.warnings, result };
+    // A transient the solver gave up on part-way still has samples: say so,
+    // or the canvas shows the circuit frozen at that instant without a word.
+    const shortfall = transientShortfall(result.analysis, result.timeAxis);
+    const warnings = shortfall ? [...result.warnings, shortfall] : result.warnings;
+    return { nodeVoltages, branchCurrents, timeWaveforms, warnings, result };
   }
 
   /** Publish one state as the instantaneous snapshot, with the window it

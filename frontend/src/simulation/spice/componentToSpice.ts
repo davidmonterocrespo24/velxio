@@ -17,6 +17,7 @@ import { parseValueWithUnits } from './valueParser';
 import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
+import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -76,6 +77,11 @@ function behaviouralOpamp(
   ];
   if (vp) cards.push(`R_${comp.id}_iq ${vp} ${vm ?? '0'} ${p.iq}`);
   return { cards, modelsUsed: new Set() };
+}
+
+/** A volt figure for a card, without float noise (0.55 * 5 is 2.7500000000000004). */
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
 }
 
 function twoPin(
@@ -1081,13 +1087,17 @@ const MAPPERS: Record<string, Mapper> = {
       ),
       // 74HC04 — hex inverter
       'ic-74hc04': ic1InputHex((a, _y, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)})`),
-      // 74HC14 — hex Schmitt-trigger inverter. Threshold moves based on
-      // current output state: high output → lower trip (0.4·Vcc), low output
-      // → higher trip (0.6·Vcc). This is the hysteresis band.
+      // 74HC14 — hex Schmitt-trigger inverter. The trip point follows the
+      // output: while Y is high (input low) the input must rise past VT+ to
+      // switch it, and once Y is low it must fall below VT-. The two were
+      // swapped (VT- while Y was high), so inside the band each output state
+      // implied the other and there was no solution: an RC on the input
+      // stopped the transient at 5 ms without a word, and an input parked
+      // at 2.5 V hung the operating point (velxio/velxio-prod#144).
       'ic-74hc14': ic1InputHex((a, y, _T, vcc) => {
-        const hi = 0.6 * vcc;
-        const lo = 0.4 * vcc;
-        return `${vcc} * (1 - u(V(${a}) - (${hi} - u(V(${y})-${vcc / 2}) * ${hi - lo})))`;
+        const hi = round3(HC14_VT_POS_FRACTION * vcc);
+        const lo = round3(HC14_VT_NEG_FRACTION * vcc);
+        return `${vcc} * (1 - u(V(${a}) - (${lo} + u(V(${y})-${vcc / 2}) * ${round3(hi - lo)})))`;
       }),
     };
   })(),

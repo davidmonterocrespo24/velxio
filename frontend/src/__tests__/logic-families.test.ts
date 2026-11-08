@@ -14,6 +14,8 @@ import {
   FAMILIES,
   getBoardLogicFamily,
   getLogicFamilyById,
+  HC14_VT_NEG_FRACTION,
+  HC14_VT_POS_FRACTION,
   type LogicFamily,
 } from '../simulation/LogicFamilies';
 import {
@@ -72,12 +74,14 @@ describe('LogicFamilies — catalog sanity', () => {
     expect(FAMILIES.TTL.vih).toBe(FAMILIES.LVCMOS33.vih);
   });
 
-  it('CMOS-5V-SCHMITT has wider hysteresis than CMOS-5V', () => {
+  it('CMOS-5V-SCHMITT has the SN74HC14 thresholds the SPICE model uses', () => {
     const schmitt = FAMILIES['CMOS-5V-SCHMITT'];
-    expect(schmitt.vil_schmitt).toBeDefined();
-    expect(schmitt.vih_schmitt).toBeDefined();
+    expect(schmitt.vih_schmitt).toBeCloseTo(HC14_VT_POS_FRACTION * schmitt.vcc, 9);
+    expect(schmitt.vil_schmitt).toBeCloseTo(HC14_VT_NEG_FRACTION * schmitt.vcc, 9);
+    // TI SCLS085L typical hysteresis: 0.9 V at 4.5 V, 1.3 V at 6 V.
     const hyst = (schmitt.vih_schmitt ?? 0) - (schmitt.vil_schmitt ?? 0);
-    expect(hyst).toBeGreaterThan(1.0); // ~1.4V per datasheet
+    expect(hyst).toBeGreaterThan(0.9);
+    expect(hyst).toBeLessThan(1.3);
   });
 });
 
@@ -153,12 +157,12 @@ describe('SpiceResolvedPinResolver + Schmitt family — noise rejection', () => 
     expect(cb).toHaveBeenCalledWith('LOW', 0.5);
     cb.mockClear();
 
-    // Cross Vt+ (3.0V for 74HC14) → HIGH
+    // Cross Vt+ (2.75 V for 74HC14) → HIGH
     fire(3.5);
     expect(cb).toHaveBeenCalledWith('HIGH', 3.5);
     cb.mockClear();
 
-    // Bounce inside the dead band (Vt- = 1.6V, Vt+ = 3.0V) — must NOT glitch
+    // Bounce inside the dead band (Vt- = 1.75 V, Vt+ = 2.75 V) — must NOT glitch
     fire(2.5);
     fire(2.0);
     fire(2.7);
