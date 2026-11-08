@@ -607,7 +607,9 @@ const MAPPERS: Record<string, Mapper> = {
     // numbers. Number() made them NaN and ngspice refused the whole deck.
     const voltage = parseValueWithUnits(comp.properties.voltage, 5);
     const currentLimit = Math.max(0.01, parseValueWithUnits(comp.properties.currentLimit, 1));
-    const esr = Math.max(0.01, voltage / (currentLimit * 1.5));
+    // |V|: a negative setpoint made the ratio negative and the clamp left
+    // 0.01 Ω, so -12 V was almost ideal where +12 V had 8 Ω (#133).
+    const esr = Math.max(0.01, Math.abs(voltage) / (currentLimit * 1.5));
     let source: string;
     if (mode === 'ac') {
       const freq = parseValueWithUnits(comp.properties.frequency, 50);
