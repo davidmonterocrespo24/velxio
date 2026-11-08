@@ -1322,13 +1322,12 @@ const MAPPERS: Record<string, Mapper> = {
   // The DO (digital threshold) pin is ignored for analog simulation.
   photoresistor: (comp, netLookup) => {
     const lux = Number(comp.properties.lux ?? 500);
-    // `dark` goes through the SPICE suffix convention, where M is MILLI and
-    // mega is `Meg`. A dark resistance below 1k is not a photoresistor — it
-    // is almost always "1M" written meaning 1 megaohm, which parses to
-    // 0.001 ohm and shorts AO straight to VCC. The symptom is nasty because
-    // it looks like the part works: the ADC just reads full scale forever and
-    // the lux control does nothing (every value is still a short). Clamp to
-    // the documented default and say so, rather than emitting a short.
+    // A dark resistance below 1k is not a photoresistor. It used to be "1M"
+    // meaning 1 megaohm, which the SPICE convention read as 1 milliohm and
+    // which shorted AO straight to VCC: the ADC read full scale forever and
+    // the lux control did nothing. The value parser now reads an upper-case
+    // M as mega, but a lower-case "1m" is still a milliohm, so clamp to the
+    // documented default and say so rather than emit a short.
     const darkRaw = parseValueWithUnits(comp.properties.dark, 1_000_000);
     let Rdark = darkRaw;
     if (!(darkRaw >= 1_000)) {
@@ -1336,8 +1335,8 @@ const MAPPERS: Record<string, Mapper> = {
       // eslint-disable-next-line no-console
       console.warn(
         `[spice] ${comp.id}: dark resistance ${JSON.stringify(comp.properties.dark)} ` +
-          `parsed as ${darkRaw} ohm — too low for a photoresistor. SPICE reads M as ` +
-          `milli; write "1Meg" for 1 megaohm. Using 1Meg.`,
+          `reads as ${darkRaw} ohm — too low for a photoresistor (a lower-case m is ` +
+          `milli; write "1M" or "1Meg" for 1 megaohm). Using 1Meg.`,
       );
     }
     const k = Number(comp.properties.k ?? 5);
