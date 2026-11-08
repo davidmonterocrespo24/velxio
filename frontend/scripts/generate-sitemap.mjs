@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOMAIN = 'https://velxio.dev';
@@ -84,7 +84,21 @@ if (process.env.VITE_PRO_BUILD && process.env.PRO_OVERLAY_PATH) {
   }
 }
 
-const exampleUrls = exampleIds.map((id) => ({
+// The overlay's say in which of them the sitemap lists (velxio/velxio-prod#31,
+// #68): <PRO_OVERLAY_PATH>/sitemap.mjs may export sitemapExampleIds(ids), the
+// ids to list of those found (an example the overlay's gallery hides keeps its
+// page, but is not promoted). No hook, the default: every example.
+let sitemapExampleIds = (ids) => ids;
+if (process.env.VITE_PRO_BUILD && process.env.PRO_OVERLAY_PATH) {
+  const hookPath = resolve(process.env.PRO_OVERLAY_PATH, 'sitemap.mjs');
+  if (existsSync(hookPath)) {
+    const hook = await import(pathToFileURL(hookPath).href);
+    if (typeof hook.sitemapExampleIds === 'function') sitemapExampleIds = hook.sitemapExampleIds;
+  }
+}
+const listedExampleIds = sitemapExampleIds(exampleIds);
+
+const exampleUrls = listedExampleIds.map((id) => ({
   loc: `${DOMAIN}/examples/${id}`,
   changefreq: 'monthly',
   priority: 0.6,
@@ -130,7 +144,7 @@ ${exampleUrls
 
 const outPath = resolve(__dirname, '../public/sitemap.xml');
 writeFileSync(outPath, xml.trimStart(), 'utf-8');
-console.log(`sitemap.xml generated → ${indexable.length + exampleIds.length} URLs (${TODAY}) [${indexable.length} routes + ${exampleIds.length} examples]`);
+console.log(`sitemap.xml generated → ${indexable.length + listedExampleIds.length} URLs (${TODAY}) [${indexable.length} routes + ${listedExampleIds.length} examples]`);
 
 // Ping search engines (optional)
 if (process.argv.includes('--ping')) {
