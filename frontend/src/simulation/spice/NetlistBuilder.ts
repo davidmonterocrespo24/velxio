@@ -68,6 +68,8 @@ export const GROUND_PIN_RE = /^(gnd|vss|vee|ground)([._]?\d+)?$/i;
 // "VBB" (non-standard). VCC-like pins on boards are handled via the
 // board.vccPinNames list, not this regex.
 export const VCC_PIN_RE = /^(vcc|vdd|vcc_rail|5v|3v3|3\.3v)$/i;
+/** The `vcc_rail` node named anywhere in a card: as a terminal or inside V(). */
+const VCC_RAIL_TOKEN = /\bvcc_rail\b/;
 
 /** metadataId prefixes of components that must NOT be auto-canonicalized
  *  by the pin-name regex (their pins are just probe labels). */
@@ -292,8 +294,16 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
   }
 
-  // ── 6. Vcc rail source (if any pin referenced it, or a pull-up needs it) ──
-  if (hasNet(netNames, 'vcc_rail') || vccRailNeeded) {
+  // ── 6. Vcc rail source (if any pin referenced it, or a card uses it) ─────
+  // A card can name the rail without any wired pin on it: an internal
+  // pull-up, or an LM358 whose V+ pin is unwired (its macro-model takes
+  // `vcc_rail` as its supply). On a canvas with no board nothing else named
+  // the rail, no source was emitted, and the op-amp's supply floated: every
+  // op-amp example in the analog gallery solved to nonsense
+  // (velxio/velxio-prod#126).
+  const vccRailEmitted =
+    hasNet(netNames, 'vcc_rail') || vccRailNeeded || cards.some((c) => VCC_RAIL_TOKEN.test(c));
+  if (vccRailEmitted) {
     cards.unshift(`V_VCC_RAIL vcc_rail 0 DC ${dominantVcc}`);
   }
   // One ideal source per referenced aux rail, at ITS voltage — so a VIN/5V
@@ -369,8 +379,10 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   }
 
   // ── 10. Enumerate every net + voltage source for the solve options ───────
-  // Distinct, non-ground nets — every node the solver should report.
+  // Distinct, non-ground nets — every node the solver should report. A rail
+  // only a card names (step 6) is a node too.
   const nets = Array.from(new Set(netNames.values())).filter((n) => n !== '0');
+  if (vccRailEmitted && !nets.includes('vcc_rail')) nets.push('vcc_rail');
   // Voltage sources are any card starting with `V` (uppercase) followed
   // by an underscore or digit.  ngspice's case-insensitive match means
   // both `Vname` and `vname` count.  We emit only uppercase prefixes
