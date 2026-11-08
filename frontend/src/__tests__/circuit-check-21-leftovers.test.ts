@@ -84,6 +84,27 @@ describe('the power short names what joins the supply to ground', () => {
     expect(result.errors.map((e) => e.code), JSON.stringify(result.errors)).not.toContain('power-short');
   });
 
+  it('a short through two strips a wire joins names both strips and the wire', { timeout: 30_000 }, async () => {
+    // 3V3 into strip 10t, a jumper from 10t to 20t, GND into 20t.
+    const result = await verifyCircuit({
+      components: [{ id: 'bb1', metadataId: 'breadboard', properties: {} }],
+      wires: [
+        w('w1', ['esp32', '3V3'], ['bb1', '10t.a']),
+        w('j1', ['bb1', '10t.e'], ['bb1', '20t.e']),
+        w('w2', ['esp32', 'GND'], ['bb1', '20t.a']),
+      ],
+      boards: [esp32()],
+      analysis: { kind: 'op' },
+    });
+    const short = result.errors.find((e) => e.code === 'power-short');
+    expect(short, JSON.stringify(result.errors)).toBeDefined();
+    const msg = short!.message;
+    expect(msg).toMatch(/strip 10t of breadboard bb1 \(column 10, holes a-e\), then a wire to strip 20t of breadboard bb1 \(column 20, holes a-e\)/);
+    expect(msg).toMatch(/reaches ground \(esp32's GND pin\)/);
+    // Not the old reading: one pin is not a short.
+    expect(msg).not.toMatch(/which joins esp32's 3V3 pin\b/);
+  });
+
   it('a supply wired straight to a ground pin still names the pins', { timeout: 30_000 }, async () => {
     const result = await verifyCircuit({
       components: [],

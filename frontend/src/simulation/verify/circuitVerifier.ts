@@ -205,15 +205,33 @@ function powerShortMessage(input: BuildNetlistInput, boardId: string, pin: strin
   if (strips.length === 0) {
     return `Power is shorted to ground — the ${pin} supply pin of ${boardId} is wired to ground (${ground}). Remove that connection; it would dump the full supply current through the wire.`;
   }
-  const g = strips[0];
-  const [, comp, key] = g.split('|');
-  const onBreadboard = isBreadboard(meta.get(comp) ?? '');
+  const label = (g: string): string => {
+    const [, comp, key] = g.split('|');
+    return stripLabel(comp, meta.get(comp) ?? '', key);
+  };
+  // Every strip the path crosses, in order: a wire from one strip to another
+  // carries the short on, and naming only the first one (with the supply pin
+  // as all it "joins") pointed at nothing wrong.
+  const last = strips[strips.length - 1];
+  const held = holders.get(last) ?? [];
+  // One pin on the last strip that is the ground pin itself is said already.
+  const where =
+    held.length > 1
+      ? `, which joins ${pinList(held)}`
+      : held.length === 1 && `${held[0][0]}:${held[0][1]}` !== hit
+        ? `, where ${pinList(held)} is`
+        : '';
+  const [, comp] = last.split('|');
+  const onBreadboard = strips.every((g) => isBreadboard(meta.get(g.split('|')[1]) ?? ''));
+  const advice =
+    strips.length > 1
+      ? 'A wire between two strips joins them into one connection: remove the wire that carries the supply across, or move those pins apart.'
+      : onBreadboard
+        ? 'All the holes of a breadboard strip or rail are one connection: put those pins in separate strips, or remove the wire that joins them.'
+        : `${comp} joins those pins itself: remove the wire that brings the supply to them.`;
   return (
     `Power is shorted to ground — the ${pin} supply pin of ${boardId} reaches ground (${ground}) through ` +
-    `${stripLabel(comp, meta.get(comp) ?? '', key)}, which joins ${pinList(holders.get(g) ?? [])}. ` +
-    (onBreadboard
-      ? 'All the holes of a breadboard strip or rail are one connection: put those pins in separate strips, or remove the wire that joins them.'
-      : `${comp} joins those pins itself: remove the wire that brings the supply to them.`)
+    `${strips.map(label).join(', then a wire to ')}${where}. ${advice}`
   );
 }
 
