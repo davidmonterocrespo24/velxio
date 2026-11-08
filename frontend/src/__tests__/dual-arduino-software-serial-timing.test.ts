@@ -163,3 +163,77 @@ describe('SoftwareSerial between two real AVR boards (#397)', () => {
     expectPingReceived(rxOut);
   });
 });
+
+/**
+ * The review of velxio/velxio-prod#74 found #397's anchor breaking a line
+ * that crosses the end of the transmitter's burst (about a third of them over
+ * a run): a line after a quiet link was anchored at the receiver's present,
+ * the receiver then ran a whole frame before the transmitter's next burst, and
+ * the line's edges after the boundary, spaced from that anchor, fell where it
+ * had already run; they were moved up to its present and the line broke there.
+ * The frame loop may end a burst anywhere. Here the transmitter's second line
+ * (a second after the first, so the link has been quiet) starts 8 ms into a
+ * burst that ends 300 us into the line, after the start bit of 'P' and before
+ * its first 1 bit.
+ */
+describe('SoftwareSerial between two Unos, a line across the end of the transmitter’s burst (#74)', () => {
+  /** The cycles the transmitter's lines start at (alone): its first fall, and every fall after 3 ms of a quiet line. */
+  function lineStarts(count: number): number[] {
+    const pm = new PinManager();
+    const tx = new AVRSimulator(pm, 'uno');
+    tx.loadHex(fixture('tx.hex'));
+    const starts: number[] = [];
+    let lastEdge = -Infinity;
+    let high = false;
+    pm.onPinChange(11, (_p: number, level: boolean) => {
+      const now = tx.getCurrentCycles();
+      if (!level && high && (starts.length === 0 || now - lastEdge > 3 * 16_000)) starts.push(now);
+      if (level) high = true;
+      lastEdge = now;
+    });
+    while (starts.length < count && tx.getCurrentCycles() < 3 * 16_000_000) tx.step();
+    return starts;
+  }
+
+  it('the line arrives whole, its first byte too', () => {
+    const [, t2] = lineStarts(2);
+    expect(t2, 'the transmitter sent a second line').toBeGreaterThan(0);
+    resetInterconnect();
+    const pms = { tx: new PinManager(), rx: new PinManager() };
+    const sims: Record<string, AVRSimulator> = {
+      tx: new AVRSimulator(pms.tx, 'uno'),
+      rx: new AVRSimulator(pms.rx, 'uno'),
+    };
+    setInterconnectRuntime({
+      getBoardSimulator: (id) => sims[id],
+      getBoardPinManager: (id) => pms[id as 'tx' | 'rx'],
+      getBoardBridge: () => undefined,
+      getEsp32Bridge: () => undefined,
+      getStm32Bridge: () => undefined,
+    });
+    bindBoard('tx', 'arduino-uno');
+    bindBoard('rx', 'arduino-uno');
+    sims.tx.loadHex(fixture('tx.hex'));
+    sims.rx.loadHex(fixture('rx.hex'));
+    updateWires([wire('w1', ['tx', '11'], ['rx', '10']), wire('w2', ['tx', 'GND'], ['rx', 'GND'])]);
+    let rxOut = '';
+    sims.rx.onSerialData = (ch: string) => {
+      rxOut += ch;
+    };
+    // 16 ms bursts, then one from 8 ms before the second line to 300 us into
+    // it, then 16 ms again until the second line has been printed (a byte
+    // prints in 23 ms at 9600 baud); the third line, a second later, is not sent.
+    const ends: number[] = [];
+    for (let end = FRAME_CYCLES; end < t2 - 8 * 16_000; end += FRAME_CYCLES) ends.push(end);
+    ends.push(t2 - 8 * 16_000, t2 + 300 * 16);
+    for (let end = t2 + 300 * 16 + FRAME_CYCLES; end < t2 + 300 * 16_000; end += FRAME_CYCLES) ends.push(end);
+    for (const end of ends) {
+      for (const sim of [sims.tx, sims.rx]) {
+        while (sim.getCurrentCycles() < end) sim.step();
+      }
+    }
+    const bytes = [...rxOut.matchAll(/Byte: (\d+) \| HEX/g)].map((m) => Number(m[1]));
+    // Both lines whole, in order.
+    expect(String.fromCharCode(...bytes), rxOut.slice(-400)).toBe('PING\r\nPING\r\n');
+  });
+});

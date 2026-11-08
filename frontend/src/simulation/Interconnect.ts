@@ -350,8 +350,10 @@ export interface TimedSim {
   /**
    * The board's clock in this tab runs behind its guest's (a guest in a
    * worker, whose events this tab replays): an edge written there "now"
-   * lands wherever the guest has got to, so every edge goes through
-   * schedulePinChange instead, which keeps the edges of one task together.
+   * would land wherever the guest has got to. Nothing more is needed of the
+   * interconnect for it: every edge goes through schedulePinChange, a burst
+   * anchored LINK_ANCHOR_AHEAD_S into the receiver's future, which keeps
+   * the edges of one task together.
    */
   readonly deferred?: boolean;
 }
@@ -371,9 +373,39 @@ function asTimedSim(sim: unknown): TimedSim | null {
     : null;
 }
 
-/** A link idle this long (in seconds of the sender's time) starts its next
- *  edge at the receiver's "now" again instead of after the previous one. */
+/** A link idle this long (in seconds of the sender's time) starts a new
+ *  burst: its next edge is anchored afresh instead of spaced from the last. */
 const LINK_REANCHOR_S = 0.05;
+
+/**
+ * Where a burst's first edge lands: this far into the receiver's future, in
+ * seconds of the receiver's clock (a frame at 60 Hz, and a little more). The
+ * boards run in turn, a frame of guest time each, so the receiver runs a whole
+ * frame before the sender's next burst. Anchored at the receiver's present,
+ * the edges after the end of the sender's burst fell where the receiver had
+ * already run, and a line that crossed it broke there (velxio/velxio-prod#74).
+ */
+export const LINK_ANCHOR_AHEAD_S = 0.02;
+
+/**
+ * The furthest an edge lands ahead of the receiver's clock, in seconds of it:
+ * the anchor and a frame of the sender's burst, with room for a slow frame. A
+ * sender that makes more guest time than the receiver runs (a receiver below
+ * real time, on a link never quiet for LINK_REANCHOR_S) pushed every edge
+ * further out, without bound (#74). Past it the edges keep their order on the
+ * receiver, not their spacing: one placed nearer would land before edges it
+ * still holds and leave it at the wrong level.
+ */
+export const LINK_MAX_AHEAD_S = 0.05;
+
+/**
+ * The quiet a new burst keeps after the last one when the receiver has not
+ * run through that one yet (a receiver slower than the sender, or not
+ * running). The sender kept LINK_REANCHOR_S at least; this much of it keeps a
+ * line's last stop bit (it lasts until the next start bit: 3.3 ms at 300
+ * baud) without pushing every burst further out.
+ */
+const LINK_MIN_QUIET_S = 0.005;
 
 /**
  * Deliver a sender's edges to the receiver at the SPACING they had.
@@ -387,35 +419,69 @@ const LINK_REANCHOR_S = 0.05;
  *
  * Instead each edge is scheduled on the receiver's own cycle clock, the
  * sender's interval since the previous edge on this link converted between
- * the two clocks, so bit periods arrive intact a frame later. A link that
- * was quiet for LINK_REANCHOR_S re-anchors at the receiver's current cycle,
- * which keeps the lag from growing. Boards without a cycle clock get the
- * immediate write they always had. A sender behind a bridge (an ESP32 whose
- * engine runs in the tab or in a worker) times its edges the same way, from
- * the clock its shim offers (linkClock), and so does such a receiver; one
- * whose clock here runs behind its guest (`deferred`) has every edge
- * scheduled, none written at once.
+ * the two clocks, so bit periods arrive intact a frame later. A burst starts
+ * LINK_ANCHOR_AHEAD_S into the receiver's future, so the sender's next burst,
+ * which the receiver has run a frame closer to, still lands ahead of it and
+ * a line across the two arrives whole (#74). A new burst starts when the link
+ * was quiet for LINK_REANCHOR_S, when either clock has gone back (a reset; the
+ * receiver's queue went with its old run), and when the receiver has already
+ * run past where the spacing puts an edge (a sender slower than it). No edge
+ * lands more than LINK_MAX_AHEAD_S ahead of the receiver, nor on or before the
+ * edge before it on the same run.
+ *
+ * Boards without a cycle clock get the immediate write they always had (the
+ * QEMU bridges). A sender behind a bridge (an ESP32 whose engine runs in the
+ * tab or in a worker) times its edges the same way, from the clock its shim
+ * offers (linkClock), and so does such a receiver.
  */
 function makeTimedPush(fromBoardId: string, toBoardId: string, toPin: number) {
-  let lastFrom = -1;
-  let lastTo = -1;
+  /** The previous edge was timed: the cycles below are its. */
+  let timed = false;
+  /** The sender's cycle at the previous edge, and the receiver's present then. */
+  let lastFrom = 0;
+  let lastNow = 0;
+  /** Where the previous edge landed on the receiver: exactly, and the cycle it was given. */
+  let lastTo = 0;
+  let lastAt = 0;
   return (state: boolean) => {
     const src = asTimedSim(runtime?.getBoardSimulator(fromBoardId));
     const dst = asTimedSim(runtime?.getBoardSimulator(toBoardId));
-    if (!src || !dst) {
+    const srcHz = src?.getClockHz() ?? 0;
+    const hz = dst?.getClockHz() ?? 0;
+    if (!src || !dst || !(srcHz > 0) || !(hz > 0)) {
+      timed = false;
       pushPinState(toBoardId, toPin, state);
       return;
     }
     const fromNow = src.getCurrentCycles();
     const toNow = dst.getCurrentCycles();
-    const srcHz = src.getClockHz();
-    const gapS = lastFrom < 0 ? Infinity : (fromNow - lastFrom) / srcHz;
-    let at = gapS < LINK_REANCHOR_S && lastTo >= 0 ? lastTo + gapS * dst.getClockHz() : toNow;
-    if (at < toNow) at = toNow;
+    // The receiver still holds what this link gave it: its clock has not gone
+    // back (a reset starts it over, and its queue with it).
+    const held = timed && toNow >= lastNow;
+    // The sender's time since the previous edge, in the receiver's cycles;
+    // none when its clock went back.
+    const gap = timed && fromNow >= lastFrom ? ((fromNow - lastFrom) / srcHz) * hz : Infinity;
+    let at = held && gap < LINK_REANCHOR_S * hz ? lastTo + gap : -Infinity;
+    if (at < toNow) {
+      // A new burst: a frame into the receiver's future, and a quiet after
+      // the edges it still holds.
+      at = toNow + LINK_ANCHOR_AHEAD_S * hz;
+      if (held) at = Math.max(at, lastAt + LINK_MIN_QUIET_S * hz);
+    }
+    at = Math.min(at, toNow + LINK_MAX_AHEAD_S * hz);
+    // Each edge after the one before it: two on one cycle may not keep their
+    // order in an engine's queue (the in-browser ESP32 engines keep a heap).
+    let cycle = Math.round(at);
+    if (held && cycle <= lastAt) {
+      cycle = lastAt + 1;
+      at = cycle;
+    }
+    timed = true;
     lastFrom = fromNow;
+    lastNow = toNow;
     lastTo = at;
-    if (at <= toNow && !dst.deferred) pushPinState(toBoardId, toPin, state);
-    else dst.schedulePinChange(toPin, state, Math.round(at));
+    lastAt = cycle;
+    dst.schedulePinChange(toPin, state, cycle);
   };
 }
 

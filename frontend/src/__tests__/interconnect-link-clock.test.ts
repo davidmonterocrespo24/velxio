@@ -7,11 +7,15 @@
  * spacing, a timed board's edges reach it at theirs, a clock that runs behind
  * its guest (`deferred`: an engine in a worker) has every edge scheduled, the
  * first one too, and a bridge that offers none (the QEMU bridge, the default)
- * keeps the immediate write in both directions.
+ * keeps the immediate write in both directions. A burst starts
+ * LINK_ANCHOR_AHEAD_S into the receiver's future (#74's bound on #397's
+ * anchor, interconnect-link-anchor.test.ts), so no edge to a clock is written
+ * at once any more.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { PinManager } from '../simulation/PinManager';
 import {
+  LINK_ANCHOR_AHEAD_S,
   bindBoard,
   resetInterconnect,
   setInterconnectRuntime,
@@ -91,6 +95,9 @@ function link(esp: ReturnType<typeof espBoard>, uno: TimedBoard, espPin: string,
 
 const US_ESP = 240; // cycles per microsecond
 const US_UNO = 16;
+/** Where a burst's first edge lands, ahead of the receiver's present, in its cycles. */
+const AHEAD_ESP = LINK_ANCHOR_AHEAD_S * 240_000_000;
+const AHEAD_UNO = LINK_ANCHOR_AHEAD_S * 16_000_000;
 
 afterEach(() => resetInterconnect());
 
@@ -106,11 +113,12 @@ describe('an ESP32 end of a wire between boards, through its shim’s linkClock 
       clock.cycles = 1_000 + us * US_ESP;
       esp.bridge.onPinChange!(4, level);
     }
-    // The first lands at the Uno's present, the others after it at the same spacing.
-    expect(uno.written).toEqual([[10, false, 5_000]]);
+    // The first lands a burst's anchor ahead of the Uno's present, the others after it at the same spacing.
+    expect(uno.written).toEqual([]);
     expect(uno.scheduled).toEqual([
-      [10, true, 5_000 + 104 * US_UNO],
-      [10, false, 5_000 + 208 * US_UNO],
+      [10, false, 5_000 + AHEAD_UNO],
+      [10, true, 5_000 + AHEAD_UNO + 104 * US_UNO],
+      [10, false, 5_000 + AHEAD_UNO + 208 * US_UNO],
     ]);
   });
 
@@ -123,10 +131,11 @@ describe('an ESP32 end of a wire between boards, through its shim’s linkClock 
       uno.cycles = 8_000 + us * US_UNO;
       uno.pm.triggerPinChange(11, level, 'mcu');
     }
-    expect(esp.sent).toEqual([[5, false]]);
+    expect(esp.sent).toEqual([]);
     expect(esp.scheduled).toEqual([
-      [5, true, 2_400 + 104 * US_ESP],
-      [5, false, 2_400 + 520 * US_ESP],
+      [5, false, 2_400 + AHEAD_ESP],
+      [5, true, 2_400 + AHEAD_ESP + 104 * US_ESP],
+      [5, false, 2_400 + AHEAD_ESP + 520 * US_ESP],
     ]);
   });
 
@@ -141,8 +150,8 @@ describe('an ESP32 end of a wire between boards, through its shim’s linkClock 
     }
     expect(esp.sent).toEqual([]);
     expect(esp.scheduled).toEqual([
-      [5, false, 2_400],
-      [5, true, 2_400 + 104 * US_ESP],
+      [5, false, 2_400 + AHEAD_ESP],
+      [5, true, 2_400 + AHEAD_ESP + 104 * US_ESP],
     ]);
   });
 
