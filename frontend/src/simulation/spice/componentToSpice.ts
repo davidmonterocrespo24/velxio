@@ -25,6 +25,21 @@ export interface SpiceEmission {
   cards: string[];
   /** Model or subckt names this emission depends on (so the builder adds `.model` later). */
   modelsUsed: Set<string>;
+  /**
+   * Nets this part powers: a battery's or a bench supply's positive terminal,
+   * a generator's output, a regulator's VOUT. NetlistBuilder reads it before
+   * it names the rails: a part's VCC pin on such a net, or behind series
+   * parts from it (a switch, an ammeter, a fuse), is powered by it and is not
+   * joined to the logic rail its name suggests (velxio/velxio-prod#102).
+   */
+  supplies?: string[];
+  /**
+   * Other nets this part holds at a voltage of its own (an op-amp's OUT): a
+   * VCC pin wired straight to one is powered by it, but no supply reaches
+   * past it. A V, B, E or H card on a wired net says so already; declare the
+   * nets the cards do not show (a subcircuit's output).
+   */
+  drives?: string[];
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -485,6 +500,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
       modelsUsed: new Set([LM358_SUBCKT]),
+      drives: [out],
     };
   },
   'opamp-lm741': (comp, netLookup, ctx) =>
@@ -510,6 +526,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 5)`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   'reg-7812': (comp, netLookup) => {
@@ -520,6 +537,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 12)`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   'reg-7905': (comp, netLookup) => {
@@ -531,6 +549,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: regulatorCards(comp.id, vin, gnd, vout, `max(V(${vin})-V(${gnd})+2, -5)`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   // Adjustable regulator: V(VOUT) − V(ADJ) = 1.25 V (ideal). User wires
@@ -551,6 +570,7 @@ const MAPPERS: Record<string, Mapper> = {
         `V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25)`,
       ),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
 
@@ -567,6 +587,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 1.5`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
   'battery-aa': (comp, netLookup) => {
@@ -579,6 +600,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 0.15`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
   'battery-coin-cell': (comp, netLookup) => {
@@ -591,6 +613,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 10`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
 
@@ -626,6 +649,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} ${esr}`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
 
@@ -660,6 +684,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`V_${comp.id} ${sig} ${gnd} ${source}`],
       modelsUsed: new Set(),
+      supplies: [sig],
     };
   },
 
