@@ -1617,6 +1617,11 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
 
     let lastTimestamp = 0;
     let frameCount = 0;
+    // What the last frame left of its budget: the fraction of a cycle the
+    // budget does not round to, less the few cycles its last instruction (and
+    // an interrupt entry) ran past the target. Carried into the next frame so
+    // that a second of frames is a second of guest time, exactly.
+    let cycleCarry = 0;
 
     const execute = (timestamp: number) => {
       if (!this.running || !this.cpu) return;
@@ -1628,19 +1633,39 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       const deltaMs = Math.min(rawDelta, MAX_DELTA_MS);
       lastTimestamp = timestamp;
 
-      const cyclesPerFrame = Math.floor(CYCLES_PER_MS * deltaMs * this.speed);
+      // The frame emulates the wall time that passed: that many CPU CYCLES.
+      // An AVR instruction takes one to four of them (ATmega328P datasheet,
+      // Instruction Set Summary) and avr8js charges each its cost on
+      // cpu.cycles, so the loop runs to a cycle target. It used to run this
+      // budget as a count of INSTRUCTIONS, which put about 1.3 times the wall
+      // time on the guest clock every frame (1.297 cycles per instruction on
+      // a Blink, 2 on a tight loop): delay(1000) lasted 0.77 s of wall time
+      // (velxio/velxio-prod#139).
+      const cpu = this.cpu;
+      const budget = CYCLES_PER_MS * deltaMs * this.speed + cycleCarry;
+      const startCycles = cpu.cycles;
+      const targetCycles = startCycles + Math.floor(budget);
 
       try {
-        for (let i = 0; i < cyclesPerFrame; i++) {
-          avrInstruction(this.cpu); // Execute the AVR instruction
-          this.cpu.tick(); // Update peripheral timers and cycles
+        let i = 0;
+        // A CPU rebuilt under the loop (a firmware load) starts its own count:
+        // the frame ends there rather than run the new one to the old target.
+        while (cpu.cycles < targetCycles && this.cpu === cpu) {
+          avrInstruction(cpu); // Execute the AVR instruction
+          cpu.tick(); // Update peripheral timers and cycles
           if (this.scheduledPinChanges.length > 0) this.flushScheduledPinChanges();
-          // Poll PWM sub-frame (~every 256 cycles = 16µs) so short OCR pulses
-          // (e.g. a metronome click that starts and ends within one 16ms frame)
-          // aren't merged or lost at the frame boundary. 256 cycles is far finer
-          // than any audible pulse yet light enough not to perturb frame pacing.
+          // Poll PWM sub-frame (every 256 instructions, about 20 µs) so short
+          // OCR pulses (e.g. a metronome click that starts and ends within one
+          // 16ms frame) aren't merged or lost at the frame boundary. That is
+          // far finer than any audible pulse yet light enough not to perturb
+          // frame pacing.
           if ((i & 0xff) === 0) this.pollPwmRegisters();
+          i++;
         }
+        cycleCarry =
+          this.cpu === cpu
+            ? Math.max(-16, Math.min(1, budget - (cpu.cycles - startCycles)))
+            : 0;
 
         // Final poll at the frame edge to catch the last change.
         this.pollPwmRegisters();
