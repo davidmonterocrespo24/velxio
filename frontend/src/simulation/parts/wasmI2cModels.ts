@@ -231,6 +231,11 @@ abstract class WasmRtc implements I2CDevice {
     return new Uint8Array(this.chip.memory!.buffer, ptr, 256).slice();
   }
 
+  /** The model's memory, its whole state (I2CDevice.modelMemory). */
+  modelMemory(): WebAssembly.Memory | null {
+    return this.chip.memory;
+  }
+
   dispose(): void {
     this.chip.dispose();
   }
@@ -359,6 +364,11 @@ export class WasmBMP280 implements I2CDevice {
   dumpRegisters(): Uint8Array {
     const ptr = (this.chip.exports.chip_dump_registers as () => number)();
     return new Uint8Array(this.chip.memory!.buffer, ptr, 256).slice();
+  }
+
+  /** The model's memory, its whole state (I2CDevice.modelMemory). */
+  modelMemory(): WebAssembly.Memory | null {
+    return this.chip.memory;
   }
 
   dispose(): void {
@@ -607,6 +617,11 @@ export class WasmMPU6050 implements I2CDevice {
     const some = this.exports.chip_int_wake();
     this.heard();
     return some ? io.getFloat64(MPU_IO.wake, true) : null;
+  }
+
+  /** The model's memory, its whole state (I2CDevice.modelMemory). */
+  modelMemory(): WebAssembly.Memory | null {
+    return this.chip.memory;
   }
 
   dispose(): void {

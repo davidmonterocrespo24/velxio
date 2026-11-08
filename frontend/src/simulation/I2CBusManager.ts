@@ -88,6 +88,14 @@ export interface I2CDevice {
    * wraps after 0xFF. A host answering from a copy wraps its own there.
    */
   readonly pointerWrapsAfter?: number;
+  /**
+   * Optional: the linear memory of a compiled model (parts/wasmI2cModels.ts),
+   * which holds the model's whole state (buses/models/i2c_host.h: a model
+   * keeps it in its static memory). A host that runs a second copy of the
+   * part from the same bytes (an engine worker next to the guest) can start
+   * that copy from this one. Nothing in this tree reads it.
+   */
+  modelMemory?(): WebAssembly.Memory | null;
 }
 
 /**

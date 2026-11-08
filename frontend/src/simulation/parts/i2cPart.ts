@@ -45,13 +45,16 @@ export { hostClockRecord, withHostClock } from './hostClock';
  * One that does something between two transactions is handed the clock of
  * the board it was placed on (`setClock`).
  */
-export function i2cTargetOf(device: I2CDevice): I2cTarget & { dumpRegisters?: () => Uint8Array } {
+export function i2cTargetOf(
+  device: I2CDevice,
+): I2cTarget & { dumpRegisters?: () => Uint8Array; modelMemory?: () => WebAssembly.Memory | null } {
   let open = false;
   const target: I2cTarget & {
     dumpRegisters?: () => Uint8Array;
     volatileReads?: readonly number[];
     pointerStays?: readonly number[];
     pointerWrapsAfter?: number;
+    modelMemory?: () => WebAssembly.Memory | null;
   } = {
     start: (_address, read) => {
       if (open && !read) device.stop?.();
@@ -88,6 +91,9 @@ export function i2cTargetOf(device: I2CDevice): I2cTarget & { dumpRegisters?: ()
     if (device.pointerStays?.length) target.pointerStays = device.pointerStays;
     if (typeof device.pointerWrapsAfter === 'number') target.pointerWrapsAfter = device.pointerWrapsAfter;
   }
+  // A compiled model's memory, for a host that runs a copy of the part
+  // elsewhere and starts it from this one (I2CDevice.modelMemory).
+  if (typeof device.modelMemory === 'function') target.modelMemory = () => device.modelMemory!();
   return target;
 }
 
