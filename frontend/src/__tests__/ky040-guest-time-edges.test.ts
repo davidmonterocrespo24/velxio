@@ -45,7 +45,7 @@ function uno() {
     removeEventListener: () => {},
   } as unknown as HTMLElement;
   const pins: Record<string, number> = { CLK, DT, SW: 4 };
-  PartSimulationRegistry.get('ky-040')!.attachEvents!(element, sim as never, (n: string) => pins[n] ?? null);
+  PartSimulationRegistry.get('ky-040')!.attachEvents!(element, sim as never, (n: string) => pins[n] ?? null, 'enc1');
   const data = (sim as unknown as { cpu: { data: Uint8Array } }).cpu.data;
   const trace: Level[] = [];
   const sample = () => {
