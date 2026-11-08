@@ -153,13 +153,30 @@ function logicStep(net: string, threshold: number): string {
   return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
 }
 
+// One entry per colour the part's colour select offers: a colour missing here
+// used to take the red card silently, so orange and purple (velxio/velxio-prod
+// #95) ran at 1.8 V. Forward voltage at 10 mA / 20 mA:
+//   red     1.82 / 1.85 V
+//   orange  1.98 / 2.01 V  Kingbright WP7113SED, 601 nm: 2.0 V typ at 20 mA
+//   yellow  2.04 / 2.07 V
+//   green   2.26 / 2.30 V
+//   blue    3.10 / 3.13 V  (white: the same InGaN die)
+//   purple  3.27 / 3.30 V  Lumimax LED5-PUR420, 420 nm: 3.3 V typ at 20 mA
+//                          (LED5PUR, 395 nm: 3.4 V)
+// ngspice keeps Is at 1e-28 or more, so a higher voltage than blue's takes a
+// larger emission coefficient, not a smaller Is.
 const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
   red: { name: 'LED_RED', Is: '1e-20', n: '1.7' },
+  orange: { name: 'LED_ORANGE', Is: '1e-21', n: '1.75' },
   green: { name: 'LED_GREEN', Is: '1e-22', n: '1.9' },
   yellow: { name: 'LED_YELLOW', Is: '1e-21', n: '1.8' },
   blue: { name: 'LED_BLUE', Is: '1e-28', n: '2.0' },
   white: { name: 'LED_WHITE', Is: '1e-28', n: '2.0' },
+  purple: { name: 'LED_PURPLE', Is: '1e-28', n: '2.11' },
 };
+
+/** Colours already reported as missing from LED_MODELS (one warning each). */
+const unknownLedColours = new Set<string>();
 
 // ── NTC β-model ────────────────────────────────────────────────────────────
 function ntcResistance(Tc: number, R0 = 10_000, T0 = 298.15, beta = 3950): number {
@@ -276,7 +293,17 @@ const MAPPERS: Record<string, Mapper> = {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     const color = String(comp.properties.color ?? 'red').toLowerCase();
-    const model = LED_MODELS[color] ?? LED_MODELS.red;
+    let model = LED_MODELS[color];
+    if (!model) {
+      // An imported project can name any colour. Say which curve it gets
+      // instead of handing it the red one in silence.
+      if (!unknownLedColours.has(color)) {
+        unknownLedColours.add(color);
+        // eslint-disable-next-line no-console
+        console.warn(`[spice] LED colour "${color}" has no diode model; simulated as red (1.8 V).`);
+      }
+      model = LED_MODELS.red;
+    }
     const midNet = `${comp.id}_sense_mid`;
     return {
       cards: [

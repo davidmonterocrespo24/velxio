@@ -272,7 +272,7 @@ V_dsm-led1_sense n6 dsm-led1_sense_mid DC 0
 D_dsm-led1 dsm-led1_sense_mid 0 LED_RED
 R_dsm-r2 n2 n7 220
 V_dsm-led2_sense n7 dsm-led2_sense_mid DC 0
-D_dsm-led2 dsm-led2_sense_mid 0 LED_RED
+D_dsm-led2 dsm-led2_sense_mid 0 LED_ORANGE
 R_dsm-r3 n0 n8 220
 V_dsm-led3_sense n8 dsm-led3_sense_mid DC 0
 D_dsm-led3 dsm-led3_sense_mid 0 LED_BLUE
@@ -283,6 +283,7 @@ R_autopull_n6 n6 0 100Meg
 R_autopull_n7 n7 0 100Meg
 R_autopull_n8 n8 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
+.model LED_ORANGE D(Is=1e-21 N=1.75)
 .model LED_BLUE D(Is=1e-28 N=2.0)
 .op
 .end"
@@ -2618,8 +2619,8 @@ B_norY n2 0 V = 5 * (1-(0.5*(1+tanh((V(n0)-2.5)/0.05)))) * (1-(0.5*(1+tanh((V(n1
 R_norY_load n2 0 1Meg
 R_rl n2 n3 220
 V_led_sense n3 led_sense_mid DC 0
-D_led led_sense_mid 0 LED_RED
-.model LED_RED D(Is=1e-20 N=1.7)
+D_led led_sense_mid 0 LED_ORANGE
+.model LED_ORANGE D(Is=1e-21 N=1.75)
 .op
 .end"
 `;
@@ -3081,7 +3082,7 @@ V_dec3l0_sense n14 dec3l0_sense_mid DC 0
 D_dec3l0 dec3l0_sense_mid 0 LED_RED
 R_dec3rl1 n7 n15 220
 V_dec3l1_sense n15 dec3l1_sense_mid DC 0
-D_dec3l1 dec3l1_sense_mid 0 LED_RED
+D_dec3l1 dec3l1_sense_mid 0 LED_ORANGE
 R_dec3rl2 n8 n16 220
 V_dec3l2_sense n16 dec3l2_sense_mid DC 0
 D_dec3l2 dec3l2_sense_mid 0 LED_YELLOW
@@ -3093,7 +3094,7 @@ V_dec3l4_sense n18 dec3l4_sense_mid DC 0
 D_dec3l4 dec3l4_sense_mid 0 LED_BLUE
 R_dec3rl5 n11 n19 220
 V_dec3l5_sense n19 dec3l5_sense_mid DC 0
-D_dec3l5 dec3l5_sense_mid 0 LED_RED
+D_dec3l5 dec3l5_sense_mid 0 LED_PURPLE
 R_dec3rl6 n12 n20 220
 V_dec3l6_sense n20 dec3l6_sense_mid DC 0
 D_dec3l6 dec3l6_sense_mid 0 LED_WHITE
@@ -3101,9 +3102,11 @@ R_dec3rl7 n13 n21 220
 V_dec3l7_sense n21 dec3l7_sense_mid DC 0
 D_dec3l7 dec3l7_sense_mid 0 LED_RED
 .model LED_RED D(Is=1e-20 N=1.7)
+.model LED_ORANGE D(Is=1e-21 N=1.75)
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_BLUE D(Is=1e-28 N=2.0)
+.model LED_PURPLE D(Is=1e-28 N=2.11)
 .model LED_WHITE D(Is=1e-28 N=2.0)
 .op
 .end"
@@ -3276,7 +3279,7 @@ V_hmL1_sense n10 hmL1_sense_mid DC 0
 D_hmL1 hmL1_sense_mid 0 LED_RED
 R_hmR2 n7 n11 220
 V_hmL2_sense n11 hmL2_sense_mid DC 0
-D_hmL2 hmL2_sense_mid 0 LED_RED
+D_hmL2 hmL2_sense_mid 0 LED_ORANGE
 R_hmR3 n0 n12 220
 V_hmL3_sense n12 hmL3_sense_mid DC 0
 D_hmL3 hmL3_sense_mid 0 LED_YELLOW
@@ -3291,11 +3294,13 @@ V_hmL6_sense n15 hmL6_sense_mid DC 0
 D_hmL6 hmL6_sense_mid 0 LED_BLUE
 R_hmR7 n3 n16 220
 V_hmL7_sense n16 hmL7_sense_mid DC 0
-D_hmL7 hmL7_sense_mid 0 LED_RED
+D_hmL7 hmL7_sense_mid 0 LED_PURPLE
 .model LED_RED D(Is=1e-20 N=1.7)
+.model LED_ORANGE D(Is=1e-21 N=1.75)
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_BLUE D(Is=1e-28 N=2.0)
+.model LED_PURPLE D(Is=1e-28 N=2.11)
 .op
 .end"
 `;
