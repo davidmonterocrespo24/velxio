@@ -22,13 +22,14 @@
  * single solver-error warning and the rest of the rules are skipped.
  */
 import { lineGaps } from '../line/requestLine';
-import { buildNetlist, sanitizeSpiceId } from '../spice/NetlistBuilder';
+import { GROUND_PIN_RE, buildNetlist, sanitizeSpiceId } from '../spice/NetlistBuilder';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
 import { BOARD_PIN_GROUPS, auxRailNetName, railVolts } from '../spice/boardPinGroups';
-import { hasInternalNets } from '../../utils/breadboardNets';
+import { breadboardGroupKey, hasInternalNets, isBreadboard } from '../../utils/breadboardNets';
 import type { BuildNetlistInput, ElectricalSolveResult } from '../spice/types';
 import { COMPONENT_RATINGS } from './componentRatings';
+import { LED_UNLIMITED_AMPS } from '../ledLimits';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -90,8 +91,6 @@ export interface VerifierConfig {
   synthesizedPins?: ReadonlySet<string>;
 }
 
-/** Above this an LED's solved current is no physical figure: nothing in the circuit limits it. */
-const LED_UNLIMITED_AMPS = 1;
 
 export const DEFAULT_CONFIG: VerifierConfig = {
   shortCircuitAmps: 0.5,
@@ -99,6 +98,124 @@ export const DEFAULT_CONFIG: VerifierConfig = {
   resistorMaxWatts: 0.25,
   ledMinAmps: 1e-6,
 };
+
+// ── What joins a supply pin to ground (power-short) ──────────────────────
+
+/** A breadboard group key as a person finds it on the canvas. */
+function stripLabel(componentId: string, metadataId: string, key: string): string {
+  if (isBreadboard(metadataId)) {
+    const col = /^col(\d+)([tb])$/.exec(key);
+    if (col) return `strip ${col[1]}${col[2]} of breadboard ${componentId} (column ${col[1]}, holes ${col[2] === 't' ? 'a-e' : 'f-j'})`;
+    const rail = /^rail([tb])([pn])$/.exec(key);
+    if (rail) return `the ${rail[1] === 't' ? 'top' : 'bottom'} ${rail[2] === 'p' ? '+' : '−'} rail of breadboard ${componentId}`;
+  }
+  return `the internally joined pins ${key} of ${componentId}`;
+}
+
+/** "lcd1's GND, VCC, SDA and SCL pins", grouped per part in the order met. */
+function pinList(pins: Array<[string, string]>): string {
+  const byPart = new Map<string, string[]>();
+  for (const [comp, pin] of pins) {
+    const list = byPart.get(comp) ?? [];
+    if (!list.includes(pin)) list.push(pin);
+    byPart.set(comp, list);
+  }
+  const and = (xs: string[]): string =>
+    xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+  return and(
+    Array.from(byPart, ([comp, names]) => `${comp}'s ${and(names)} pin${names.length > 1 ? 's' : ''}`),
+  );
+}
+
+/**
+ * The power-short message for `pin` of `boardId`, whose net is ground: what
+ * joins it to a ground pin on the shortest path through the wires, and when
+ * that path runs through a breadboard strip (or a part that joins some of its
+ * own pins), the strip and every part pin it holds. A header pushed down one
+ * strip shorts all its pins, and "the 3V3 pin is wired to ground" alone
+ * named nothing the user could find (velxio/velxio-prod#21).
+ */
+function powerShortMessage(input: BuildNetlistInput, boardId: string, pin: string): string {
+  const fallback = `Power is shorted to ground — the ${pin} supply pin of ${boardId} is wired to ground (GND). Remove that connection; it would dump the full supply current through the wire.`;
+  const meta = new Map<string, string>();
+  for (const c of input.components) meta.set(c.id, c.metadataId);
+  const boardGround = new Map<string, Set<string>>();
+  for (const b of input.boards) boardGround.set(b.id, new Set(b.groundPinNames ?? []));
+  const adj = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+    (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
+  };
+  // `group|<comp>|<key>` stands for a strip: every hole of it a wire touches.
+  const groupOf = (comp: string, pinName: string): string | null => {
+    const m = meta.get(comp);
+    if (!m || !hasInternalNets(m)) return null;
+    const key = breadboardGroupKey(m, pinName);
+    return key ? `group|${comp}|${key}` : null;
+  };
+  const holders = new Map<string, Array<[string, string]>>();
+  for (const wire of input.wires) {
+    const a = `${wire.start.componentId}:${wire.start.pinName}`;
+    const b = `${wire.end.componentId}:${wire.end.pinName}`;
+    link(a, b);
+    for (const [end, other] of [
+      [wire.start, wire.end],
+      [wire.end, wire.start],
+    ] as const) {
+      const g = groupOf(end.componentId, end.pinName);
+      if (!g) continue;
+      link(`${end.componentId}:${end.pinName}`, g);
+      if (other.componentId !== end.componentId) {
+        (holders.get(g) ?? holders.set(g, []).get(g)!).push([other.componentId, other.pinName]);
+      }
+    }
+  }
+  const isGround = (key: string): boolean => {
+    if (key.startsWith('group|')) return false;
+    const i = key.indexOf(':');
+    const comp = key.slice(0, i);
+    const name = key.slice(i + 1);
+    const m = meta.get(comp);
+    if (m && (hasInternalNets(m) || m.startsWith('instr-'))) return false;
+    return boardGround.get(comp)?.has(name) === true || GROUND_PIN_RE.test(name);
+  };
+  const start = `${boardId}:${pin}`;
+  const parent = new Map<string, string | null>([[start, null]]);
+  const queue = [start];
+  let hit: string | null = null;
+  while (queue.length && !hit) {
+    const at = queue.shift()!;
+    for (const next of adj.get(at) ?? []) {
+      if (parent.has(next)) continue;
+      parent.set(next, at);
+      if (isGround(next)) {
+        hit = next;
+        break;
+      }
+      queue.push(next);
+    }
+  }
+  if (!hit) return fallback;
+  const strips: string[] = [];
+  for (let at: string | null = hit; at; at = parent.get(at) ?? null) {
+    if (at.startsWith('group|')) strips.unshift(at);
+  }
+  const i = hit.indexOf(':');
+  const ground = `${hit.slice(0, i)}'s ${hit.slice(i + 1)} pin`;
+  if (strips.length === 0) {
+    return `Power is shorted to ground — the ${pin} supply pin of ${boardId} is wired to ground (${ground}). Remove that connection; it would dump the full supply current through the wire.`;
+  }
+  const g = strips[0];
+  const [, comp, key] = g.split('|');
+  const onBreadboard = isBreadboard(meta.get(comp) ?? '');
+  return (
+    `Power is shorted to ground — the ${pin} supply pin of ${boardId} reaches ground (${ground}) through ` +
+    `${stripLabel(comp, meta.get(comp) ?? '', key)}, which joins ${pinList(holders.get(g) ?? [])}. ` +
+    (onBreadboard
+      ? 'All the holes of a breadboard strip or rail are one connection: put those pins in separate strips, or remove the wire that joins them.'
+      : `${comp} joins those pins itself: remove the wire that brings the supply to them.`)
+  );
+}
 
 // ── Public API ───────────────────────────────────────────────────────────
 
@@ -308,7 +425,7 @@ export async function verifyCircuit(
       errors.push({
         severity: 'error',
         code: 'power-short',
-        message: `Power is shorted to ground — the ${pin} supply pin of ${board.id} is wired to ground (GND). Remove that connection; it would dump the full supply current through the wire.`,
+        message: powerShortMessage(input, board.id, pin),
       });
       break powerShort;
     }

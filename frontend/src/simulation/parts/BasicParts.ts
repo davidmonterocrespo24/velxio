@@ -3,6 +3,7 @@ import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
+import { LED_UNLIMITED_AMPS } from '../ledLimits';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -204,6 +205,18 @@ function reportLedFault(componentId: string, kind: string, message: string): voi
 }
 
 function reportLedBurnout(componentId: string, current: number): void {
+  // Past LED_UNLIMITED_AMPS the solved current says only that nothing limits
+  // it (an ideal source across a bare LED solves at trillions of amperes), so
+  // the figure is left out, as the pre-run check does (velxio/velxio-prod#21).
+  if (current > LED_UNLIMITED_AMPS) {
+    reportLedFault(
+      componentId,
+      'led-burnout',
+      `LED burnt out — nothing limits its current (no series resistor), so a real LED ` +
+        `burns out at once. Add a series resistor between the supply and the LED.`,
+    );
+    return;
+  }
   const mA = current * 1000;
   const amount = mA >= 1000 ? `${(mA / 1000).toFixed(1)} A` : `${mA.toFixed(0)} mA`;
   reportLedFault(
