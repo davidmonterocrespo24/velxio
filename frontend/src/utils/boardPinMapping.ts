@@ -1,4 +1,6 @@
 import { getProBoard } from '../lib/proBoardRegistry';
+import { esp32ChipOf } from '../types/boardOptions';
+import type { BoardKind } from '../types/board';
 /**
  * Board Pin Mapping Utility
  *
@@ -622,4 +624,29 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
   }
 
   return null;
+}
+
+/**
+ * GPIOs each chip can only read: pads with no output driver. The classic
+ * ESP32's GPIO34-39 ("GPI: GPIO34-39 can only be set as input mode and do not
+ * have software-enabled pullup or pulldown functions", ESP-IDF GPIO reference;
+ * ESP32 datasheet: "six input-only GPIOs"), VP and VN among them. The later
+ * chips have none. Keyed by chip (types/boardOptions esp32ChipOf).
+ */
+const INPUT_ONLY_GPIOS: Partial<Record<string, readonly number[]>> = {
+  esp32: [34, 35, 36, 37, 38, 39],
+};
+
+/**
+ * True when a board's pad, by any name the board gives it ('34', 'GPIO34',
+ * 'VP'), is a GPIO its chip can only read. Such a pad is an input whatever
+ * the sketch does, which is what the pre-run circuit check needs to know
+ * before it assumes a wired pad may be driven HIGH (velxio/velxio-prod#173).
+ */
+export function isInputOnlyPad(boardKind: string, pinName: string): boolean {
+  const chip = esp32ChipOf(boardKind as BoardKind);
+  const gpios = chip ? INPUT_ONLY_GPIOS[chip] : undefined;
+  if (!gpios) return false;
+  const gpio = boardPinToNumber(boardKind, pinName);
+  return gpio !== null && gpios.includes(gpio);
 }

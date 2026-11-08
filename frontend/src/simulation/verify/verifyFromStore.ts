@@ -11,6 +11,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { buildInputFromStore } from '../spice/storeAdapter';
 import { boardPinGroupFor } from '../spice/boardPinGroups';
 import { pinNameToArduinoPin } from '../spice/collectPinStates';
+import { isInputOnlyPad } from '../../utils/boardPinMapping';
 import type { BoardKind } from '../../store/useSimulatorStore';
 import type { PinSourceState } from '../spice/types';
 import type { StoreSnapshot } from '../spice/storeAdapter';
@@ -109,6 +110,12 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
       // behind a Schottky read 2.3 A the day this rule widened, D17). These
       // names were never checked before the widening, so this is no loss.
       if (/^A\d+$/.test(pinName)) continue;
+      // A pad the chip can only read (the classic ESP32's GPIO34-39, VP and
+      // VN among them) has no output driver: no sketch can drive it HIGH, so
+      // the worst case is the pad as it is. Forced, a cell measured on it was
+      // a 3.3 V ideal source against the cell, a blocking "short circuit,
+      // 12 A" no circuit could produce (velxio/velxio-prod#173).
+      if (isInputOnlyPad(b.boardKind, pinName)) continue;
       const net = pinNet.get(`${b.id}:${pinName}`);
       if (net !== undefined) {
         // A board GPIO source is stamped as `V_<board>_<pin> <net> 0`, so the
