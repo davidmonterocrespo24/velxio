@@ -35,7 +35,9 @@ export interface SolveWindowState {
  * the latest one. What the eye, a meter or a coil integrates reads this;
  * what reacts to a level (a logic input, a comparator) reads the
  * instantaneous fields. Absent on a publish made for a single state
- * (a rebuild, the first edge after idle).
+ * (a rebuild, the first edge after idle), unless a hardware-PWM pad on a
+ * static load is in it: that state is published as the HIGH and LOW states
+ * the pad alternates between, weighted by its duty.
  */
 export interface SolveWindow {
   ms: number;

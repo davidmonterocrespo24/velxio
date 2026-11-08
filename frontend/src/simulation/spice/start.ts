@@ -38,13 +38,22 @@ import { startAnalogScopeFeed } from './analogScopeFeed';
 import { pickSolverError, startSolverFaultReporter } from './solverFaultReporter';
 import { collectPinStates } from './collectPinStates';
 
-/** Adapt useElectricalStore to the ElectricalStorePort. */
-function createElectricalStorePort(): ElectricalStorePort {
+/**
+ * Adapt useElectricalStore to the ElectricalStorePort. Every field of the
+ * snapshot that a reader of the store reads goes through here: the window of
+ * pad states (what the LED part and the meters integrate) and the deck's
+ * source names (how connectDigitalInputsToMcu tells a pad's own stale source)
+ * were left out until velxio/velxio-prod#152, so in the app neither reached
+ * anything. Exported for the test of exactly that.
+ */
+export function createElectricalStorePort(): ElectricalStorePort {
   return {
     publish(snapshot: ElectricalSnapshot): void {
       useElectricalStore.getState().setSolveResult({
         nodeVoltages: snapshot.nodeVoltages,
         branchCurrents: snapshot.branchCurrents,
+        window: snapshot.window,
+        voltageSources: snapshot.voltageSources,
         pinNetMap: snapshot.pinNetMap,
         analysisMode: snapshot.analysisMode,
         timeWaveforms: snapshot.timeWaveforms,

@@ -120,6 +120,15 @@ export interface BuildNetlistResult {
    * floating-net read.
    */
   sourcedNets: Set<string>;
+  /**
+   * Board pads (their V-source names, lower case) whose network holds no
+   * capacitor or inductor: the nets the pad reaches through the parts wired
+   * to it, not through a supply rail or ground. Such a load answers each
+   * level at once, so a PWM pad there is exactly its two states weighted by
+   * the duty (CircuitSimulationService). Behind a reactive part the PWM's
+   * mean voltage is what the part integrates, and the pad stays at it.
+   */
+  staticPads: Set<string>;
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -232,6 +241,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // below. Deliberately NOT populated from the step-7 auto-pull-down cards,
   // since those mark FLOATING nets.
   const sourcedNets = new Set<string>(['0', 'vcc_rail', ...auxRailVolts.keys()]);
+  // The non-rail nets each emitted part joins, and whether it stores energy
+  // (a C or L card), for BuildNetlistResult.staticPads.
+  const partNets: Array<{ nets: string[]; reactive: boolean }> = [];
 
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
@@ -240,10 +252,17 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     cards.push(...emission.cards);
     for (const m of emission.modelsUsed) modelLines.add(m);
     // Every net this component connects to now has a real SPICE element on it.
+    const joined = new Set<string>();
     for (const pinName of pinsReferencedByWires(comp.id, wires)) {
       const n = netLookup(comp.id, pinName);
-      if (n) sourcedNets.add(n);
+      if (!n) continue;
+      sourcedNets.add(n);
+      if (!isRailNet(n)) joined.add(n);
     }
+    partNets.push({
+      nets: [...joined],
+      reactive: emission.cards.some((c) => /^[CL]/i.test(c)),
+    });
   }
 
   // ── 5. Board GPIO sources ─────────────────────────────────────────────────
@@ -321,6 +340,42 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     cards.push(`R_wire_${w.id} ${a} ${b} ${ohms}`);
     sourcedNets.add(a);
     sourcedNets.add(b);
+    partNets.push({ nets: [a, b].filter((n) => !isRailNet(n)), reactive: false });
+  }
+
+  // ── 6.6. Board pads that drive a static load ──────────────────────────────
+  // A pad's network is every net it reaches through the parts wired to it. A
+  // supply rail or ground is a fixed potential, not a path: a decoupling
+  // capacitor across 5V/GND does not make an LED on a pad reactive. Coarse on
+  // purpose — a part joins all its nets — so the doubt falls on the reactive
+  // side, where the pad keeps today's mean-voltage model.
+  const padGroup = new Map<string, string>();
+  const groupOf = (n: string): string => {
+    let r = n;
+    while (padGroup.has(r) && padGroup.get(r) !== r) r = padGroup.get(r)!;
+    padGroup.set(n, r);
+    return r;
+  };
+  for (const { nets } of partNets) {
+    for (let i = 1; i < nets.length; i++) {
+      const a = groupOf(nets[0]!);
+      const b = groupOf(nets[i]!);
+      if (a !== b) padGroup.set(b, a);
+    }
+  }
+  const reactiveGroups = new Set<string>();
+  for (const { nets, reactive } of partNets) {
+    if (reactive && nets.length > 0) reactiveGroups.add(groupOf(nets[0]!));
+  }
+  const staticPads = new Set<string>();
+  for (const board of boards) {
+    for (const [pinName, state] of Object.entries(board.pins)) {
+      if (state.type === 'input') continue;
+      const net = netLookup(board.id, pinName);
+      if (!net || isRailNet(net)) continue;
+      if (reactiveGroups.has(groupOf(net))) continue;
+      staticPads.add(`v_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`.toLowerCase());
+    }
   }
 
   // ── 7. Auto pull-downs for floating nets ─────────────────────────────────
@@ -398,6 +453,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     nets,
     voltageSources,
     sourcedNets,
+    staticPads,
   };
 }
 

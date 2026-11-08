@@ -80,7 +80,8 @@ export interface ElectricalSnapshot {
   /** V-source name (without leading V) → scalar branch current (A). */
   branchCurrents: Record<string, number>;
   /** The states of the last publish window and their weights; absent on a
-   *  publish made for a single state (a rebuild, the first edge after idle). */
+   *  publish made for a single state (a rebuild, the first edge after idle)
+   *  unless a static PWM pad splits it into its HIGH and LOW states. */
   window?: SolveWindow;
   /** "componentId:pinName" → SPICE net name (from NetlistBuilder). */
   pinNetMap: Map<string, string>;
@@ -211,6 +212,23 @@ interface StateVectors {
 const nowMs = (): number =>
   typeof performance !== 'undefined' ? performance.now() : Date.now();
 
+/**
+ * A deck with the levels its pads were stamped at blanked out (and its
+ * timestamp line dropped): two decks of one shape differ only in where their
+ * pads stand, which every pad-state solve sets anyway.
+ */
+function deckShapeOf(netlist: string, padNames: ReadonlySet<string>): string {
+  return netlist
+    .split('\n')
+    .filter((line) => !line.startsWith('* Velxio circuit'))
+    .map((line) => {
+      const space = line.indexOf(' ');
+      const name = (space > 0 ? line.slice(0, space) : line).toLowerCase();
+      return padNames.has(name) ? line.replace(/\sDC\s+\S+\s*$/, ' DC *') : line;
+    })
+    .join('\n');
+}
+
 export class CircuitSimulationService {
   /**
    * The last REAL transient capture published, kept for the oscilloscope
@@ -275,6 +293,21 @@ export class CircuitSimulationService {
   private padSources: string[] = [];
   /** `${boardId}|${pinName}` → index into padSources. */
   private padIndex = new Map<string, number>();
+  /**
+   * The hardware-PWM pads of the deck that drive a static load
+   * (BuildNetlistResult.staticPads), with the duty and HIGH level the deck was
+   * built with. The deck holds such a pad at its mean, duty * HIGH, which is
+   * what the instantaneous snapshot keeps showing (a logic input, an ADC or a
+   * pin resolver on that net reads what it always read). What the circuit
+   * really goes through is the pad at HIGH for the duty and at 0 V for the
+   * rest, and that is the window published with it (see pwmSplit): an LED
+   * under PWM carries its full current for the duty and none otherwise, while
+   * at the mean voltage its current collapses (velxio/velxio-prod#152).
+   */
+  private pwmPads: Array<{ index: number; duty: number; high: number }> = [];
+  /** The loaded deck with its pad levels blanked (deckShapeOf): a rebuild
+   *  of the same shape keeps the state cache (see loadPads). */
+  private deckShape: string | null = null;
   /** What the solver's pad sources hold right now; null = unknown, alter all. */
   private solverLevels: number[] | null = null;
   /** The levels the pads held over time since the last publish. */
@@ -364,6 +397,8 @@ export class CircuitSimulationService {
     }
     this.timeline = null;
     this.cache.clear();
+    this.deckShape = null;
+    this.pwmPads = [];
     this.healRequests.clear();
     this.recentLevels.clear();
   }
@@ -497,7 +532,13 @@ export class CircuitSimulationService {
   private async publishInstant(): Promise<void> {
     if (this.stopped || !this.timeline || !this.loadedContext) return;
     const levels = this.timeline.current();
-    const vec = await this.vectorsFor(levels, stateKey(levels));
+    const key = stateKey(levels);
+    if (this.pwmSplit(levels)) {
+      const ms = CircuitSimulationService.PUBLISH_WINDOW_MS;
+      await this.publishStates([{ key, levels, ms }], { key, levels, ms: 0 }, ms);
+      return;
+    }
+    const vec = await this.vectorsFor(levels, key);
     if (!vec) return;
     this.adopt(vec);
     this.publish(vec, undefined);
@@ -521,20 +562,57 @@ export class CircuitSimulationService {
 
   private async publishWindow(w: WindowResult): Promise<void> {
     if (this.stopped || !this.loadedContext) return;
-    const ranked = w.states.filter((s) => s.ms > 0).sort((a, b) => b.ms - a.ms);
-    const chosen = ranked.slice(0, CircuitSimulationService.MAX_STATE_SOLVES_PER_WINDOW);
-    if (!chosen.some((s) => s.key === w.latest.key)) chosen.push(w.latest);
+    if (!(await this.publishStates(w.states, w.latest, w.endMs - w.startMs))) return;
+    // Another window follows when this one mixed states or edges already
+    // arrived for the next: the publish after a pulse must land on the
+    // level the pads hold, not stay on the mix that included the pulse.
+    const more = w.states.length > 1 || (this.timeline?.pending() ?? 0) > 0;
+    this.streaming = more;
+    if (more && !this.stopped && this.windowTimer === null) {
+      this.windowTimer = setTimeout(() => this.closeWindow(), CircuitSimulationService.PUBLISH_WINDOW_MS);
+    }
+  }
+
+  /**
+   * Publish the states the pads held over `windowMs`, time-weighted, with
+   * `latest` as the instantaneous snapshot. Each state is first split into
+   * the HIGH and LOW states its static PWM pads went through (pwmSplit). The
+   * longest-held states are solved: every one the cache already holds, and
+   * at most MAX_STATE_SOLVES_PER_WINDOW that it does not, which is the bound
+   * on solver duty; the latest is always solved. False when the latest could
+   * not be (nothing was published).
+   */
+  private async publishStates(
+    states: ReadonlyArray<WindowState>,
+    latestState: WindowState,
+    windowMs: number,
+  ): Promise<boolean> {
+    const ranked = this.splitStates(states.filter((s) => s.ms > 0)).sort((a, b) => b.ms - a.ms);
+    const chosen: WindowState[] = [];
+    let solves = CircuitSimulationService.MAX_STATE_SOLVES_PER_WINDOW;
+    for (const s of ranked) {
+      if (this.cache.has(s.key)) chosen.push(s);
+      else if (solves > 0) {
+        chosen.push(s);
+        solves--;
+      }
+    }
+    const latestSplit = this.pwmSplit(latestState.levels) !== null;
+    if (!chosen.some((s) => s.key === latestState.key)) {
+      // A split latest state's time is its split states' (counted above).
+      chosen.push(latestSplit ? { ...latestState, ms: 0 } : latestState);
+    }
     const solved: Array<{ state: WindowState; vec: StateVectors }> = [];
     for (const state of chosen) {
       const vec = await this.vectorsFor(state.levels, state.key);
       if (vec) solved.push({ state, vec });
     }
-    const latest = solved.find((s) => s.state.key === w.latest.key);
-    if (!latest) return;
+    const latest = solved.find((s) => s.state.key === latestState.key);
+    if (!latest) return false;
     this.adopt(latest.vec);
     const total = solved.reduce((acc, s) => acc + s.state.ms, 0);
     const window: SolveWindow = {
-      ms: w.endMs - w.startMs,
+      ms: windowMs,
       states: solved
         .filter((s) => s.state.ms > 0 || s === latest)
         .map((s) => ({
@@ -545,15 +623,54 @@ export class CircuitSimulationService {
           branchCurrents: s.vec.branchCurrents,
         })),
     };
-    this.publish(latest.vec, window);
-    // Another window follows when this one mixed states or edges already
-    // arrived for the next: the publish after a pulse must land on the
-    // level the pads hold, not stay on the mix that included the pulse.
-    const more = w.states.length > 1 || (this.timeline?.pending() ?? 0) > 0;
-    this.streaming = more;
-    if (more && !this.stopped && this.windowTimer === null) {
-      this.windowTimer = setTimeout(() => this.closeWindow(), CircuitSimulationService.PUBLISH_WINDOW_MS);
+    // A latest state whose PWM pads sit at their mean is the snapshot the
+    // level readers expect, not a state the circuit is ever in: its capture
+    // is not published as the circuit's (the window is the circuit).
+    this.publish(latest.vec, window, latestSplit);
+    return true;
+  }
+
+  /**
+   * The states the circuit really goes through while the pads hold `levels`,
+   * with their shares of the time, or null when no static PWM pad holds its
+   * mean in them (see pwmPads). The timer channels of a PWM peripheral start
+   * their periods together, so over one period every such pad is HIGH from
+   * the start until its duty: the shares are the steps between the sorted
+   * duties, and each pad is HIGH for exactly its duty, alone or not.
+   */
+  private pwmSplit(levels: readonly number[]): Array<{ levels: number[]; weight: number }> | null {
+    const held = this.pwmPads.filter(
+      (p) => p.duty > 0 && p.duty < 1 && levels[p.index] === p.duty * p.high,
+    );
+    if (held.length === 0) return null;
+    const lv = levels.slice();
+    for (const p of held) lv[p.index] = p.high;
+    const out: Array<{ levels: number[]; weight: number }> = [];
+    let cursor = 0;
+    for (const p of [...held].sort((a, b) => a.duty - b.duty)) {
+      if (p.duty > cursor) out.push({ levels: lv.slice(), weight: p.duty - cursor });
+      lv[p.index] = 0;
+      cursor = Math.max(cursor, p.duty);
     }
+    if (cursor < 1) out.push({ levels: lv.slice(), weight: 1 - cursor });
+    return out;
+  }
+
+  /** Every state with its static PWM pads split (pwmSplit), merged by key. */
+  private splitStates(states: ReadonlyArray<WindowState>): WindowState[] {
+    const out = new Map<string, WindowState>();
+    const add = (levels: number[], ms: number) => {
+      const key = stateKey(levels);
+      const seen = out.get(key);
+      if (seen) seen.ms += ms;
+      else out.set(key, { key, levels, ms });
+    };
+    for (const s of states) {
+      const split = this.pwmSplit(s.levels);
+      if (!split) add(s.levels.slice(), s.ms);
+      else for (const sub of split) add(sub.levels, s.ms * sub.weight);
+    }
+    return [...out.values()];
   }
 
   /** The solve for a pad state: from the cache, or the engine brought to
@@ -647,30 +764,42 @@ export class CircuitSimulationService {
 
   /**
    * Read the pads of a freshly built deck: which sources are MCU pins, in
-   * what order, at what level. Resets the cache and the timeline; a level
-   * reported while the rebuild ran goes back on the new timeline.
+   * what order, at what level. Resets the timeline, and the cache unless
+   * `sameShape` says the deck differs from the last one only in the levels
+   * its pads were built at (a new PWM duty): a state of the pads is solved
+   * the same on both, so every cached solve still holds. A level reported
+   * while the rebuild ran goes back on the new timeline.
    */
   private loadPads(
     boards: ReadonlyArray<{ id: string; vcc: number; pins: Record<string, { type: string; v?: number; duty?: number }> }>,
     voltageSources: readonly string[],
+    staticPads: ReadonlySet<string>,
+    sameShape: boolean,
   ): void {
     const emitted = new Map(voltageSources.map((vs) => [vs.toLowerCase(), vs] as const));
     const sources: string[] = [];
     const index = new Map<string, number>();
     const levels: number[] = [];
+    const pwm: Array<{ index: number; duty: number; high: number }> = [];
     for (const board of boards) {
       for (const [pinName, state] of Object.entries(board.pins)) {
-        const name = emitted.get(`v_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`.toLowerCase());
+        const lower = `v_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`.toLowerCase();
+        const name = emitted.get(lower);
         if (!name) continue;
+        if (state.type === 'pwm' && staticPads.has(lower)) {
+          pwm.push({ index: sources.length, duty: state.duty ?? 0, high: board.vcc });
+        }
         index.set(`${board.id}|${pinName}`, sources.length);
         sources.push(name);
         levels.push(state.type === 'digital' ? (state.v ?? 0) : (state.duty ?? 0) * board.vcc);
       }
     }
+    const samePads = sameShape && sources.length === this.padSources.length && sources.every((s, i) => s === this.padSources[i]);
     this.padSources = sources;
     this.padIndex = index;
+    this.pwmPads = pwm;
     this.solverLevels = levels.slice();
-    this.cache.clear();
+    if (!samePads) this.cache.clear();
     const now = nowMs();
     this.timeline = new PadTimeline(levels, now);
     for (const [key, i] of index) {
@@ -717,7 +846,14 @@ export class CircuitSimulationService {
       })),
     };
     const input = buildInputFromStore(snap as Parameters<typeof buildInputFromStore>[0]);
-    const { netlist, pinNetMap, nets, voltageSources, sourcedNets } = buildNetlist(input);
+    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads } = buildNetlist(input);
+    const padNames = new Set<string>();
+    for (const b of input.boards) {
+      for (const [pin, st] of Object.entries(b.pins)) {
+        if (st.type !== 'input') padNames.add(`v_${sanitizeSpiceId(b.id)}_${sanitizeSpiceId(pin)}`.toLowerCase());
+      }
+    }
+    const shape = deckShapeOf(netlist, padNames);
     this.note({
       rebuild: this.rebuildCount,
       collected: Object.fromEntries(snap.boards.map((b) => [b.id, Object.keys(b.pinStates as object).length])),
@@ -762,14 +898,27 @@ export class CircuitSimulationService {
       input.analysis.kind === 'tran' && input.analysis.timeVarying
         ? { kind: 'tran', step: input.analysis.step, stop: input.analysis.stop }
         : { kind: 'op' };
+    const sameShape = shape === this.deckShape;
+    this.deckShape = shape;
     this.loadPads(
       input.boards as unknown as Parameters<CircuitSimulationService['loadPads']>[0],
       voltageSources,
+      staticPads,
+      sameShape,
     );
     const result = this.scheduler.getLastResult();
     if (!result) return;
     const vec = this.extract(result, this.loadedContext);
-    this.remember(stateKey(this.solverLevels ?? []), vec);
+    const levels = (this.solverLevels ?? []).slice();
+    const key = stateKey(levels);
+    this.remember(key, vec);
+    if (this.pwmSplit(levels)) {
+      // The deck holds its static PWM pads at their mean; publish what the
+      // circuit goes through with them (see pwmPads).
+      const ms = CircuitSimulationService.PUBLISH_WINDOW_MS;
+      await this.publishStates([{ key, levels, ms }], { key, levels, ms: 0 }, ms);
+      return;
+    }
     this.publish(vec, undefined);
   }
 
@@ -806,15 +955,17 @@ export class CircuitSimulationService {
   }
 
   /** Publish one state as the instantaneous snapshot, with the window it
-   *  closes when there is one. */
-  private publish(vec: StateVectors, window: SolveWindow | undefined): void {
+   *  closes when there is one. `synthetic`: the state is a PWM pad's mean,
+   *  which the circuit is never in (see pwmPads), so its capture is not the
+   *  circuit's. */
+  private publish(vec: StateVectors, window: SolveWindow | undefined, synthetic = false): void {
     const ctx = this.loadedContext;
     if (!ctx) return;
     // The capture published is this state's own or none (see
     // ElectricalSnapshot.timeWaveforms); the scope keeps the latest one.
-    const timeWaveforms = ctx.analysisKind === 'tran' ? vec.timeWaveforms : undefined;
+    const timeWaveforms = ctx.analysisKind === 'tran' && !synthetic ? vec.timeWaveforms : undefined;
     if (ctx.analysisKind !== 'tran') this.lastTimeWaveforms = undefined;
-    else if (timeWaveforms) this.lastTimeWaveforms = timeWaveforms;
+    else if (vec.timeWaveforms) this.lastTimeWaveforms = vec.timeWaveforms;
     this.electricalStore.publish({
       nodeVoltages: vec.nodeVoltages,
       branchCurrents: vec.branchCurrents,
