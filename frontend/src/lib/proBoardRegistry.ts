@@ -306,6 +306,25 @@ export function getProBoard(kind: string): ProBoardDef | undefined {
   return registry.get(kind);
 }
 
+// Has the overlay had its chance to register boards? main.tsx flips this when
+// the overlay's import settles (mountPro has registered every board it will),
+// or right away when no overlay is configured. Until then a board kind the
+// open-source tree does not know may still arrive, and the store waits for it
+// instead of guessing a simulator (velxio/velxio-prod#209); after it, such a
+// kind is not available in this build. Same contract as markProRoutesSettled.
+let settled = false;
+
+export function markProBoardsSettled(): void {
+  if (settled) return;
+  settled = true;
+  version++;
+  for (const l of listeners) l();
+}
+
+export function areProBoardsSettled(): boolean {
+  return settled;
+}
+
 // ── Guest setup lines for boards the OSS tree already owns ───────────────
 //
 // A QEMU-Linux board that is NOT overlay-registered (the Raspberry Pi

@@ -10,11 +10,13 @@ import './i18n';
 import { initTheme } from './lib/theme';
 import { markProExamplesSettled } from './data/examples';
 import { markProRoutesSettled } from './lib/proRoutes';
+import { markProBoardsSettled } from './lib/proBoardRegistry';
 
 /** The overlay import has settled (either way): registries are final. */
 const markProOverlaySettled = (): void => {
   markProExamplesSettled();
   markProRoutesSettled();
+  markProBoardsSettled();
 };
 import './components/velxio-components/IC74HC595';
 import './components/velxio-components/LogicGateElements';

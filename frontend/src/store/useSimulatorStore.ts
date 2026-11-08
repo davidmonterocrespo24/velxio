@@ -2,10 +2,12 @@ import { deviceFiles } from '../utils/projectOnlyFiles';
 import { create } from 'zustand';
 import { decideEngine, getInstantEngine } from '../lib/instantEngine';
 import {
+  areProBoardsSettled,
   getBoardSeedFiles,
   getProBoard,
   getGuestSetup,
   isProBoardSimulator,
+  subscribeProBoards,
   type ProBoardSimulator,
 } from '../lib/proBoardRegistry';
 import { AVRSimulator } from '../simulation/AVRSimulator';
@@ -25,6 +27,7 @@ import {
   BOARD_SUPPORTS_ESPIDF,
   BOARD_SUPPORTS_MICROPYTHON,
   EMULATED_WIFI_SSIDS,
+  isKnownBoardKind,
   isPiBoardKind,
   isStm32BoardKind,
 } from '../types/board';
@@ -1635,9 +1638,10 @@ interface SimulatorState {
    *  can create boards before the factory exists). No-op (false) for
    *  non-ESP32 kinds or while the board is running. */
   rebuildEsp32Bridge: (boardId: string) => boolean;
-  /** Bumped every time rebuildEsp32Bridge swaps a board's bridge. Whatever
-   *  captured the old bridge (a board's built-ins: its buttons, keyboard,
-   *  speaker) keys on it to re-attach against the new one. */
+  /** Bumped every time rebuildEsp32Bridge swaps a board's bridge, or a board
+   *  whose kind registered late gets its simulation (#209). Whatever captured
+   *  the old bridge (a board's built-ins: its buttons, keyboard, speaker) keys
+   *  on it to re-attach against the new one. */
   esp32BridgeEpoch: number;
   removeBoard: (boardId: string) => void;
   /** Reload the entire workspace from a saved project payload. Tears down
@@ -1911,7 +1915,7 @@ function createSimulator(
   onSerial: (ch: string) => void,
   onBaud: (baud: number, link: SerialLink) => void,
   onPinTime: (pin: number, state: boolean, t: number) => void,
-): AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | ProBoardSimulator {
+): AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | ProBoardSimulator | null {
   let sim: AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | ProBoardSimulator;
   const proDef = getProBoard(boardKind);
   if (proDef?.createSimulator) {
@@ -1926,9 +1930,19 @@ function createSimulator(
   } else if (isRiscVEsp32Kind(boardKind)) {
     // ESP32-C3 / XIAO-C3 / C3 SuperMini — browser-side RV32IMC emulator
     sim = new Esp32C3Simulator(pm);
+  } else if (BOARD_KIND_FQBN[boardKind]?.startsWith('arduino:avr:')) {
+    // arduino-uno, arduino-nano, and an AVR board an overlay registers
+    // without a simulator of its own.
+    sim = new AVRSimulator(
+      pm,
+      BOARD_KIND_FQBN[boardKind]?.startsWith('arduino:avr:mega') ? 'mega' : 'uno',
+    );
   } else {
-    // arduino-uno, arduino-nano
-    sim = new AVRSimulator(pm, 'uno');
+    // Never the Uno's simulator for a board that is not one: a board kind the
+    // overlay has not registered (yet) ran AVR frames under the board's name
+    // (velxio/velxio-prod#209). No simulator; Run says why.
+    console.warn(`[${boardKind}] no in-browser simulator for this board kind`);
+    return null;
   }
   sim.onSerialData = onSerial;
   // Every simulator that reports its console line (AVR, RP2040, the overlay's RP2350)
@@ -2123,6 +2137,264 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     };
   }
 
+  /**
+   * The simulation behind a board: its bridge or in-browser simulator, picked
+   * by family, with the serial, pin, pull and bus hooks the rest of the app
+   * reads. addBoard runs it for a kind it knows; a kind the overlay registers
+   * later gets it from the registry watch (resolvePendingBoards).
+   */
+  function attachBoardRuntime(id: string, boardKind: BoardKind, pm: PinManager): void {
+    // UART0 only, as in setBoardType: a bridge that names another UART is
+    // talking to a peripheral on the header, not to the console.
+    const serialCallback = (ch: string, uart?: number) => {
+      if (!uart) appendSerial(id, ch);
+    };
+
+    if (isPiBoardKind(boardKind)) {
+      const bridge = new RaspberryPi3Bridge(id, boardKind);
+      const piDef = getProBoard(boardKind);
+      if (piDef?.quietBoot) {
+        bridge.quietBootDefault = true;
+        bridge.quietBootLabel = piDef.label;
+      }
+      bridge.onSerialData = (ch: string) => {
+        serialCallback(ch);
+        // Cross-board routing now handled by Interconnect (see bind below).
+      };
+      bridge.onError = makeRunRefusedHandler(id, boardKind, serialCallback, () =>
+        bridge.disconnect(),
+      );
+      bridge.onPinChange = (gpioPin, state) => {
+        // Feed the guest's GPIO writes into this board's PinManager so they
+        // reach wired components and the SPICE solver (the LED brightness
+        // path) — same as the ESP32 branch. Without this the Pi could print
+        // "LED on" but the canvas LEDs stayed dark. Interconnect preserves
+        // and calls this before its own cross-board routing.
+        const boardPm = pinManagerMap.get(id);
+        if (boardPm) boardPm.triggerPinChange(gpioPin, state, 'mcu');
+      };
+      // Guest Linux finished booting (shell prompt reached). Flip piBooted so
+      // the workspace swaps the "Booting…" overlay for the live terminal and
+      // uploads know the shell is ready. Overlay boards may declare a
+      // guestSetup line (hostname/PS1/clear) to de-brand the generic image;
+      // it runs before piBooted flips so the VFS upload (gated on piBooted)
+      // cannot interleave with it.
+      bridge.onBooted = () => {
+        const setup = getGuestSetup(boardKind);
+        // Attach the slave models for I2C/SPI/UART components wired to
+        // this Pi. This used to live in RaspberryPiWorkspace, which the
+        // unified terminal replaced — leaving the scan with no caller,
+        // so a BMP280 on the Pi's I2C pins never got its backend model.
+        try {
+          const st = get();
+          attachSlavesFromCanvas(id, bridge, st.components as never, st.wires as never);
+        } catch (e) {
+          console.warn('[pi] slave scan failed:', e);
+        }
+        const flip = () =>
+          set((s) => ({
+            boards: s.boards.map((b) => (b.id === id ? { ...b, piBooted: true } : b)),
+          }));
+        // After boot (+setup) the board's editor file group is uploaded
+        // into the guest home and the run command executed, so one click
+        // on Run boots, uploads and starts the user's script — same UX as
+        // every other board's compile-and-run. Overlay boards can override
+        // home/command via guestHome/autoRun.
+        void (async () => {
+          if (setup) {
+            await bridge.sendAndWaitForPrompt(setup.endsWith('\n') ? setup : setup + '\n');
+          }
+          flip();
+          try {
+            await piSyncAndRunScript(id, boardKind);
+          } catch (e) {
+            console.warn(`[${boardKind}] auto-run failed:`, e);
+          }
+        })();
+      };
+      bridge.onDisconnected = () => {
+        set((s) => {
+          const boards = s.boards.map((b) =>
+            b.id === id ? { ...b, running: false, piBooted: false } : b,
+          );
+          const isActive = s.activeBoardId === id;
+          return { boards, ...(isActive ? { running: false } : {}) };
+        });
+      };
+      bridgeMap.set(id, bridge);
+      // The simulator-shaped object the parts attach to (I2C devices, SPI
+      // panels, PWM consumers, the ADC refusal). Both engines route their
+      // bus requests through it, so a sensor answers the same in either.
+      const shim = new PiBridgeShim({
+        boardId: id,
+        boardKind,
+        bridge,
+        pinManager: pm,
+        boardState: () => get().boards.find((b) => b.id === id),
+      });
+      simulatorMap.set(id, shim);
+      // The guest's pulls reach the netlist and rest the pin, like every
+      // MCU board; its PWM reaches the servo / dimmed LED listeners; its
+      // bus operations reach the device models on the canvas.
+      bridge.onPinPull = makePinPullHandler(id);
+      bridge.onGpioPwm = (pin, frequency, dutyCycle, event) =>
+        shim.applyPwm(pin, frequency, event === 'stop' ? 0 : dutyCycle);
+      bridge.onBusRequest = (_rid, line) => shim.answerBusLine(line);
+      // A backend that answers the guest's bus from the canvas announces
+      // it once per guest; the shim then publishes the bus map and keeps
+      // it true, and the board says so (a part that used to be handed to
+      // the guest can stay in the tab).
+      bridge.onBusRelay = () => {
+        shim.startBusSync();
+        set((s) => ({
+          boards: s.boards.map((b) => (b.id === id ? { ...b, busRelay: true } : b)),
+        }));
+      };
+      // The host took a line sensor it has no model for and said so. The
+      // refusal lands on the component that asked and the circuit check
+      // prints it at Run, exactly like one the browser made itself.
+      bridge.onSystemEvent = (event, data) => {
+        if (event === 'sensor_refused') shim.noteSensorRefused(data);
+        else if (event === 'bus_blob') shim.applyBusBlob(data);
+      };
+      const disconnected = bridge.onDisconnected;
+      bridge.onDisconnected = () => {
+        shim.stopBusSync();
+        disconnected?.();
+      };
+      // The UART routes were built at page load, when this bridge did
+      // not exist — re-attempt the TX hook now that it does, or the
+      // guest's header-UART bytes never reach the canvas wire.
+      icReensureSerialHooks(id);
+    } else if (isEsp32Kind(boardKind)) {
+      wireEsp32Board(id, boardKind, pm);
+    } else if (isStm32BoardKind(boardKind)) {
+      const bridge = new Stm32Bridge(id, boardKind);
+      // Onboard-LED pin + polarity per board kind. Blue/Black Pill drive PC13
+      // active-LOW; the F4 Discovery / Olimex / Netduino boards drive their LED
+      // active-HIGH on a different port pin (see STM32_LED).
+      const ledCfg = STM32_LED[boardKind] ?? { pin: 'PC13', activeLow: true };
+      const ledLinear = stm32PinNameToLinear(ledCfg.pin);
+      bridge.onSerialData = serialCallback;
+      bridge.onError = makeRunRefusedHandler(id, boardKind, serialCallback, () =>
+        bridge.disconnect(),
+      );
+      bridge.onPinChange = (gpioPin, state) => {
+        const boardPm = pinManagerMap.get(id);
+        if (boardPm) boardPm.triggerPinChange(gpioPin, state, 'mcu');
+        if (gpioPin === ledLinear) {
+          const dom = document.getElementById(id) as (HTMLElement & { led?: boolean }) | null;
+          if (dom && 'led' in dom) dom.led = ledCfg.activeLow ? !state : !!state;
+        }
+      };
+      bridge.onPinChangeWithTime = getOscilloscopeCallback(id);
+      // Record the guest's internal pull so NetlistBuilder stamps the weak
+      // resistor; the connector then drives the pin from the solved circuit.
+      bridge.onPinPull = makePinPullHandler(id);
+      bridge.onDisconnected = () => {
+        set((s) => {
+          const boards = s.boards.map((b) => (b.id === id ? { ...b, running: false } : b));
+          const isActive = s.activeBoardId === id;
+          return { boards, ...(isActive ? { running: false } : {}) };
+        });
+      };
+      stm32BridgeMap.set(id, bridge);
+      // Shim so PartSimulationRegistry parts (I2C displays, sensors, SPI
+      // panels) attach to this STM32 the same way they do on ESP32.
+      simulatorMap.set(id, new Stm32BridgeShim(bridge, pm));
+      // The Interconnect's serial fan-out wraps the INSTANCE's
+      // onSerialData; a fresh simulator (compile, reset, engine
+      // swap) drops that wrapper, so a wired peer stopped
+      // hearing this board mid-session. Re-ensure it here.
+      icReensureSerialHooks(id);
+    } else {
+      const sim = createSimulator(
+        boardKind,
+        pm,
+        serialCallback,
+        (baud, link) => {
+          set((s) => {
+            const boards = s.boards.map((b) =>
+              b.id === id ? { ...b, serialBaudRate: nominalBaud(baud), serialLink: link } : b,
+            );
+            const isActive = s.activeBoardId === id;
+            return { boards, ...(isActive ? { serialBaudRate: nominalBaud(baud) } : {}) };
+          });
+        },
+        getOscilloscopeCallback(id),
+      );
+      // Cross-board routing now handled by Interconnect (see bind below).
+      if (sim) simulatorMap.set(id, sim);
+      // The Interconnect's serial fan-out wraps the INSTANCE's
+      // onSerialData; a fresh simulator (compile, reset, engine
+      // swap) drops that wrapper, so a wired peer stopped
+      // hearing this board mid-session. Re-ensure it here.
+      icReensureSerialHooks(id);
+
+      // ── Attach a PIO bus peripheral if a factory supports this board.
+      // The pro overlay registers a CYW43 WiFi peripheral for 'pi-pico-w'
+      // (paid feature); OSS has no factory, so this is a no-op and a Pico W
+      // simulates as a plain Pico. The peripheral owns its own WS bridge and
+      // surfaces WiFi status via setBoardWifiStatus().
+      if (sim instanceof RP2040Simulator) {
+        sim.attachPioPeripheral(boardKind, id);
+      } else if (isProBoardSimulator(sim)) {
+        (sim as { attachPioPeripheral?: (k: string, i: string) => void }).attachPioPeripheral?.(
+          boardKind,
+          id,
+        );
+      }
+    }
+  }
+
+  // ── Boards whose kind is not registered yet (velxio/velxio-prod#209) ─────
+  // A saved project on an overlay board can be loaded before the overlay has
+  // registered its kinds (mountPro registers them after its async import and
+  // the launch flags). Such a board is on the canvas with its files, wires and
+  // settings, and no simulation behind it until the kind arrives: the last
+  // branch of createSimulator used to make it an Uno, and Run then ran AVR
+  // frames or failed with "Simulator already running or not initialized".
+  const pendingBoardKinds = new Map<string, BoardKind>();
+  let boardRegistryWatch: (() => void) | null = null;
+
+  function awaitBoardKind(id: string, boardKind: BoardKind): void {
+    pendingBoardKinds.set(id, boardKind);
+    if (!boardRegistryWatch) boardRegistryWatch = subscribeProBoards(resolvePendingBoards);
+    console.info(`[${boardKind}] ${id}: board kind not registered; its simulator waits for it`);
+  }
+
+  function resolvePendingBoards(): void {
+    for (const [id, kind] of [...pendingBoardKinds]) {
+      const board = get().boards.find((b) => b.id === id);
+      const pm = pinManagerMap.get(id);
+      if (!board || !pm || board.boardKind !== kind) {
+        pendingBoardKinds.delete(id);
+        continue;
+      }
+      // Still unknown: wait (a settled registry makes Run say why it cannot).
+      if (!isKnownBoardKind(kind)) continue;
+      pendingBoardKinds.delete(id);
+      attachBoardRuntime(id, kind, pm);
+      // The part of addBoard that read the registry before it knew the kind.
+      if (isPiBoardKind(kind)) {
+        const home = getProBoard(kind)?.guestHome;
+        useVfsStore
+          .getState()
+          .initBoardVfs(id, home ? { home, withShellSample: false } : undefined);
+      }
+      console.info(`[${kind}] ${id}: board kind registered; simulator attached`);
+      // Parts attach against the active board's flat mirror, and the canvas
+      // re-attaches a board's built-ins on the epoch (as after a bridge rebuild).
+      set((s) => ({
+        ...(s.activeBoardId === id ? { simulator: simulatorMap.get(id) ?? null } : {}),
+        esp32BridgeEpoch: s.esp32BridgeEpoch + 1,
+      }));
+      // A build that finished while the board waited goes into the new runtime.
+      const program = get().boards.find((b) => b.id === id)?.compiledProgram;
+      if (program) get().compileBoardProgram(id, program);
+    }
+  }
+
   function wireEsp32Board(id: string, boardKind: BoardKind, pm: PinManager): void {
     // UART0 only, as in setBoardType: a bridge that names another UART is
     // talking to a peripheral on the header, not to the console.
@@ -2249,7 +2521,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
   );
   // Cross-board routing for the initial board is handled by the Interconnect
   // (registered after the store is created — see bottom of this file).
-  simulatorMap.set(INITIAL_BOARD_ID, initialSim);
+  if (initialSim) simulatorMap.set(INITIAL_BOARD_ID, initialSim);
 
   // ── Legacy single-board PinManager (references initial board's pm) ───────
   const legacyPinManager = initialPm;
@@ -2304,207 +2576,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const pm = new PinManager();
       pinManagerMap.set(id, pm);
 
-      // UART0 only, as in setBoardType: a bridge that names another UART is
-      // talking to a peripheral on the header, not to the console.
-      const serialCallback = (ch: string, uart?: number) => {
-        if (!uart) appendSerial(id, ch);
-      };
-
-      if (isPiBoardKind(boardKind)) {
-        const bridge = new RaspberryPi3Bridge(id, boardKind);
-        const piDef = getProBoard(boardKind);
-        if (piDef?.quietBoot) {
-          bridge.quietBootDefault = true;
-          bridge.quietBootLabel = piDef.label;
-        }
-        bridge.onSerialData = (ch: string) => {
-          serialCallback(ch);
-          // Cross-board routing now handled by Interconnect (see bind below).
-        };
-        bridge.onError = makeRunRefusedHandler(id, boardKind, serialCallback, () =>
-          bridge.disconnect(),
-        );
-        bridge.onPinChange = (gpioPin, state) => {
-          // Feed the guest's GPIO writes into this board's PinManager so they
-          // reach wired components and the SPICE solver (the LED brightness
-          // path) — same as the ESP32 branch. Without this the Pi could print
-          // "LED on" but the canvas LEDs stayed dark. Interconnect preserves
-          // and calls this before its own cross-board routing.
-          const boardPm = pinManagerMap.get(id);
-          if (boardPm) boardPm.triggerPinChange(gpioPin, state, 'mcu');
-        };
-        // Guest Linux finished booting (shell prompt reached). Flip piBooted so
-        // the workspace swaps the "Booting…" overlay for the live terminal and
-        // uploads know the shell is ready. Overlay boards may declare a
-        // guestSetup line (hostname/PS1/clear) to de-brand the generic image;
-        // it runs before piBooted flips so the VFS upload (gated on piBooted)
-        // cannot interleave with it.
-        bridge.onBooted = () => {
-          const setup = getGuestSetup(boardKind);
-          // Attach the slave models for I2C/SPI/UART components wired to
-          // this Pi. This used to live in RaspberryPiWorkspace, which the
-          // unified terminal replaced — leaving the scan with no caller,
-          // so a BMP280 on the Pi's I2C pins never got its backend model.
-          try {
-            const st = get();
-            attachSlavesFromCanvas(id, bridge, st.components as never, st.wires as never);
-          } catch (e) {
-            console.warn('[pi] slave scan failed:', e);
-          }
-          const flip = () =>
-            set((s) => ({
-              boards: s.boards.map((b) => (b.id === id ? { ...b, piBooted: true } : b)),
-            }));
-          // After boot (+setup) the board's editor file group is uploaded
-          // into the guest home and the run command executed, so one click
-          // on Run boots, uploads and starts the user's script — same UX as
-          // every other board's compile-and-run. Overlay boards can override
-          // home/command via guestHome/autoRun.
-          void (async () => {
-            if (setup) {
-              await bridge.sendAndWaitForPrompt(setup.endsWith('\n') ? setup : setup + '\n');
-            }
-            flip();
-            try {
-              await piSyncAndRunScript(id, boardKind);
-            } catch (e) {
-              console.warn(`[${boardKind}] auto-run failed:`, e);
-            }
-          })();
-        };
-        bridge.onDisconnected = () => {
-          set((s) => {
-            const boards = s.boards.map((b) =>
-              b.id === id ? { ...b, running: false, piBooted: false } : b,
-            );
-            const isActive = s.activeBoardId === id;
-            return { boards, ...(isActive ? { running: false } : {}) };
-          });
-        };
-        bridgeMap.set(id, bridge);
-        // The simulator-shaped object the parts attach to (I2C devices, SPI
-        // panels, PWM consumers, the ADC refusal). Both engines route their
-        // bus requests through it, so a sensor answers the same in either.
-        const shim = new PiBridgeShim({
-          boardId: id,
-          boardKind,
-          bridge,
-          pinManager: pm,
-          boardState: () => get().boards.find((b) => b.id === id),
-        });
-        simulatorMap.set(id, shim);
-        // The guest's pulls reach the netlist and rest the pin, like every
-        // MCU board; its PWM reaches the servo / dimmed LED listeners; its
-        // bus operations reach the device models on the canvas.
-        bridge.onPinPull = makePinPullHandler(id);
-        bridge.onGpioPwm = (pin, frequency, dutyCycle, event) =>
-          shim.applyPwm(pin, frequency, event === 'stop' ? 0 : dutyCycle);
-        bridge.onBusRequest = (_rid, line) => shim.answerBusLine(line);
-        // A backend that answers the guest's bus from the canvas announces
-        // it once per guest; the shim then publishes the bus map and keeps
-        // it true, and the board says so (a part that used to be handed to
-        // the guest can stay in the tab).
-        bridge.onBusRelay = () => {
-          shim.startBusSync();
-          set((s) => ({
-            boards: s.boards.map((b) => (b.id === id ? { ...b, busRelay: true } : b)),
-          }));
-        };
-        // The host took a line sensor it has no model for and said so. The
-        // refusal lands on the component that asked and the circuit check
-        // prints it at Run, exactly like one the browser made itself.
-        bridge.onSystemEvent = (event, data) => {
-          if (event === 'sensor_refused') shim.noteSensorRefused(data);
-          else if (event === 'bus_blob') shim.applyBusBlob(data);
-        };
-        const disconnected = bridge.onDisconnected;
-        bridge.onDisconnected = () => {
-          shim.stopBusSync();
-          disconnected?.();
-        };
-        // The UART routes were built at page load, when this bridge did
-        // not exist — re-attempt the TX hook now that it does, or the
-        // guest's header-UART bytes never reach the canvas wire.
-        icReensureSerialHooks(id);
-      } else if (isEsp32Kind(boardKind)) {
-        wireEsp32Board(id, boardKind, pm);
-      } else if (isStm32BoardKind(boardKind)) {
-        const bridge = new Stm32Bridge(id, boardKind);
-        // Onboard-LED pin + polarity per board kind. Blue/Black Pill drive PC13
-        // active-LOW; the F4 Discovery / Olimex / Netduino boards drive their LED
-        // active-HIGH on a different port pin (see STM32_LED).
-        const ledCfg = STM32_LED[boardKind] ?? { pin: 'PC13', activeLow: true };
-        const ledLinear = stm32PinNameToLinear(ledCfg.pin);
-        bridge.onSerialData = serialCallback;
-        bridge.onError = makeRunRefusedHandler(id, boardKind, serialCallback, () =>
-          bridge.disconnect(),
-        );
-        bridge.onPinChange = (gpioPin, state) => {
-          const boardPm = pinManagerMap.get(id);
-          if (boardPm) boardPm.triggerPinChange(gpioPin, state, 'mcu');
-          if (gpioPin === ledLinear) {
-            const dom = document.getElementById(id) as (HTMLElement & { led?: boolean }) | null;
-            if (dom && 'led' in dom) dom.led = ledCfg.activeLow ? !state : !!state;
-          }
-        };
-        bridge.onPinChangeWithTime = getOscilloscopeCallback(id);
-        // Record the guest's internal pull so NetlistBuilder stamps the weak
-        // resistor; the connector then drives the pin from the solved circuit.
-        bridge.onPinPull = makePinPullHandler(id);
-        bridge.onDisconnected = () => {
-          set((s) => {
-            const boards = s.boards.map((b) => (b.id === id ? { ...b, running: false } : b));
-            const isActive = s.activeBoardId === id;
-            return { boards, ...(isActive ? { running: false } : {}) };
-          });
-        };
-        stm32BridgeMap.set(id, bridge);
-        // Shim so PartSimulationRegistry parts (I2C displays, sensors, SPI
-        // panels) attach to this STM32 the same way they do on ESP32.
-        simulatorMap.set(id, new Stm32BridgeShim(bridge, pm));
-        // The Interconnect's serial fan-out wraps the INSTANCE's
-        // onSerialData; a fresh simulator (compile, reset, engine
-        // swap) drops that wrapper, so a wired peer stopped
-        // hearing this board mid-session. Re-ensure it here.
-        icReensureSerialHooks(id);
-      } else {
-        const sim = createSimulator(
-          boardKind,
-          pm,
-          serialCallback,
-          (baud, link) => {
-            set((s) => {
-              const boards = s.boards.map((b) =>
-                b.id === id ? { ...b, serialBaudRate: nominalBaud(baud), serialLink: link } : b,
-              );
-              const isActive = s.activeBoardId === id;
-              return { boards, ...(isActive ? { serialBaudRate: nominalBaud(baud) } : {}) };
-            });
-          },
-          getOscilloscopeCallback(id),
-        );
-        // Cross-board routing now handled by Interconnect (see bind below).
-        simulatorMap.set(id, sim);
-        // The Interconnect's serial fan-out wraps the INSTANCE's
-        // onSerialData; a fresh simulator (compile, reset, engine
-        // swap) drops that wrapper, so a wired peer stopped
-        // hearing this board mid-session. Re-ensure it here.
-        icReensureSerialHooks(id);
-
-        // ── Attach a PIO bus peripheral if a factory supports this board.
-        // The pro overlay registers a CYW43 WiFi peripheral for 'pi-pico-w'
-        // (paid feature); OSS has no factory, so this is a no-op and a Pico W
-        // simulates as a plain Pico. The peripheral owns its own WS bridge and
-        // surfaces WiFi status via setBoardWifiStatus().
-        if (sim instanceof RP2040Simulator) {
-          sim.attachPioPeripheral(boardKind, id);
-        } else if (isProBoardSimulator(sim)) {
-          (sim as { attachPioPeripheral?: (k: string, i: string) => void }).attachPioPeripheral?.(
-            boardKind,
-            id,
-          );
-        }
-      }
+      // A kind this build does not know (yet) gets no runtime at all, never the
+      // Uno's simulator for someone else's board (velxio/velxio-prod#209): the
+      // overlay registers its kinds after its async import lands, and a saved
+      // project can be opened before that. The registry watch attaches it.
+      if (isKnownBoardKind(boardKind)) attachBoardRuntime(id, boardKind, pm);
+      else awaitBoardKind(id, boardKind);
 
       // Arduino is the default language everywhere EXCEPT on a board that has
       // no FQBN at all: the ESP32-C5 kits have no arduino-esp32 core, so a
@@ -2602,6 +2679,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     removeBoard: (boardId: string) => {
       const board = get().boards.find((b) => b.id === boardId);
+      pendingBoardKinds.delete(boardId);
       getBoardSimulator(boardId)?.stop();
       simulatorMap.delete(boardId);
       pinManagerMap.delete(boardId);
@@ -3361,6 +3439,24 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
 
+      // A kind this build does not know has no simulation behind it (addBoard,
+      // velxio/velxio-prod#209): say why nothing starts, before any gate.
+      if (!isKnownBoardKind(board.boardKind)) {
+        const refuse = makeRunRefusedHandler(
+          boardId,
+          board.boardKind,
+          (ch) => appendSerial(boardId, ch),
+          () => {},
+        );
+        refuse(
+          areProBoardsSettled()
+            ? `The board "${board.boardKind}" is not available in this build of Velxio, so it cannot run.`
+            : `The board "${board.boardKind}" is still loading. Press Run again in a moment.`,
+          'board_kind_unknown',
+        );
+        return;
+      }
+
       // A fresh run starts with a clean radio state. The WiFi/BLE badges are
       // only visible while the board runs, and nothing else clears them, so
       // without this a re-run opens showing the PREVIOUS run's association
@@ -3597,7 +3693,16 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         }
       } else {
         const rpSim = getBoardSimulator(boardId);
-        rpSim?.start();
+        if (!rpSim) {
+          // A board the overlay registered without a simulator (createSimulator
+          // returns none rather than an Uno's): nothing would run.
+          makeRunRefusedHandler(boardId, board.boardKind, (ch) => appendSerial(boardId, ch), () => {})(
+            `The board "${board.boardKind}" has no simulator in this build of Velxio, so it cannot run.`,
+            'board_no_simulator',
+          );
+          return;
+        }
+        rpSim.start();
         // Notify an attached PIO peripheral (the pro CYW43 WiFi co-processor)
         // that the simulation started, with the board's source files so it can
         // detect WiFi usage and open its network bridge. No-op in OSS.
@@ -3906,7 +4011,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             }),
           getOscilloscopeCallback(boardId),
         );
-        simulatorMap.set(boardId, sim);
+        if (sim) simulatorMap.set(boardId, sim);
         // The Interconnect's serial fan-out wraps the INSTANCE's
         // onSerialData; a fresh simulator (compile, reset, engine
         // swap) drops that wrapper, so a wired peer stopped
@@ -3954,6 +4059,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // anything the Uno sends). Skip out early in that case.
       const existingSim = getBoardSimulator(boardId);
       if (existingSim) return;
+      // A board whose kind is not registered yet gets its simulator from the
+      // registry watch, never a stand-in of the legacy boardType (#209).
+      const activeBoard = get().boards.find((b) => b.id === boardId);
+      if (activeBoard && !isKnownBoardKind(activeBoard.boardKind)) return;
 
       getEsp32Bridge(boardId)?.disconnect();
       esp32BridgeMap.delete(boardId);
@@ -4028,7 +4137,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             }),
           getOscilloscopeCallback(boardId),
         );
-        simulatorMap.set(boardId, sim);
+        if (sim) simulatorMap.set(boardId, sim);
         // The Interconnect's serial fan-out wraps the INSTANCE's
         // onSerialData; a fresh simulator (compile, reset, engine
         // swap) drops that wrapper, so a wired peer stopped
