@@ -157,7 +157,7 @@
         "q1": "ブラウザでRaspberry Pi 3をシミュレーションできますか？",
         "a1": "Yes. Velxio runs Raspberry Pi projects (Zero through Pi 5) in your browser: Python scripts execute against the circuit on the canvas, and a Linux guest under QEMU gives you a terminal when a script needs one. The guest is Alpine Linux, not Raspberry Pi OS.",
         "q2": "Raspberry Pi シミュレーターは無料プランに含まれますか?",
-        "a2": "一部含まれます。Raspberry Piの回路はどのアカウントでも作成・保存でき、無料アカウントには実行用に15分の試用セッションが3回付きます（セッション中の実行は何度でも無料）。無制限のRaspberry Pi Linuxエミュレーションは当社サーバー上で完全なARMゲストを動かすため、MakerおよびProプラン、または有料ライセンスのVelxio Desktopに含まれます。エディタとArduino、ESP32、Raspberry Pi Picoのシミュレータは無料でアカウント不要です。Velxio自体はオープンソース（GNU AGPLv3）のままです。",
+        "a2": "一部含まれます。Raspberry Piの回路はどのアカウントでも作成・保存でき、無料アカウントには実行用に15分の試用セッションが3回付きます（セッション中の実行は何度でも無料）。無制限のRaspberry Pi Linuxエミュレーションは当社サーバー上で完全なARMゲストを動かすため、MakerおよびProプランに含まれます。エディタとArduino、ESP32、Raspberry Pi Picoのシミュレータは無料でアカウント不要です。Velxio自体はオープンソース（GNU AGPLv3）のままです。",
         "q3": "Raspberry PiシミュレーターでPythonスクリプトを実行できますか？",
         "a3": "Yes. Python 3 runs in the browser with RPi.GPIO, gpiozero and smbus2, or in the Linux guest. Third-party packages are installed from a requirements.txt in your project; pip cannot reach the internet from inside the guest.",
         "q4": "Pi PicoとPi 3のシミュレーションの違いは何ですか？",

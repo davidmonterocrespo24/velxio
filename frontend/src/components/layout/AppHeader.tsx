@@ -193,12 +193,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
                 <Link to={localize('/classroom')} className={'header-nav-link' + isActive('/classroom')}>
                   {t('header.nav.classroom', 'For schools')}
                 </Link>
-                <Link
-                  to={localize('/account/desktop-install')}
-                  className={'header-nav-link' + isActive('/account/desktop-install')}
-                >
-                  {t('header.nav.download')}
-                </Link>
                 <a
                   href={blogUrlFor(currentLocale)}
                   className="header-nav-link"
