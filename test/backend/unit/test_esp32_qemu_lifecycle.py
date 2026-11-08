@@ -66,8 +66,18 @@ class _LibCase(unittest.IsolatedAsyncioTestCase):
     def alive(self) -> list[FakeProc]:
         return [p for p in self.procs if not p.stopped]
 
-    async def settle(self, seconds: float = 0.4) -> None:
+    async def settle(self, seconds: float = 0.5) -> None:
+        """Give anything scheduled time to run (for what must NOT happen)."""
         await asyncio.sleep(seconds)
+
+    async def until(self, cond, timeout: float = 5.0) -> bool:
+        """Wait for what must happen, however loaded the machine is."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while not cond():
+            if asyncio.get_running_loop().time() > deadline:
+                return False
+            await asyncio.sleep(0.02)
+        return True
 
     async def start(self, client_id: str = 'c', callback=None) -> None:
         await self.mgr.start_instance(client_id, 'esp32', callback or AsyncMock(), 'AAAA')
@@ -81,6 +91,8 @@ class TestLibManagerOverlaps(_LibCase):
         await self.start()
         for _ in range(6):
             self.mgr.load_firmware('c', 'AAAA')
+        await self.until(lambda: len(self.procs) > 1 and self.acc.active_clients() - {'c'} == set()
+                         and not self.acc._reserved)
         await self.settle()
         self.assertEqual(len(self.alive()), 1, f'{len(self.alive())} workers alive')
         self.assertIs(self.mgr.get_instance('c').process, self.alive()[0])
@@ -103,7 +115,7 @@ class TestLibManagerOverlaps(_LibCase):
 
         await asyncio.gather(self.start(callback=slow_callback),
                              self.start(callback=slow_callback))
-        await self.settle(0.1)
+        await self.settle(0.2)
         self.assertEqual(len(self.alive()), 1, f'{len(self.alive())} workers alive')
 
     async def test_a_stop_during_a_start_wins(self):
@@ -142,11 +154,11 @@ class TestLibManagerOverlaps(_LibCase):
         with patch('app.services.esp32_qemu_access.running_clients',
                    side_effect=lambda: set(self.mgr.client_ids())):
             self.mgr.load_firmware('c', 'AAAA')
-            await reloaded.wait()
+            await asyncio.wait_for(reloaded.wait(), 5)
             self.assertIsNone(self.mgr.get_instance('c'))   # the old one is gone
             refused = await self.acc.admit(MagicMock(), 'd', 'esp32')
             go_on.set()
-            await self.settle(0.2)
+            await self.until(lambda: self.mgr.get_instance('c') is not None and not self.acc._reserved)
         self.assertIsNotNone(refused, 'another client took the slot mid-reload')
         self.assertEqual(refused.code, 'esp32_qemu_busy')
         self.assertEqual(len(self.alive()), 1)
@@ -191,10 +203,13 @@ class TestSubprocessFallbackOverlaps(unittest.IsolatedAsyncioTestCase):
 
         with patch('asyncio.create_subprocess_exec', side_effect=slow_exec):
             self.mgr.start_instance('c', 'esp32', AsyncMock(), firmware_b64=None)
-            await launched.wait()
+            await asyncio.wait_for(launched.wait(), 5)
             self.mgr.stop_instance('c')
             go_on.set()
-            await asyncio.sleep(0.2)
+            for _ in range(250):
+                if proc.terminate.called:
+                    break
+                await asyncio.sleep(0.02)
         proc.terminate.assert_called()
         self.assertEqual(self.mgr.client_ids(), [])
 
@@ -219,7 +234,10 @@ class TestSubprocessFallbackOverlaps(unittest.IsolatedAsyncioTestCase):
              patch.object(self.mgr, '_shutdown', new=AsyncMock()):
             self.mgr.load_firmware('c', 'AAAA')
             self.assertIn('c', self.acc.active_clients())   # held through the restart
-            await asyncio.sleep(0.7)
+            for _ in range(250):
+                if boot.called and not self.acc._reserved:
+                    break
+                await asyncio.sleep(0.02)
         boot.assert_called_once()
         self.assertEqual(self.mgr.client_ids(), ['c'])
 
