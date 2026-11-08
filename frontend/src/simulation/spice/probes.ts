@@ -269,7 +269,10 @@ export function readVoltmeter(
   let ac: ProbeAcStats | undefined;
   if (timeWaveforms) {
     const plusSamples = timeWaveforms.nodes.get(plusNet);
-    const minusSamples = plusNet === '0' ? undefined : timeWaveforms.nodes.get(minusNet);
+    // Ground ('0') has no waveform: each lead's own net decides. Testing the
+    // plus net here dropped the minus waveform whenever V+ sat on ground, and
+    // the meter printed the last sample under "DC V" (velxio/velxio-prod#116).
+    const minusSamples = minusNet === '0' ? undefined : timeWaveforms.nodes.get(minusNet);
     const plusArr = plusSamples ?? (plusNet === '0' ? [] : undefined);
     const minusArr = minusSamples ?? (minusNet === '0' ? [] : undefined);
     if (plusArr !== undefined && minusArr !== undefined) {
