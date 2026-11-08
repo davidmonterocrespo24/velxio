@@ -31,10 +31,14 @@ const aitewinC3SvgUrl = '/boards/esp32c3-supermini.svg';
 
 // ESP32 DevKit V1: 28.2 mm × 53 mm → 141 × 265 px
 // Left col: x = 1.27 mm → 6 px  |  Right col: x = 26.8 mm → 134 px
+// EN, VP (GPIO36), VN (GPIO39), 34 down the left header, as on the board and
+// its picture (ESP32-WROOM-32 datasheet table 2: pins 3-6 are EN, SENSOR_VP,
+// SENSOR_VN, IO34). wokwi-boards' board.json has VN and VP the other way
+// round, which put the pad printed VP on GPIO39 (velxio/velxio-prod#172).
 const PINS_ESP32 = [
   { name: 'EN', x: 6, y: 29 },
-  { name: 'VN', x: 6, y: 42 },
-  { name: 'VP', x: 6, y: 54 },
+  { name: 'VP', x: 6, y: 42 },
+  { name: 'VN', x: 6, y: 54 },
   { name: '34', x: 6, y: 67 },
   { name: '35', x: 6, y: 80 },
   { name: '32', x: 6, y: 93 },

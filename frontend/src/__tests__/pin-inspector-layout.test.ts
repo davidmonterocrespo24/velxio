@@ -13,13 +13,13 @@ import {
   type InspectorPinInput,
 } from '../utils/pinInspectorLayout';
 
-// components/velxio-components/Esp32Element.ts:31-68 (PINS_ESP32), board
+// components/velxio-components/Esp32Element.ts:38-76 (PINS_ESP32), board
 // natural size 141x265 (BOARD_CONFIGS.esp32). Two vertical columns: left
 // x=6, right x=134. Silk aliases (16/RX2, 17/TX2) share coordinates.
 const ESP32_PINS: InspectorPinInput[] = [
   { name: 'EN', x: 6, y: 29 },
-  { name: 'VN', x: 6, y: 42 },
-  { name: 'VP', x: 6, y: 54 },
+  { name: 'VP', x: 6, y: 42 },
+  { name: 'VN', x: 6, y: 54 },
   { name: '34', x: 6, y: 67 },
   { name: '35', x: 6, y: 80 },
   { name: '32', x: 6, y: 93 },
