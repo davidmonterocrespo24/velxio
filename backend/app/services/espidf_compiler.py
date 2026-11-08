@@ -16,6 +16,7 @@ Two compilation modes:
 """
 import asyncio
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -25,6 +26,7 @@ import shlex
 import shutil
 import string
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -627,14 +629,24 @@ def _variant_lock(key: str) -> asyncio.Lock:
 _CORRUPT_COMPONENT_RE = re.compile(
     r'The downloaded component "([^"]+)"\s+is\s+corrupted', re.IGNORECASE
 )
+# The refusal of a copy whose hash file is missing or unreadable (component
+# manager 3.x, dependency_pre_download_check), which build.cmake wraps too.
+_HASHLESS_COMPONENT_RE = re.compile(
+    r'File\s+\.component_hash\s+or\s+CHECKSUMS\.json\s+for\s+component\s+'
+    r'"?([^"\s]+?)"?\s+in\s+the\s+managed\s+components\s+directory',
+    re.IGNORECASE,
+)
 
 
 def _corrupt_managed_component(stderr: str | None) -> str | None:
     """Name of the managed component the IDF component manager refused as
-    corrupted (its message wraps across lines), or None for any other cmake
-    failure."""
-    m = _CORRUPT_COMPONENT_RE.search(stderr or '')
-    return m.group(1) if m else None
+    corrupted, or for its missing hash file (both messages wrap across lines),
+    or None for any other cmake failure."""
+    for pattern in (_CORRUPT_COMPONENT_RE, _HASHLESS_COMPONENT_RE):
+        m = pattern.search(stderr or '')
+        if m:
+            return m.group(1)
+    return None
 
 
 def _heal_corrupt_managed_components(project_dir: Path, build_dir: Path) -> bool:
@@ -651,6 +663,186 @@ def _heal_corrupt_managed_components(project_dir: Path, build_dir: Path) -> bool
         cache.unlink(missing_ok=True)
         removed = True
     return removed
+
+
+# ── The component manager's shared cache (velxio/velxio-prod#215) ────────────
+# The first configure of a build variant has the IDF component manager fetch
+# the project's managed components (esp-dsp, cjson, esp-dl, ...) into ITS cache
+# and copy them into the variant's managed_components/. That cache is one
+# directory for every build on the machine, and the manager does not lock it:
+# a component it finds incomplete there is extracted again (rmtree, then
+# unpack) while another build may be copying that very component out. Two NEW
+# variants configured together on staging (2026-11-08, right after a deploy,
+# when the cache starts empty): one copy died with shutil.Error and left
+# esp-dsp in its variant with 156 of 497 files and no .component_hash, and the
+# manager then refused that copy on every later compile of the variant. The
+# variant locks above cannot help: those were two variants. So a configure
+# that may fetch holds one lock per cache, a file lock in the cache directory,
+# which also holds between processes (and between containers, should the
+# cache ever be shared through a volume).
+_COMPONENT_LOCK_NAME = '.velxio-configure.lock'
+_COMPONENT_LOCK_POLL_S = 0.2
+# A configure holds the lock for up to three cmake runs of at most 300 s each;
+# past that a waiter configures without it rather than wait for ever.
+_COMPONENT_LOCK_MAX_WAIT_S = 960.0
+_COMPONENT_HASH_RE = re.compile(r'^[A-Fa-f0-9]{64}$')  # the manager's SHA256_RE
+
+try:  # POSIX
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - Windows
+    _fcntl = None
+try:  # Windows
+    import msvcrt as _msvcrt
+except ImportError:
+    _msvcrt = None
+
+
+def _component_cache_dir(env) -> Path:
+    """The component manager's download cache for a build run with `env`:
+    IDF_COMPONENT_CACHE_PATH, else the per-user cache dir the manager picks
+    for itself (idf_component_tools.file_cache.system_cache_path)."""
+    explicit = (env.get('IDF_COMPONENT_CACHE_PATH') or '').strip()
+    if explicit:
+        return Path(os.path.expanduser(explicit))
+    home = (env.get('HOME') or '').strip() or os.path.expanduser('~')
+    if sys.platform.startswith('win'):
+        base = (env.get('LOCALAPPDATA') or '').strip() or os.path.join(home, 'AppData', 'Local')
+        return Path(base) / 'Espressif' / 'ComponentManager' / 'Cache'
+    if sys.platform == 'darwin':
+        return Path(home) / 'Library' / 'Caches' / 'Espressif' / 'ComponentManager'
+    base = (env.get('XDG_CACHE_HOME') or '').strip() or os.path.join(home, '.cache')
+    return Path(base) / 'Espressif' / 'ComponentManager'
+
+
+def _try_lock_fd(fd: int) -> bool:
+    """An exclusive lock on `fd` without blocking: False while another holder
+    (another open of the file, in this process or any other) has it."""
+    if _fcntl is not None:
+        try:
+            _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            return False
+    if _msvcrt is not None:
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            _msvcrt.locking(fd, _msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+    return True
+
+
+def _unlock_fd(fd: int) -> None:
+    try:
+        if _fcntl is not None:
+            _fcntl.flock(fd, _fcntl.LOCK_UN)
+        elif _msvcrt is not None:
+            os.lseek(fd, 0, os.SEEK_SET)
+            _msvcrt.locking(fd, _msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+
+
+@contextlib.asynccontextmanager
+async def _component_manager_lock(cache_dir: Path, progress_callback=None):
+    """Hold the component manager's cache for one configure.
+
+    Polled (never a blocking flock in a worker thread): a cancelled compile
+    must not leave a thread behind that takes the lock later and never gives
+    it back. A holder that dies releases it with its file descriptor."""
+    fd: int | None = None
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(cache_dir / _COMPONENT_LOCK_NAME), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError as exc:
+        logger.warning(
+            f'[espidf] no component-manager lock in {cache_dir} ({exc}); configuring without it'
+        )
+    if fd is None:
+        yield
+        return
+    locked = False
+    try:
+        t0 = time.monotonic()
+        waiting = False
+        while True:
+            try:
+                locked = _try_lock_fd(fd)
+            except OSError as exc:
+                logger.warning(f'[espidf] component-manager lock failed ({exc}); configuring without it')
+                break
+            if locked:
+                break
+            if not waiting:
+                waiting = True
+                logger.info('[espidf] another build is fetching ESP-IDF components; waiting for it')
+                if progress_callback is not None:
+                    try:
+                        progress_callback(
+                            '[velxio] waiting for another build to finish fetching ESP-IDF components\n'
+                        )
+                    except Exception:
+                        pass
+            if time.monotonic() - t0 > _COMPONENT_LOCK_MAX_WAIT_S:
+                logger.warning(
+                    f'[espidf] component-manager lock still held after '
+                    f'{_COMPONENT_LOCK_MAX_WAIT_S:.0f}s; configuring without it'
+                )
+                break
+            await asyncio.sleep(_COMPONENT_LOCK_POLL_S)
+        if waiting:
+            _timing_note(component_lock_wait_ms=int((time.monotonic() - t0) * 1000))
+        yield
+    finally:
+        if locked:
+            _unlock_fd(fd)
+        os.close(fd)
+
+
+def _broken_managed_components(project_dir: Path) -> list[Path]:
+    """The variant's managed components that the component manager would
+    refuse on every configure: a copy without a valid .component_hash, which
+    the manager writes with the copy (an interrupted copy has none)."""
+    try:
+        entries = list((project_dir / 'managed_components').iterdir())
+    except OSError:
+        return []
+    broken = []
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        try:
+            digest = (entry / '.component_hash').read_text(encoding='utf-8').strip()
+        except (OSError, UnicodeDecodeError):
+            digest = ''
+        if not _COMPONENT_HASH_RE.match(digest):
+            broken.append(entry)
+    return sorted(broken)
+
+
+def _repair_managed_components(project_dir: Path) -> list[str]:
+    """Remove the broken managed components (see _broken_managed_components):
+    with the copy gone, the next configure has the manager copy it again from
+    its cache instead of failing. Returns the names removed."""
+    removed = []
+    for entry in _broken_managed_components(project_dir):
+        shutil.rmtree(entry, ignore_errors=True)
+        removed.append(entry.name)
+    return removed
+
+
+def _configure_may_fetch(project_dir: Path, build_dir: Path, manifest_changed: bool) -> bool:
+    """Whether a configure in this build dir may have the component manager
+    fetch, and so needs _component_manager_lock: the dir's first configure (no
+    configure ever completed there), a manifest that changed, managed
+    components missing or broken. A warm dir whose copies are all in place
+    only has their hash files read."""
+    if manifest_changed or not (build_dir / 'build.ninja').is_file():
+        return True
+    if not (project_dir / 'managed_components').is_dir():
+        return True
+    return bool(_broken_managed_components(project_dir))
 
 
 def _evict_cold_variants(target_dir: Path, keep: int, idf_target: str | None = None) -> None:
@@ -6397,6 +6589,12 @@ class ESPIDFCompiler:
         # a missing input is not something to rely on ninja regenerating.
         if manifest_changed:
             force_configure = True
+        # A managed component left without its hash file (an interrupted copy,
+        # velxio/velxio-prod#215) fails every configure of this variant until
+        # it is copied again: the explicit configure below removes it first and
+        # has the component manager copy it back.
+        if _broken_managed_components(project_dir):
+            force_configure = True
         configure_skipped = (
             not _ALWAYS_CONFIGURE
             and not force_configure
@@ -6457,9 +6655,33 @@ class ESPIDFCompiler:
             )
 
         cmake_result = _RunResult(returncode=0, stdout='', stderr='')
+        component_cache = _component_cache_dir(env)
 
         async def _configure() -> dict | None:
-            """The explicit cmake configure. Returns an error result, or None."""
+            """The explicit cmake configure, under the component-manager lock
+            when it may fetch (see _component_manager_lock). Returns an error
+            result, or None."""
+            repaired = await asyncio.to_thread(_repair_managed_components, project_dir)
+            if repaired:
+                logger.warning(
+                    f'[espidf] managed component(s) {repaired} in {project_dir} had no '
+                    f'valid .component_hash (an interrupted copy); removed so the '
+                    f'component manager copies them again'
+                )
+                if progress_callback is not None:
+                    try:
+                        progress_callback(
+                            f'[velxio] fetching ESP-IDF component(s) {", ".join(repaired)} '
+                            f'again (an earlier copy was interrupted)\n'
+                        )
+                    except Exception:
+                        pass
+            if _configure_may_fetch(project_dir, build_dir, manifest_changed or bool(repaired)):
+                async with _component_manager_lock(component_cache, progress_callback):
+                    return await _configure_steps(fetch_locked=True)
+            return await _configure_steps(fetch_locked=False)
+
+        async def _configure_steps(fetch_locked: bool) -> dict | None:
             nonlocal cmake_result
             logger.info(f'[espidf] cmake: {" ".join(cmake_cmd)}')
             configure_t0 = time.monotonic()
@@ -6491,7 +6713,12 @@ class ESPIDFCompiler:
                         f'{project_dir}; dropped managed_components/ and reconfiguring'
                     )
                     try:
-                        cmake_result = await asyncio.to_thread(_run_cmake)
+                        # The copies are gone: this configure fetches them all.
+                        async with (
+                            contextlib.nullcontext() if fetch_locked
+                            else _component_manager_lock(component_cache, progress_callback)
+                        ):
+                            cmake_result = await asyncio.to_thread(_run_cmake)
                     except subprocess.TimeoutExpired:
                         return {
                             'success': False,
