@@ -26,7 +26,7 @@
  */
 
 import { I2cBus } from './i2cBus';
-import { controllerOf } from './pinFunctions';
+import { controllerOf, getBoardPinFunctions } from './pinFunctions';
 import { SoftI2cDecoder } from './softI2c';
 import { SoftSpiDecoder } from './softSpi';
 import { SoftUartDecoder, SoftUartEmitter } from './softUart';
@@ -52,6 +52,13 @@ interface PortSlot {
   mosi?: number;
   miso?: number;
   cs: Array<number | undefined>;
+  /**
+   * The lines are the controller's default pins only because the port cannot
+   * say where the guest put them, on a board whose GPIO matrix lets the guest
+   * put them anywhere: the defaults are its IO_MUX pads, an assumption. A part
+   * is placed on the bus by them, never called miswired against them.
+   */
+  assumed?: boolean;
 }
 
 interface I2cSlot {
@@ -673,11 +680,19 @@ export class BoardBusFabric {
       slot.miso = firstPin(def?.defaultPins.miso);
       const cs = def?.defaultPins.cs;
       slot.cs = Array.isArray(cs) ? cs : cs === undefined ? [] : [cs];
+      // On a GPIO-matrix board the defaults are the IO_MUX pads, which the
+      // guest uses only when it asks for exactly those pins; a backend
+      // worker's port cannot say which. The K10's SPI.begin(12, -1, 21) put
+      // MOSI on 21 through the matrix while the fabric said "GPSPI2 drives
+      // MOSI on pin 11" (velxio/velxio-prod#210). An engine that reports its
+      // routing resolves both paths, and is checked against that.
+      slot.assumed = kind !== undefined && getBoardPinFunctions(kind)?.routing === 'matrix';
     } else {
       slot.sck = r.sck;
       slot.mosi = r.mosi;
       slot.miso = r.miso;
       slot.cs = r.cs ?? [];
+      slot.assumed = false;
     }
   }
 
@@ -765,6 +780,8 @@ export class BoardBusFabric {
   checkWiring(slot: PortSlot | null, bus: SpiBus): void {
     const s = slot ?? this.slots.find((x) => x.bus === bus);
     if (!s) return;
+    // Lines the guest may not use (see PortSlot.assumed) are no evidence.
+    if (s.assumed) return;
     for (const m of bus.members.values()) {
       const crossed =
         m.mosiPin !== undefined &&
