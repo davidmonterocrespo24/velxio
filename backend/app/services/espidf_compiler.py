@@ -25,6 +25,7 @@ import re
 import shlex
 import shutil
 import string
+import struct
 import subprocess
 import sys
 import tempfile
@@ -843,6 +844,216 @@ def _configure_may_fetch(project_dir: Path, build_dir: Path, manifest_changed: b
     if not (project_dir / 'managed_components').is_dir():
         return True
     return bool(_broken_managed_components(project_dir))
+
+
+# ── What a precompiled library archive is (velxio/velxio-prod#214) ────────────
+# Since #87 the build links the archives a precompiled library ships for the
+# chip (_precompiled_link). An archive built for another generation of the
+# core links against the wrong C library: micro_ros_arduino 3.0.0-iron's
+# libmicroros.a was compiled by "GCC: (crosstool-NG esp-2021r2) 8.4.0", the
+# ESP-IDF 4.x toolchain behind arduino-esp32 2.x, where time_t is 32 bits
+# (ESP-IDF 5 made it 64), and it carries its own copies of the runtime's 64-bit
+# atomics, which ESP-IDF 5's newlib also defines. The user saw four "multiple
+# definition" linker lines after a full build, for an archive that would have
+# kept time in whole seconds had it linked. The verdict comes from the archive
+# itself: the toolchain each object records in .comment, and what it defines.
+class PrecompiledLibraryError(Exception):
+    """A library's precompiled archive cannot be part of this build. str() is
+    the one-line summary; `details` says what the archive is and why."""
+
+    def __init__(self, summary: str, details: str):
+        super().__init__(summary)
+        self.details = details
+
+
+@dataclass(frozen=True)
+class _ArchiveFacts:
+    objects: int                       # ELF objects read
+    compilers: tuple[str, ...]         # distinct "GCC: (...) x.y.z" records
+    esp_gcc_majors: tuple[int, ...]    # GCC majors of Espressif toolchain records
+    runtime_defs: tuple[str, ...]      # strong __atomic_* / __sync_* definitions
+
+
+_ARCHIVE_FACTS: dict[tuple[str, int, int], _ArchiveFacts] = {}
+_GCC_RECORD_RE = re.compile(rb'GCC: \(([^)\x00]*)\) (\d+)\.(\d+)(?:\.(\d+))?')
+# The names GCC gives the helpers it calls for atomics it cannot inline. They
+# belong to the toolchain's runtime (ESP-IDF 5: newlib's stdatomic.c), never to
+# a library: a strong copy in an archive is a duplicate at link.
+_RUNTIME_HELPER_PREFIXES = (b'__atomic_', b'__sync_')
+# ESP-IDF 5.0 moved to the esp-2022r1 toolchain (GCC 11.2) and made time_t
+# 64-bit; every ESP-IDF 4.x toolchain (esp-2019r2 .. esp-2021r2) is GCC 8.
+_IDF5_FIRST_GCC_MAJOR = 11
+
+
+def _ar_members(data: bytes):
+    """(name, bytes) for each member of a GNU/BSD `ar` archive; stops quietly
+    at anything it cannot read."""
+    if not data.startswith(b'!<arch>\n'):
+        return
+    pos, longnames = 8, b''
+    while pos + 60 <= len(data):
+        header = data[pos:pos + 60]
+        if header[58:60] != b'`\n':
+            return
+        try:
+            size = int(header[48:58].decode('ascii').strip() or '0')
+        except ValueError:
+            return
+        name = header[:16].decode('latin-1').rstrip()
+        body = data[pos + 60:pos + 60 + size]
+        pos += 60 + size + (size & 1)
+        if name in ('/', '/SYM64/', '__.SYMDEF', '__.SYMDEF SORTED'):
+            continue
+        if name == '//':
+            longnames = body
+            continue
+        if name.startswith('#1/'):  # BSD: the name leads the body
+            try:
+                n = int(name[3:])
+            except ValueError:
+                return
+            name, body = body[:n].rstrip(b'\x00').decode('latin-1'), body[n:]
+        elif name.startswith('/') and name[1:].isdigit():  # GNU long name
+            off = int(name[1:])
+            end = longnames.find(b'/\n', off)
+            name = longnames[off:end if end >= 0 else None].decode('latin-1')
+        else:
+            name = name.rstrip('/')
+        yield name, body
+
+
+def _elf32_facts(obj: bytes) -> tuple[list[bytes], list[str]] | None:
+    """(.comment strings, strong __atomic_*/__sync_* definitions) of a 32-bit
+    little-endian ELF object (every ESP32 target), or None for anything else."""
+    if len(obj) < 52 or obj[:4] != b'\x7fELF' or obj[4] != 1 or obj[5] != 1:
+        return None
+    try:
+        (shoff,) = struct.unpack_from('<I', obj, 32)
+        shentsize, shnum, shstrndx = struct.unpack_from('<HHH', obj, 46)
+        if not shoff or shentsize < 40 or shoff + shnum * shentsize > len(obj):
+            return None
+        sections = [
+            struct.unpack_from('<IIIIIIIIII', obj, shoff + i * shentsize) for i in range(shnum)
+        ]
+
+        def cstr(section: tuple, offset: int) -> bytes:
+            start = section[4] + offset
+            end = obj.find(b'\x00', start, section[4] + section[5])
+            return obj[start:end if end >= 0 else section[4] + section[5]]
+
+        names = sections[shstrndx] if shstrndx < shnum else None
+        comments: list[bytes] = []
+        runtime: list[str] = []
+        for sh in sections:
+            sh_name, sh_type, _f, _a, off, size, link = sh[:7]
+            if names is not None and sh_type == 1 and cstr(names, sh_name) == b'.comment':
+                comments += [s for s in obj[off:off + size].split(b'\x00') if s]
+            elif sh_type == 2 and link < shnum:  # SHT_SYMTAB
+                strtab = sections[link]
+                for k in range(size // 16):
+                    st_name, _v, _s, st_info, _o, st_shndx = struct.unpack_from(
+                        '<IIIBBH', obj, off + 16 * k,
+                    )
+                    # Defined and GLOBAL: a WEAK copy yields to the runtime's.
+                    if st_info >> 4 != 1 or st_shndx == 0:
+                        continue
+                    sym = cstr(strtab, st_name)
+                    if sym.startswith(_RUNTIME_HELPER_PREFIXES):
+                        runtime.append(sym.decode('latin-1'))
+        return comments, runtime
+    except struct.error:
+        return None
+
+
+def _archive_facts(path: Path) -> _ArchiveFacts | None:
+    """What `path` (an `ar` archive of ELF objects) records about its build,
+    or None when it holds no ELF object. Cached per file version."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path.resolve()), st.st_size, st.st_mtime_ns)
+    if key in _ARCHIVE_FACTS:
+        return _ARCHIVE_FACTS[key]
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    objects = 0
+    compilers: set[str] = set()
+    majors: set[int] = set()
+    runtime: set[str] = set()
+    for _name, body in _ar_members(data):
+        facts = _elf32_facts(body)
+        if facts is None:
+            continue
+        objects += 1
+        comments, defs = facts
+        runtime.update(defs)
+        for comment in comments:
+            m = _GCC_RECORD_RE.search(comment)
+            if not m:
+                continue
+            compilers.add(
+                f'GCC {m.group(0).decode("latin-1").rsplit(" ", 1)[-1]} '
+                f'({m.group(1).decode("latin-1")})'
+            )
+            if b'esp-' in m.group(1):
+                majors.add(int(m.group(2)))
+    result = None if not objects else _ArchiveFacts(
+        objects, tuple(sorted(compilers)), tuple(sorted(majors)), tuple(sorted(runtime)),
+    )
+    if len(_ARCHIVE_FACTS) > 256:
+        _ARCHIVE_FACTS.clear()
+    _ARCHIVE_FACTS[key] = result
+    return result
+
+
+def _precompiled_archive_problem(facts: _ArchiveFacts | None, idf5: bool) -> tuple[str, list[str]] | None:
+    """Why an archive with these facts cannot be linked into a build on ESP-IDF
+    5 (`idf5`) or 4.x: (clause for the summary, lines of explanation), or None."""
+    if facts is None:
+        return None
+    built_idf4 = any(m < _IDF5_FIRST_GCC_MAJOR for m in facts.esp_gcc_majors)
+    built_idf5 = any(m >= _IDF5_FIRST_GCC_MAJOR for m in facts.esp_gcc_majors)
+    lines: list[str] = []
+    clause = ''
+    if facts.compilers:
+        lines.append(f'Compiled by: {", ".join(facts.compilers)}')
+    if idf5 and built_idf4:
+        clause = (
+            'was built for ESP-IDF 4.x (arduino-esp32 2.x), and Velxio builds ESP32 '
+            'sketches with arduino-esp32 3.x on ESP-IDF 5'
+        )
+        lines.append(
+            'Why: that is the ESP-IDF 4.x toolchain. ESP-IDF 5 changed the C library '
+            'the archive was compiled against (time_t became 64-bit, among others), so '
+            'code built for 4.x reads and writes those structures with the old layout: '
+            'even linked, it would not run correctly.'
+        )
+    elif not idf5 and built_idf5:
+        clause = (
+            'was built for ESP-IDF 5 (arduino-esp32 3.x), and this build uses '
+            'ESP-IDF 4.x (arduino-esp32 2.x)'
+        )
+        lines.append(
+            'Why: that is an ESP-IDF 5 toolchain, whose C library differs from 4.x '
+            '(time_t is 64-bit there): the archive does not match this build.'
+        )
+    if idf5 and facts.runtime_defs:
+        lines.append(
+            f'It {"also " if clause else ""}defines {", ".join(facts.runtime_defs)}, '
+            'which the toolchain runtime provides (on ESP-IDF 5, its C library), so '
+            'the link fails with "multiple definition" errors.'
+        )
+        if not clause:
+            clause = (
+                "defines the compiler runtime's own atomic helpers, which ESP-IDF's "
+                'C library also defines'
+            )
+    if not clause:
+        return None
+    return clause, lines
 
 
 def _evict_cold_variants(target_dir: Path, keep: int, idf_target: str | None = None) -> None:
@@ -2716,6 +2927,7 @@ class ESPIDFCompiler:
 
     def _precompiled_link(
         self, lib_root: Path, has_src_layout: bool, idf_target: str | None,
+        idf5: bool = True,
     ) -> dict | None:
         """What arduino-cli links for a precompiled library on this chip.
 
@@ -2738,6 +2950,11 @@ class ESPIDFCompiler:
         target, or no folder for it: arduino-cli then builds the sources as it
         would any library's), else a dict with `archives` (Paths, sorted),
         `ldflags` (tokens) and `skip_sources`.
+
+        Raises PrecompiledLibraryError for an archive built for the other
+        generation of the core than this build's (`idf5`: ESP-IDF 5 with
+        arduino-esp32 3.x, else 4.x with 2.x), or one carrying its own copies
+        of the toolchain runtime's atomics: see _precompiled_archive_problem.
         """
         if not idf_target:
             return None
@@ -2773,6 +2990,26 @@ class ESPIDFCompiler:
                 )
                 continue
             archives.append(entry)
+
+        for archive in archives:
+            problem = _precompiled_archive_problem(_archive_facts(archive), idf5)
+            if problem is None:
+                continue
+            clause, why = problem
+            label = ' '.join(p for p in (name, props.get('version', '')) if p)
+            rel = archive.relative_to(lib_root).as_posix()
+            summary = f'{label} cannot be used on {idf_target}: its precompiled archive {rel} {clause}'
+            details = '\n'.join([
+                summary + '.',
+                '',
+                f'Library: {label} (precompiled={mode})',
+                f'Archive: {rel}',
+                *why,
+                'What to do: use a release of the library built for this core '
+                '(arduino-esp32 3.x on ESP-IDF 5), or one that builds from its sources.',
+            ])
+            logger.warning(f'[espidf] {summary}')
+            raise PrecompiledLibraryError(summary, details)
 
         raw = props.get('ldflags', '')
         try:
@@ -3148,6 +3385,7 @@ class ESPIDFCompiler:
         denied: set[str] | None = None,
         speculative_out: set[str] | None = None,
         idf_target: str | None = None,
+        idf5: bool = True,
     ) -> tuple[list[str], dict[str, str]]:
         """
         BFS over ext_headers (and transitive includes) to discover all external
@@ -3155,7 +3393,9 @@ class ESPIDFCompiler:
 
         `idf_target` (the chip this build is for) lets a precompiled library
         link the archive it ships for that chip, as arduino-cli does (see
-        _precompiled_link). None links no archive.
+        _precompiled_link). None links no archive. `idf5` says which core the
+        build uses (ESP-IDF 5 + arduino-esp32 3.x, else 4.x + 2.x): an archive
+        built for the other one raises PrecompiledLibraryError.
 
         `allowed_libraries` (P2 — project library manifest / scope): when not
         None, a USER-installed library (from arduino_libs) is merged only if its
@@ -3454,7 +3694,7 @@ class ESPIDFCompiler:
                 first_copy = lib_dir_name not in lib_prefix_by_name
                 if lib_dir_name not in precompiled_by_lib:
                     precompiled_by_lib[lib_dir_name] = self._precompiled_link(
-                        lib_root, has_src_layout, idf_target,
+                        lib_root, has_src_layout, idf_target, idf5=idf5,
                     )
                 precompiled = precompiled_by_lib[lib_dir_name]
                 # precompiled=full with an archive for this chip: arduino-cli
@@ -6420,16 +6660,27 @@ class ESPIDFCompiler:
                 # Run it off the event loop like cmake/ninja below, or the
                 # loop starves: /compile/start responses never flush and the
                 # client dies on its 30s timeout while the build is fine.
-                component_names, _ = await asyncio.to_thread(
-                    self._resolve_library_components,
-                    ext_headers, arduino_libs, esp32_libs,
-                    arduino_comp_name, user_libs_dir,
-                    allowed_libraries=allowed_libraries,
-                    merged_libs=merged_libs_report,
-                    denied=denied_libraries,
-                    speculative_out=speculative_out,
-                    idf_target=idf_target,
-                )
+                try:
+                    component_names, _ = await asyncio.to_thread(
+                        self._resolve_library_components,
+                        ext_headers, arduino_libs, esp32_libs,
+                        arduino_comp_name, user_libs_dir,
+                        allowed_libraries=allowed_libraries,
+                        merged_libs=merged_libs_report,
+                        denied=denied_libraries,
+                        speculative_out=speculative_out,
+                        idf_target=idf_target,
+                        idf5=bool(use_idf5),
+                    )
+                except PrecompiledLibraryError as exc:
+                    # A library whose archive cannot link here (#214): say so
+                    # now, instead of a full build ending in linker lines.
+                    return {
+                        'success': False,
+                        'error': str(exc),
+                        'stdout': '',
+                        'stderr': exc.details,
+                    }
 
             # Patch main/CMakeLists.txt — INCLUDE_DIRS for user_libs_all.
             # The single merged component means one entry covers all external headers.
