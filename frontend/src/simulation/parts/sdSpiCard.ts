@@ -338,6 +338,49 @@ export class SdSpiCard {
     return [0x02, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
   }
 
+  /**
+   * SD Status - the 512-bit register ACMD13 returns as a 64-byte data block,
+   * MSB first on the wire (SD Physical Layer spec 4.10.2, Table 4-44). ESP-IDF
+   * v5 reads it on every SD memory card, right after the SCR
+   * (`sdmmc_init_sd_ssr`, an init step whose failure fails the mount; v4.4
+   * never asked), and decodes DAT_BUS_WIDTH, AU_SIZE, ERASE_SIZE,
+   * ERASE_TIMEOUT, ERASE_OFFSET, DISCARD_SUPPORT and FULE_SUPPORT.
+   *
+   * Every field says what this model is, which here is the spec's "none" or
+   * "not defined" value, 0:
+   *   DAT_BUS_WIDTH [511:510] = 00, one data line: SPI mode is a 1-bit bus
+   *     (ACMD6 SET_BUS_WIDTH is an SD-mode command);
+   *   SECURED_MODE [509] = 0;
+   *   SD_CARD_TYPE [495:480] = 0000h, a regular RD/WR card;
+   *   SIZE_OF_PROTECTED_AREA [479:448] = 0, none;
+   *   SPEED_CLASS [447:440] = 00h (Class 0, no performance claim) and
+   *     PERFORMANCE_MOVE [439:432] = 00h (not defined);
+   *   AU_SIZE [431:428] = 0h (not defined), ERASE_SIZE [423:408] = 0 and
+   *     ERASE_TIMEOUT [407:402] = 0 ("erase time-out calculation not
+   *     supported": the model has no AU geometry and no erase timing; IDF then
+   *     falls back to its fixed per-sector erase timeout), ERASE_OFFSET = 0;
+   *   the UHS, video speed class, SUS_ADDR, APP_PERF_CLASS and
+   *     PERFORMANCE_ENHANCE fields = 0 (none of them);
+   *   DISCARD_SUPPORT [313] = 0 and FULE_SUPPORT [312] = 0: CMD38 takes
+   *     neither argument here (IDF only tries discard when this says yes);
+   *   reserved bits and the manufacturer's [311:0] = 0.
+   * A field that should claim something gets its value in FIELDS below.
+   */
+  private buildSdStatus(): Uint8Array {
+    // [msb, width, value]: the register's non-zero fields (none today).
+    const FIELDS: Array<[number, number, number]> = [];
+    const reg = new Uint8Array(64);
+    for (const [msb, width, value] of FIELDS) {
+      for (let k = 0; k < width; k++) {
+        if (Math.floor(value / 2 ** (width - 1 - k)) % 2) {
+          const fromTop = 511 - (msb - k);
+          reg[fromTop >> 3] |= 0x80 >> (fromTop & 7);
+        }
+      }
+    }
+    return reg;
+  }
+
   private processCmd(raw: number[]): void {
     const cmd = raw[0] & 0x3f;
     const arg = ((raw[1] << 24) | (raw[2] << 16) | (raw[3] << 8) | raw[4]) >>> 0;
@@ -352,7 +395,14 @@ export class SdSpiCard {
         return;
       }
       if (cmd === 13) {
-        this.push(0x00, 0x00); // ACMD13 SD status (R2)
+        // ACMD13 SD_STATUS (SPI mode, spec Table 7-4): R2 - R1 and a status
+        // byte with no error bit set - then the 512-bit SD Status as a data
+        // block (start token, 64 bytes, CRC16), the shape of CSD/CID/SCR.
+        // ESP-IDF v5's sdspi mount waits for that block; answering R2 alone
+        // left it clocking 0xFF until "poll_data_token: timeout" and the mount
+        // failed (0x107). Arduino SD.h never sends ACMD13.
+        this.push(this.r1(), 0x00);
+        this.pushDataBlock(this.buildSdStatus());
         return;
       }
       if (cmd === 51) {
