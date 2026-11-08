@@ -342,14 +342,26 @@ function pushSerialByte(boardId: string, ch: string, uart: number): void {
 // pin; PinManager handles fan-out internally so we don't need our own
 // fanout map for these.
 
-/** A browser simulator that can place a level change at a future cycle. */
-interface TimedSim {
+/** A board's simulator, or the clock it offers apart, that can place a level change at a future cycle. */
+export interface TimedSim {
   getCurrentCycles(): number;
   getClockHz(): number;
   schedulePinChange(pin: number, state: boolean, atCycle: number): void;
+  /**
+   * The board's clock in this tab runs behind its guest's (a guest in a
+   * worker, whose events this tab replays): an edge written there "now"
+   * lands wherever the guest has got to, so every edge goes through
+   * schedulePinChange instead, which keeps the edges of one task together.
+   */
+  readonly deferred?: boolean;
 }
 
 function asTimedSim(sim: unknown): TimedSim | null {
+  // A board whose engine is behind a bridge (the ESP32 shim) offers its clock
+  // apart, and only when the engine has one: its getCurrentCycles() stays -1
+  // for the parts that tell an AVR from an ESP32 by it.
+  const link = (sim as { linkClock?: () => TimedSim | null } | undefined)?.linkClock;
+  if (typeof link === 'function') return link.call(sim) ?? null;
   const s = sim as Partial<TimedSim> | undefined;
   return s &&
     typeof s.getCurrentCycles === 'function' &&
@@ -378,7 +390,11 @@ const LINK_REANCHOR_S = 0.05;
  * the two clocks, so bit periods arrive intact a frame later. A link that
  * was quiet for LINK_REANCHOR_S re-anchors at the receiver's current cycle,
  * which keeps the lag from growing. Boards without a cycle clock get the
- * immediate write they always had.
+ * immediate write they always had. A sender behind a bridge (an ESP32 whose
+ * engine runs in the tab or in a worker) times its edges the same way, from
+ * the clock its shim offers (linkClock), and so does such a receiver; one
+ * whose clock here runs behind its guest (`deferred`) has every edge
+ * scheduled, none written at once.
  */
 function makeTimedPush(fromBoardId: string, toBoardId: string, toPin: number) {
   let lastFrom = -1;
@@ -398,7 +414,7 @@ function makeTimedPush(fromBoardId: string, toBoardId: string, toPin: number) {
     if (at < toNow) at = toNow;
     lastFrom = fromNow;
     lastTo = at;
-    if (at <= toNow) pushPinState(toBoardId, toPin, state);
+    if (at <= toNow && !dst.deferred) pushPinState(toBoardId, toPin, state);
     else dst.schedulePinChange(toPin, state, Math.round(at));
   };
 }
@@ -471,7 +487,10 @@ function installBridgePinFanout(
     set = new Set();
     entry.pinChangeFanout.set(fromPin, set);
   }
-  const cb = (state: boolean) => pushPinState(toBoardId, toPin, state);
+  // At the sender's spacing when both ends keep a cycle clock (the bridge's
+  // shim offers its own), at once otherwise, as before.
+  const push = makeTimedPush(fromBoardId, toBoardId, toPin);
+  const cb = (state: boolean) => push(state);
   set.add(cb);
   return () => {
     entry.pinChangeFanout.get(fromPin)?.delete(cb);

@@ -80,6 +80,7 @@ import {
   unbindBoard as icUnbindBoard,
   updateWires as icUpdateWires,
   setInterconnectRuntime,
+  type TimedSim,
 } from '../simulation/Interconnect';
 import {
   SENSOR_CONTROLS,
@@ -599,8 +600,20 @@ export class Esp32BridgeShim {
     // Deliberately -1, even when the in-browser engine below DOES have a cycle
     // counter: several parts read `getCurrentCycles() >= 0` to tell an AVR from
     // an ESP32 bridge (ComplexParts' servo picks its whole strategy on it).
-    // Guest TIME is exposed separately, through getGuestMicros().
+    // Guest TIME is exposed separately, through getGuestMicros(), and the
+    // cycle clock the interconnect times edges on through linkClock().
     return -1;
+  }
+  /**
+   * The engine's cycle clock and edge scheduler, for the interconnect's timed
+   * delivery between boards (Interconnect.ts, #397): a board wired to this
+   * one hears its edges at their spacing in guest time, and this one hears
+   * the other's so. Null (the default, the QEMU bridge) keeps the immediate
+   * write.
+   */
+  linkClock(): TimedSim | null {
+    const b = this.bridge as unknown as { linkClock?: () => TimedSim | null };
+    return typeof b.linkClock === 'function' ? b.linkClock() : null;
   }
   getClockHz(): number {
     return 240_000_000;
