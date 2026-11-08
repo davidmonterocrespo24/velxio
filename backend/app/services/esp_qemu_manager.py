@@ -217,7 +217,9 @@ class EspQemuManager:
             nic_model = 'esp32c3_wifi' if 'c3' in machine else 'esp32_wifi'
             nic_arg = f'user,model={nic_model},net=192.168.4.0/24'
             if wifi_hostfwd_port:
-                nic_arg += f',hostfwd=tcp::{wifi_hostfwd_port}-192.168.4.15:80'
+                # Loopback only: the gateway proxy dials 127.0.0.1, and a
+                # forward with no host address listens on every interface.
+                nic_arg += f',hostfwd=tcp:127.0.0.1:{wifi_hostfwd_port}-192.168.4.15:80'
             cmd += ['-nic', nic_arg]
 
         logger.info('Launching ESP32 QEMU for %s: %s', inst.client_id, ' '.join(cmd))
