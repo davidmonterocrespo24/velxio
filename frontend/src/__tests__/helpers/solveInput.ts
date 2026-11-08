@@ -78,7 +78,13 @@ export async function solveInput(input: BuildNetlistInput): Promise<ElectricalSo
           nodes.set(key, Array.from(vec.real));
         }
       }
-      timeWaveforms = { time: Array.from(tVec.real), nodes, branches };
+      timeWaveforms = {
+        time: Array.from(tVec.real),
+        nodes,
+        branches,
+        // The app's window carries the period it was sized from (storeAdapter).
+        period: input.analysis.kind === 'tran' ? input.analysis.period : undefined,
+      };
     }
   }
   void nets;

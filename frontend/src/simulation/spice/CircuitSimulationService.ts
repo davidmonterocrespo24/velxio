@@ -224,6 +224,8 @@ export class CircuitSimulationService {
     nets: string[];
     voltageSources: string[];
     analysisKind: 'op' | 'tran' | 'ac';
+    /** Period of the slowest periodic source of a .tran window (TimeWaveforms.period). */
+    period?: number;
     sourcedNets: Set<string>;
   } | null = null;
 
@@ -698,6 +700,7 @@ export class CircuitSimulationService {
       nets,
       voltageSources,
       analysisKind: input.analysis.kind,
+      period: input.analysis.kind === 'tran' ? input.analysis.period : undefined,
       sourcedNets,
     };
     this.loadPads(
@@ -738,7 +741,7 @@ export class CircuitSimulationService {
         const vec = result.vectors.get(`i(${vs.toLowerCase()})`);
         if (vec && vec.real.length > 0) branches.set(vs.toLowerCase(), Array.from(vec.real));
       }
-      timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches };
+      timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches, period: ctx.period };
     }
     return { nodeVoltages, branchCurrents, timeWaveforms, warnings: result.warnings, result };
   }

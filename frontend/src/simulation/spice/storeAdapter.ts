@@ -138,6 +138,8 @@ function pickDynamicAnalysis(
       kind: 'tran',
       step: stepS.toExponential(3),
       stop: stopS.toExponential(3),
+      // Meters average over whole periods of the slowest source (readSpan).
+      period: 1 / minFreq,
     };
   }
 

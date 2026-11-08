@@ -16,7 +16,7 @@ import type { Wire } from '../../types/wire';
 import { UnionFind } from './unionFind';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { GROUND_PIN_RE, VCC_PIN_RE } from './NetlistBuilder';
-import { rms, mean, peak, subtract, isAC, steadyState } from './waveformStats';
+import { subtract, readSpan, spanStats, type SpanStats } from './waveformStats';
 
 export type ProbeKind = 'voltmeter' | 'ammeter' | 'multimeter';
 
@@ -126,10 +126,28 @@ export function buildPinNetLookup(
   };
 }
 
-function buildAcStatsV(samples: readonly number[]): ProbeAcStats {
-  const r = rms(samples);
-  const dc = mean(samples);
-  const pk = peak(samples);
+/** Below this peak-to-peak a waveform is DC for a meter (V or A). */
+const AC_EPSILON = 1e-4;
+
+/**
+ * A meter's statistics of a transient waveform: time-weighted, over the
+ * span it reads (whole periods of the slowest source, after settling), or
+ * undefined when the waveform is flat there. A plain average of ngspice's
+ * points weighted the moments where it crowds its time steps: the default
+ * 1 kHz, 1 V generator read RMS 692.6 mV and DC -91 mV, an RC driven by a
+ * square wave 393 µA for 157 µA (velxio/velxio-prod#100).
+ */
+function steadyStats(tw: TimeWaveforms, samples: readonly number[]): SpanStats | undefined {
+  const span = readSpan(tw.time, tw.period);
+  const stats = span ? spanStats(tw.time, samples, span) : null;
+  if (!stats || stats.max - stats.min <= AC_EPSILON) return undefined;
+  return stats;
+}
+
+function buildAcStatsV(stats: SpanStats): ProbeAcStats {
+  const r = stats.rms;
+  const dc = stats.mean;
+  const pk = stats.peak;
   const rmsFmt = formatV(r);
   const dcFmt = formatV(dc);
   const pkFmt = formatV(pk);
@@ -143,10 +161,10 @@ function buildAcStatsV(samples: readonly number[]): ProbeAcStats {
   };
 }
 
-function buildAcStatsI(samples: readonly number[]): ProbeAcStats {
-  const r = rms(samples);
-  const dc = mean(samples);
-  const pk = peak(samples);
+function buildAcStatsI(stats: SpanStats): ProbeAcStats {
+  const r = stats.rms;
+  const dc = stats.mean;
+  const pk = stats.peak;
   const rmsFmt = formatI(r);
   const dcFmt = formatI(dc);
   const pkFmt = formatI(pk);
@@ -262,10 +280,8 @@ export function readVoltmeter(
           : minusArr.length === 0
             ? [...plusArr]
             : subtract(plusArr, minusArr);
-      const settled = steadyState(diffSamples);
-      if (settled.length > 0 && isAC(settled)) {
-        ac = buildAcStatsV(settled);
-      }
+      const stats = steadyStats(timeWaveforms, diffSamples);
+      if (stats) ac = buildAcStatsV(stats);
     }
   }
 
@@ -305,10 +321,8 @@ export function readAmmeter(
   let ac: ProbeAcStats | undefined;
   if (timeWaveforms) {
     const raw = timeWaveforms.branches.get(key);
-    const settled = raw ? steadyState(raw) : [];
-    if (settled.length > 0 && isAC(settled)) {
-      ac = buildAcStatsI(settled);
-    }
+    const stats = raw ? steadyStats(timeWaveforms, raw) : undefined;
+    if (stats) ac = buildAcStatsI(stats);
   }
 
   return {

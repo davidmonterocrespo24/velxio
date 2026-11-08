@@ -3,6 +3,7 @@ import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
+import { readSpan, spanStats } from '../spice/waveformStats';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -265,7 +266,10 @@ PartSimulationRegistry.register('led', {
       // (≈ steady state). If a full waveform is available we instead
       // compute the period-averaged |I|, which is what a real observer
       // sees — a 50 Hz rectified LED does not flicker to the eye, it
-      // glows at ~Ipeak/π of its peak brightness.
+      // glows at ~Ipeak/π of its peak brightness. Averaged over TIME, on
+      // the span a meter reads (whole periods, after settling): a plain
+      // average of ngspice's points, crowded after every edge, lit an
+      // RC-coupled LED at 20 % for a 1 % mean current (velxio/velxio-prod#106).
       //
       // Digital fallback (anodeHigh && cathodeLow) is only used if
       // the electrical store can't be loaded at all — e.g. in a
@@ -276,9 +280,9 @@ PartSimulationRegistry.register('led', {
       if (timeWaveforms) {
         const samples = timeWaveforms.branches.get(iKey);
         if (samples && samples.length > 0) {
-          let sum = 0;
-          for (const s of samples) sum += Math.abs(s);
-          raw = sum / samples.length;
+          const span = readSpan(timeWaveforms.time, timeWaveforms.period);
+          const stats = span ? spanStats(timeWaveforms.time, samples, span) : null;
+          raw = stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
         }
       }
       // A publish window is the circuit over the last few tens of
