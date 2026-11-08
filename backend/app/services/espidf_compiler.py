@@ -833,15 +833,56 @@ def _repair_managed_components(project_dir: Path) -> list[str]:
     return removed
 
 
+_LOCK_DEPENDENCY_RE = re.compile(r'^  ([^\s:#][^:]*):\s*$')
+_LOCK_SOURCE_TYPE_RE = re.compile(r'^      type:\s*(\S+)\s*$')
+
+
+def _locked_managed_components(project_dir: Path) -> list[str]:
+    """The managed_components/ entries the variant's dependencies.lock says
+    the component manager copies there: each dependency resolved from the
+    registry or from git, `namespace/name` as `namespace__name` (ESP-IDF
+    itself and local components are not copied). Read line by line: the lock
+    is the component manager's own two-space YAML, and this module needs no
+    YAML parser for one list of names."""
+    try:
+        lines = (project_dir / 'dependencies.lock').read_text(encoding='utf-8').splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    names: set[str] = set()
+    in_deps = False
+    current: str | None = None
+    for line in lines:
+        if line.startswith('dependencies:'):
+            in_deps = True
+            continue
+        if line and not line.startswith(' '):
+            in_deps = False
+        if not in_deps:
+            continue
+        m = _LOCK_DEPENDENCY_RE.match(line)
+        if m:
+            current = m.group(1).strip().strip('\'"')
+            continue
+        m = _LOCK_SOURCE_TYPE_RE.match(line)
+        if m and current and m.group(1) in ('service', 'git'):
+            names.add(current.replace('/', '__'))
+    return sorted(names)
+
+
 def _configure_may_fetch(project_dir: Path, build_dir: Path, manifest_changed: bool) -> bool:
     """Whether a configure in this build dir may have the component manager
     fetch, and so needs _component_manager_lock: the dir's first configure (no
     configure ever completed there), a manifest that changed, managed
-    components missing or broken. A warm dir whose copies are all in place
-    only has their hash files read."""
+    components missing or broken. A copy is missing when its dependencies.lock
+    lists it and managed_components/ does not hold it (#215: a copy gone
+    altogether is fetched again just like one without its hash file). A warm
+    dir whose copies are all in place only has their hash files read."""
     if manifest_changed or not (build_dir / 'build.ninja').is_file():
         return True
-    if not (project_dir / 'managed_components').is_dir():
+    managed = project_dir / 'managed_components'
+    if not managed.is_dir():
+        return True
+    if any(not (managed / name).is_dir() for name in _locked_managed_components(project_dir)):
         return True
     return bool(_broken_managed_components(project_dir))
 

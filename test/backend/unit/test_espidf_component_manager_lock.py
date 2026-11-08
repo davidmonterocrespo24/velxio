@@ -62,6 +62,54 @@ _REGISTRY = {
 }
 _HASH = 'ed9ac175' * 8  # a valid SHA256 shape
 
+# A variant's dependencies.lock as component manager 3.1.2 writes it (registry,
+# git and local dependencies, and ESP-IDF itself).
+_DEPENDENCIES_LOCK = """dependencies:
+  espressif/cjson:
+    component_hash: 3a2b5f1e7c9d4f6a8b0c2e4d6f8a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e1f2a
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.18
+  espressif/esp-dsp:
+    component_hash: ed9ac175b14e0414399a2b33c525579414b5bad19a2a67b12ea212def96f9a98
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.2
+  idf:
+    source:
+      type: idf
+    version: 5.5.4
+  my_local:
+    dependencies: []
+    source:
+      path: /src/my_local
+      type: local
+    version: 1.0.0
+  someone/from-git:
+    component_hash: null
+    dependencies: []
+    source:
+      git: https://example.invalid/from-git.git
+      path: .
+      type: git
+    version: 0123456789abcdef
+direct_dependencies:
+- espressif/esp-dsp
+manifest_hash: 0000
+target: esp32
+version: 2.0.0
+"""
+
 
 def _copy_component(managed: Path, name: str) -> None:
     """What the component manager does for a component it has to fetch."""
@@ -296,6 +344,36 @@ class BrokenManagedComponentTests(_CacheEnv):
             ['espressif__esp-dsp', 'espressif__mdns'],
         )
         self.assertEqual(ec._broken_managed_components(self.root / 'nowhere'), [])
+
+    def test_a_warm_variant_missing_a_locked_component_takes_the_lock(self):
+        """A copy gone altogether (not just its hash file) is fetched by the
+        next configure too: dependencies.lock says which copies belong in
+        managed_components/, and one that is not there means the configure
+        fetches, under the lock."""
+        project = _new_project(self.root, 'v_missing')
+        build = project / 'build'
+        (build / 'build.ninja').write_text('rules', encoding='utf-8')
+        managed = project / 'managed_components'
+        _copy_component(managed, 'espressif__cjson')  # esp-dsp is gone
+        (project / 'dependencies.lock').write_text(_DEPENDENCIES_LOCK, encoding='utf-8')
+        self.assertTrue(ec._configure_may_fetch(project, build, False))
+        _copy_component(managed, 'espressif__esp-dsp')
+        self.assertTrue(ec._configure_may_fetch(project, build, False), 'the git dependency is missing too')
+        git_copy = managed / 'someone__from-git'
+        git_copy.mkdir()
+        (git_copy / '.component_hash').write_text(_HASH + '\n', encoding='utf-8')
+        self.assertFalse(ec._configure_may_fetch(project, build, False))
+
+    def test_which_locked_components_are_copies(self):
+        """Registry and git dependencies are copied into managed_components/
+        (namespace/name -> namespace__name); ESP-IDF itself and a local
+        component are not."""
+        (self.root / 'dependencies.lock').write_text(_DEPENDENCIES_LOCK, encoding='utf-8')
+        self.assertEqual(
+            ec._locked_managed_components(self.root),
+            ['espressif__cjson', 'espressif__esp-dsp', 'someone__from-git'],
+        )
+        self.assertEqual(ec._locked_managed_components(self.root / 'nowhere'), [])
 
     def test_the_hash_file_message_names_the_component(self):
         self.assertEqual(ec._corrupt_managed_component(_HASH_FILE_ERROR), 'espressif/esp-dsp')
