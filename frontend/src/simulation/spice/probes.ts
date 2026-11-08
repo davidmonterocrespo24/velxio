@@ -58,9 +58,14 @@ export function isInstrument(metadataId: string): boolean {
   return metadataId.startsWith('instr-');
 }
 
+/**
+ * Volts for a display: µV below 1 mV, mV below 1 V, V above, like the hover
+ * labels. The µV band used to stop at 1 µV, so 1.10 µV read "0.00 mV" while
+ * a smaller 0.90 µV read "0.90 µV" (velxio/velxio-prod#129).
+ */
 function formatV(v: number): { value: number; unit: ProbeReading['unit']; display: string } {
   const abs = Math.abs(v);
-  if (abs < 1e-6) return { value: v * 1e6, unit: 'µV', display: `${(v * 1e6).toFixed(2)} µV` };
+  if (abs < 1e-3) return { value: v * 1e6, unit: 'µV', display: `${(v * 1e6).toFixed(2)} µV` };
   if (abs < 1) return { value: v * 1e3, unit: 'mV', display: `${(v * 1e3).toFixed(2)} mV` };
   return { value: v, unit: 'V', display: `${v.toFixed(3)} V` };
 }
