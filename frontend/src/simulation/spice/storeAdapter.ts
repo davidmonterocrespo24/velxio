@@ -19,8 +19,7 @@ import { analogScopeWantsTransient } from './analogScopeFeed';
 import type { BoardKind } from '../../types/board';
 import { boardPinGroupFor } from './boardPinGroups';
 import { parseValueWithUnits } from './valueParser';
-import { PASSIVE_PRESETS } from './componentToSpice';
-import { readValueField } from './valueFields';
+import { PASSIVE_PRESETS, periodicSourceHz } from './componentToSpice';
 
 // Minimum transient stop time so RC/decoupling networks reach steady-state
 // even if the source is very high frequency.
@@ -111,7 +110,8 @@ function estimateLargestTau(components: StoreSnapshot['components']): number {
  * caller uses `.op`).
  *
  * Two triggers cause `.tran`:
- *   1. Any `signal-generator` with non-DC waveform (AC source)
+ *   1. Any part that emits a periodic source (periodicSourceHz: a signal
+ *      generator that is not on DC, a power supply in AC mode)
  *   2. Any capacitor or inductor wired to an MCU pin that's actively driving
  *      (digital HIGH or PWM) — step-response circuits like RC charging from
  *      a `digitalWrite(HIGH)` or PWM-charged caps
@@ -122,13 +122,10 @@ function pickDynamicAnalysis(
 ): AnalysisMode | null {
   const frequencies: number[] = [];
   for (const c of components) {
-    if (c.metadataId !== 'signal-generator') continue;
-    const waveform = String(c.properties.waveform ?? 'sine').toLowerCase();
-    if (waveform === 'dc') continue;
-    // The frequency the mapper emitted: "2k" is 2000 Hz (it was NaN here, and
-    // the circuit was solved as .op), a missing one is the mapper's default.
-    const freq = readValueField(c, 'frequency');
-    if (freq > 0) frequencies.push(freq);
+    // The frequency the mapper emitted ("2k" is 2000 Hz; a missing one is the
+    // mapper's default), for every part whose source is periodic.
+    const freq = periodicSourceHz(c);
+    if (freq !== null) frequencies.push(freq);
   }
 
   if (frequencies.length > 0) {

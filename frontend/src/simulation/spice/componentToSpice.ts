@@ -1436,6 +1436,31 @@ export function registerSpiceMapper(id: string, mapper: Mapper): void {
   proMappers[id] = mapper;
 }
 
+/**
+ * The frequency of the periodic source a part emits (a SIN or a PULSE), in
+ * hertz, or null when it emits none or a DC one. pickDynamicAnalysis sizes
+ * the transient window from it (storeAdapter), so it lives next to the
+ * mappers that decide which source a part emits: a part that starts
+ * emitting a periodic source adds itself here. The power supply in AC mode
+ * was missing: its circuit was solved as .op, at t = 0, where its sine is
+ * 0 V, and every meter read 0 (velxio/velxio-prod#113).
+ */
+const PERIODIC_SOURCES: Readonly<Record<string, (comp: ComponentForSpice) => number | null>> = {
+  'signal-generator': (comp) =>
+    String(comp.properties.waveform ?? 'sine').toLowerCase() === 'dc'
+      ? null
+      : parseValueWithUnits(comp.properties.frequency, 1000),
+  'power-supply': (comp) =>
+    String(comp.properties.mode ?? 'dc').toLowerCase() === 'ac'
+      ? parseValueWithUnits(comp.properties.frequency, 50)
+      : null,
+};
+
+export function periodicSourceHz(comp: ComponentForSpice): number | null {
+  const hz = PERIODIC_SOURCES[comp.metadataId]?.(comp) ?? null;
+  return hz !== null && Number.isFinite(hz) && hz > 0 ? hz : null;
+}
+
 export function componentToSpice(
   comp: ComponentForSpice,
   netLookup: NetLookup,
