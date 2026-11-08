@@ -174,37 +174,46 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
     this.adoptResult(result);
   }
 
-  /** Every (component, pin) net voltage plus what the service asked for. */
-  private vectorsOfInterest(): string[] {
+  /** Every (component, pin) net voltage plus what the service asked for,
+   *  and the time axis when the analysis has one to read back. */
+  private vectorsOfInterest(analysis: SolveAnalysis = { kind: 'op' }): string[] {
     const wanted = new Set<string>();
     for (const net of this.pinNetMap.values()) {
       if (net !== '0') wanted.add(`v(${net})`);
     }
     for (const v of this.extraVectors) wanted.add(v);
+    if (analysis.kind === 'tran') wanted.add('time');
     return Array.from(wanted);
   }
 
   /**
-   * Bring the deck to a pad state and solve it: the alters, the operating
-   * point and the vector reads in one round trip when the engine offers
-   * it (every trip to the worker waits behind the main thread's current
-   * task, tens of milliseconds while an engine runs), the three-step path
-   * otherwise. Publishes like any other solve.
+   * Bring the deck to a pad state and solve it: the alters, the analysis
+   * and the vector reads in one round trip when the engine offers it (every
+   * trip to the worker waits behind the main thread's current task, tens of
+   * milliseconds while an engine runs), the three-step path otherwise.
+   * Publishes like any other solve.
+   *
+   * The analysis is an operating point unless the caller asks for the
+   * deck's transient: a circuit whose own sources move (a signal generator)
+   * is that waveform in every pad state, not its value at t = 0.
    */
-  async solvePadState(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void> {
+  async solvePadState(
+    changes: ReadonlyArray<{ source: string; volts: number }>,
+    analysis: SolveAnalysis = { kind: 'op' },
+  ): Promise<void> {
     const solver = this.solver;
     if (!solver) {
       throw new Error('MixedModeScheduler.solvePadState(): call loadCircuit first');
     }
     if (solver.solveAltered) {
-      const result = await solver.solveAltered(changes, { kind: 'op' }, {
-        vectorsOfInterest: this.vectorsOfInterest(),
+      const result = await solver.solveAltered(changes, analysis, {
+        vectorsOfInterest: this.vectorsOfInterest(analysis),
       });
       this.adoptResult(result);
       return;
     }
     await this.alterSources(changes);
-    await this.resolveDc();
+    await this.solveAndPublish(analysis);
   }
 
   /**

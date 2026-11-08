@@ -48,6 +48,7 @@ function createElectricalStorePort(): ElectricalStorePort {
         pinNetMap: snapshot.pinNetMap,
         analysisMode: snapshot.analysisMode,
         timeWaveforms: snapshot.timeWaveforms,
+        scopeWaveforms: snapshot.scopeWaveforms,
         converged: snapshot.warnings.length === 0,
         error: pickSolverError(snapshot.warnings),
         lastSolveMs: 0,

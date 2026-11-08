@@ -138,6 +138,7 @@ function pickDynamicAnalysis(
       kind: 'tran',
       step: stepS.toExponential(3),
       stop: stopS.toExponential(3),
+      timeVarying: true,
     };
   }
 

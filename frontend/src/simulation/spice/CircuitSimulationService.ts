@@ -86,8 +86,22 @@ export interface ElectricalSnapshot {
   pinNetMap: Map<string, string>;
   /** Which analysis produced this. */
   analysisMode: 'op' | 'tran' | 'ac';
-  /** Per-sample waveforms — present only for .tran. */
+  /**
+   * The transient capture OF THIS STATE, when it has one: what the circuit
+   * did over the capture window with the pads at the levels published. Absent
+   * when the state was solved as an operating point (a pad edge on a circuit
+   * whose transient is only a step response or a scope window); the scalar
+   * fields are then the whole truth. Every reader that prefers a capture over
+   * the scalar values (the LED part, the ADC hooks, the meters) reads this.
+   */
   timeWaveforms?: TimeWaveforms;
+  /**
+   * The last capture the deck produced, kept across the operating points
+   * solved after it, for the oscilloscope alone: its analog channels redraw
+   * the latest sweep until the next one rather than going blank on every pin
+   * edge. Not a description of the present state; nothing else reads it.
+   */
+  scopeWaveforms?: TimeWaveforms;
   /** Convergence warnings from the solver. */
   warnings: string[];
   /** Nets backed by a real source/element (see NetlistBuilder). Gates which
@@ -124,10 +138,14 @@ export interface MixedModeSchedulerPort {
   alterSources(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
   /**
    * Alter + solve + read in one round trip when the engine offers it;
-   * falls back to alterSources + resolveDc inside. Optional for ports
-   * that only know the two steps.
+   * falls back to alterSources + the analysis inside. The analysis is an
+   * operating point unless given. Optional for ports that only know the
+   * two steps.
    */
-  solvePadState?(changes: ReadonlyArray<{ source: string; volts: number }>): Promise<void>;
+  solvePadState?(
+    changes: ReadonlyArray<{ source: string; volts: number }>,
+    analysis?: import('./ports/SolverPort').SolveAnalysis,
+  ): Promise<void>;
   /**
    * Make a result the scheduler already produced its current one again
    * (and republish per-pin voltages from it). Used when the service
@@ -195,16 +213,26 @@ const nowMs = (): number =>
 
 export class CircuitSimulationService {
   /**
-   * The last REAL transient capture published, kept so a DC re-solve on a
-   * tran-loaded circuit does not wipe it.
+   * The last REAL transient capture published, kept for the oscilloscope
+   * (`scopeWaveforms`) across the operating points solved after it.
    *
-   * A pad-state solve resolves DC — no time axis comes back, but
-   * `loadedContext.analysisKind` is still 'tran'. Publishing the undefined
-   * straight through meant every GPIO edge blanked the waveform until the
-   * next full tick, which the oscilloscope's analog channels read as the
-   * trace vanishing several times a second.
+   * A pad-state solve of a step-response or scope deck is an operating point:
+   * no time axis comes back, but `loadedContext.analysisKind` is still 'tran'.
+   * Publishing nothing meant every GPIO edge blanked the scope's analog trace
+   * until the next full tick. Publishing this capture AS the state's
+   * (`timeWaveforms`, which it was until velxio/velxio-prod#153) was worse:
+   * every reader that prefers a capture read the circuit as it was when the
+   * deck was built, so with any capacitor on the canvas an LED froze at its
+   * brightness of that moment and analogRead at its value.
    */
   private lastTimeWaveforms: TimeWaveforms | undefined;
+
+  /**
+   * How a pad state is solved on the loaded deck: the deck's own transient
+   * when its sources move by themselves (AnalysisMode.timeVarying), an
+   * operating point otherwise.
+   */
+  private padStateAnalysis: import('./ports/SolverPort').SolveAnalysis = { kind: 'op' };
 
   /**
    * Every use of the solver goes through here, one at a time: a rebuild,
@@ -291,6 +319,13 @@ export class CircuitSimulationService {
    */
   static readonly MAX_STATE_SOLVES_PER_WINDOW = 4;
   private static readonly CACHE_LIMIT = 512;
+  /**
+   * Samples (time points times vectors) the cached captures may hold
+   * together, about 16 MB of numbers. A deck whose pad states are solved as
+   * transients caches a capture per state; past this the oldest go, and the
+   * state is solved again the next time it is published.
+   */
+  private static readonly CACHE_CAPTURE_SAMPLES = 2_000_000;
 
   /** Diagnostics read by `__spiceDebug()`: a meter that flips between two
    *  supply voltages, or a pin that seems to ignore its edges, is usually
@@ -541,14 +576,16 @@ export class CircuitSimulationService {
     const started = nowMs();
     let alterMs = 0;
     let resolveMs = 0;
+    const analysis = this.padStateAnalysis;
     try {
       this.solverLevels = levels.slice();
       if (this.scheduler.solvePadState) {
-        await this.scheduler.solvePadState(changes);
+        await this.scheduler.solvePadState(changes, analysis);
       } else {
         if (changes.length > 0) await this.scheduler.alterSources(changes);
         alterMs = nowMs() - started;
-        await this.scheduler.resolveDc();
+        if (analysis.kind === 'tran') await this.scheduler.resolveTran(analysis.step, analysis.stop);
+        else await this.scheduler.resolveDc();
       }
       resolveMs = nowMs() - started - alterMs;
       this.stateSolveCount++;
@@ -568,12 +605,33 @@ export class CircuitSimulationService {
       alterMs: Math.round(alterMs), resolveMs: Math.round(resolveMs), extractMs: Math.round(nowMs() - tExtract),
       alters: changes.length,
     };
+    this.remember(key, vec);
+    return vec;
+  }
+
+  /** Cache a pad state's solve, within the entry and capture budgets
+   *  (oldest out first). */
+  private remember(key: string, vec: StateVectors): void {
+    this.cache.delete(key);
     this.cache.set(key, vec);
     if (this.cache.size > CircuitSimulationService.CACHE_LIMIT) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
-    return vec;
+    const samplesOf = (v: StateVectors): number =>
+      v.timeWaveforms
+        ? v.timeWaveforms.time.length * (1 + v.timeWaveforms.nodes.size + v.timeWaveforms.branches.size)
+        : 0;
+    let held = 0;
+    for (const v of this.cache.values()) held += samplesOf(v);
+    for (const [k, v] of this.cache) {
+      if (held <= CircuitSimulationService.CACHE_CAPTURE_SAMPLES) break;
+      if (k === key) continue; // the state being published stays
+      const s = samplesOf(v);
+      if (s === 0) continue;
+      this.cache.delete(k);
+      held -= s;
+    }
   }
 
   /** The scheduler's per-pin voltages follow what is published. */
@@ -700,6 +758,10 @@ export class CircuitSimulationService {
       analysisKind: input.analysis.kind,
       sourcedNets,
     };
+    this.padStateAnalysis =
+      input.analysis.kind === 'tran' && input.analysis.timeVarying
+        ? { kind: 'tran', step: input.analysis.step, stop: input.analysis.stop }
+        : { kind: 'op' };
     this.loadPads(
       input.boards as unknown as Parameters<CircuitSimulationService['loadPads']>[0],
       voltageSources,
@@ -707,7 +769,7 @@ export class CircuitSimulationService {
     const result = this.scheduler.getLastResult();
     if (!result) return;
     const vec = this.extract(result, this.loadedContext);
-    this.cache.set(stateKey(this.solverLevels ?? []), vec);
+    this.remember(stateKey(this.solverLevels ?? []), vec);
     this.publish(vec, undefined);
   }
 
@@ -748,15 +810,11 @@ export class CircuitSimulationService {
   private publish(vec: StateVectors, window: SolveWindow | undefined): void {
     const ctx = this.loadedContext;
     if (!ctx) return;
-    let timeWaveforms: TimeWaveforms | undefined;
-    if (ctx.analysisKind === 'tran' && vec.timeWaveforms) {
-      timeWaveforms = vec.timeWaveforms;
-      this.lastTimeWaveforms = timeWaveforms;
-    } else if (ctx.analysisKind === 'tran') {
-      timeWaveforms = this.lastTimeWaveforms;
-    } else {
-      this.lastTimeWaveforms = undefined;
-    }
+    // The capture published is this state's own or none (see
+    // ElectricalSnapshot.timeWaveforms); the scope keeps the latest one.
+    const timeWaveforms = ctx.analysisKind === 'tran' ? vec.timeWaveforms : undefined;
+    if (ctx.analysisKind !== 'tran') this.lastTimeWaveforms = undefined;
+    else if (timeWaveforms) this.lastTimeWaveforms = timeWaveforms;
     this.electricalStore.publish({
       nodeVoltages: vec.nodeVoltages,
       branchCurrents: vec.branchCurrents,
@@ -764,6 +822,7 @@ export class CircuitSimulationService {
       pinNetMap: ctx.pinNetMap,
       analysisMode: ctx.analysisKind,
       timeWaveforms,
+      scopeWaveforms: this.lastTimeWaveforms,
       warnings: vec.warnings,
       sourcedNets: ctx.sourcedNets,
       voltageSources: ctx.voltageSources.map((vs) => vs.toLowerCase()),

@@ -48,7 +48,12 @@ export interface ElectricalSnapshot {
   window?: SolveWindow;
   pinNetMap: Map<string, string>;
   analysisMode: 'op' | 'tran' | 'ac';
+  /** The transient capture of the published state, when it has one; see
+   *  CircuitSimulationService's ElectricalSnapshot. */
   timeWaveforms?: TimeWaveforms;
+  /** The last capture the deck produced, for the oscilloscope only: it may
+   *  describe an earlier state than the one published. */
+  scopeWaveforms?: TimeWaveforms;
   converged: boolean;
   error: string | null;
   lastSolveMs: number;
@@ -84,6 +89,7 @@ const EMPTY: ElectricalSnapshot = {
   pinNetMap: new Map(),
   analysisMode: 'op',
   timeWaveforms: undefined,
+  scopeWaveforms: undefined,
   converged: true,
   error: null,
   lastSolveMs: 0,

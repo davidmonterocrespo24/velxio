@@ -73,9 +73,14 @@ function refreshWatchedNets(): void {
   }
 }
 
-/** Copy the latest transient capture into every analog channel. */
+/** Copy the latest transient capture into every analog channel. That is the
+ *  service's `scopeWaveforms`: the last capture the deck produced, which stays
+ *  published across the pin edges solved after it as operating points, so the
+ *  trace does not blank between two recaptures. A store written without one
+ *  (a test, a direct caller) is read through its `timeWaveforms`. */
 function publishCapture(): void {
-  const { timeWaveforms } = useElectricalStore.getState();
+  const { scopeWaveforms, timeWaveforms: current } = useElectricalStore.getState();
+  const timeWaveforms = scopeWaveforms ?? current;
   if (!timeWaveforms || timeWaveforms.time.length === 0) return;
   const { channels, pushAnalogBlock } = useOscilloscopeStore.getState();
   // SPICE works in seconds; every existing scope reader is in milliseconds.
