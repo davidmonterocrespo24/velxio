@@ -107,6 +107,10 @@ class EspQemuManager:
         if inst:
             asyncio.create_task(self._shutdown(inst))
 
+    def client_ids(self) -> list[str]:
+        """Clients that hold a QEMU process (esp32_qemu_access counts them)."""
+        return list(self._instances)
+
     def load_firmware(self, client_id: str, firmware_b64: str,
                       wifi_enabled: bool = False,
                       wifi_hostfwd_port: int = 0) -> None:

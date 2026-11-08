@@ -236,6 +236,11 @@ class EspLibManager:
         with self._instances_lock:
             return self._instances.get(client_id)
 
+    def client_ids(self) -> list[str]:
+        """Clients that hold a worker (esp32_qemu_access counts them)."""
+        with self._instances_lock:
+            return list(self._instances)
+
     async def start_instance(
         self,
         client_id:    str,
