@@ -1056,7 +1056,6 @@ def _precompiled_archive_problem(facts: _ArchiveFacts | None, idf5: bool) -> tup
     if facts is None:
         return None
     built_idf4 = any(m < _IDF5_FIRST_GCC_MAJOR for m in facts.esp_gcc_majors)
-    built_idf5 = any(m >= _IDF5_FIRST_GCC_MAJOR for m in facts.esp_gcc_majors)
     lines: list[str] = []
     clause = ''
     if facts.compilers:
@@ -1072,15 +1071,10 @@ def _precompiled_archive_problem(facts: _ArchiveFacts | None, idf5: bool) -> tup
             'code built for 4.x reads and writes those structures with the old layout: '
             'even linked, it would not run correctly.'
         )
-    elif not idf5 and built_idf5:
-        clause = (
-            'was built for ESP-IDF 5 (arduino-esp32 3.x), and this build uses '
-            'ESP-IDF 4.x (arduino-esp32 2.x)'
-        )
-        lines.append(
-            'Why: that is an ESP-IDF 5 toolchain, whose C library differs from 4.x '
-            '(time_t is 64-bit there): the archive does not match this build.'
-        )
+    # The other direction, an ESP-IDF 5 archive in a build on ESP-IDF 4.x (only
+    # with VELXIO_ARDUINO_IDF5=0 or no ESP-IDF 5 installed), links as it did
+    # before #214: no failure of it is known, and refusing it by toolchain alone
+    # blocked real libraries (bsec2's ESP32-S3 and C3 archives).
     if idf5 and facts.runtime_defs:
         lines.append(
             f'It {"also " if clause else ""}defines {", ".join(facts.runtime_defs)}, '

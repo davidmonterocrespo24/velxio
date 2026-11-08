@@ -199,11 +199,13 @@ class TestArchivesThatLink(PrecompiledAbiBase):
         self.resolve(idf5=False)
         self.assertTrue(self.linked())
 
-    def test_an_esp_idf_5_archive_is_refused_by_an_esp_idf_4_build(self):
+    def test_an_esp_idf_4_build_takes_an_esp_idf_5_archive_as_before(self):
+        """Only with VELXIO_ARDUINO_IDF5=0 or no ESP-IDF 5 installed. No failure
+        of it is known, and refusing it by toolchain alone blocked bsec2's S3
+        and C3 archives, which linked before #214."""
         self.library([('core.c.obj', elf_object({'roslike_init': GLOBAL}, IDF5_GCC))])
-        with self.assertRaises(espidf_mod.PrecompiledLibraryError) as ctx:
-            self.resolve(idf5=False)
-        self.assertIn('ESP-IDF 5', str(ctx.exception))
+        self.resolve(idf5=False)
+        self.assertTrue(self.linked())
 
     def test_an_archive_without_a_build_record_links_as_before(self):
         """No .comment (a stripped archive) and no runtime helpers: nothing to
