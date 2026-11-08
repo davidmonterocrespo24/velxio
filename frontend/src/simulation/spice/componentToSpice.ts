@@ -18,6 +18,7 @@ import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
+import { ldrParams, ldrResistance } from './ldrModel';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -1325,33 +1326,25 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // Photoresistor (R(lux) = R_dark / (1 + k·lux))
   // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO).
   // Internal topology: LDR between VCC and AO, plus an internal 10k pull-down
   // from AO to GND. Brighter light → LDR resistance drops → V_AO rises.
   // The DO (digital threshold) pin is ignored for analog simulation.
+  // The LDR is a GL5528 by default, R = rl10 · (10 / lux)^gamma up to its
+  // dark resistance (ldrModel.ts, velxio/velxio-prod#103).
   photoresistor: (comp, netLookup) => {
     const lux = Number(comp.properties.lux ?? 500);
-    // `dark` goes through the SPICE suffix convention, where M is MILLI and
-    // mega is `Meg`. A dark resistance below 1k is not a photoresistor — it
-    // is almost always "1M" written meaning 1 megaohm, which parses to
-    // 0.001 ohm and shorts AO straight to VCC. The symptom is nasty because
-    // it looks like the part works: the ADC just reads full scale forever and
-    // the lux control does nothing (every value is still a short). Clamp to
-    // the documented default and say so, rather than emitting a short.
-    const darkRaw = parseValueWithUnits(comp.properties.dark, 1_000_000);
-    let Rdark = darkRaw;
-    if (!(darkRaw >= 1_000)) {
-      Rdark = 1_000_000;
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[spice] ${comp.id}: dark resistance ${JSON.stringify(comp.properties.dark)} ` +
-          `parsed as ${darkRaw} ohm — too low for a photoresistor. SPICE reads M as ` +
-          `milli; write "1Meg" for 1 megaohm. Using 1Meg.`,
-      );
-    }
-    const k = Number(comp.properties.k ?? 5);
-    const Rldr = Rdark / (1 + (k * lux) / 1000);
+    const Rldr = ldrResistance(
+      lux,
+      ldrParams(comp.properties, (raw, parsed) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[spice] ${comp.id}: dark resistance ${JSON.stringify(raw)} ` +
+            `parsed as ${parsed} ohm — too low for a photoresistor. SPICE reads M as ` +
+            `milli; write "1Meg" for 1 megaohm. Using the LDR's own dark resistance.`,
+        );
+      }),
+    );
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
     const ao = netLookup('AO');

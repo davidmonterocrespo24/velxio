@@ -22,7 +22,7 @@ R_autopull_n7 n7 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-auto-night-light-using-ldr-esp32-plus-micropython 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_night-ldr_ldr vcc_rail n1 111111.11111111111
+R_night-ldr_ldr vcc_rail n1 1640.0431109149174
 R_night-ldr_pull n1 0 100000
 R_night-r1 n0 n2 220
 V_night-led1_sense n2 night-led1_sense_mid DC 0
@@ -1876,7 +1876,7 @@ exports[`netlist snapshot — circuits (41 examples) > nano-sensor-station 1`] =
 V_VCC_RAIL vcc_rail 0 DC 5
 R_ntc_pull vcc_rail n1 10000
 R_ntc_ntc n1 0 11441.484668193882
-R_ldr_ldr vcc_rail n0 400000
+R_ldr_ldr vcc_rail n0 1949.0299204580947
 R_ldr_pull n0 0 10000
 .op
 .end"
@@ -2239,7 +2239,7 @@ R_autopull_n2 n2 0 100Meg
 exports[`netlist snapshot — circuits (41 examples) > photoresistor-light 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_ldr_ldr vcc_rail n0 285714.28571428574
+R_ldr_ldr vcc_rail n0 1434.5287496850556
 R_ldr_pull n0 0 10000
 .op
 .end"
