@@ -2,9 +2,8 @@
 Who may start an ESP32 on the server's QEMU lane, and how many at once (#182).
 
 `start_esp32` carries firmware that then runs on the server, in a libqemu
-worker process with a network stack of its own. Before this, any WebSocket
-client could start as many as it liked. The route now admits each start
-through app.services.esp32_qemu_access: a global cap on concurrent workers
+worker process. The route admits each start through
+app.services.esp32_qemu_access: a global cap on concurrent workers
 (VELXIO_ESP32_QEMU_MAX_INSTANCES) and, when an overlay installs one, a gate
 that decides who may start one at all.
 
@@ -176,7 +175,7 @@ class TestStartIsAdmitted(_RouteCase):
 
         boom = AsyncMock(side_effect=RuntimeError('worker launch failed'))
         await self._run('me', [_start_message()], lib_start=boom)
-        self.assertEqual(acc._reserved, set())
+        self.assertEqual(acc.active_clients(), set())
 
 
 class TestAdmission(unittest.IsolatedAsyncioTestCase):
@@ -265,7 +264,7 @@ class TestAdmission(unittest.IsolatedAsyncioTestCase):
     def test_active_clients_are_both_managers_plus_reservations(self):
         self.lib._instances['l'] = MagicMock()
         self.sub._instances['s'] = MagicMock()
-        self.acc._reserved.add('r')
+        self.acc.hold('r')
         self.assertEqual(self.acc.active_clients(), {'l', 's', 'r'})
         self.assertEqual(self.acc.running_clients(), {'l', 's'})
 

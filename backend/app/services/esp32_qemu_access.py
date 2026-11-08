@@ -1,9 +1,9 @@
 """
 Who may start an ESP32 on the server's QEMU lane, and how many at once.
 
-``start_esp32`` carries firmware that then runs on THIS server: one libqemu
-worker process per board, with a user-mode network stack of its own. So the
-simulation route admits every start here first:
+``start_esp32`` carries firmware that then runs on THIS server, one libqemu
+worker process per board. So the simulation route admits every start here
+first:
 
 1. An optional gate that an overlay registers (:func:`register_esp32_qemu_gate`).
    The velxio.dev overlay requires a signed-in session and caps the workers
@@ -17,7 +17,9 @@ simulation route admits every start here first:
 An admitted start holds a reservation until the manager has registered its
 worker (:func:`release`). The lib manager only registers a worker after an
 await, so without the reservation starts that arrive together all counted the
-same table and all passed.
+same table and all passed. A reload (``load_firmware``) replaces a client's
+worker without a new admission, and holds the client's slot the same way
+(:func:`hold`) while the old worker is gone and the new one not yet there.
 
 A gate that raises refuses the start. It decides who may run code on the
 server, and a broken check must not open the lane.
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
 from typing import Awaitable, Callable, Optional
 
 from app.services.board_access import BoardAccessDenial
@@ -49,8 +52,9 @@ Esp32QemuGate = Callable[[object, str, object], Awaitable[Optional[BoardAccessDe
 
 _gate: Optional[Esp32QemuGate] = None
 
-# Admitted starts whose worker the manager has not registered yet.
-_reserved: set[str] = set()
+# Admitted starts and reloads whose worker the manager has not registered yet,
+# counted per client: a start and a reload of one client can overlap.
+_reserved: Counter = Counter()
 
 
 def register_esp32_qemu_gate(fn: Optional[Esp32QemuGate]) -> None:
@@ -90,7 +94,7 @@ def running_clients() -> set[str]:
 
 def active_clients() -> set[str]:
     """Running clients plus the admitted ones whose worker is still starting."""
-    return running_clients() | _reserved
+    return running_clients() | {c for c, n in _reserved.items() if n > 0}
 
 
 async def admit(websocket: object, client_id: str, board: object) -> Optional[BoardAccessDenial]:
@@ -119,10 +123,19 @@ async def admit(websocket: object, client_id: str, board: object) -> Optional[Bo
             client_id, len(others), cap, MAX_INSTANCES_ENV,
         )
         return BoardAccessDenial(BUSY_MESSAGE, code='esp32_qemu_busy')
-    _reserved.add(client_id)
+    _reserved[client_id] += 1
     return None
 
 
+def hold(client_id: str) -> None:
+    """Keep the slot of a client that already holds a worker while the
+    manager replaces it (a reload), until :func:`release`."""
+    _reserved[client_id] += 1
+
+
 def release(client_id: str) -> None:
-    """Drop the reservation once the manager holds the worker (or failed)."""
-    _reserved.discard(client_id)
+    """Drop one reservation once the manager holds the worker (or failed)."""
+    if _reserved[client_id] > 1:
+        _reserved[client_id] -= 1
+    else:
+        _reserved.pop(client_id, None)
