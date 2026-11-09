@@ -1,0 +1,83 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "David Montero Crespo",
+    "email": "dmontero@velxio.dev",
+    "description": "Creator and lead maintainer of Velxio, an open-source (AGPLv3) multi-board emulator and circuit simulator for Arduino, ESP32, Raspberry Pi Pico, STM32 and Raspberry Pi. Based in Uruguay and working on Velxio full-time.",
+    "webpageUrl": {
+      "url": "https://github.com/davidmonterocrespo24"
+    }
+  },
+  "projects": [
+    {
+      "guid": "velxio",
+      "name": "Velxio",
+      "description": "Velxio is an open-source multi-board emulator and circuit simulator that runs in the browser at velxio.dev or self-hosted with a single Docker command. Users write Arduino C++, MicroPython or ESP-IDF code, compile it and run it on real CPU emulation across 40 boards and 5 CPU families (AVR8, ARM Cortex-M RP2040/RP2350/STM32, Xtensa ESP32/ESP32-S3, RISC-V ESP32-C3/C6 and ARM Cortex-A Raspberry Pi), wired to 150+ interactive components: displays, sensors, motors, logic ICs and analog parts, with a SPICE electrical layer, an oscilloscope, emulated WiFi and custom chips compiled to WebAssembly. It ships more than 400 ready-to-run examples and is used by students, teachers, universities and makers to learn and prototype embedded systems without hardware. Since its release in March 2026 the repository has gathered 3,600+ stars and 390+ forks, and hardware partners Espressif, DFRobot, M5Stack, Seeed Studio and Pimoroni have supported it. Velxio is sustained with an open-core model: the hosted velxio.dev adds paid features on top of the open-source core, the main one being an AI agent that creates circuits from a plain-language request (it picks the board and parts, wires them, writes and compiles the code and runs the simulation to debug it). FLOSS/fund support would pay for full-time work on the open-source core: new boards and peripherals, emulation accuracy, the self-hosted image, documentation and community support.",
+      "webpageUrl": {
+        "url": "https://velxio.dev"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/davidmonterocrespo24/velxio"
+      },
+      "licenses": [
+        "spdx:AGPL-3.0-only"
+      ],
+      "tags": [
+        "electronics",
+        "embedded-systems",
+        "emulator",
+        "simulator",
+        "arduino",
+        "esp32",
+        "microcontrollers",
+        "education",
+        "iot",
+        "developer-tools"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "bank-transfer",
+        "type": "bank",
+        "description": "International bank transfer to the maintainer in Uruguay. Please email for account details."
+      },
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/davidmonterocrespo24",
+        "description": "GitHub Sponsors, preferred for individual sponsors."
+      }
+    ],
+    "plans": [
+      {
+        "guid": "full-time-maintenance",
+        "status": "active",
+        "name": "Full-time maintenance of the open-source core",
+        "description": "One year of full-time work on the AGPL core: new boards and peripherals, emulation accuracy, the self-hosted Docker image, documentation and community support.",
+        "amount": 50000,
+        "currency": "USD",
+        "frequency": "yearly",
+        "channels": [
+          "bank-transfer"
+        ]
+      },
+      {
+        "guid": "individual-sponsorship",
+        "status": "active",
+        "name": "Individual sponsorship",
+        "description": "Any amount, monthly or one-time, to help cover server costs and development time.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors"
+        ]
+      }
+    ]
+  }
+}
