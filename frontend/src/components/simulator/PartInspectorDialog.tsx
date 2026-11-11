@@ -64,7 +64,7 @@ import {
 } from '../../utils/pinInspectorLayout';
 import { showConfirmDialog } from '../../store/useMessageDialogStore';
 import { scalableSvgThumbnail } from '../../utils/svgThumbnail';
-import { valueFieldOf, readoutOf } from '../../simulation/spice/valueFields';
+import { fieldIsRead, valueFieldOf, readoutOf } from '../../simulation/spice/valueFields';
 // The keybind chips and the SD Card panel keep their existing class names and
 // styles — both live in ComponentPropertyDialog.css, imported here so the old
 // dialog file can eventually retire without orphaning them.
@@ -731,8 +731,16 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
                 // A number the simulator reads (a resistance, a supply voltage, a
                 // generator frequency): say what the text means ("= 4.7 kΩ"), or
                 // that it is not a value and what the simulation uses instead.
+                // A field the part's current mode does not read (a DC supply's
+                // frequency) is never flagged: nothing simulates it.
                 const valueField = valueFieldOf(componentMetadata.id, prop.name);
-                const readout = valueField ? readoutOf(valueField, current) : null;
+                const parsedReadout = valueField ? readoutOf(valueField, current) : null;
+                const readout =
+                  parsedReadout &&
+                  !parsedReadout.ok &&
+                  !fieldIsRead({ metadataId: componentMetadata.id, properties: componentProperties }, valueField!)
+                    ? null
+                    : parsedReadout;
                 return (
                   <div key={prop.name} className="pid-row-group">
                     <div className="pid-row">

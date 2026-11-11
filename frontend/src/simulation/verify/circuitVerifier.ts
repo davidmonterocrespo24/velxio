@@ -295,16 +295,33 @@ export async function verifyCircuit(
   // such a text became some other number ("4,7k" was 4k) or NaN, and one
   // NaN made ngspice reject the whole circuit with a bare "circuit not
   // parsed" (velxio/velxio-prod#105, #118). Blocking, with Run anyway.
+  //
+  // An EMPTY field says no number the default would contradict: the part
+  // runs with the value a new one has, as it always did for a resistor, so
+  // that is a warning, and the inspector keeps its note under the field. A
+  // field the part's mode does not read (a DC supply's frequency) is never
+  // reported at all (unreadableValues).
   for (const comp of input.components) {
     for (const bad of unreadableValues(comp)) {
+      const fallback = formatQuantity(bad.field.fallback, bad.field.unit);
+      if (bad.empty) {
+        warnings.push({
+          severity: 'warning',
+          code: 'invalid-value',
+          componentId: comp.id,
+          message:
+            `${comp.metadataId} ${comp.id}: its ${bad.field.label} is empty, so it runs with ${fallback}, ` +
+            `the part's default. Type a value to set it.`,
+        });
+        continue;
+      }
       errors.push({
         severity: 'error',
         code: 'invalid-value',
         componentId: comp.id,
         message:
           `${comp.metadataId} ${comp.id}: its ${bad.field.label} "${String(bad.raw)}" is not a value ` +
-          `the simulator can read (${bad.why}). It runs with ${formatQuantity(bad.field.fallback, bad.field.unit)} ` +
-          `until the field is fixed.`,
+          `the simulator can read (${bad.why}). It runs with ${fallback} until the field is fixed.`,
       });
     }
   }
