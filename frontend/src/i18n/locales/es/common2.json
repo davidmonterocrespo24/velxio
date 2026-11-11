@@ -443,7 +443,10 @@
       "productPage": "Ver producto",
       "datasheetPage": "Especificaciones",
       "sensorValues": "Valores del sensor",
-      "sensorValuesHint": "El valor con el que arranca el sensor al simular y al que vuelve con Reset. Mover su deslizador durante la simulación no lo cambia."
+      "sensorValuesHint": "El valor con el que arranca el sensor al simular y al que vuelve con Reset. Mover su deslizador durante la simulación no lo cambia.",
+      "valueComma": "Usa un punto para los decimales (4.7k, no 4,7k).",
+      "valueInvalid": "No es un valor: escribe, por ejemplo, 4.7k, 4k7, 100n o 1M.",
+      "valueSimulatesAs": "Se simula con"
     },
     "flash": {
       "title": "Grabar {{board}}",

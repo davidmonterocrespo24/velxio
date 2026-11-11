@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readVoltmeter, readAmmeter } from '../simulation/spice/probes';
-import { steadyState } from '../simulation/spice/waveformStats';
+import { readSpan } from '../simulation/spice/waveformStats';
 import type { ElectricalSolveResult, TimeWaveforms } from '../simulation/spice/types';
 
 const N = 400;
@@ -41,9 +41,20 @@ function solveWith(
 }
 
 describe('meters read the steady state of a transient', () => {
-  it('steadyState keeps the second half, and short traces whole', () => {
-    expect(steadyState([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).toEqual([6, 7, 8, 9, 10]);
-    expect(steadyState([1, 2, 3])).toEqual([1, 2, 3]);
+  it('reads the second half of the window, in whole periods of the source when known', () => {
+    const time = Array.from({ length: 11 }, (_, i) => i * 1e-3); // 0..10 ms
+    const span = (period?: number) => {
+      const s = readSpan(time, period)!;
+      return [Number(s.from.toFixed(9)), Number(s.to.toFixed(9))];
+    };
+    expect(span()).toEqual([0.005, 0.01]);
+    // Two whole 2 ms periods fit in the 5 ms half.
+    expect(span(2e-3)).toEqual([0.006, 0.01]);
+    // None fits in the half: the last whole period of the window.
+    expect(span(8e-3)).toEqual([0.002, 0.01]);
+    // None fits in the window: the half as it is.
+    expect(span(20e-3)).toEqual([0.005, 0.01]);
+    expect(readSpan([0])).toBeNull();
   });
 
   it('a regulated 5 V output reads DC 5 V, not the average of its start-up', () => {

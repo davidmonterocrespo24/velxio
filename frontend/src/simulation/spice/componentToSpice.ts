@@ -124,6 +124,15 @@ function emitInductor(
   };
 }
 
+// ── Bench power supply (constant voltage / constant current) ─────────────
+/** Output resistance of the supply in constant-voltage mode. */
+const SUPPLY_OUTPUT_OHMS = '10m';
+/** Gain of its current limiter (V/A): a dead short overshoots the limit by
+ *  setpoint / gain, 0.9 mA at 9 V. */
+const SUPPLY_CC_GAIN = 1e4;
+/** The lowest current limit the supply takes (A); the circuit check uses it too. */
+export const MIN_SUPPLY_LIMIT_A = 0.01;
+
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
 const LOGIC_EDGE_VOLTS = 0.05;
 /** `0..1` step of `V(net)` around `threshold`, with a finite slope (see the gates note). */
@@ -587,36 +596,71 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // ── Regulated power supply (DC / AC, current-limit aware) ───────────────
+  // ── Regulated power supply: constant voltage, then constant current ─────
   // Properties:
   //   mode:         'dc' | 'ac'   (default 'dc')
-  //   voltage:      V             (default 5)
+  //   voltage:      V             (default 5; the peak in AC mode)
   //   frequency:    Hz            (default 50, only used in AC mode)
-  //   currentLimit: A             (default 1; enforced by circuitVerifier,
-  //                                NOT SPICE — ngspice has no native
-  //                                foldback limiter)
+  //   currentLimit: A             (default 1)
   // The visual element reuses wokwi-signal-generator (no new Web Component
-  // needed). ESR is derived from the currentLimit so a near-short reads
-  // as I ≈ 1.5·limit, which the verifier then flags as source-overload.
+  // needed).
+  //
+  // A bench supply holds its voltage within millivolts whatever the load
+  // (Rigol DP800: load regulation < 0.01 % + 2 mV) until the load asks for
+  // more than the current limit; then it holds the current and lets its
+  // voltage fall (B&K: constant voltage / constant current). This one was
+  // an ideal source behind V / (1.5 · limit), a battery whose resistance
+  // grew with the setpoint: 9 V read 8.946 V on 1 kΩ (8.49 V with a 0.1 A
+  // limit), and a 9 Ω load on 9 V / 1 A silently read 5.4 V at 0.6 A
+  // (velxio/velxio-prod#96). Now:
+  //
+  //   B_<id>     <id>_int <neg>  V = Vset - G·(max(i - Ilim, 0) - max(-i - Ilim, 0))
+  //   R_<id>_out <id>_int <id>_a 10m
+  //   V_<id>     <id>_a   <pos>  DC 0        senses i: the circuit check reads i(v_<id>)
+  //
+  // Below the limit the B source is the setpoint and the output sits
+  // 10 mΩ · i under it. At the limit the gain G pulls the source down until
+  // the current is the limit (plus Vset / G at a dead short: 0.9 mA at
+  // 9 V). The limit acts on both signs, so a negative setpoint mirrors a
+  // positive one (#133). In AC mode the setpoint is the sine (B sources read
+  // `time`, which is 0 in an operating point, like SIN's), behind the same
+  // limiter.
+  //
+  // The B source sits on an internal node on purpose: the circuit check
+  // folds 0 V sense sources into wires (parseSourceCards), so a B source
+  // right behind the sense would count as an ideal source across the
+  // supply's terminals and make a supply wired to a board's 5V pin, or in
+  // parallel with another supply, a "source conflict". Through 10 mΩ it is
+  // none: two supplies in parallel share the load, and one wired onto a
+  // rail runs at its limit, which the check reports as an overload.
+  //
+  // Known artefact: under the trapezoidal integration every Velxio deck
+  // runs, the supply's current can ring for a few dozen steps after a
+  // transient takes it from its limit back to constant voltage with a large
+  // capacitor on its output, while the voltages stay right (9 V / 0.1 A
+  // recharging 100 µF behind a 20 Ω load switched at 50 Hz: samples down to
+  // -48 mA where 9 mA flows). Gear integration damps that, but it also
+  // damps every resonance in the deck (a series RLC at 5 kHz read 8 % low),
+  // so the supply does not switch the method.
   'power-supply': (comp, netLookup) => {
     const pos = netLookup('+') ?? netLookup('SIG') ?? netLookup('VCC');
     const neg = netLookup('−') ?? netLookup('-') ?? netLookup('GND');
     if (!pos || !neg) return null;
     const mode = String(comp.properties.mode ?? 'dc').toLowerCase();
-    const voltage = Number(comp.properties.voltage ?? 5);
-    const currentLimit = Math.max(0.01, Number(comp.properties.currentLimit ?? 1));
-    const esr = Math.max(0.01, voltage / (currentLimit * 1.5));
-    let source: string;
-    if (mode === 'ac') {
-      const freq = Number(comp.properties.frequency ?? 50);
-      source = `SIN(0 ${voltage} ${freq})`;
-    } else {
-      source = `DC ${voltage}`;
-    }
+    // Read like every other field (valueParser): "9V", "500m" and "1k" are
+    // numbers. Number() made them NaN and ngspice refused the whole deck.
+    const voltage = parseValueWithUnits(comp.properties.voltage, 5);
+    const limit = Math.max(MIN_SUPPLY_LIMIT_A, parseValueWithUnits(comp.properties.currentLimit, 1));
+    const setpoint =
+      mode === 'ac'
+        ? `${voltage}*sin(${2 * Math.PI}*${parseValueWithUnits(comp.properties.frequency, 50)}*time)`
+        : `${voltage}`;
+    const i = `i(V_${comp.id})`;
     return {
       cards: [
-        `V_${comp.id} ${pos} ${comp.id}_int ${source}`,
-        `R_${comp.id}_esr ${comp.id}_int ${neg} ${esr}`,
+        `B_${comp.id} ${comp.id}_int ${neg} V = ${setpoint} - ${SUPPLY_CC_GAIN}*(max(${i}-${limit}, 0) - max(-${i}-${limit}, 0))`,
+        `R_${comp.id}_out ${comp.id}_int ${comp.id}_a ${SUPPLY_OUTPUT_OHMS}`,
+        `V_${comp.id} ${comp.id}_a ${pos} DC 0`,
       ],
       modelsUsed: new Set(),
     };
@@ -635,9 +679,11 @@ const MAPPERS: Record<string, Mapper> = {
     const gnd = netLookup('GND') ?? netLookup('-') ?? netLookup('−');
     if (!sig || !gnd) return null;
     const waveform = String(comp.properties.waveform ?? 'sine').toLowerCase();
-    const freq = Number(comp.properties.frequency ?? 1000);
-    const amp = Number(comp.properties.amplitude ?? 1);
-    const off = Number(comp.properties.offset ?? 0);
+    // "1k", "3V" and "500mV" are values (valueParser); Number() made them NaN
+    // and the deck was rejected with nothing pointing at the field.
+    const freq = parseValueWithUnits(comp.properties.frequency, 1000);
+    const amp = parseValueWithUnits(comp.properties.amplitude, 1);
+    const off = parseValueWithUnits(comp.properties.offset, 0);
     let source: string;
     if (waveform === 'square') {
       const period = 1 / freq;
@@ -1150,8 +1196,8 @@ const MAPPERS: Record<string, Mapper> = {
     // Coil pins must be present — without them the relay can't be energised.
     // COM is required too; without it, neither NO nor NC contact is useful.
     if (!cp || !cn || !com) return null;
-    const coilR = Number(comp.properties.coil_resistance ?? 70);
-    const coilV = Number(comp.properties.coil_voltage ?? 5);
+    const coilR = parseValueWithUnits(comp.properties.coil_resistance, 70);
+    const coilV = parseValueWithUnits(comp.properties.coil_voltage, 5);
     // The contacts follow the voltage ACROSS the coil, not its current. With
     // a fixed R the two are proportional (I = V_coil / R), so a threshold in
     // volts is the same test as one in amps, and it stays right for every
@@ -1322,13 +1368,12 @@ const MAPPERS: Record<string, Mapper> = {
   // The DO (digital threshold) pin is ignored for analog simulation.
   photoresistor: (comp, netLookup) => {
     const lux = Number(comp.properties.lux ?? 500);
-    // `dark` goes through the SPICE suffix convention, where M is MILLI and
-    // mega is `Meg`. A dark resistance below 1k is not a photoresistor — it
-    // is almost always "1M" written meaning 1 megaohm, which parses to
-    // 0.001 ohm and shorts AO straight to VCC. The symptom is nasty because
-    // it looks like the part works: the ADC just reads full scale forever and
-    // the lux control does nothing (every value is still a short). Clamp to
-    // the documented default and say so, rather than emitting a short.
+    // A dark resistance below 1k is not a photoresistor. It used to be "1M"
+    // meaning 1 megaohm, which the SPICE convention read as 1 milliohm and
+    // which shorted AO straight to VCC: the ADC read full scale forever and
+    // the lux control did nothing. The value parser now reads an upper-case
+    // M as mega, but a lower-case "1m" is still a milliohm, so clamp to the
+    // documented default and say so rather than emit a short.
     const darkRaw = parseValueWithUnits(comp.properties.dark, 1_000_000);
     let Rdark = darkRaw;
     if (!(darkRaw >= 1_000)) {
@@ -1336,8 +1381,8 @@ const MAPPERS: Record<string, Mapper> = {
       // eslint-disable-next-line no-console
       console.warn(
         `[spice] ${comp.id}: dark resistance ${JSON.stringify(comp.properties.dark)} ` +
-          `parsed as ${darkRaw} ohm — too low for a photoresistor. SPICE reads M as ` +
-          `milli; write "1Meg" for 1 megaohm. Using 1Meg.`,
+          `reads as ${darkRaw} ohm — too low for a photoresistor (a lower-case m is ` +
+          `milli; write "1M" or "1Meg" for 1 megaohm). Using 1Meg.`,
       );
     }
     const k = Number(comp.properties.k ?? 5);
@@ -1431,6 +1476,31 @@ const proMappers: Record<string, Mapper> = {};
 
 export function registerSpiceMapper(id: string, mapper: Mapper): void {
   proMappers[id] = mapper;
+}
+
+/**
+ * The frequency of the periodic source a part emits (a SIN or a PULSE), in
+ * hertz, or null when it emits none or a DC one. pickDynamicAnalysis sizes
+ * the transient window from it (storeAdapter), so it lives next to the
+ * mappers that decide which source a part emits: a part that starts
+ * emitting a periodic source adds itself here. The power supply in AC mode
+ * was missing: its circuit was solved as .op, at t = 0, where its sine is
+ * 0 V, and every meter read 0 (velxio/velxio-prod#113).
+ */
+const PERIODIC_SOURCES: Readonly<Record<string, (comp: ComponentForSpice) => number | null>> = {
+  'signal-generator': (comp) =>
+    String(comp.properties.waveform ?? 'sine').toLowerCase() === 'dc'
+      ? null
+      : parseValueWithUnits(comp.properties.frequency, 1000),
+  'power-supply': (comp) =>
+    String(comp.properties.mode ?? 'dc').toLowerCase() === 'ac'
+      ? parseValueWithUnits(comp.properties.frequency, 50)
+      : null,
+};
+
+export function periodicSourceHz(comp: ComponentForSpice): number | null {
+  const hz = PERIODIC_SOURCES[comp.metadataId]?.(comp) ?? null;
+  return hz !== null && Number.isFinite(hz) && hz > 0 ? hz : null;
 }
 
 export function componentToSpice(

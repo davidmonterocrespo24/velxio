@@ -433,7 +433,10 @@
       "productPage": "Página do produto",
       "datasheetPage": "Specifications",
       "sensorValues": "Valores do sensor",
-      "sensorValuesHint": "Os valores com que o sensor começa a simulação e aos quais o Reset o devolve. Mover o controle deslizante durante a simulação não os altera."
+      "sensorValuesHint": "Os valores com que o sensor começa a simulação e aos quais o Reset o devolve. Mover o controle deslizante durante a simulação não os altera.",
+      "valueComma": "Use ponto para os decimais (4.7k, não 4,7k).",
+      "valueInvalid": "Não é um valor: escreva, por exemplo, 4.7k, 4k7, 100n ou 1M.",
+      "valueSimulatesAs": "Simulado com"
     },
     "flash": {
       "title": "Gravar {{board}}",

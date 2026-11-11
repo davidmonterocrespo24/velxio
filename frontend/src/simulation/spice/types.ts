@@ -70,7 +70,14 @@ export type PinSourceState =
 /** Electrical analyses the solver can perform. */
 export type AnalysisMode =
   | { kind: 'op' }
-  | { kind: 'tran'; step: string; stop: string }
+  | {
+      kind: 'tran';
+      step: string;
+      stop: string;
+      /** Period (s) of the slowest periodic source, when the window was sized
+       *  from one: meters average over whole periods of it (waveformStats). */
+      period?: number;
+    }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 
 /** Everything the NetlistBuilder needs to emit a netlist. */
@@ -98,6 +105,13 @@ export interface TimeWaveforms {
   nodes: Map<string, number[]>;
   /** Voltage-source name → current samples aligned with `time`. */
   branches: Map<string, number[]>;
+  /**
+   * Period (s) of the slowest periodic source the window was sized from
+   * (a generator, a supply in AC mode), absent for a step response or a
+   * scope's window on a DC circuit. Readers average over whole periods of it
+   * (readSpan).
+   */
+  period?: number;
 }
 
 /** Cooked solve results exposed to UI layers. */

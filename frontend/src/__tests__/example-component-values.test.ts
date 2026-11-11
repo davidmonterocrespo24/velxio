@@ -1,22 +1,22 @@
 /**
  * Audit every component value shipped in the gallery examples.
  *
- * Component values go through `parseValueWithUnits`, which follows the SPICE
- * suffix convention. Two of its rules routinely trip up whoever authors an
- * example, because both produce a *silently* wrong circuit rather than an
- * error:
+ * Component values go through `parseValueWithUnits` (valueParser.ts). Its old
+ * SPICE rules used to trip up whoever authored an example, because both
+ * produced a *silently* wrong circuit rather than an error:
  *
- *   - `M` is MILLI, not mega. `"1M"` is 0.001, and mega is `"1Meg"`.
- *     100d-auto-night-light shipped `dark: "1M"` for a photoresistor: the
- *     0.001 ohm "dark resistance" shorted the ADC node to VCC, so the sketch
- *     read 4095 forever and its lux control did nothing.
- *   - `F` is FEMTO, and is deliberately NOT stripped as a unit letter, so
- *     `"10uF"` parses as `10 * 1e-15` — nine orders of magnitude off the
- *     10 microfarads the author meant. Write `"10u"`.
+ *   - `M` was MILLI. 100d-auto-night-light shipped `dark: "1M"` for a
+ *     photoresistor: the 0.001 ohm "dark resistance" shorted the ADC node to
+ *     VCC, so the sketch read 4095 forever and its lux control did nothing.
+ *   - `"10uF"` ended in an f and was read as `10 * 1e-15`.
  *
- * A wrong value here is invisible: the netlist builds, ngspice converges, the
- * part renders, and the example just quietly misbehaves. So assert the parsed
- * numbers land inside physically sane ranges for their component class.
+ * Since velxio/velxio-prod#101 and #105 an upper-case M is mega (a lower-case
+ * m is still milli) and the unit letters after the scale factor are ignored,
+ * so both now mean what they say. A lower-case `"1m"` meant as a megaohm, or
+ * a value in the wrong unit, is still invisible: the netlist builds, ngspice
+ * converges, the part renders, and the example just quietly misbehaves. So
+ * assert the parsed numbers land inside physically sane ranges for their
+ * component class.
  */
 import { describe, it, expect } from 'vitest';
 import { exampleProjects } from '../data/examples';
@@ -91,7 +91,7 @@ describe('gallery example component values', () => {
         (o) =>
           `${o.example} / ${o.componentId} (${o.metadataId}).${o.prop} = ` +
           `${JSON.stringify(o.raw)} -> ${o.parsed} — ${o.what} out of range. ` +
-          `Remember: SPICE M = milli (use "Meg"), F = femto (drop the F).`,
+          `Remember: an upper-case M is mega and a lower-case m is milli.`,
       )
       .join('\n');
     expect(report).toBe('');
