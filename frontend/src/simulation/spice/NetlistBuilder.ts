@@ -18,6 +18,7 @@
  *  10. `.end`.
  */
 import { UnionFind } from './unionFind';
+import { parseValueWithUnits } from './valueParser';
 import { componentToSpice } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
@@ -155,6 +156,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // Aux rails actually referenced by this circuit: net name → volts. Used to
   // emit one ideal source per aux rail in step 6.
   const auxRailVolts = new Map<string, number>();
+  // Aux rails above their board's logic rail: VIN / 5V / VBUS / VSYS of a
+  // 3.3 V board, the side the board takes its power in on (step 6).
+  const inputRails = new Set<string>();
   for (const board of boards) {
     const auxNet = board.auxVolts !== undefined ? auxRailNetName(board.auxVolts) : null;
     const auxPins = new Set(auxNet ? (board.auxPinNames ?? []) : []);
@@ -166,6 +170,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
     if (auxNet) {
       auxRailVolts.set(auxNet, board.auxVolts!);
+      if (board.auxVolts! > board.vcc) inputRails.add(auxNet);
       for (const pinName of auxPins) {
         uf.setCanonical(pinKey(board.id, pinName), auxNet);
       }
@@ -245,12 +250,15 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // below. Deliberately NOT populated from the step-7 auto-pull-down cards,
   // since those mark FLOATING nets.
   const sourcedNets = new Set<string>(['0', 'vcc_rail', ...auxRailVolts.keys()]);
+  // Parts that declare nets they power, with their own cards (step 6).
+  const powering: Array<{ supplies: readonly string[]; cards: readonly string[] }> = [];
 
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
     const emission = componentToSpice(comp, localLookup, { vcc: dominantVcc });
     if (!emission) continue;
     cards.push(...emission.cards);
+    if (emission.supplies?.length) powering.push({ supplies: emission.supplies, cards: emission.cards });
     for (const m of emission.modelsUsed) modelLines.add(m);
     // Every net this component connects to now has a real SPICE element on it.
     for (const pinName of pinsReferencedByWires(comp.id, wires)) {
@@ -320,9 +328,46 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // One ideal source per referenced aux rail, at ITS voltage — so a VIN/5V
   // pin on a 3.3 V board solves at 5 V instead of being clamped to the main
   // rail, and vice versa on 5 V Arduinos' 3.3 V pin.
+  //
+  // Except a board's power INPUT that a part powers. VIN / 5V of a 3.3 V
+  // board is where the board takes power in: its USB 5 V arrives there
+  // through a Schottky diode (the Pico's VBUS -> VSYS, a DevKit's VIN), and a
+  // supply, a battery or a regulator wired there with its return on the
+  // board's GND feeds the same pin. The higher of the two powers the board.
+  // As an ideal 5 V source the rail fought the part instead: a 9 V supply on
+  // an ESP32's VIN read 5 V and sat at its current limit, which blocked Run
+  // whatever the limit (velxio/velxio-prod#96). So there the board's 5 V is
+  // emitted behind that diode: a part above it powers the pin at its own
+  // voltage, one below it is held off and back-driven, which the circuit
+  // check names. The board's logic rail (3V3) and a 5 V board's 3.3 V pin are
+  // its regulators' outputs and keep their ideal source, and so does an input
+  // wired to one: an ESP32-CAM's 5V and an Uno's 5V on one breadboard rail
+  // are a single net, and a 9 V battery there back-feeds the Uno's regulator.
+  for (const board of boards) {
+    const auxIsOutput = board.auxVolts !== undefined && board.auxVolts <= board.vcc;
+    const auxPins = new Set(board.auxVolts !== undefined ? (board.auxPinNames ?? []) : []);
+    const outputs = [
+      ...(board.vccPinNames ?? []),
+      ...(auxIsOutput ? auxPins : []),
+      // The pins step 2 puts on the logic rail by their name.
+      ...pinsReferencedByWires(board.id, wires).filter((p) => !auxPins.has(p) && VCC_PIN_RE.test(p)),
+    ];
+    for (const pin of outputs) {
+      const key = pinKey(board.id, pin);
+      if (uf.has(key)) inputRails.delete(uf.find(key));
+    }
+  }
+  const powered = poweredInputRails(inputRails, powering, cards);
   for (const [auxNet, volts] of auxRailVolts) {
-    if (hasNet(netNames, auxNet)) {
-      cards.unshift(`V_${auxNet.toUpperCase()} ${auxNet} 0 DC ${volts}`);
+    if (!hasNet(netNames, auxNet)) continue;
+    const name = `V_${auxNet.toUpperCase()}`;
+    if (powered.has(auxNet)) {
+      const own = `board_${auxNet}`;
+      cards.unshift(`D_${auxNet.toUpperCase()} ${own} ${auxNet} ${BOARD_INPUT_DIODE}`);
+      cards.unshift(`${name} ${own} 0 DC ${volts}`);
+      modelLines.add(BOARD_INPUT_DIODE_MODEL);
+    } else {
+      cards.unshift(`${name} ${auxNet} 0 DC ${volts}`);
     }
   }
 
@@ -574,6 +619,84 @@ function suppliedRoots(
   }
   const out = new Set<string>();
   for (const [root, t] of tokenOfRoot) if (reached.has(t)) out.add(root);
+  return out;
+}
+
+/** Card letters that tie their first two nodes together, for poweredInputRails. */
+const HOLDING_CARD = /^[RLVBEH]$/;
+
+/**
+ * The diode a board's USB 5 V reaches its VIN / 5V pin through, when a part
+ * powers that pin too: a 1 A Schottky of the kind dev boards fit (SS14,
+ * B5819W, MBR120), 0.32 V at 0.1 A and 0.48 V at 1 A, 1 µA backwards.
+ */
+const BOARD_INPUT_DIODE = 'D_BOARD_INPUT';
+const BOARD_INPUT_DIODE_MODEL = `.model ${BOARD_INPUT_DIODE} D(Is=1e-6 N=1.05 Rs=0.1)`;
+
+/**
+ * A series resistance this small is a connection, not a load: the netlist's
+ * own closed switch contacts and button legs are 10 mΩ, an ammeter's shunt
+ * 1 mΩ. Under 10 mV at 1 A, less than a bench supply's own output resistance.
+ */
+const CONNECTION_OHMS = 0.01;
+
+/**
+ * Node pairs a netlist joins with no voltage or load of its own: a 0 V sense
+ * source (an ammeter's, an LED's, a regulator's), or a resistance of at most
+ * CONNECTION_OHMS (a closed switch, an ammeter's shunt, a 1 cm wire). Takes
+ * card lines; anything else (comments, models, directives) is skipped.
+ */
+export function connectionPairs(lines: readonly string[]): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const line of lines) {
+    const t = line.trim().split(/\s+/);
+    if (t.length < 4) continue;
+    const kind = (t[0] ?? '').charAt(0).toUpperCase();
+    const value = t.slice(3).join(' ');
+    if (kind === 'V' && ZERO_VOLTS.test(value)) out.push([t[1]!, t[2]!]);
+    else if (kind === 'R' && t.length === 4 && Math.abs(parseValueWithUnits(t[3], Infinity)) <= CONNECTION_OHMS) {
+      out.push([t[1]!, t[2]!]);
+    }
+  }
+  return out;
+}
+
+/**
+ * The input rails (VIN / 5V of a 3.3 V board) that a part powers: the part
+ * declares a net it supplies (a battery's or a bench supply's +, a
+ * generator's output, a regulator's VOUT) that is the rail or connected to it
+ * (connectionPairs: an ammeter, a closed switch), and its own cards hold that
+ * net against ground through the same kind of connections. A part whose
+ * return does not reach ground that way, through a resistor say, does not
+ * hold the pin against the board, which keeps its own rail there; nor does
+ * one behind an open switch.
+ */
+function poweredInputRails(
+  inputRails: ReadonlySet<string>,
+  powering: ReadonlyArray<{ supplies: readonly string[]; cards: readonly string[] }>,
+  cards: readonly string[],
+): Set<string> {
+  const out = new Set<string>();
+  if (inputRails.size === 0 || powering.length === 0) return out;
+  const fields = (card: string) => card.trim().split(/\s+/);
+  const connections = connectionPairs(cards);
+  for (const part of powering) {
+    const uf = new UnionFind();
+    for (const [a, b] of connections) uf.union(a, b);
+    for (const card of part.cards) {
+      const t = fields(card);
+      const kind = (t[0] ?? '').charAt(0).toUpperCase();
+      if (!HOLDING_CARD.test(kind) || t.length < 3) continue;
+      // A behavioural source written as a current (I = ...) holds no voltage.
+      if (kind === 'B' && !/^v\s*=/i.test(t.slice(3).join(' '))) continue;
+      uf.union(t[1]!, t[2]!);
+    }
+    const ground = uf.find('0');
+    for (const rail of inputRails) {
+      if (out.has(rail) || uf.find(rail) !== ground) continue;
+      if (part.supplies.some((net) => uf.find(net) === uf.find(rail))) out.add(rail);
+    }
+  }
   return out;
 }
 

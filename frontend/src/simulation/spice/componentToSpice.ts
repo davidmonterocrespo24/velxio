@@ -694,8 +694,10 @@ const MAPPERS: Record<string, Mapper> = {
   // right behind the sense would count as an ideal source across the
   // supply's terminals and make a supply wired to a board's 5V pin, or in
   // parallel with another supply, a "source conflict". Through 10 mΩ it is
-  // none: two supplies in parallel share the load, and one wired onto a
-  // rail runs at its limit, which the check reports as an overload.
+  // none: two supplies in parallel share the load. One wired onto a board
+  // rail at another voltage runs at its limit, which the check names as a
+  // fight with the rail, not an overload; on a 3.3 V board's VIN / 5V it
+  // powers the board (NetlistBuilder, poweredInputRails).
   //
   // Known artefact: under the trapezoidal integration every Velxio deck
   // runs, the supply's current can ring for a few dozen steps after a

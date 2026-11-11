@@ -22,7 +22,7 @@
  * single solver-error warning and the rest of the rules are skipped.
  */
 import { lineGaps } from '../line/requestLine';
-import { GROUND_PIN_RE, buildNetlist, sanitizeSpiceId } from '../spice/NetlistBuilder';
+import { GROUND_PIN_RE, buildNetlist, connectionPairs, sanitizeSpiceId } from '../spice/NetlistBuilder';
 import { MIN_SUPPLY_LIMIT_A } from '../spice/componentToSpice';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
@@ -42,6 +42,7 @@ export type WarningCode =
   | 'unstable-solve'
   | 'short-circuit'
   | 'source-overload'
+  | 'supply-on-rail'
   | 'led-overcurrent'
   | 'over-voltage'
   | 'reverse-polarity'
@@ -938,6 +939,15 @@ export async function verifyCircuit(
   // current, so a supply asked for more sits AT the limit: the reading is
   // the limit plus a hair (setpoint / gain), or a hair under it from the
   // solver's tolerance. Flag it from 0.1 % under the limit (#96).
+  //
+  // A supply wired straight onto a board pin that the board's own ideal
+  // source holds (its 3V3 regulator output, a 5 V board's 3.3 V pin) is at
+  // its limit for another reason: the two sources fight over the pin, and
+  // the limit says nothing about the load. That one is named as what it is,
+  // a warning, not an overload (supplyOnRailWarning). A supply wired into a
+  // 3.3 V board's VIN / 5V powers the board and meets no rail there
+  // (NetlistBuilder, poweredInputRails).
+  const rails = boardRailsOf(netlist);
   const sourceComponents = input.components.filter((c) =>
     /^(battery|signal-generator|power-supply)/.test(c.metadataId),
   );
@@ -962,6 +972,13 @@ export async function verifyCircuit(
       ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
     if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
+      const onRail = isPsu
+        ? supplyOnRailWarning(src, threshold, branchCurrents[`v_${src.id}`] ?? 0, rails, pinNetMap, input)
+        : null;
+      if (onRail) {
+        warnings.push(onRail);
+        continue;
+      }
       errors.push({
         severity: 'error',
         code: isPsu ? 'source-overload' : 'short-circuit',
@@ -1275,6 +1292,145 @@ function parseSourceCards(netlist: string): SourceCard[] {
     raw.push({ name: m[1]!, a: m[2]!, b: m[3]! });
   }
   return raw.map((c) => ({ name: c.name, a: find(c.a), b: find(c.b) }));
+}
+
+/** The board rails a netlist holds with a source of the board's own, by net. */
+interface BoardRails {
+  /** The net a node sits on once connections are taken as wires. */
+  fold: (net: string) => string;
+  /**
+   * Folded net -> the rail's volts, and whether it is a power input the board
+   * feeds through its USB diode (NetlistBuilder): a part above it powers the
+   * pin, one below it is held off. Otherwise the rail is a regulator's output,
+   * an ideal source either way.
+   */
+  rails: Map<string, { volts: number; input: boolean }>;
+}
+
+/**
+ * The nets the board's own rail sources hold (V_VCC_RAIL, V_AUX_RAIL_*, the
+ * latter behind its D_AUX_RAIL_* diode where a part powers that input), with
+ * connections taken as wires (connectionPairs: sense sources, closed
+ * switches, an ammeter's shunt), so a supply behind an ammeter on a rail is
+ * on that rail.
+ */
+function boardRailsOf(netlist: string): BoardRails {
+  const lines = netlist.split('\n').map((l) => l.trim());
+  const uf = new UnionFind();
+  for (const [a, b] of connectionPairs(lines)) uf.union(a, b);
+  // The board side of a diode-fed input -> the pin it feeds.
+  const through = new Map<string, string>();
+  for (const line of lines) {
+    const diode = /^D_AUX_RAIL_\S+\s+(\S+)\s+(\S+)\s/i.exec(line);
+    if (diode) through.set(diode[1]!, diode[2]!);
+  }
+  const rails = new Map<string, { volts: number; input: boolean }>();
+  for (const line of lines) {
+    const rail = /^V_(?:VCC_RAIL|AUX_RAIL_\S+)\s+(\S+)\s+0\s+DC\s+(\S+)$/i.exec(line);
+    if (!rail || !Number.isFinite(Number(rail[2]))) continue;
+    const pin = through.get(rail[1]!);
+    rails.set(uf.find(pin ?? rail[1]!), { volts: Number(rail[2]), input: pin !== undefined });
+  }
+  return { fold: (net) => uf.find(net), rails };
+}
+
+/**
+ * The warning for a power supply that sits at its limit because a board's own
+ * rail holds the pin it is wired to, or null when no rail does, or when the
+ * limit is a real overload. On hardware the higher of the two drives the pin:
+ * - on a regulator's output (a board's 3V3, a 5 V board's 3.3 V pin), a supply
+ *   above it back-feeds the regulator (and past the pin's rated maximum it
+ *   would harm the board, which the message says), and one below it is held
+ *   off and delivers nothing, since a bench supply cannot sink current. The
+ *   netlist keeps the board's ideal rail, so the supply's own current is the
+ *   fight, not a load.
+ * - on a 3.3 V board's power input (VIN / 5V), a supply above the board's
+ *   USB 5 V powers the board (NetlistBuilder feeds that 5 V through its
+ *   diode), so at its limit its load really asks for more: an overload. One
+ *   below it is held off by the USB 5 V, the same as above.
+ * (velxio/velxio-prod#96)
+ */
+function supplyOnRailWarning(
+  src: BuildNetlistInput['components'][number],
+  limit: number,
+  current: number,
+  rails: BoardRails,
+  pinNetMap: ReadonlyMap<string, string>,
+  input: BuildNetlistInput,
+): CircuitWarning | null {
+  const netOfPin = (...pins: string[]) => {
+    for (const p of pins) {
+      const n = pinNetMap.get(`${src.id}:${p}`);
+      if (n !== undefined) return rails.fold(n);
+    }
+    return undefined;
+  };
+  const pos = netOfPin('+', 'SIG', 'VCC');
+  const neg = netOfPin('−', '-', 'GND');
+  const onPos = pos !== undefined && rails.rails.has(pos);
+  const railNet = onPos ? pos : neg !== undefined && rails.rails.has(neg) ? neg : undefined;
+  if (railNet === undefined) return null;
+  const rail = rails.rails.get(railNet)!;
+  const set = readValueField(src, 'voltage');
+  const ac = String(src.properties.mode ?? 'dc').toLowerCase() === 'ac';
+  // Delivering current in the direction of its own setting.
+  const sourcing = current * (set < 0 ? -1 : 1) > 0;
+  if (rail.input && sourcing) return null;
+  const v = (x: number) => formatQuantity(x, 'V');
+  const holder = rail.input
+    ? `where the board's own ${v(rail.volts)} arrives through its USB diode`
+    : `which the board's own supply holds at ${v(rail.volts)}`;
+
+  // Which board pin the supply meets the rail at, as the person wired it.
+  let where = `a supply rail the simulator holds at ${v(rail.volts)}`;
+  let inputHint = '';
+  let absMax: number | undefined;
+  findPin: for (const board of input.boards) {
+    for (const wire of input.wires) {
+      for (const end of [wire.start, wire.end]) {
+        if (end.componentId !== board.id) continue;
+        const net = pinNetMap.get(`${board.id}:${end.pinName}`);
+        if (net === undefined || rails.fold(net) !== railNet) continue;
+        where = `the ${end.pinName} pin of ${board.id}, ${holder}`;
+        absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === end.pinName)?.absMaxVoltage;
+        // A 3.3 V board takes power in on its VIN / 5V side.
+        if (!rail.input && board.auxVolts !== undefined && board.auxVolts > board.vcc && board.auxPinNames?.length) {
+          const pins = board.auxPinNames.filter((p) => !/\.\d+$/.test(p));
+          inputHint = `, or wire it to ${board.id}'s ${pins.join(' or ')} pin, where it powers the board`;
+        }
+        break findPin;
+      }
+    }
+  }
+
+  const reading =
+    `in the simulation the board's ${v(rail.volts)} holds the pin and the supply sits at its ` +
+    `${formatQuantity(limit, 'A')} current limit, so its own current reading means nothing`;
+  let message: string;
+  if (ac || !onPos) {
+    message = `Power supply ${src.id} is wired to ${where}: the two fight over that pin, and ${reading}.`;
+  } else if (sourcing) {
+    // The board over-voltage check sees only a supply wired straight to the
+    // pin; through a breadboard rail this is the one place that says it.
+    const harm =
+      absMax !== undefined && Math.abs(set) > absMax
+        ? `, above its ${v(absMax)} maximum, which would likely damage the board`
+        : '';
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where}. On hardware it would back-feed that ` +
+      `rail and lift the pin to ${v(set)}${harm}; ${reading}. Set it to ${v(rail.volts)}${inputHint}.`;
+  } else if (rail.input) {
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where} and holds the pin above that. ` +
+      `A bench supply cannot sink current, so on hardware it would deliver nothing while the board has ` +
+      `USB power; ${reading}. Set it above ${v(rail.volts)} to power the board from it, or remove it.`;
+  } else {
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where}, above its setting. A bench supply ` +
+      `cannot sink current, so on hardware it would deliver nothing there; ${reading}. ` +
+      `Set it to ${v(rail.volts)}, or remove it.`;
+  }
+  return { severity: 'warning', code: 'supply-on-rail', componentId: src.id, message };
 }
 
 /** The sorted node-pair key findSourceConflicts groups ideal sources by. */
