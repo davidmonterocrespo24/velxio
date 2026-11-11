@@ -202,6 +202,48 @@
           ]
         },
         {
+          "why": "ACMD13 returns the SD Status: ESP-IDF v5 reads it right after the SCR and fails the mount when its block never comes (velxio/velxio-prod#76)",
+          "mosi": [
+            "770000000065"
+          ],
+          "clock": 4,
+          "expect": [
+            {
+              "at": 7,
+              "is": "00"
+            }
+          ]
+        },
+        {
+          "why": "R2 (R1, then a status byte with no error bit), then the register as a 64-byte data block, the CRC placeholder after it",
+          "mosi": [
+            "4d000000000d"
+          ],
+          "clock": 72,
+          "expect": [
+            {
+              "at": 7,
+              "is": "0000"
+            },
+            {
+              "at": 9,
+              "is": "fe"
+            },
+            {
+              "at": 10,
+              "is": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            {
+              "at": 74,
+              "is": "ffff"
+            },
+            {
+              "at": 76,
+              "is": "ffff"
+            }
+          ]
+        },
+        {
           "why": "CMD17 with a BYTE address reads sector 3: start token, 512 bytes, then the CRC placeholder with CRC off",
           "mosi": [
             "510000060021"

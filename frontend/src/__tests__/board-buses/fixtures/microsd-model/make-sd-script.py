@@ -75,6 +75,38 @@ def scr() -> str:
     return "0235" + "00" * 6
 
 
+def sd_status() -> str:
+    """SD Status (4.10.2, Table 4-44), 512 bits MSB first, as ACMD13's data
+    block carries it. The card claims nothing, so every field holds the spec's
+    "none" or "not defined" value: DAT_BUS_WIDTH [511:510] 00 (1 bit, SPI mode),
+    SECURED_MODE 0, SD_CARD_TYPE [495:480] 0000h (regular RD/WR), no protected
+    area, SPEED_CLASS 0 and PERFORMANCE_MOVE 0, AU_SIZE [431:428] 0 (not
+    defined), ERASE_SIZE / ERASE_TIMEOUT / ERASE_OFFSET 0 (erase time-out
+    calculation not supported), no UHS, video or application class, no
+    SUS_ADDR, PERFORMANCE_ENHANCE 0, DISCARD_SUPPORT [313] and FULE_SUPPORT
+    [312] 0, reserved and manufacturer bits 0. ESP-IDF v5 reads it for every SD
+    card after the SCR (sdmmc_init_sd_ssr); Arduino SD.h never asks."""
+    fields = {
+        # name: (msb, width, value)
+        "DAT_BUS_WIDTH": (511, 2, 0b00),
+        "SECURED_MODE": (509, 1, 0),
+        "SD_CARD_TYPE": (495, 16, 0x0000),
+        "SIZE_OF_PROTECTED_AREA": (479, 32, 0),
+        "SPEED_CLASS": (447, 8, 0),
+        "PERFORMANCE_MOVE": (439, 8, 0),
+        "AU_SIZE": (431, 4, 0),
+        "ERASE_SIZE": (423, 16, 0),
+        "ERASE_TIMEOUT": (407, 6, 0),
+        "ERASE_OFFSET": (401, 2, 0),
+        "DISCARD_SUPPORT": (313, 1, 0),
+        "FULE_SUPPORT": (312, 1, 0),
+    }
+    reg = 0
+    for msb, width, value in fields.values():
+        reg |= value << (msb - width + 1)
+    return reg.to_bytes(64, "big").hex()
+
+
 def cmd(index: int, arg: int = 0) -> str:
     """A six-byte command frame: 0b01 + index, the 32-bit argument, CRC7 + stop."""
     frame = bytes([0x40 | index,
@@ -186,6 +218,17 @@ def sdsc_steps() -> list:
          "mosi": [cmd(51)], "clock": 16,
          "expect": [{"at": 7, "is": "00"}, {"at": 8, "is": "fe"},
                     {"at": 9, "is": scr()}]},
+
+        {"why": "ACMD13 returns the SD Status: ESP-IDF v5 reads it right "
+                "after the SCR and fails the mount when its block never comes "
+                "(velxio/velxio-prod#76)",
+         "mosi": [cmd(55)], "clock": 4, "expect": [{"at": 7, "is": "00"}]},
+        {"why": "R2 (R1, then a status byte with no error bit), then the "
+                "register as a 64-byte data block, the CRC placeholder after it",
+         "mosi": [cmd(13)], "clock": 72,
+         "expect": [{"at": 7, "is": "0000"}, {"at": 9, "is": "fe"},
+                    {"at": 10, "is": sd_status()},
+                    {"at": 74, "is": "ffff"}, {"at": 76, "is": "ffff"}]},
 
         {"why": f"CMD17 with a BYTE address reads sector {READ_SECTOR}: start "
                 "token, 512 bytes, then the CRC placeholder with CRC off",
