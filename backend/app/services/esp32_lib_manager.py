@@ -37,7 +37,9 @@ Events emitted via callback(event_type, data):
 """
 import asyncio
 import base64
+import contextlib
 import dataclasses
+import itertools
 import json
 import time
 import logging
@@ -215,6 +217,18 @@ class EspLibManager:
     def __init__(self):
         self._instances: dict[str, _WorkerInstance] = {}
         self._instances_lock = threading.Lock()
+        # Starts and stops of one client run one at a time. A start awaits
+        # between stopping the client's old worker and registering the new
+        # one, so two that overlapped each launched a worker and the table
+        # kept only the last: the other ran on with nothing left to stop it.
+        # client_id -> [lock, number of callers holding or waiting for it]
+        self._client_locks: dict[str, list] = {}
+        # The latest start, stop or reload asked for each client. A reload
+        # starts its worker later; when a stop (the socket closing) or another
+        # start came in meanwhile, the reload is dropped instead of launching
+        # a worker after the client is gone.
+        self._latest: dict[str, int] = {}
+        self._requests = itertools.count(1)
 
     # ── Availability ──────────────────────────────────────────────────────────
 
@@ -236,6 +250,36 @@ class EspLibManager:
         with self._instances_lock:
             return self._instances.get(client_id)
 
+    def client_ids(self) -> list[str]:
+        """Clients that hold a worker (esp32_qemu_access counts them)."""
+        with self._instances_lock:
+            return list(self._instances)
+
+    @contextlib.asynccontextmanager
+    async def _one_at_a_time(self, client_id: str):
+        """Hold this client's start/stop lock. The entry is dropped once
+        nobody holds or waits for it, so the table does not grow with every
+        client id ever seen."""
+        entry = self._client_locks.get(client_id)
+        if entry is None:
+            entry = self._client_locks[client_id] = [asyncio.Lock(), 0]
+        entry[1] += 1
+        try:
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0 and self._client_locks.get(client_id) is entry:
+                del self._client_locks[client_id]
+
+    def _new_request(self, client_id: str) -> int:
+        request = next(self._requests)
+        self._latest[client_id] = request
+        return request
+
+    def _superseded(self, client_id: str, request: int) -> bool:
+        return self._latest.get(client_id) != request
+
     async def start_instance(
         self,
         client_id:    str,
@@ -246,11 +290,35 @@ class EspLibManager:
         wifi_enabled: bool = False,
         wifi_hostfwd_port: int = 0,
         bus_map: dict | None = None,
+        *,
+        _request: int | None = None,
+    ) -> None:
+        # `_request` is a reload's ticket (load_firmware); any other start is
+        # the client's latest request by definition.
+        request = self._new_request(client_id) if _request is None else _request
+        async with self._one_at_a_time(client_id):
+            if self._superseded(client_id, request):
+                logger.info('start_instance %s: a later start or stop replaced it', client_id)
+                return
+            await self._start_locked(client_id, request, board_type, callback, firmware_b64,
+                                     sensors, wifi_enabled, wifi_hostfwd_port, bus_map)
+
+    async def _start_locked(
+        self,
+        client_id:    str,
+        request:      int,
+        board_type:   str,
+        callback:     EventCallback,
+        firmware_b64: str | None,
+        sensors:      list | None,
+        wifi_enabled: bool,
+        wifi_hostfwd_port: int,
+        bus_map: dict | None,
     ) -> None:
         # Stop any existing instance for this client_id first
         if client_id in self._instances:
             logger.info('start_instance: %s already running — stopping first', client_id)
-            await self.stop_instance(client_id)
+            await self._stop_locked(client_id)
 
         if not firmware_b64:
             logger.info('start_instance %s: no firmware — skipping worker launch', client_id)
@@ -277,6 +345,12 @@ class EspLibManager:
             await callback('system', {'event': 'booting'})
         except Exception as exc:
             logger.warning('start_instance %s: booting event delivery failed: %s', client_id, exc)
+
+        if self._superseded(client_id, request):
+            # The socket closed (or a newer start came in) while the booting
+            # event was on its way: launch nothing.
+            logger.info('start_instance %s: replaced before launch', client_id)
+            return
 
         try:
             proc = subprocess.Popen(
@@ -335,6 +409,15 @@ class EspLibManager:
         t_err.start()
 
     async def stop_instance(self, client_id: str) -> None:
+        request = self._new_request(client_id)
+        async with self._one_at_a_time(client_id):
+            await self._stop_locked(client_id)
+            # Nothing newer is pending for this client: forget it.
+            if (self._latest.get(client_id) == request
+                    and self._client_locks.get(client_id, [None, 0])[1] <= 1):
+                self._latest.pop(client_id, None)
+
+    async def _stop_locked(self, client_id: str) -> None:
         with self._instances_lock:
             inst = self._instances.pop(client_id, None)
         if not inst:
@@ -368,7 +451,13 @@ class EspLibManager:
         logger.info('WorkerInstance %s shut down', client_id)
 
     def load_firmware(self, client_id: str, firmware_b64: str) -> None:
-        """Hot-reload firmware: stop the current worker and start a fresh one."""
+        """Hot-reload firmware: replace the client's worker with a fresh one.
+
+        Only a client that holds a worker reloads, and the new worker takes
+        that worker's place: the old one is stopped under the client's lock
+        before the new one launches, and the slot stays reserved in between
+        so the caps of esp32_qemu_access keep counting it. Of several reloads
+        in a row only the last runs, and none runs once the client stopped."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if not inst:
@@ -376,11 +465,18 @@ class EspLibManager:
             return
         board_type = inst.board_type
         callback   = inst.callback
+        request    = self._new_request(client_id)
+
+        from app.services import esp32_qemu_access
+        esp32_qemu_access.hold(client_id)
 
         async def _restart() -> None:
-            await self.stop_instance(client_id)
-            await asyncio.sleep(0.1)
-            await self.start_instance(client_id, board_type, callback, firmware_b64)
+            try:
+                await asyncio.sleep(0.1)
+                await self.start_instance(client_id, board_type, callback, firmware_b64,
+                                          _request=request)
+            finally:
+                esp32_qemu_access.release(client_id)
 
         asyncio.ensure_future(_restart())
 

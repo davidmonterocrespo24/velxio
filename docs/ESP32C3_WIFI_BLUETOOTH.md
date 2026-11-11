@@ -59,7 +59,7 @@ El ESP32-C3 (RISC-V) comparte la misma infraestructura de emulación WiFi/BLE qu
 │  simulation.py → esp32_worker.py                         │
 │    → qemu-system-riscv32 -M esp32c3-picsimlab            │
 │    → -nic user,model=esp32c3_wifi,net=192.168.4.0/24    │
-│    → hostfwd=tcp::{port}-192.168.4.15:80                 │
+│    → hostfwd=tcp:127.0.0.1:{port}-192.168.4.15:80        │
 │                    │                                     │
 │  wifi_status_parser.py (same ESP-IDF log format)         │
 │  iot_gateway.py (board-agnostic proxy)                   │

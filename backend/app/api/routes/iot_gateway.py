@@ -384,17 +384,42 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
     )
 
 
+# The request headers a board's web server is given. The rest of what the
+# browser sent (the visitor's cookies, our own proxies' headers, the CDN's)
+# belongs to velxio's side of the gateway: the board runs whatever firmware
+# its owner wrote, and the visitor who follows a gateway link may be someone
+# else. These cover what sketches read: forms and JSON bodies, content
+# negotiation, conditional and ranged requests, and HTTP authentication.
+_BOARD_REQUEST_HEADERS = frozenset({
+    'accept',
+    'accept-language',
+    'authorization',
+    'cache-control',
+    'content-type',
+    'if-match',
+    'if-modified-since',
+    'if-none-match',
+    'if-range',
+    'if-unmodified-since',
+    'range',
+    'user-agent',
+    'x-requested-with',
+})
+
+
+def board_request_headers(request: Request) -> dict[str, str]:
+    """The headers of `request` that are passed on to the board."""
+    return {
+        k: v for k, v in request.headers.items()
+        if k.lower() in _BOARD_REQUEST_HEADERS
+    }
+
+
 async def _proxy_esp32(inst, path: str, request: Request) -> Response:
     """Reverse-proxy to an ESP32 web server via QEMU slirp hostfwd."""
     target_url = f'http://127.0.0.1:{inst.wifi_hostfwd_port}/{path}'
     body = await request.body()
-
-    # Forward relevant headers (skip hop-by-hop)
-    skip_headers = {'host', 'transfer-encoding', 'connection'}
-    headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in skip_headers
-    }
+    headers = board_request_headers(request)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
