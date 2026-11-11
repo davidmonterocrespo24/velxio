@@ -35,7 +35,7 @@ const RANGES: Array<{
   { match: (m) => m === 'potentiometer', prop: 'value', min: 10, max: 1e7, what: 'pot resistance (ohm)' },
   // LDR dark resistance: real parts sit between ~10k and ~20M.
   { match: (m) => m === 'photoresistor' || m === 'photoresistor-sensor', prop: 'dark', min: 1e3, max: 1e8, what: 'LDR dark resistance (ohm)' },
-  { match: (m) => m === 'photoresistor' || m === 'photoresistor-sensor', prop: 'pullup', min: 100, max: 1e7, what: 'LDR pull-down (ohm)' },
+  { match: (m) => m === 'photoresistor' || m === 'photoresistor-sensor', prop: 'pullup', min: 100, max: 1e7, what: 'LDR module pull-up (ohm)' },
   // Capacitors: 1 pF .. 1 F covers everything from RF trimmers to supercaps.
   { match: (m) => m === 'capacitor' || m === 'capacitor-electrolytic' || m.startsWith('capacitor-'), prop: 'value', min: 1e-12, max: 1, what: 'capacitance (F)' },
   // Inductors: 1 nH .. 10 H.

@@ -348,14 +348,16 @@ ldr.atten(ADC.ATTN_11DB)  # full range 0-3.3V
 # Initialize LED on GPIO2
 led = Pin(2, Pin.OUT)
 
-# Threshold for turning LED on/off
-threshold = 500
+# Threshold for turning LED on/off. The LDR module's AO rises as the light
+# falls (its LDR sits between AO and GND under a 10k resistor), so darkness
+# reads HIGH: 4095 in the dark, about 1800 at 25 lux, 400-600 in a lit room.
+threshold = 1800
 
 while True:
     light = ldr.read()       # Read LDR value
     print(light)
     
-    if light < threshold:    # It's dark
+    if light > threshold:    # It's dark
         led.on()             # Turn LED ON
     else:                    # It's bright
         led.off()            # Turn LED OFF
@@ -364,7 +366,7 @@ while True:
 ` },
     ],
     code: '',
-    components: [{"type": "wokwi-photoresistor-sensor", "id": "night-ldr", "x": 430, "y": 300, "properties": {"lux": 400, "dark": "1Meg", "k": 20, "pullup": "100k"}}, {"type": "wokwi-resistor", "id": "night-r1", "x": 620, "y": 40, "properties": {"value": "220"}}, {"type": "wokwi-led", "id": "night-led1", "x": 620, "y": 140, "properties": {"color": "yellow", "label": "LAMP"}}],
+    components: [{"type": "wokwi-photoresistor-sensor", "id": "night-ldr", "x": 430, "y": 300, "properties": {"lux": 400}}, {"type": "wokwi-resistor", "id": "night-r1", "x": 620, "y": 40, "properties": {"value": "220"}}, {"type": "wokwi-led", "id": "night-led1", "x": 620, "y": 140, "properties": {"color": "yellow", "label": "LAMP"}}],
     wires: [{"id": "night-w1", "start": {"componentId": "arduino-uno", "pinName": "3V3"}, "end": {"componentId": "night-ldr", "pinName": "VCC"}, "color": "#ff4444"}, {"id": "night-w2", "start": {"componentId": "arduino-uno", "pinName": "GND"}, "end": {"componentId": "night-ldr", "pinName": "GND"}, "color": "#000000"}, {"id": "night-w3", "start": {"componentId": "night-ldr", "pinName": "AO"}, "end": {"componentId": "arduino-uno", "pinName": "34"}, "color": "#22aaff"}, {"id": "night-w4", "start": {"componentId": "arduino-uno", "pinName": "2"}, "end": {"componentId": "night-r1", "pinName": "1"}, "color": "#cc44cc"}, {"id": "night-w5", "start": {"componentId": "night-r1", "pinName": "2"}, "end": {"componentId": "night-led1", "pinName": "A"}, "color": "#cc44cc"}, {"id": "night-w6", "start": {"componentId": "night-led1", "pinName": "C"}, "end": {"componentId": "arduino-uno", "pinName": "GND"}, "color": "#000000"}],
     tags: ["100-days", "esp32", "ldr", "micropython"],
   },

@@ -67,3 +67,31 @@ export function ldrResistance(lux: number, p: LdrParams = LDR_DEFAULTS): number 
   if (!(lux > 0)) return p.darkOhms;
   return Math.min(p.darkOhms, p.rl10 * 1000 * Math.pow(10 / lux, p.gamma));
 }
+
+/**
+ * The breakout module (the LM393 light-sensor board, Wokwi's
+ * wokwi-photoresistor-sensor): a fixed 10 kΩ from VCC to AO and the LDR from
+ * AO to GND, so AO FALLS as the light rises. Dark reads near VCC, bright light
+ * near 0 V:
+ *
+ *   AO = VCC · R_ldr / (R_ldr + 10 kΩ)
+ *
+ * - Wokwi: "The AO pin is connected between the LDR and the 10K resistor"; its
+ *   table gives 4.96 V at 0.1 lux and 0.83 V at 1000 lux on 5 V (rl10 50 kΩ,
+ *   gamma 0.7), and its lux formula takes the LDR as R = 10 kΩ · V / (5 − V)
+ *   (docs.wokwi.com/parts/wokwi-photoresistor-sensor).
+ * - The board's schematic: R2 10K from VCC to AO, the photoresistor R3 from AO
+ *   to GND, and the LM393 driving DO HIGH in the dark.
+ *
+ * Velxio had the LDR on the VCC side until this was fixed, so AO rose with the
+ * light, and a sketch written for the real module read darkness as light.
+ * `pullup` overrides the fixed resistor (SPICE suffixes); a bare LDR part has
+ * no fixed resistor and no polarity.
+ */
+export const LDR_MODULE_FIXED_OHMS = 10_000;
+
+/** The module's fixed VCC-to-AO resistor in ohms: `pullup`, or 10 kΩ. */
+export function ldrModuleFixedOhms(properties: Record<string, unknown>): number {
+  const ohms = parseValueWithUnits(properties.pullup, LDR_MODULE_FIXED_OHMS);
+  return ohms > 0 ? ohms : LDR_MODULE_FIXED_OHMS;
+}

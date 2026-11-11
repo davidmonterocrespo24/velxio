@@ -170,7 +170,7 @@ export const analogProjectExamples: ExampleProject[] = [
     id: 'analog-night-light',
     title: 'Night Light: LDR and Two Transistors',
     description:
-      "An automatic night light with no microcontroller. The light sensor's output turns transistor Q1 on in daylight, which holds Q2 off. When the light falls below about 30 lux, Q1 lets go, Q2 turns on and the LED lights up. The sensor carries a high-resistance LDR (rl10 180 kOhm, gamma 0.9: a GL5549) to put the switch point there; with the stock GL5528 it would wait for about 1 lux. Open the sensor and drag its light level to switch it.",
+      "An automatic night light with no microcontroller. The light sensor's output rises as the light falls: its LDR sits between AO and GND under a 10 kOhm resistor, as on the real module. Transistor Q1 follows that output and feeds the base of Q2, so the pair turns on once it passes two base-emitter drops, about 1.3 V: below about 30 lux the LED lights up. The sensor carries a low-resistance LDR (rl10 6 kOhm, gamma 0.5: a GL5516) to put the switch point there; with the stock GL5528 it would light below about 120 lux. Open the sensor and drag its light level to switch it.",
     category: 'circuits',
     difficulty: 'beginner',
     boardFilter: 'analog',
@@ -188,7 +188,7 @@ export const analogProjectExamples: ExampleProject[] = [
         id: 'ldr',
         x: -150,
         y: 70,
-        properties: { lux: 20, rl10: 180, gamma: 0.9 },
+        properties: { lux: 20, rl10: 6, gamma: 0.5 },
       },
       { type: 'wokwi-resistor', id: 'rb1', x: 60, y: 110, properties: { value: '10000' } },
       { type: 'wokwi-bjt-2n2222', id: 'q1', x: 140, y: 80, properties: {} },
@@ -209,25 +209,22 @@ export const analogProjectExamples: ExampleProject[] = [
       ]),
       w('w4', ['ps', 'GND'], ['ldr', 'GND'], C_GND, [[40, 96]]),
       w('w5', ['ldr', 'AO'], ['rb1', '1'], C_SIG, [[40, 116]]),
-      w('w6', ['rb1', '2'], ['q1', 'B'], C_SIG),
-      w('w7', ['q1', 'E'], ['ldr', 'GND'], C_GND, [
-        [200, 190],
-        [40, 190],
-        [40, 96],
+      w('w6', ['rb1', '2'], ['q1', 'B'], C_SIG, [[135, 122]]),
+      // Q1's emitter feeds Q2's base: the pair conducts once AO passes two
+      // base-emitter drops. Q2's emitter is the ground return.
+      w('w7', ['q1', 'E'], ['q2', 'B'], C_SIG, [
+        [280, 158],
+        [280, 82],
       ]),
       w('w8', ['rc1', '2'], ['q1', 'C'], C_SIG, [
         [270, 26],
         [270, 60],
         [200, 60],
       ]),
-      w('w9', ['q1', 'C'], ['q2', 'B'], C_SIG, [
-        [200, 60],
-        [280, 60],
-        [280, 76],
-      ]),
-      w('w10', ['q2', 'E'], ['q1', 'E'], C_GND, [
-        [360, 190],
-        [200, 190],
+      w('w10', ['q2', 'E'], ['ldr', 'GND'], C_GND, [
+        [366, 190],
+        [34, 190],
+        [34, 102],
       ]),
       w('w11', ['rled', '2'], ['led1', 'A'], C_OUT, [[385, -44]]),
       w('w12', ['led1', 'C'], ['q2', 'C'], C_OUT, [

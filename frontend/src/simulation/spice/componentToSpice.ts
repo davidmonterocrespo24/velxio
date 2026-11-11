@@ -18,7 +18,7 @@ import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
-import { ldrParams, ldrResistance } from './ldrModel';
+import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -1430,10 +1430,11 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO).
-  // Internal topology: LDR between VCC and AO, plus an internal 10k pull-down
-  // from AO to GND. Brighter light → LDR resistance drops → V_AO rises.
-  // The DO (digital threshold) pin is ignored for analog simulation.
+  // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO), the
+  // LM393 light-sensor board. Internal topology, as on the real board and in
+  // Wokwi: a fixed 10k from VCC to AO and the LDR from AO to GND. Brighter
+  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). The DO
+  // (comparator) pin is not modelled.
   // The LDR is a GL5528 by default, R = rl10 · (10 / lux)^gamma up to its
   // dark resistance (ldrModel.ts, velxio/velxio-prod#103).
   photoresistor: (comp, netLookup) => {
@@ -1453,9 +1454,9 @@ const MAPPERS: Record<string, Mapper> = {
     const gnd = netLookup('GND');
     const ao = netLookup('AO');
     if (vcc && gnd && ao) {
-      const Rpull = parseValueWithUnits(comp.properties.pullup, 10_000);
+      const Rfixed = ldrModuleFixedOhms(comp.properties);
       return {
-        cards: [`R_${comp.id}_ldr ${vcc} ${ao} ${Rldr}`, `R_${comp.id}_pull ${ao} ${gnd} ${Rpull}`],
+        cards: [`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`, `R_${comp.id}_pull ${vcc} ${ao} ${Rfixed}`],
         modelsUsed: new Set(),
       };
     }
