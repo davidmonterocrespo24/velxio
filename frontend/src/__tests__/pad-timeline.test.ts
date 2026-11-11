@@ -103,4 +103,29 @@ describe('PadTimeline', () => {
   it('stateKey is the levels in order', () => {
     expect(stateKey([0, 3.3, 5])).toBe('0,3.3,5');
   });
+
+  it('a window restarted at an edge after idle holds none of the idle time', () => {
+    // Blink: the last close was at 33, the pin held HIGH through delay(1000),
+    // and the LOW edge comes at 1033. The canvas showed HIGH all along, so the
+    // window the edge opens starts at the edge (velxio/velxio-prod#152).
+    const tl = new PadTimeline([5], 0);
+    tl.close(33);
+    tl.restartAt(1033);
+    tl.record(edge(0, 0, 1033));
+    const w = tl.close(1066);
+    expect(w.startMs).toBe(1033);
+    expect(w.states).toEqual([{ key: '0', levels: [0], ms: 33 }]);
+  });
+
+  it('a restart neither drops a recorded edge nor goes back in time', () => {
+    const tl = new PadTimeline([0], 0);
+    tl.record(edge(0, 5, 10));
+    tl.restartAt(20); // an edge is already in the window: its time stays
+    expect(tl.close(33).states.map((s) => [s.key, s.ms])).toEqual([
+      ['0', 10],
+      ['5', 23],
+    ]);
+    tl.restartAt(30); // before the window's start (33): no-op
+    expect(tl.close(66).startMs).toBe(33);
+  });
 });

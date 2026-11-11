@@ -316,6 +316,15 @@ export class CircuitSimulationService {
   /** True between windows of a run of edges: the next edge must not
    *  publish on its own, the window will. */
   private streaming = false;
+  /**
+   * The last window closed on one state of the pads (or a rebuild just
+   * published the state they hold), and no edge came since. The time since
+   * then is that state, which the canvas shows on its own, so it belongs to
+   * no window: the next edge opens its window at itself (PadTimeline.
+   * restartAt). Set when a window closes, not when its publish lands, which
+   * on a slow solver comes after the next edge.
+   */
+  private settled = true;
   /** Solves by pad state, insertion-ordered so eviction drops the oldest. */
   private cache = new Map<string, StateVectors>();
   /**
@@ -491,7 +500,9 @@ export class CircuitSimulationService {
    * arrival time, exact to a frame. The level goes on the timeline; the
    * window that is open, or the one this edge opens, publishes it. The
    * first edge after idle is also answered right away so a single click
-   * shows at solver latency, not a window later.
+   * shows at solver latency, not a window later. An edge that comes after
+   * the last window closed on one state opens its window at itself (see
+   * `settled`).
    *
    * A pad with no source in the deck (the netlist was built before the
    * sketch wrote it, or it is wired to nothing) asks for a rebuild, at
@@ -521,8 +532,15 @@ export class CircuitSimulationService {
       return;
     }
     this.edgeCount++;
+    const opens = this.windowTimer === null;
+    // The first edge after a settled spell starts the window it opens: from
+    // the last close it was mostly the state before the edge, and the LED of
+    // every Blink fell back to its old brightness for one window after each
+    // toggle (see `settled`).
+    if (opens && this.settled) this.timeline.restartAt(at);
+    this.settled = false;
     this.timeline.record({ index, volts, wallMs: at, guestMs, board: boardId });
-    if (this.windowTimer === null) {
+    if (opens) {
       this.windowTimer = setTimeout(() => this.closeWindow(), CircuitSimulationService.PUBLISH_WINDOW_MS);
       if (!this.streaming) await this.run(() => this.publishInstant());
     }
@@ -550,6 +568,7 @@ export class CircuitSimulationService {
     const timeline = this.timeline;
     const w = timeline.close(nowMs());
     this.windowCount++;
+    this.settled = w.states.length === 1;
     // The publish waits behind whatever the solver queue already holds, and
     // that can be a rebuild. A rebuild replaces the pads (loadPads), and the
     // window's levels are indexed by the OLD ones: solved against the new
@@ -808,6 +827,9 @@ export class CircuitSimulationService {
         this.timeline.record({ index: i, volts: recent.volts, wallMs: now, guestMs: null, board: key.slice(0, key.indexOf('|')) });
       }
     }
+    // The rebuild publishes the state the pads hold, unless an edge it put
+    // back opens a window of its own.
+    this.settled = this.timeline.pending() === 0;
     if (this.timeline.pending() > 0 && this.windowTimer === null && !this.stopped) {
       this.windowTimer = setTimeout(() => this.closeWindow(), CircuitSimulationService.PUBLISH_WINDOW_MS);
     }
