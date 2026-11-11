@@ -258,6 +258,20 @@ static void build_scr(uint8_t* s) {
   s[1] = 0x35;
 }
 
+/**
+ * SD Status, the 512-bit register ACMD13 returns as a 64-byte data block, MSB
+ * first (SD Physical Layer spec 4.10.2, Table 4-44). ESP-IDF v5 reads it for
+ * every SD card right after the SCR (sdmmc_init_sd_ssr, an init step whose
+ * failure fails the mount; v4.4 never asked), so a card that answers R2 alone
+ * leaves the host waiting for a start token until it gives up. Every field
+ * holds the spec's "none" or "not defined" value, 0, which is what this card
+ * is: one data line (SPI), a regular RD/WR card, no protected area, speed
+ * class 0, no AU geometry and no erase timing (ERASE_SIZE 0, "time-out
+ * calculation not supported"), no discard, no FULE. The tab's card answers
+ * the same register (simulation/parts/sdSpiCard.ts, buildSdStatus).
+ */
+static void build_sd_status(uint8_t* s) { memset(s, 0, 64); }
+
 /* ── Queueing answers ────────────────────────────────────────────────────── */
 
 static void push_data_crc(const uint8_t* data, uint32_t len) {
@@ -312,9 +326,11 @@ static void process_cmd(void) {
         card.idle = false;
         resp_push(0x00);
         return;
-      case 13: /* ACMD13 SD status (R2) */
+      case 13: /* ACMD13 SD_STATUS: R2, then the register as a data block */
+        resp_push(r1());
         resp_push(0x00);
-        resp_push(0x00);
+        build_sd_status(card.scratch);
+        push_data_block(card.scratch, 64);
         return;
       case 51: /* ACMD51 SEND_SCR */
         build_scr(reg);
