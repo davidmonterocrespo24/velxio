@@ -95,3 +95,12 @@ export function ldrModuleFixedOhms(properties: Record<string, unknown>): number 
   const ohms = parseValueWithUnits(properties.pullup, LDR_MODULE_FIXED_OHMS);
   return ohms > 0 ? ohms : LDR_MODULE_FIXED_OHMS;
 }
+
+/** The module's AO on `vcc`, unloaded, with an LDR of `ldrOhms` (see above). */
+export function ldrModuleAoVolts(
+  vcc: number,
+  ldrOhms: number,
+  fixedOhms: number = LDR_MODULE_FIXED_OHMS,
+): number {
+  return (vcc * ldrOhms) / (ldrOhms + fixedOhms);
+}

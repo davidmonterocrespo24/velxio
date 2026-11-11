@@ -1,9 +1,11 @@
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { useElectricalStore } from '../../store/useElectricalStore';
+import { ldrModuleAoVolts, ldrModuleFixedOhms, ldrParams, ldrResistance } from '../spice/ldrModel';
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { attachSpiDevice } from '../buses';
 import type { AnySimulator, PartSimulationLogic } from './PartSimulationRegistry';
 import { RP2040Simulator } from '../RP2040Simulator';
-import { getADC, setAdcVoltage, emitPropertyChange, elementNumber } from './partUtils';
+import { getADC, setAdcVoltage, emitPropertyChange, elementNumber, analogRailVolts } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
 import { LOG_SLIDER_STEPS, logSliderToValue } from '../sensorControlConfig';
 
@@ -141,13 +143,23 @@ PartSimulationRegistry.register('slide-potentiometer', {
 // ─── Photoresistor Sensor ────────────────────────────────────────────────────
 
 /**
- * Photoresistor sensor — the wokwi element does not emit input events,
- * so we simulate light level with a slider drawn via the component's
- * luminance property when available, or simply set a mid-range voltage.
- *
+ * Photoresistor sensor module (the LM393 light-sensor board): its light
+ * level comes from the project's `lux`, the Sensors panel or the element.
  * The element exposes `ledDO` and `ledPower` for display only.
- * We inject a static mid-range voltage on the AO pin so analogRead()
- * returns a valid value. Users can modify the element's `value` attribute.
+ *
+ * AO is the circuit's. The SPICE mapper models the module (componentToSpice:
+ * the fixed 10 kOhm from VCC to AO, the LDR from AO to GND), and the solve
+ * writes AO into the ADC after every change of light
+ * (connectAnalogInputsToMcu). This part used to write (lux / 1000) * 5 V there
+ * as well, which knew neither the divider nor the board's supply: 2.5 V at
+ * 500 lux on an ESP32, where the circuit gives 0.41 V. Between that write and
+ * the next solve, its value is what the sketch read (velxio/velxio-prod#188).
+ *
+ * So the part writes AO only while no solve knows the pin (before the first
+ * one lands, or with no solver at all), and then it writes what that solve
+ * will give with the module on the board's own supply, from the same LDR
+ * model (ldrModel.ts). Once a solve knows AO's net, the circuit owns AO, and
+ * a light change only asks for the next solve.
  */
 PartSimulationRegistry.register('photoresistor-sensor', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
@@ -157,31 +169,41 @@ PartSimulationRegistry.register('photoresistor-sensor', {
 
     const unsubscribers: (() => void)[] = [];
 
+    const solveKnowsAo = () =>
+      useElectricalStore.getState().pinNetMap.has(`${componentId}:AO`);
+    const writeAo = (lux: number) => {
+      if (pinAO === null || solveKnowsAo()) return;
+      const props =
+        useSimulatorStore.getState().components.find((c) => c.id === componentId)?.properties ??
+        {};
+      setAdcVoltage(
+        avrSimulator,
+        pinAO,
+        ldrModuleAoVolts(
+          analogRailVolts(avrSimulator),
+          ldrResistance(lux, ldrParams(props)),
+          ldrModuleFixedOhms(props),
+        ),
+      );
+    };
+
     // The project's illumination (the canvas copies properties.lux onto the
-    // element; the panel keeps it in step while running), 500 lux (2.5 V)
-    // when it sets none. This used to be 2.5 V whatever the project said.
+    // element; the panel keeps it in step while running), 500 lux when it
+    // sets none, as in the SPICE mapper.
     const el = element as unknown as { lux?: unknown };
-    if (pinAO !== null) {
-      setAdcVoltage(avrSimulator, pinAO, (elementNumber(el.lux, 500) / 1000) * 5.0);
-    }
+    writeAo(elementNumber(el.lux, 500));
 
     // Watch element's 'input' events in case the element supports it
     const onInput = () => {
       const val = (element as any).value;
       if (val !== undefined) {
-        if (pinAO !== null) {
-          const volts = (val / 1023.0) * 5.0;
-          setAdcVoltage(avrSimulator, pinAO, volts);
-        }
-        // Mirror to store — the slider position maps to lux LOGARITHMICALLY
-        // (same curve as the Sensors popover): an LDR's whole useful range
-        // lives in the low decades, and the linear map crammed it into the
-        // first few percent of travel.
-        emitPropertyChange(
-          componentId,
-          'lux',
-          logSliderToValue((val / 1023) * LOG_SLIDER_STEPS, 0, 1000),
-        );
+        // The slider position maps to lux LOGARITHMICALLY (same curve as the
+        // Sensors popover): an LDR's whole useful range lives in the low
+        // decades, and the linear map crammed it into the first few percent
+        // of travel. Mirror it to the store, which re-solves the circuit.
+        const lux = logSliderToValue((val / 1023) * LOG_SLIDER_STEPS, 0, 1000);
+        writeAo(lux);
+        emitPropertyChange(componentId, 'lux', lux);
       }
     };
     element.addEventListener('input', onInput);
@@ -196,13 +218,12 @@ PartSimulationRegistry.register('photoresistor-sensor', {
       );
     }
 
-    // SensorControlPanel: lux 0–1000 → volts 0–5
+    // SensorControlPanel: lux 0–1000. The property change re-solves the
+    // circuit, which writes AO.
     registerSensorUpdate(componentId, (values) => {
       if ('lux' in values) {
         el.lux = values.lux;
-        if (pinAO !== null) {
-          setAdcVoltage(avrSimulator, pinAO, ((values.lux as number) / 1000) * 5.0);
-        }
+        writeAo(values.lux as number);
         emitPropertyChange(componentId, 'lux', values.lux);
       }
     });

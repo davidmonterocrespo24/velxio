@@ -1453,12 +1453,15 @@ const MAPPERS: Record<string, Mapper> = {
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
     const ao = netLookup('AO');
-    if (vcc && gnd && ao) {
-      const Rfixed = ldrModuleFixedOhms(comp.properties);
-      return {
-        cards: [`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`, `R_${comp.id}_pull ${vcc} ${ao} ${Rfixed}`],
-        modelsUsed: new Set(),
-      };
+    if (ao && (vcc || gnd)) {
+      // The legs that are wired: a module missing its GND reads VCC through
+      // the fixed resistor, one missing its VCC reads 0 V through the LDR. The
+      // solve then owns AO in every wiring that powers the module at all
+      // (velxio/velxio-prod#188: the part no longer writes it).
+      const cards: string[] = [];
+      if (gnd) cards.push(`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`);
+      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${ldrModuleFixedOhms(comp.properties)}`);
+      return { cards, modelsUsed: new Set() };
     }
     // Legacy / discrete LDR fallbacks: emit bare 2-terminal resistor.
     const pins = twoPin(comp, netLookup, 'LDR1', 'LDR2') ?? twoPin(comp, netLookup, '1', '2');
