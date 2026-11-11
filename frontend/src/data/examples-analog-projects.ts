@@ -170,7 +170,7 @@ export const analogProjectExamples: ExampleProject[] = [
     id: 'analog-night-light',
     title: 'Night Light: LDR and Two Transistors',
     description:
-      "An automatic night light with no microcontroller. The light sensor's output turns transistor Q1 on in daylight, which holds Q2 off. When the light falls below about 30 lux, Q1 lets go, Q2 turns on and the LED lights up. Open the sensor and drag its light level to switch it.",
+      "An automatic night light with no microcontroller. The light sensor's output turns transistor Q1 on in daylight, which holds Q2 off. When the light falls below about 30 lux, Q1 lets go, Q2 turns on and the LED lights up. The sensor carries a high-resistance LDR (rl10 180 kOhm, gamma 0.9: a GL5549) to put the switch point there; with the stock GL5528 it would wait for about 1 lux. Open the sensor and drag its light level to switch it.",
     category: 'circuits',
     difficulty: 'beginner',
     boardFilter: 'analog',
@@ -188,7 +188,7 @@ export const analogProjectExamples: ExampleProject[] = [
         id: 'ldr',
         x: -150,
         y: 70,
-        properties: { lux: 20, k: 500 },
+        properties: { lux: 20, rl10: 180, gamma: 0.9 },
       },
       { type: 'wokwi-resistor', id: 'rb1', x: 60, y: 110, properties: { value: '10000' } },
       { type: 'wokwi-bjt-2n2222', id: 'q1', x: 140, y: 80, properties: {} },

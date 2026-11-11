@@ -4666,11 +4666,29 @@
           "type": "string",
           "defaultValue": false,
           "control": "text"
+        },
+        {
+          "name": "rl10",
+          "type": "number",
+          "defaultValue": 15,
+          "control": "number",
+          "min": 0.1,
+          "description": "LDR resistance at 10 lux, kOhm (GL5528: 10-20; Wokwi default: 50)"
+        },
+        {
+          "name": "gamma",
+          "type": "number",
+          "defaultValue": 0.6,
+          "control": "number",
+          "min": 0.1,
+          "description": "LDR slope: log(R) per log(lux) (GL5528: 0.6; Wokwi default: 0.7)"
         }
       ],
       "defaultValues": {
         "ledDO": false,
-        "ledPower": false
+        "ledPower": false,
+        "rl10": 15,
+        "gamma": 0.6
       },
       "pinCount": 0,
       "tags": [

@@ -4,7 +4,8 @@
  *
  * Algorithm (see plan phase_8_velxio_implementation §5):
  *   1. Union-Find on wires to identify nets.
- *   2. Canonicalize known-special nets: GND → "0", VCC/VDD/5V/3V3 → "vcc_rail",
+ *   2. Canonicalize known-special nets: GND → "0", VCC/VDD/5V/3V3 → "vcc_rail"
+ *      (a part's VCC pin only where no supply reaches its net),
  *      off-voltage board supply pins (VIN / 5V on a 3.3 V board, 3.3 V on a
  *      5 V board) → per-voltage "aux_rail_*" nets.
  *   3. Auto-name remaining nets "n0", "n1", ... deterministically.
@@ -68,6 +69,8 @@ export const GROUND_PIN_RE = /^(gnd|vss|vee|ground)([._]?\d+)?$/i;
 // "VBB" (non-standard). VCC-like pins on boards are handled via the
 // board.vccPinNames list, not this regex.
 export const VCC_PIN_RE = /^(vcc|vdd|vcc_rail|5v|3v3|3\.3v)$/i;
+/** The `vcc_rail` node named anywhere in a card: as a terminal or inside V(). */
+const VCC_RAIL_TOKEN = /\bvcc_rail\b/;
 
 /** metadataId prefixes of components that must NOT be auto-canonicalized
  *  by the pin-name regex (their pins are just probe labels). */
@@ -200,18 +203,29 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
       if (uf.has(key) && isRailNet(uf.find(key))) boardNamed.add(uf.root(key));
     }
   }
-  for (const comp of components) {
-    if (skipCanonicalization(comp.metadataId)) continue;
-    for (const pinName of pinsReferencedByWires(comp.id, wires)) {
-      const key = pinKey(comp.id, pinName);
-      if (boardNamed.has(uf.root(key))) continue;
-      if (GROUND_PIN_RE.test(pinName)) {
-        uf.setCanonical(key, '0');
-      } else if (VCC_PIN_RE.test(pinName)) {
-        uf.setCanonical(key, 'vcc_rail');
+  const dominantVcc = boards[0]?.vcc ?? 5;
+  const hinted = (pinRe: RegExp, apply: (key: string) => void) => {
+    for (const comp of components) {
+      if (skipCanonicalization(comp.metadataId)) continue;
+      for (const pinName of pinsReferencedByWires(comp.id, wires)) {
+        const key = pinKey(comp.id, pinName);
+        if (!boardNamed.has(uf.root(key)) && pinRe.test(pinName)) apply(key);
       }
     }
-  }
+  };
+  hinted(GROUND_PIN_RE, (key) => uf.setCanonical(key, '0'));
+  // A VCC pin is a guess as well, and a supply the user wired beats it. On a
+  // net that a battery, a bench supply, a generator or a regulator holds, or
+  // that one reaches through a switch, an ammeter or any series part, the
+  // pin is powered by that source. Joined to the logic rail instead, it put
+  // two ideal sources against each other: a pot on a 9 V battery read
+  // 2.50 V, the battery pushed 2.67 A into the hidden rail and Run called it
+  // a short; a generator or a 7805 on a pot's VCC left no solution at all
+  // (velxio/velxio-prod#102). Nets no supply reaches keep the hint.
+  const supplied = suppliedRoots(uf, components, resistiveWires, pinKey, dominantVcc);
+  hinted(VCC_PIN_RE, (key) => {
+    if (!supplied.has(uf.root(key))) uf.setCanonical(key, 'vcc_rail');
+  });
 
   // ── 3. Auto-name remaining nets deterministically ────────────────────────
   const netNames = assignDeterministicNetNames(uf);
@@ -226,7 +240,6 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // ── 4. Emit component cards ───────────────────────────────────────────────
   const cards: string[] = [];
   const modelLines = new Set<string>();
-  const dominantVcc = boards[0]?.vcc ?? 5;
   // Nets backed by a real source/element (see BuildNetlistResult.sourcedNets).
   // Rails are always sourced; component + GPIO-source + pull nets are added
   // below. Deliberately NOT populated from the step-7 auto-pull-down cards,
@@ -292,8 +305,16 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
   }
 
-  // ── 6. Vcc rail source (if any pin referenced it, or a pull-up needs it) ──
-  if (hasNet(netNames, 'vcc_rail') || vccRailNeeded) {
+  // ── 6. Vcc rail source (if any pin referenced it, or a card uses it) ─────
+  // A card can name the rail without any wired pin on it: an internal
+  // pull-up, or an LM358 whose V+ pin is unwired (its macro-model takes
+  // `vcc_rail` as its supply). On a canvas with no board nothing else named
+  // the rail, no source was emitted, and the op-amp's supply floated: every
+  // op-amp example in the analog gallery solved to nonsense
+  // (velxio/velxio-prod#126).
+  const vccRailEmitted =
+    hasNet(netNames, 'vcc_rail') || vccRailNeeded || cards.some((c) => VCC_RAIL_TOKEN.test(c));
+  if (vccRailEmitted) {
     cards.unshift(`V_VCC_RAIL vcc_rail 0 DC ${dominantVcc}`);
   }
   // One ideal source per referenced aux rail, at ITS voltage — so a VIN/5V
@@ -369,8 +390,10 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   }
 
   // ── 10. Enumerate every net + voltage source for the solve options ───────
-  // Distinct, non-ground nets — every node the solver should report.
+  // Distinct, non-ground nets — every node the solver should report. A rail
+  // only a card names (step 6) is a node too.
   const nets = Array.from(new Set(netNames.values())).filter((n) => n !== '0');
+  if (vccRailEmitted && !nets.includes('vcc_rail')) nets.push('vcc_rail');
   // Voltage sources are any card starting with `V` (uppercase) followed
   // by an underscore or digit.  ngspice's case-insensitive match means
   // both `Vname` and `vname` count.  We emit only uppercase prefixes
@@ -424,6 +447,133 @@ function assignDeterministicNetNames(uf: UnionFind): Map<string, string> {
       out.set(rep, `n${counter++}`);
     }
   }
+  return out;
+}
+
+/** Card letters whose first two nodes conduct DC between them. */
+const SERIES_CARD = /^[RLDVSBEH]/i;
+
+/** A V card's value says it holds no voltage: a series sense source. */
+const ZERO_VOLTS = /^(dc\s+)?0+(\.0*)?$/i;
+
+/**
+ * The union-find roots of the nets an explicit supply reaches, where a part's
+ * VCC pin is powered by what is wired to it and must not join the logic rail.
+ *
+ * Supplies reach through series parts: a board rail, or a net a part
+ * declares it powers (a battery's or a bench supply's positive terminal, a
+ * generator's output, a regulator's VOUT), and every net those reach through
+ * the parts' own cards (resistors, switches, diodes, sense sources, a
+ * transistor's channel), stopping at ground. Other outputs (an op-amp's OUT,
+ * a logic gate's Y, a custom chip's pin: a V, B, E or H card, or a declared
+ * `drives` net) count only on their own net: through its feedback resistors
+ * an op-amp output reached the pot that sets its input, and the pot lost the
+ * rail it runs from.
+ *
+ * The parts are emitted once with provisional net names for this. A part
+ * that supplies or drives a net never conducts here (a battery would
+ * otherwise carry its positive net through itself onto its negative side),
+ * and neither does a subcircuit (an LM358 would join its inputs to its
+ * supply pins).
+ */
+function suppliedRoots(
+  uf: UnionFind,
+  components: ReadonlyArray<ComponentForSpice>,
+  resistiveWires: ReadonlyArray<WireForSpice>,
+  pinKey: (componentId: string, pinName: string) => string,
+  vcc: number,
+): Set<string> {
+  // Provisional names: the rails and ground keep theirs, every other net a
+  // token no mapper can mistake for anything else.
+  const tokenOfRoot = new Map<string, string>();
+  const token = (key: string): string => {
+    const name = uf.find(key);
+    if (isRailNet(name)) return name;
+    const root = uf.root(key);
+    let t = tokenOfRoot.get(root);
+    if (!t) tokenOfRoot.set(root, (t = `__net${tokenOfRoot.size}`));
+    return t;
+  };
+  // Nodes outside any one part: wired nets, and ground as cards write it.
+  const external = new Set<string>(['0']);
+  const adj = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (a === b) return;
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  };
+  const supplies = new Set<string>();
+  const driven = new Set<string>();
+
+  for (const comp of components) {
+    const emission = componentToSpice(
+      comp,
+      (pinName) => {
+        const key = pinKey(comp.id, pinName);
+        if (!uf.has(key)) return null;
+        const t = token(key);
+        external.add(t);
+        return t;
+      },
+      { vcc },
+    );
+    if (!emission) continue;
+    const own = new Set([...(emission.supplies ?? []), ...(emission.drives ?? [])]);
+    for (const n of emission.supplies ?? []) supplies.add(n);
+    const pairs: Array<[string, string]> = [];
+    for (const card of emission.cards) {
+      const t = card.trim().split(/\s+/);
+      const kind = (t[0] ?? '').charAt(0).toUpperCase();
+      if (kind === 'Q') {
+        pairs.push([t[1]!, t[3]!], [t[2]!, t[3]!]); // C-E channel, B-E junction
+        continue;
+      }
+      if (kind === 'M') {
+        pairs.push([t[1]!, t[3]!]); // the D-S channel; the gate is insulated
+        continue;
+      }
+      if (!SERIES_CARD.test(kind) || t.length < 3) continue;
+      const value = t.slice(3).join(' ');
+      // A behavioural source written as a current (I = ...) holds no voltage.
+      if (kind === 'B' && !/^v\s*=/i.test(value)) continue;
+      pairs.push([t[1]!, t[2]!]);
+      // A V card holds a voltage unless it is a 0 V sense source in series
+      // with the part (one end inside the part); a 0 V source between two
+      // wired nets (a generator turned to 0 V) still pins them together.
+      const holds =
+        kind === 'V'
+          ? !ZERO_VOLTS.test(value) || (external.has(t[1]!) && external.has(t[2]!))
+          : kind === 'B' || kind === 'E' || kind === 'H';
+      if (holds && external.has(t[1]!)) own.add(t[1]!);
+    }
+    if (own.size > 0) {
+      for (const n of own) driven.add(n);
+    } else {
+      for (const [a, b] of pairs) link(a, b);
+    }
+  }
+  for (const w of resistiveWires) {
+    const a = pinKey(w.start.componentId, w.start.pinName);
+    const b = pinKey(w.end.componentId, w.end.pinName);
+    if (uf.has(a) && uf.has(b)) link(token(a), token(b));
+  }
+
+  // Board rails supply what they reach, as a source's output does.
+  for (const name of uf.nets()) if (isRailNet(name) && name !== '0') supplies.add(name);
+  const reached = new Set<string>([...driven].filter((n) => n !== '0'));
+  const queue = [...supplies];
+  const spread = new Set<string>();
+  while (queue.length) {
+    const n = queue.shift()!;
+    if (n === '0' || spread.has(n)) continue;
+    spread.add(n);
+    reached.add(n);
+    for (const m of adj.get(n) ?? []) if (!spread.has(m)) queue.push(m);
+  }
+  const out = new Set<string>();
+  for (const [root, t] of tokenOfRoot) if (reached.has(t)) out.add(root);
   return out;
 }
 
@@ -528,65 +678,24 @@ function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set
 }
 
 /**
- * Build a wireId → netName map using the same Union-Find logic as buildNetlist.
- * Lightweight (no SPICE call) — suitable for the overlay to look up voltages.
+ * Build a wireId → netName map: the net of each wire's start pin, exactly as
+ * buildNetlist names it. Lightweight (no SPICE call) — suitable for the
+ * overlay to look up voltages.
+ *
+ * This used to repeat buildNetlist's union-find and drifted from it more
+ * than once (a wire with a length, a board GND pin missing from its list):
+ * the n0/n1 names are positional, so any drift made a consumer read a
+ * neighbouring node. The rails a part's VCC pin joins now depend on the
+ * supplies wired to it (velxio/velxio-prod#102), so it asks buildNetlist.
  */
 export function buildWireNetMap(
   input: Pick<BuildNetlistInput, 'components' | 'wires' | 'boards'>,
 ): Map<string, string> {
-  const { wires, boards, components } = input;
-  const uf = new UnionFind();
-  const pin = (cId: string, pName: string) => `${cId}:${pName}`;
-
-  for (const w of wires) {
-    const a = pin(w.start.componentId, w.start.pinName);
-    const b = pin(w.end.componentId, w.end.pinName);
-    uf.add(a);
-    uf.add(b);
-    // A wire with a length stays TWO nets in buildNetlist (it stamps an
-    // R_wire card between them). Unioning it here collapsed one net and
-    // shifted every later n<N> name by one, so callers read a neighbour's
-    // voltage.
-    if (w.length_cm === undefined || w.length_cm <= 0) uf.union(a, b);
-  }
-
-  // Breadboards: join wired holes that share an internal strip/rail.
-  unionBreadboardGroups(uf, components, wires, pin);
-
-  for (const board of boards) {
-    const auxNet = board.auxVolts !== undefined ? auxRailNetName(board.auxVolts) : null;
-    const auxPins = new Set(auxNet ? (board.auxPinNames ?? []) : []);
-    for (const pName of board.groundPinNames ?? []) uf.setCanonical(pin(board.id, pName), '0');
-    for (const pName of board.vccPinNames ?? []) uf.setCanonical(pin(board.id, pName), 'vcc_rail');
-    if (auxNet) {
-      for (const pName of auxPins) uf.setCanonical(pin(board.id, pName), auxNet);
-    }
-    // Same fallback buildNetlist applies: a board pin NAMED like a ground /
-    // supply pin anchors its net even when the per-board list misses it
-    // (dev kits routinely ship a "GND2" that is not in groundPinNames).
-    for (const pName of pinsReferencedByWires(board.id, wires)) {
-      if (GROUND_PIN_RE.test(pName)) uf.setCanonical(pin(board.id, pName), '0');
-      else if (!auxPins.has(pName) && VCC_PIN_RE.test(pName)) {
-        uf.setCanonical(pin(board.id, pName), 'vcc_rail');
-      }
-    }
-  }
-  for (const comp of components) {
-    if (comp.metadataId.startsWith('instr-')) continue;
-    for (const pName of pinsReferencedByWires(comp.id, wires)) {
-      if (GROUND_PIN_RE.test(pName)) uf.setCanonical(pin(comp.id, pName), '0');
-      else if (VCC_PIN_RE.test(pName)) uf.setCanonical(pin(comp.id, pName), 'vcc_rail');
-    }
-  }
-
-  const netNames = assignDeterministicNetNames(uf);
+  const { pinNetMap } = buildNetlist({ ...input, analysis: { kind: 'op' } });
   const result = new Map<string, string>();
-  for (const w of wires) {
-    const key = pin(w.start.componentId, w.start.pinName);
-    if (uf.has(key)) {
-      const netName = netNames.get(uf.find(key));
-      if (netName) result.set(w.id, netName);
-    }
+  for (const w of input.wires) {
+    const netName = pinNetMap.get(`${w.start.componentId}:${w.start.pinName}`);
+    if (netName) result.set(w.id, netName);
   }
   return result;
 }
