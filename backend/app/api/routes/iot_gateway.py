@@ -299,6 +299,7 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
         accepts_html = 'text/html' in (request.headers.get('accept') or '')
         upgrade_url = block_detail.get('upgrade_url', '/pricing')
         msg = block_detail.get('message', 'This is a paid feature.')
+        title = block_detail.get('title', 'IoT gateway is a Maker feature')
         if accepts_html:
             html = (
                 '<!doctype html><html><head><meta charset="utf-8">'
@@ -311,7 +312,7 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
                 'p{color:#aaa;line-height:1.6}a{display:inline-block;margin-top:16px;'
                 'background:#2563eb;color:#fff;padding:10px 20px;border-radius:6px;'
                 'text-decoration:none;font-weight:600}</style></head><body><div class="box">'
-                '<h1>IoT gateway is a Maker feature</h1>'
+                f'<h1>{title}</h1>'
                 f'<p>{msg} Upgrade to access live ESP32 web servers running in your '
                 'simulated circuit.</p>'
                 f'<a href="https://velxio.dev{upgrade_url}">See plans</a>'
