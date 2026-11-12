@@ -203,6 +203,7 @@ export function buildInputFromStore(snap: StoreSnapshot): BuildNetlistInput {
       vccPinNames: group.vcc_pins,
       auxPinNames: group.aux?.pins,
       auxVolts: group.aux?.volts,
+      powerInputs: group.powerInputs,
     };
   });
 

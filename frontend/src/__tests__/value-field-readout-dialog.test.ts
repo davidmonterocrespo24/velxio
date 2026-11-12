@@ -129,4 +129,35 @@ describe('the inspector shows what a number field means', () => {
     expect(readouts()).toEqual([]);
     expect(errors()).toEqual([]);
   });
+
+  // A field the part's mode does not read is never validated: clearing a DC
+  // supply's "AC mode only" frequency showed "Not a value ... Simulates as
+  // 50 Hz" although nothing simulates it (velxio/velxio-prod#118 follow-up).
+  it("a DC supply's cleared frequency gets no note; in AC mode it does", () => {
+    openDialog('ps', meta('power-supply'), { mode: 'dc', voltage: 5, frequency: 50, currentLimit: 1 });
+    type(textInputs()[1]!, '');
+    expect(errors()).toEqual([]);
+    expect(textInputs().filter((i) => i.getAttribute('aria-invalid') === 'true')).toEqual([]);
+    expect(readouts()).toEqual(['= 5 V', '= 1 A']);
+    const select = document.querySelector<HTMLSelectElement>('.pid-tab-body select.pid-select')!;
+    act(() => {
+      select.value = 'ac';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const [note] = errors();
+    expect(note).toContain('50 Hz');
+  });
+
+  it("a DC generator's amplitude is not checked, its offset is", () => {
+    openDialog('g', meta('signal-generator'), { waveform: 'dc', frequency: '1,5k', amplitude: 'big', offset: 'five' });
+    const [only, ...rest] = errors();
+    expect(rest).toEqual([]);
+    expect(only).toContain('0 V');
+  });
+
+  it('an empty field the mode reads keeps its note', () => {
+    openDialog('ps', meta('power-supply'), { mode: 'dc', voltage: '', frequency: 50, currentLimit: 1 });
+    const [note] = errors();
+    expect(note).toContain('5 V');
+  });
 });

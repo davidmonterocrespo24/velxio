@@ -18,6 +18,7 @@
  *  10. `.end`.
  */
 import { UnionFind } from './unionFind';
+import { parseValueWithUnits } from './valueParser';
 import { componentToSpice } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
@@ -123,6 +124,16 @@ export interface BuildNetlistResult {
    * floating-net read.
    */
   sourcedNets: Set<string>;
+  /**
+   * Nets of wired board pins (rails excepted) that a part powers: net -> the
+   * ids of those parts. A battery's or a bench supply's +, a generator's
+   * output or a regulator's VOUT on the pin, directly or through connections
+   * (an ammeter, a closed switch), with the part's return on ground
+   * (poweredBy). Such a pin is an input the part drives: the pre-flight does
+   * not force it HIGH (verifyFromStore), and a sketch that drives it anyway
+   * fights the part (circuitVerifier, findPinDriveConflicts).
+   */
+  partPoweredNets: Map<string, string[]>;
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -155,6 +166,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // Aux rails actually referenced by this circuit: net name → volts. Used to
   // emit one ideal source per aux rail in step 6.
   const auxRailVolts = new Map<string, number>();
+  // Aux rails above their board's logic rail: VIN / 5V / VBUS / VSYS of a
+  // 3.3 V board, the side the board takes its power in on (step 6).
+  const inputRails = new Set<string>();
   for (const board of boards) {
     const auxNet = board.auxVolts !== undefined ? auxRailNetName(board.auxVolts) : null;
     const auxPins = new Set(auxNet ? (board.auxPinNames ?? []) : []);
@@ -166,6 +180,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
     if (auxNet) {
       auxRailVolts.set(auxNet, board.auxVolts!);
+      if (board.auxVolts! > board.vcc) inputRails.add(auxNet);
       for (const pinName of auxPins) {
         uf.setCanonical(pinKey(board.id, pinName), auxNet);
       }
@@ -245,12 +260,27 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // below. Deliberately NOT populated from the step-7 auto-pull-down cards,
   // since those mark FLOATING nets.
   const sourcedNets = new Set<string>(['0', 'vcc_rail', ...auxRailVolts.keys()]);
+  // Parts that declare nets they power, with their own cards (step 6), and
+  // every part's cards, for what they join with no voltage or load of their
+  // own (connectionPairs). Taken from the parts alone: a pin the sketch
+  // drives LOW (step 5) is a 0 V source, and it is not a wire to ground for a
+  // part that powers that pin (poweredBy). Read only when a part powers
+  // something, which most canvases never ask.
+  const powering: PoweringPart[] = [];
+  const emitted: Array<{ id: string; cards: readonly string[] }> = [];
+  let connectionsOfParts: PartConnections[] | null = null;
+  const partConnections = (): PartConnections[] =>
+    (connectionsOfParts ??= emitted
+      .map(({ id, cards: own }) => ({ id, pairs: connectionPairs(own) }))
+      .filter((c) => c.pairs.length > 0));
 
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
     const emission = componentToSpice(comp, localLookup, { vcc: dominantVcc });
     if (!emission) continue;
     cards.push(...emission.cards);
+    if (emission.supplies?.length) powering.push({ id: comp.id, supplies: emission.supplies, cards: emission.cards });
+    emitted.push({ id: comp.id, cards: emission.cards });
     for (const m of emission.modelsUsed) modelLines.add(m);
     // Every net this component connects to now has a real SPICE element on it.
     for (const pinName of pinsReferencedByWires(comp.id, wires)) {
@@ -320,9 +350,46 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // One ideal source per referenced aux rail, at ITS voltage — so a VIN/5V
   // pin on a 3.3 V board solves at 5 V instead of being clamped to the main
   // rail, and vice versa on 5 V Arduinos' 3.3 V pin.
+  //
+  // Except a board's power INPUT that a part powers. VIN / 5V of a 3.3 V
+  // board is where the board takes power in: its USB 5 V arrives there
+  // through a Schottky diode (the Pico's VBUS -> VSYS, a DevKit's VIN), and a
+  // supply, a battery or a regulator wired there with its return on the
+  // board's GND feeds the same pin. The higher of the two powers the board.
+  // As an ideal 5 V source the rail fought the part instead: a 9 V supply on
+  // an ESP32's VIN read 5 V and sat at its current limit, which blocked Run
+  // whatever the limit (velxio/velxio-prod#96). So there the board's 5 V is
+  // emitted behind that diode: a part above it powers the pin at its own
+  // voltage, one below it is held off and back-driven, which the circuit
+  // check names. The board's logic rail (3V3) and a 5 V board's 3.3 V pin are
+  // its regulators' outputs and keep their ideal source, and so does an input
+  // wired to one: an ESP32-CAM's 5V and an Uno's 5V on one breadboard rail
+  // are a single net, and a 9 V battery there back-feeds the Uno's regulator.
+  for (const board of boards) {
+    const auxIsOutput = board.auxVolts !== undefined && board.auxVolts <= board.vcc;
+    const auxPins = new Set(board.auxVolts !== undefined ? (board.auxPinNames ?? []) : []);
+    const outputs = [
+      ...(board.vccPinNames ?? []),
+      ...(auxIsOutput ? auxPins : []),
+      // The pins step 2 puts on the logic rail by their name.
+      ...pinsReferencedByWires(board.id, wires).filter((p) => !auxPins.has(p) && VCC_PIN_RE.test(p)),
+    ];
+    for (const pin of outputs) {
+      const key = pinKey(board.id, pin);
+      if (uf.has(key)) inputRails.delete(uf.find(key));
+    }
+  }
+  const powered = poweredBy(inputRails, powering, partConnections);
   for (const [auxNet, volts] of auxRailVolts) {
-    if (hasNet(netNames, auxNet)) {
-      cards.unshift(`V_${auxNet.toUpperCase()} ${auxNet} 0 DC ${volts}`);
+    if (!hasNet(netNames, auxNet)) continue;
+    const name = `V_${auxNet.toUpperCase()}`;
+    if (powered.has(auxNet)) {
+      const own = `board_${auxNet}`;
+      cards.unshift(`D_${auxNet.toUpperCase()} ${own} ${auxNet} ${BOARD_INPUT_DIODE}`);
+      cards.unshift(`${name} ${own} 0 DC ${volts}`);
+      modelLines.add(BOARD_INPUT_DIODE_MODEL);
+    } else {
+      cards.unshift(`${name} ${auxNet} 0 DC ${volts}`);
     }
   }
 
@@ -415,12 +482,22 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     if (m) voltageSources.push(m[1]);
   }
 
+  // ── 11. Board pins a part powers (BuildNetlistResult.partPoweredNets) ────
+  const boardPinNets = new Set<string>();
+  for (const board of boards) {
+    for (const pinName of pinsReferencedByWires(board.id, wires)) {
+      const net = netLookup(board.id, pinName);
+      if (net && !isRailNet(net)) boardPinNets.add(net);
+    }
+  }
+
   return {
     netlist: lines.join('\n'),
     pinNetMap,
     nets,
     voltageSources,
     sourcedNets,
+    partPoweredNets: poweredBy(boardPinNets, powering, partConnections),
   };
 }
 
@@ -574,6 +651,121 @@ function suppliedRoots(
   }
   const out = new Set<string>();
   for (const [root, t] of tokenOfRoot) if (reached.has(t)) out.add(root);
+  return out;
+}
+
+/** Card letters that tie their first two nodes together, for poweredBy. */
+const HOLDING_CARD = /^[RLVBEH]$/;
+
+/**
+ * The diode a board's USB 5 V reaches its VIN / 5V pin through, when a part
+ * powers that pin too: a 1 A Schottky of the kind dev boards fit (SS14,
+ * B5819W, MBR120), 0.32 V at 0.1 A and 0.48 V at 1 A, 1 µA backwards.
+ */
+const BOARD_INPUT_DIODE = 'D_BOARD_INPUT';
+const BOARD_INPUT_DIODE_MODEL = `.model ${BOARD_INPUT_DIODE} D(Is=1e-6 N=1.05 Rs=0.1)`;
+
+/**
+ * A series resistance this small is a connection, not a load: the netlist's
+ * own closed switch contacts and button legs are 10 mΩ, an ammeter's shunt
+ * 1 mΩ. Under 10 mV at 1 A, less than a bench supply's own output resistance.
+ */
+const CONNECTION_OHMS = 0.01;
+
+/**
+ * Node pairs a netlist joins with no voltage or load of its own: a 0 V sense
+ * source (an ammeter's, an LED's, a regulator's), or a resistance of at most
+ * CONNECTION_OHMS (a closed switch, an ammeter's shunt, a 1 cm wire). Takes
+ * card lines; anything else (comments, models, directives) is skipped.
+ */
+export function connectionPairs(lines: readonly string[]): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const line of lines) {
+    const t = line.trim().split(/\s+/);
+    if (t.length < 4) continue;
+    const kind = (t[0] ?? '').charAt(0).toUpperCase();
+    const value = t.slice(3).join(' ');
+    if (kind === 'V' && ZERO_VOLTS.test(value)) out.push([t[1]!, t[2]!]);
+    else if (kind === 'R' && t.length === 4 && Math.abs(parseValueWithUnits(t[3], Infinity)) <= CONNECTION_OHMS) {
+      out.push([t[1]!, t[2]!]);
+    }
+  }
+  return out;
+}
+
+/** A part that declares the nets it powers, with its own cards (step 4). */
+interface PoweringPart {
+  id: string;
+  supplies: readonly string[];
+  cards: readonly string[];
+}
+
+/** The connections (connectionPairs) of one part's own cards. */
+interface PartConnections {
+  id: string;
+  pairs: ReadonlyArray<[string, string]>;
+}
+
+/**
+ * Which of `nets` a part powers, and which parts: net -> their ids. A part
+ * powers a net when it declares one it supplies (a battery's or a bench
+ * supply's +, a generator's output, a regulator's VOUT) that is that net or
+ * is joined to it by other parts' connections (connectionPairs: an ammeter,
+ * a closed switch), and its own cards hold that supply net against ground
+ * through the same kind of connections. A part whose return does not reach
+ * ground that way, through a resistor say, holds the net against nothing;
+ * nor does one behind an open switch.
+ *
+ * One rule for two questions: whether a part powers a 3.3 V board's VIN / 5V
+ * input (step 6, where the board's own 5 V then sits behind its USB diode),
+ * and whether a part drives a board pin, which is then the input it is
+ * (BuildNetlistResult.partPoweredNets). The connections are the parts' own
+ * (step 4), so a pin the sketch drives LOW is not a wire to ground; and a
+ * part's own cards never say where its output sits, so a generator set to
+ * DC 0 V (a 0 V card, which reads as a wire) still drives its pin.
+ */
+function poweredBy(
+  nets: Iterable<string>,
+  powering: readonly PoweringPart[],
+  partConnections: () => readonly PartConnections[],
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const candidates = [...nets];
+  if (candidates.length === 0 || powering.length === 0) return out;
+  const fields = (card: string) => card.trim().split(/\s+/);
+  const connections = partConnections();
+  for (const part of powering) {
+    // `joined`: the nets as the other parts' connections join them.
+    // `held`: the same with this part's own cards, which hold its output.
+    const joined = new UnionFind();
+    const held = new UnionFind();
+    for (const { id, pairs } of connections) {
+      for (const [a, b] of pairs) {
+        held.union(a, b);
+        if (id !== part.id) joined.union(a, b);
+      }
+    }
+    for (const card of part.cards) {
+      const t = fields(card);
+      const kind = (t[0] ?? '').charAt(0).toUpperCase();
+      if (!HOLDING_CARD.test(kind) || t.length < 3) continue;
+      // A behavioural source written as a current (I = ...) holds no voltage.
+      if (kind === 'B' && !/^v\s*=/i.test(t.slice(3).join(' '))) continue;
+      held.union(t[1]!, t[2]!);
+    }
+    const ground = held.find('0');
+    const outputs = new Set<string>();
+    for (const net of part.supplies) {
+      if (joined.find(net) !== joined.find('0') && held.find(net) === ground) outputs.add(joined.find(net));
+    }
+    if (outputs.size === 0) continue;
+    for (const net of candidates) {
+      if (!outputs.has(joined.find(net))) continue;
+      const ids = out.get(net) ?? [];
+      if (!ids.includes(part.id)) ids.push(part.id);
+      out.set(net, ids);
+    }
+  }
   return out;
 }
 

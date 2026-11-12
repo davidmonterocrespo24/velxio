@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { componentToSpice, mappedMetadataIds } from '../simulation/spice/componentToSpice';
-import { valueFieldsOf, readValueField, unreadableValues } from '../simulation/spice/valueFields';
+import { fieldIsRead, valueFieldsOf, readValueField, unreadableValues } from '../simulation/spice/valueFields';
 
 /** Modes that make a field matter (a supply's frequency only shows in AC). */
 const CONTEXTS: Record<string, Array<Record<string, unknown>>> = {
@@ -49,10 +49,14 @@ describe('every number field emits the fallback the table promises', () => {
           expect(atFallback, where).toBe(missing);
           expect(unreadable, where).toBe(missing);
           expect(readValueField({ metadataId: id, properties: {} }, field.prop), where).toBe(field.fallback);
+          // Reported in the modes that read it, never in one that does not (a
+          // DC supply's frequency): value-field-modes.test.ts.
           expect(
-            unreadableValues({ metadataId: id, properties: { [field.prop]: 'not a value' } }).map((u) => u.field.prop),
+            unreadableValues({ metadataId: id, properties: { ...context, [field.prop]: 'not a value' } }).map(
+              (u) => u.field.prop,
+            ),
             where,
-          ).toEqual([field.prop]);
+          ).toEqual(fieldIsRead({ metadataId: id, properties: context }, field) ? [field.prop] : []);
         }
       }
     });

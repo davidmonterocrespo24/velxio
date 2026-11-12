@@ -56,6 +56,12 @@ export interface BoardForSpice {
   auxPinNames?: string[];
   /** Voltage of the aux rail (V). Required for `auxPinNames` to take effect. */
   auxVolts?: number;
+  /**
+   * Supply pins where the board or a bare chip takes its power in, with the
+   * voltages it runs from (BoardPinGroup.powerInputs). Read by the circuit
+   * check only; the netlist holds them on their rail.
+   */
+  powerInputs?: Record<string, { min: number; max: number }>;
 }
 
 export type PinSourceState =

@@ -22,7 +22,7 @@
  * single solver-error warning and the rest of the rules are skipped.
  */
 import { lineGaps } from '../line/requestLine';
-import { GROUND_PIN_RE, buildNetlist, sanitizeSpiceId } from '../spice/NetlistBuilder';
+import { GROUND_PIN_RE, buildNetlist, connectionPairs, sanitizeSpiceId } from '../spice/NetlistBuilder';
 import { MIN_SUPPLY_LIMIT_A } from '../spice/componentToSpice';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
@@ -42,6 +42,7 @@ export type WarningCode =
   | 'unstable-solve'
   | 'short-circuit'
   | 'source-overload'
+  | 'supply-on-rail'
   | 'led-overcurrent'
   | 'over-voltage'
   | 'reverse-polarity'
@@ -295,16 +296,33 @@ export async function verifyCircuit(
   // such a text became some other number ("4,7k" was 4k) or NaN, and one
   // NaN made ngspice reject the whole circuit with a bare "circuit not
   // parsed" (velxio/velxio-prod#105, #118). Blocking, with Run anyway.
+  //
+  // An EMPTY field says no number the default would contradict: the part
+  // runs with the value a new one has, as it always did for a resistor, so
+  // that is a warning, and the inspector keeps its note under the field. A
+  // field the part's mode does not read (a DC supply's frequency) is never
+  // reported at all (unreadableValues).
   for (const comp of input.components) {
     for (const bad of unreadableValues(comp)) {
+      const fallback = formatQuantity(bad.field.fallback, bad.field.unit);
+      if (bad.empty) {
+        warnings.push({
+          severity: 'warning',
+          code: 'invalid-value',
+          componentId: comp.id,
+          message:
+            `${comp.metadataId} ${comp.id}: its ${bad.field.label} is empty, so it runs with ${fallback}, ` +
+            `the part's default. Type a value to set it.`,
+        });
+        continue;
+      }
       errors.push({
         severity: 'error',
         code: 'invalid-value',
         componentId: comp.id,
         message:
           `${comp.metadataId} ${comp.id}: its ${bad.field.label} "${String(bad.raw)}" is not a value ` +
-          `the simulator can read (${bad.why}). It runs with ${formatQuantity(bad.field.fallback, bad.field.unit)} ` +
-          `until the field is fixed.`,
+          `the simulator can read (${bad.why}). It runs with ${fallback} until the field is fixed.`,
       });
     }
   }
@@ -322,7 +340,7 @@ export async function verifyCircuit(
   // the user their sensor will never answer.
   // Run a forced .op solve so currents are scalar and deterministic.
   const opInput: BuildNetlistInput = { ...input, analysis: { kind: 'op' } };
-  const { netlist, pinNetMap, nets } = buildNetlist(opInput);
+  const { netlist, pinNetMap, nets, partPoweredNets } = buildNetlist(opInput);
 
   // ── Ideal sources fighting over one net (graph-based, no solve) ────────
   // Two ideal voltage sources on the same pair of nodes make the .op matrix
@@ -331,7 +349,21 @@ export async function verifyCircuit(
   // 2026-09-05 nothing said why (a 7805's VOUT wired into a XIAO's 5V pin was
   // reported as "my 9 V battery reads 0 V"). Detected from the netlist itself
   // so both sides get named; blocking, because nothing on the canvas solves.
-  errors.push(...findSourceConflicts(netlist, input, config.synthesizedPins));
+  const sourceConflicts = findSourceConflicts(netlist, input, config.synthesizedPins);
+  errors.push(...sourceConflicts);
+  // A board pin driven against a part that powers its net (a bench supply or
+  // a battery behind its own resistance, so the solve has an answer): the
+  // same fight, named the same way, and never as that part's current limit
+  // or short circuit (Rule 1 leaves these parts alone).
+  const pinDriveConflicts = findPinDriveConflicts(
+    input,
+    pinNetMap,
+    partPoweredNets,
+    config.synthesizedPins,
+    new Set(sourceConflicts.map((c) => c.componentId ?? '')),
+  );
+  errors.push(...pinDriveConflicts);
+  const fightingPins = new Set(pinDriveConflicts.map((c) => c.componentId ?? ''));
 
 
   // ── Board over-voltage (graph-based, no solve) ─────────────────────────
@@ -921,10 +953,22 @@ export async function verifyCircuit(
   // current, so a supply asked for more sits AT the limit: the reading is
   // the limit plus a hair (setpoint / gain), or a hair under it from the
   // solver's tolerance. Flag it from 0.1 % under the limit (#96).
+  //
+  // A supply wired straight onto a board pin that the board's own ideal
+  // source holds (its 3V3 regulator output, a 5 V board's 3.3 V pin) is at
+  // its limit for another reason: the two sources fight over the pin, and
+  // the limit says nothing about the load. That one is named as what it is,
+  // a warning, not an overload (supplyOnRailWarning). A supply wired into a
+  // 3.3 V board's VIN / 5V powers the board and meets no rail there
+  // (NetlistBuilder, poweredInputRails).
+  const rails = boardRailsOf(netlist);
   const sourceComponents = input.components.filter((c) =>
     /^(battery|signal-generator|power-supply)/.test(c.metadataId),
   );
   for (const src of sourceComponents) {
+    // Fighting a pin the sketch drives: named above as that conflict, and its
+    // current is the fight's, not a load's.
+    if (fightingPins.has(src.id)) continue;
     // A non-finite source current means ngspice could not find a stable
     // operating point — treat it as a blocking "cannot emulate" fault
     // rather than waving the circuit through as 0 A.
@@ -945,6 +989,13 @@ export async function verifyCircuit(
       ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
     if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
+      const onRail = isPsu
+        ? supplyOnRailWarning(src, threshold, branchCurrents[`v_${src.id}`] ?? 0, rails, pinNetMap, input)
+        : null;
+      if (onRail) {
+        warnings.push(onRail);
+        continue;
+      }
       errors.push({
         severity: 'error',
         code: isPsu ? 'source-overload' : 'short-circuit',
@@ -1260,6 +1311,260 @@ function parseSourceCards(netlist: string): SourceCard[] {
   return raw.map((c) => ({ name: c.name, a: find(c.a), b: find(c.b) }));
 }
 
+/** The board rails a netlist holds with a source of the board's own, by net. */
+interface BoardRails {
+  /** The net a node sits on once connections are taken as wires. */
+  fold: (net: string) => string;
+  /**
+   * Folded net -> the rail's volts, and whether it is a power input the board
+   * feeds through its USB diode (NetlistBuilder): a part above it powers the
+   * pin, one below it is held off. Otherwise the rail is a regulator's output,
+   * an ideal source either way.
+   */
+  rails: Map<string, { volts: number; input: boolean }>;
+}
+
+/**
+ * The nets the board's own rail sources hold (V_VCC_RAIL, V_AUX_RAIL_*, the
+ * latter behind its D_AUX_RAIL_* diode where a part powers that input), with
+ * connections taken as wires (connectionPairs: sense sources, closed
+ * switches, an ammeter's shunt), so a supply behind an ammeter on a rail is
+ * on that rail.
+ */
+function boardRailsOf(netlist: string): BoardRails {
+  const lines = netlist.split('\n').map((l) => l.trim());
+  const uf = new UnionFind();
+  for (const [a, b] of connectionPairs(lines)) uf.union(a, b);
+  // The board side of a diode-fed input -> the pin it feeds.
+  const through = new Map<string, string>();
+  for (const line of lines) {
+    const diode = /^D_AUX_RAIL_\S+\s+(\S+)\s+(\S+)\s/i.exec(line);
+    if (diode) through.set(diode[1]!, diode[2]!);
+  }
+  const rails = new Map<string, { volts: number; input: boolean }>();
+  for (const line of lines) {
+    const rail = /^V_(?:VCC_RAIL|AUX_RAIL_\S+)\s+(\S+)\s+0\s+DC\s+(\S+)$/i.exec(line);
+    if (!rail || !Number.isFinite(Number(rail[2]))) continue;
+    const pin = through.get(rail[1]!);
+    rails.set(uf.find(pin ?? rail[1]!), { volts: Number(rail[2]), input: pin !== undefined });
+  }
+  return { fold: (net) => uf.find(net), rails };
+}
+
+/**
+ * The warning for a power supply that sits at its limit because a board's own
+ * rail holds the pin it is wired to, or null when no rail does, or when the
+ * limit is a real overload. What the supply does there on hardware depends on
+ * what the pin is, which the board's pin data says (BoardForSpice):
+ * - a regulator's output (a board's 3V3, a 5 V board's 3.3 V pin): the higher
+ *   of the two drives the pin. A supply above it back-feeds the regulator
+ *   (and past the pin's rated maximum it would harm the board, which the
+ *   message says), and one below it is held off and delivers nothing, since a
+ *   bench supply cannot sink current. The netlist keeps the board's ideal
+ *   rail, so the supply's own current is the fight, not a load.
+ * - a 3.3 V board's VIN / 5V: a supply above the board's USB 5 V powers the
+ *   board (NetlistBuilder feeds that 5 V through its diode), so at its limit
+ *   its load really asks for more: an overload. One below it is held off by
+ *   the USB 5 V, the same as above.
+ * - a pin where the board or a bare chip takes its power in, with the range
+ *   it runs from (BoardForSpice.powerInputs: an ATtiny85's VCC, an STM32
+ *   board's 5V): a supply in that range powers it. The netlist still holds
+ *   the pin on the rail the simulated MCU runs at, so the message says that,
+ *   and whether the supply is outside the range.
+ * (velxio/velxio-prod#96)
+ */
+function supplyOnRailWarning(
+  src: BuildNetlistInput['components'][number],
+  limit: number,
+  current: number,
+  rails: BoardRails,
+  pinNetMap: ReadonlyMap<string, string>,
+  input: BuildNetlistInput,
+): CircuitWarning | null {
+  const netOfPin = (...pins: string[]) => {
+    for (const p of pins) {
+      const n = pinNetMap.get(`${src.id}:${p}`);
+      if (n !== undefined) return rails.fold(n);
+    }
+    return undefined;
+  };
+  const posPins = ['+', 'SIG', 'VCC'];
+  const negPins = ['−', '-', 'GND'];
+  const pos = netOfPin(...posPins);
+  const neg = netOfPin(...negPins);
+  const onPos = pos !== undefined && rails.rails.has(pos);
+  const railNet = onPos ? pos : neg !== undefined && rails.rails.has(neg) ? neg : undefined;
+  if (railNet === undefined) return null;
+  const rail = rails.rails.get(railNet)!;
+  const set = readValueField(src, 'voltage');
+  const ac = String(src.properties.mode ?? 'dc').toLowerCase() === 'ac';
+  // Delivering current in the direction of its own setting.
+  const sourcing = current * (set < 0 ? -1 : 1) > 0;
+  if (rail.input && sourcing) return null;
+  const v = (x: number) => formatQuantity(x, 'V');
+  const amps = formatQuantity(limit, 'A');
+
+  // Which board pin the supply meets the rail at, as the person wired it: the
+  // one its own terminal reaches over wires and breadboard strips, else the
+  // first one on that rail.
+  const onRail = (boardId: string, pinName: string) => {
+    const net = pinNetMap.get(`${boardId}:${pinName}`);
+    return net !== undefined && rails.fold(net) === railNet;
+  };
+  const at =
+    nearestBoardPin(input, (onPos ? posPins : negPins).map((p) => `${src.id}:${p}`), onRail) ??
+    firstBoardPin(input, onRail);
+  const board = at ? input.boards.find((b) => b.id === at.boardId) : undefined;
+  const pinName = at?.pinName;
+
+  // A pin where the board takes its power in: the netlist holds it at the
+  // rail the MCU runs from, which is not what a supply there does.
+  const runsFrom = board && pinName !== undefined && !rail.input ? board.powerInputs?.[pinName] : undefined;
+  if (board && pinName !== undefined && runsFrom) {
+    const range = `${v(runsFrom.min)} to ${v(runsFrom.max)}`;
+    const where = `the ${pinName} pin of ${board.id}, its power input (it runs from ${range})`;
+    const held =
+      `the simulation runs ${board.id} from its own ${v(rail.volts)} and holds that pin there, so the supply ` +
+      `sits at its ${amps} current limit and its own current reading means nothing`;
+    const absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === pinName)?.absMaxVoltage;
+    const setIt = `Set it between ${v(runsFrom.min)} and ${v(runsFrom.max)}.`;
+    let message: string;
+    if (!onPos) {
+      message = `Power supply ${src.id} has its − wired to ${where}; ${held}.`;
+    } else if (ac) {
+      message =
+        `Power supply ${src.id} is in AC mode and wired to ${where}, which runs from DC; ${held}. ` +
+        `Switch it to DC, between ${v(runsFrom.min)} and ${v(runsFrom.max)}.`;
+    } else if (set > runsFrom.max) {
+      const harm =
+        absMax !== undefined && set > absMax ? `, and above its ${v(absMax)} maximum, which would likely damage it` : '';
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: ${v(set)} is above that range${harm}; ` +
+        `${held}. ${setIt}`;
+    } else if (set < runsFrom.min) {
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: ${v(set)} is below that range, so on ` +
+        `hardware ${board.id} would not run from it; ${held}. ${setIt}`;
+    } else {
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: on hardware it powers ${board.id} at ` +
+        `${v(set)}; ${held}.`;
+    }
+    return { severity: 'warning', code: 'supply-on-rail', componentId: src.id, message };
+  }
+
+  const holder = rail.input
+    ? `where the board's own ${v(rail.volts)} arrives through its USB diode`
+    : `which the board's own supply holds at ${v(rail.volts)}`;
+  let where = `a supply rail the simulator holds at ${v(rail.volts)}`;
+  let inputHint = '';
+  let absMax: number | undefined;
+  if (board && pinName !== undefined) {
+    where = `the ${pinName} pin of ${board.id}, ${holder}`;
+    absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === pinName)?.absMaxVoltage;
+    // A 3.3 V board takes power in on its VIN / 5V side.
+    if (!rail.input && board.auxVolts !== undefined && board.auxVolts > board.vcc && board.auxPinNames?.length) {
+      const pins = board.auxPinNames.filter((p) => !/\.\d+$/.test(p));
+      inputHint = `, or wire it to ${board.id}'s ${pins.join(' or ')} pin, where it powers the board`;
+    }
+  }
+
+  const reading =
+    `in the simulation the board's ${v(rail.volts)} holds the pin and the supply sits at its ` +
+    `${amps} current limit, so its own current reading means nothing`;
+  let message: string;
+  if (ac || !onPos) {
+    message = `Power supply ${src.id} is wired to ${where}: the two fight over that pin, and ${reading}.`;
+  } else if (sourcing) {
+    // The board over-voltage check sees only a supply wired straight to the
+    // pin; through a breadboard rail this is the one place that says it.
+    const harm =
+      absMax !== undefined && Math.abs(set) > absMax
+        ? `, above its ${v(absMax)} maximum, which would likely damage the board`
+        : '';
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where}. On hardware it would back-feed that ` +
+      `rail and lift the pin to ${v(set)}${harm}; ${reading}. Set it to ${v(rail.volts)}${inputHint}.`;
+  } else if (rail.input) {
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where} and holds the pin above that. ` +
+      `A bench supply cannot sink current, so on hardware it would deliver nothing while the board has ` +
+      `USB power; ${reading}. Set it above ${v(rail.volts)} to power the board from it, or remove it.`;
+  } else {
+    message =
+      `Power supply ${src.id} is set to ${v(set)} and wired to ${where}, above its setting. A bench supply ` +
+      `cannot sink current, so on hardware it would deliver nothing there; ${reading}. ` +
+      `Set it to ${v(rail.volts)}, or remove it.`;
+  }
+  return { severity: 'warning', code: 'supply-on-rail', componentId: src.id, message };
+}
+
+/**
+ * The first board pin, in wire order, that `accept` takes: how the supply
+ * warnings named the pin a rail meets before nearestBoardPin.
+ */
+function firstBoardPin(
+  input: BuildNetlistInput,
+  accept: (boardId: string, pinName: string) => boolean,
+): { boardId: string; pinName: string } | undefined {
+  for (const board of input.boards) {
+    for (const wire of input.wires) {
+      for (const end of [wire.start, wire.end]) {
+        if (end.componentId === board.id && accept(board.id, end.pinName)) {
+          return { boardId: board.id, pinName: end.pinName };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The board pin nearest to `from` (`<part>:<pin>` keys) over wires and the
+ * strips of a breadboard, that `accept` takes. A part is not crossed: the pin
+ * found is the one the person wired the part's terminal to. All of a board's
+ * supply pins on one rail are one net in the netlist, so the net alone cannot
+ * say whether a supply went to an STM32's 5V or its 3V3.
+ */
+function nearestBoardPin(
+  input: BuildNetlistInput,
+  from: readonly string[],
+  accept: (boardId: string, pinName: string) => boolean,
+): { boardId: string; pinName: string } | undefined {
+  const meta = new Map(input.components.map((c) => [c.id, c.metadataId] as const));
+  const boards = new Set(input.boards.map((b) => b.id));
+  const adj = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+    (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
+  };
+  for (const wire of input.wires) {
+    link(`${wire.start.componentId}:${wire.start.pinName}`, `${wire.end.componentId}:${wire.end.pinName}`);
+    for (const end of [wire.start, wire.end]) {
+      const m = meta.get(end.componentId);
+      const key = m && hasInternalNets(m) ? breadboardGroupKey(m, end.pinName) : null;
+      if (key) link(`${end.componentId}:${end.pinName}`, `group|${end.componentId}|${key}`);
+    }
+  }
+  const seen = new Set<string>(from);
+  const queue = [...from];
+  while (queue.length) {
+    const at = queue.shift()!;
+    if (!at.startsWith('group|')) {
+      const i = at.indexOf(':');
+      const comp = at.slice(0, i);
+      const pin = at.slice(i + 1);
+      if (boards.has(comp) && accept(comp, pin)) return { boardId: comp, pinName: pin };
+    }
+    for (const next of adj.get(at) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return undefined;
+}
+
 /** The sorted node-pair key findSourceConflicts groups ideal sources by. */
 export function sourcePairKey(a: string, b: string): string {
   return [a, b].sort().join('|');
@@ -1365,6 +1670,85 @@ export function findSourceConflicts(
       componentId: parts.find((p) => p.componentId)?.componentId,
       message: `${names.join(', ')} and ${last} are both driving the same net, so the circuit has no solution: the simulator cannot solve any voltage on the canvas until one of them is removed. Typical cause: a regulator or battery output wired straight into a board supply pin.`,
     });
+  }
+  return out;
+}
+
+/** How a part that powers a net holds it, for findPinDriveConflicts. */
+function heldLevel(part: BuildNetlistInput['components'][number]): string {
+  const v = (x: number) => formatQuantity(x, 'V');
+  if (part.metadataId === 'power-supply') {
+    const set = readValueField(part, 'voltage');
+    return String(part.properties.mode ?? 'dc').toLowerCase() === 'ac'
+      ? `drives that net with a ${v(Math.abs(set))} sine`
+      : `holds that net at ${v(set)}`;
+  }
+  if (part.metadataId === 'signal-generator') {
+    const waveform = String(part.properties.waveform ?? 'sine').toLowerCase();
+    return waveform === 'dc'
+      ? `holds that net at ${v(readValueField(part, 'offset'))}`
+      : `drives that net with its ${waveform} wave`;
+  }
+  const info = sourceInfo(part);
+  return info ? `holds that net at ${v(info.volts)}` : 'holds that net';
+}
+
+/**
+ * A board pin driven as an output on a net a part powers: a bench supply's or
+ * a battery's +, a generator's output or a regulator's VOUT with its return
+ * on ground (NetlistBuilder, partPoweredNets). Two drivers on one net: on
+ * hardware the pin's output stage carries whatever current the part pushes
+ * into it or draws from it. A bench supply holds its pin behind 10 mΩ and a
+ * battery behind its ESR, so findSourceConflicts (ideal sources only) does
+ * not see these, and the solve showed them as the supply at its current
+ * limit ("Raise the currentLimit", which no limit fixes) or as a battery's
+ * short circuit. Named here as the conflict it is, with the pin worded as
+ * findSourceConflicts words it: driven by the MCU, or assumed HIGH by the
+ * pre-flight. The pre-flight leaves a pin a part powers as an input
+ * (verifyFromStore), so this is what a sketch's own output meets. A part in
+ * `named` (one findSourceConflicts reported already) is left to it.
+ * Exported for tests.
+ */
+export function findPinDriveConflicts(
+  input: BuildNetlistInput,
+  pinNetMap: ReadonlyMap<string, string>,
+  partPoweredNets: ReadonlyMap<string, readonly string[]>,
+  synthesizedPins?: ReadonlySet<string>,
+  named: ReadonlySet<string> = new Set(),
+): CircuitWarning[] {
+  const out: CircuitWarning[] = [];
+  if (partPoweredNets.size === 0) return out;
+  const reported = new Set<string>();
+  for (const board of input.boards) {
+    for (const [pinName, state] of Object.entries(board.pins ?? {})) {
+      if (state.type === 'input') continue;
+      const net = pinNetMap.get(`${board.id}:${pinName}`);
+      if (net === undefined) continue;
+      for (const partId of partPoweredNets.get(net) ?? []) {
+        if (named.has(partId) || reported.has(partId)) continue;
+        const part = input.components.find((c) => c.id === partId);
+        if (!part) continue;
+        reported.add(partId);
+        const pinCard: SourceCard = { name: `V_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`, a: net, b: '0' };
+        const pin = describeSourceCard(pinCard, input, synthesizedPins).text;
+        const who = `${part.metadataId} ${part.id}`;
+        const own = `${who} ${part.metadataId.startsWith('reg-') ? 'output (VOUT)' : 'output'}`;
+        const holds = heldLevel(part);
+        const driven = synthesizedPins?.has(`${board.id}:${pinName}`)
+          ? `the check assumed the pin is an output the sketch may drive, while ${who} ${holds}`
+          : `the sketch drives the pin as an output while ${who} ${holds}`;
+        out.push({
+          severity: 'error',
+          code: 'source-conflict',
+          componentId: part.id,
+          message:
+            `${own} and ${pin} are both driving the same net: ${driven}. On hardware the two fight, and the ` +
+            `pin's output stage carries whatever current ${who} pushes into it or draws from it, which can ` +
+            `damage it. To read ${who}, leave the pin as an input (analogRead or digitalRead); to drive that ` +
+            `net from the pin, remove ${who}.`,
+        });
+      }
+    }
   }
   return out;
 }
