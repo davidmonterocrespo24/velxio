@@ -32,8 +32,8 @@ function ldrOhms(lux: number, extra: Record<string, unknown> = {}): number {
   return Number(card.split(/\s+/).pop());
 }
 
-/** AO of the module on 5 V: the LDR from VCC to AO, its 10 kOhm from AO to GND. */
-const aoVolts = (r: number) => (5 * 10_000) / (10_000 + r);
+/** AO of the module on 5 V: its 10 kOhm from VCC to AO, the LDR from AO to GND. */
+const aoVolts = (r: number) => (5 * r) / (10_000 + r);
 
 describe('photoresistor LDR law (#103)', () => {
   it('follows the GL5528 curve: 15 kOhm at 10 lux, slope 0.6, 1 MOhm dark', () => {
@@ -45,10 +45,11 @@ describe('photoresistor LDR law (#103)', () => {
   });
 
   it('puts the module output across the whole 0-5 V range', () => {
-    expect(aoVolts(ldrOhms(0))).toBeLessThan(0.06);
-    expect(aoVolts(ldrOhms(10))).toBeCloseTo(2.0, 1);
-    expect(aoVolts(ldrOhms(100))).toBeCloseTo(3.63, 1);
-    expect(aoVolts(ldrOhms(1000))).toBeGreaterThan(4.5);
+    // AO falls as the light rises (photoresistor-module-polarity.test.ts).
+    expect(aoVolts(ldrOhms(0))).toBeGreaterThan(4.94);
+    expect(aoVolts(ldrOhms(10))).toBeCloseTo(3.0, 1);
+    expect(aoVolts(ldrOhms(100))).toBeCloseTo(1.37, 1);
+    expect(aoVolts(ldrOhms(1000))).toBeLessThan(0.5);
   });
 
   it('takes the LDR from rl10 (kOhm) and gamma, as Wokwi does', () => {
@@ -68,7 +69,7 @@ describe('photoresistor LDR law (#103)', () => {
   });
 
   it(
-    'uno-photoresistor reads 87 % at the default 500 lux, not 3 %',
+    'uno-photoresistor reads 88 % at the default 500 lux, not 3 %',
     { timeout: 60_000 },
     async () => {
       const ex = exampleProjects.find((e) => e.id === 'uno-photoresistor')!;
@@ -78,12 +79,13 @@ describe('photoresistor LDR law (#103)', () => {
       const { netlist, pinNetMap } = buildNetlist(input);
       const r = await runNetlist(netlist);
       const a0 = r.dcValue(`v(${pinNetMap.get('arduino-uno:A0')})`);
-      // 5 V * 10k / (10k + 1.43k) = 4.37 V; the sketch maps analogRead to percent.
-      expect(a0).toBeCloseTo(4.37, 1);
-      const raw = Math.round((a0 / 5) * 1023);
-      const percent = Math.floor((raw * 100) / 1023);
-      expect(percent).toBeGreaterThanOrEqual(85);
-      expect(percent).toBeLessThanOrEqual(89);
+      // 5 V * 1.43k / (10k + 1.43k) = 0.63 V; the sketch maps analogRead to
+      // percent the other way round, map(raw, 0, 1023, 100, 0).
+      expect(a0).toBeCloseTo(0.627, 2);
+      const raw = Math.floor((a0 / 5) * 1024);
+      const percent = 100 + Math.trunc((raw * -100) / 1023);
+      expect(percent).toBeGreaterThanOrEqual(86);
+      expect(percent).toBeLessThanOrEqual(90);
     },
   );
 });

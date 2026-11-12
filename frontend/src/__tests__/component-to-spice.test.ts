@@ -429,22 +429,23 @@ describe('photoresistor — dark resistance suffix', () => {
   it('reads "1Meg" as one megaohm', () => {
     // In the dark the LDR sits at its dark resistance.
     const out = mapOne({ lux: 0, dark: '1Meg', pullup: '100k' });
-    expect(out?.cards[0]).toBe('R_ldr1_ldr vcc n_ao 1000000');
+    expect(out?.cards[0]).toBe('R_ldr1_ldr n_ao 0 1000000');
   });
 
-  it('does not short AO to VCC when dark is written "1M"', () => {
+  it('does not short AO to GND when dark is written "1M"', () => {
     // Regression: 100d-auto-night-light shipped dark: "1M" meaning 1 megaohm.
-    // SPICE reads M as milli, so it parsed to 0.001 ohm — AO sat at VCC, the
-    // ADC read 4095 forever and dragging the lux control changed nothing
-    // (every lux value still divides a short). Clamp instead of emitting it.
+    // SPICE reads M as milli, so it parsed to 0.001 ohm — with the LDR then on
+    // the VCC side AO sat at VCC, the ADC read 4095 forever and dragging the
+    // lux control changed nothing (every lux value still divides a short).
+    // Clamp instead of emitting it.
     const out = mapOne({ lux: 0, dark: '1M', pullup: '100k' });
     const ldrCard = out?.cards[0] ?? '';
     const ohms = Number(ldrCard.split(/\s+/).pop());
     expect(ohms).toBeGreaterThan(1_000);
   });
 
-  it('still emits the pull-down leg to GND', () => {
+  it('still emits the fixed leg from VCC, `pullup` its value', () => {
     const out = mapOne({ lux: 400, dark: '1Meg', pullup: '100k' });
-    expect(out?.cards[1]).toBe('R_ldr1_pull n_ao 0 100000');
+    expect(out?.cards[1]).toBe('R_ldr1_pull vcc n_ao 100000');
   });
 });

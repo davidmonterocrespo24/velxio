@@ -83,7 +83,7 @@ const FIELDS: Readonly<Record<string, readonly ValueField[]>> = {
   ],
   photoresistor: [
     field('dark', 'dark resistance', 'Ω', 1_000_000),
-    field('pullup', 'pull-down resistance', 'Ω', 10_000),
+    field('pullup', 'pull-up resistance', 'Ω', 10_000),
   ],
   'power-supply': [
     field('voltage', 'voltage', 'V', 5),
