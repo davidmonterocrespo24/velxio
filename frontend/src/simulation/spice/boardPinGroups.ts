@@ -23,6 +23,23 @@ export interface BoardPinGroup {
    * clamped to the board's logic voltage.
    */
   aux?: { volts: number; pins: string[] };
+  /**
+   * Supply pins where the board, or a bare chip, takes its power in rather
+   * than gives it out, with the range of voltages it runs from: a bare
+   * chip's VCC, the 5 V pin a board's 3.3 V regulator is fed from. The
+   * netlist holds them on their rail all the same (the simulated MCU runs at
+   * the rail's voltage); the circuit check reads this to say what a supply
+   * wired there does on hardware. Every other supply pin is the output of
+   * the board's own regulator or USB supply. A 3.3 V board's VIN / 5V (an
+   * `aux` rail above `vcc`) is an input by that alone and needs no entry.
+   */
+  powerInputs?: Record<string, PowerInputRange>;
+}
+
+/** The supply voltages a power input runs from, V (datasheet operating range). */
+export interface PowerInputRange {
+  min: number;
+  max: number;
 }
 
 /**
@@ -45,6 +62,12 @@ const STM32_GROUP: BoardPinGroup = {
   vcc: 3.3,
   gnd: ['GND', 'GND.1', 'GND.2', 'GND.3', 'GND.4'],
   vcc_pins: ['3V3', '3V3.1', '3V3.2', '5V', 'VBAT', 'VB'],
+  // The 5V pin is the USB 5 V side, which the board's 3.3 V low-dropout
+  // regulator is fed from (RT9193 or XC6206 on the Blue Pill, ME6211 on the
+  // Black Pill, LD3985 on the F4 Discovery): about 3.6 V of input keeps
+  // 3.3 V out, and the smallest of them takes 5.5 V. Velxio keeps the pin on
+  // the 3.3 V rail.
+  powerInputs: { '5V': { min: 3.6, max: 5.5 } },
 };
 
 export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
@@ -69,7 +92,9 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc_pins: ['5V', 'VCC', 'AREF'],
     aux: { volts: 3.3, pins: ['3.3V'] },
   },
-  attiny85: { vcc: 5, gnd: ['GND'], vcc_pins: ['VCC'] },
+  // A bare chip: VCC is its only supply pin, and the ATtiny85 runs from
+  // 2.7 V to 5.5 V (datasheet, operating voltage). Velxio runs it at 5 V.
+  attiny85: { vcc: 5, gnd: ['GND'], vcc_pins: ['VCC'], powerInputs: { VCC: { min: 2.7, max: 5.5 } } },
 
   // STM32 family — 3.3 V logic. Bluepill silkscreens repeat bare GND/3V3.
   'stm32-bluepill': STM32_GROUP,

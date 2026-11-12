@@ -1354,17 +1354,23 @@ function boardRailsOf(netlist: string): BoardRails {
 /**
  * The warning for a power supply that sits at its limit because a board's own
  * rail holds the pin it is wired to, or null when no rail does, or when the
- * limit is a real overload. On hardware the higher of the two drives the pin:
- * - on a regulator's output (a board's 3V3, a 5 V board's 3.3 V pin), a supply
- *   above it back-feeds the regulator (and past the pin's rated maximum it
- *   would harm the board, which the message says), and one below it is held
- *   off and delivers nothing, since a bench supply cannot sink current. The
- *   netlist keeps the board's ideal rail, so the supply's own current is the
- *   fight, not a load.
- * - on a 3.3 V board's power input (VIN / 5V), a supply above the board's
- *   USB 5 V powers the board (NetlistBuilder feeds that 5 V through its
- *   diode), so at its limit its load really asks for more: an overload. One
- *   below it is held off by the USB 5 V, the same as above.
+ * limit is a real overload. What the supply does there on hardware depends on
+ * what the pin is, which the board's pin data says (BoardForSpice):
+ * - a regulator's output (a board's 3V3, a 5 V board's 3.3 V pin): the higher
+ *   of the two drives the pin. A supply above it back-feeds the regulator
+ *   (and past the pin's rated maximum it would harm the board, which the
+ *   message says), and one below it is held off and delivers nothing, since a
+ *   bench supply cannot sink current. The netlist keeps the board's ideal
+ *   rail, so the supply's own current is the fight, not a load.
+ * - a 3.3 V board's VIN / 5V: a supply above the board's USB 5 V powers the
+ *   board (NetlistBuilder feeds that 5 V through its diode), so at its limit
+ *   its load really asks for more: an overload. One below it is held off by
+ *   the USB 5 V, the same as above.
+ * - a pin where the board or a bare chip takes its power in, with the range
+ *   it runs from (BoardForSpice.powerInputs: an ATtiny85's VCC, an STM32
+ *   board's 5V): a supply in that range powers it. The netlist still holds
+ *   the pin on the rail the simulated MCU runs at, so the message says that,
+ *   and whether the supply is outside the range.
  * (velxio/velxio-prod#96)
  */
 function supplyOnRailWarning(
@@ -1382,8 +1388,10 @@ function supplyOnRailWarning(
     }
     return undefined;
   };
-  const pos = netOfPin('+', 'SIG', 'VCC');
-  const neg = netOfPin('−', '-', 'GND');
+  const posPins = ['+', 'SIG', 'VCC'];
+  const negPins = ['−', '-', 'GND'];
+  const pos = netOfPin(...posPins);
+  const neg = netOfPin(...negPins);
   const onPos = pos !== undefined && rails.rails.has(pos);
   const railNet = onPos ? pos : neg !== undefined && rails.rails.has(neg) ? neg : undefined;
   if (railNet === undefined) return null;
@@ -1394,35 +1402,76 @@ function supplyOnRailWarning(
   const sourcing = current * (set < 0 ? -1 : 1) > 0;
   if (rail.input && sourcing) return null;
   const v = (x: number) => formatQuantity(x, 'V');
+  const amps = formatQuantity(limit, 'A');
+
+  // Which board pin the supply meets the rail at, as the person wired it: the
+  // one its own terminal reaches over wires and breadboard strips, else the
+  // first one on that rail.
+  const onRail = (boardId: string, pinName: string) => {
+    const net = pinNetMap.get(`${boardId}:${pinName}`);
+    return net !== undefined && rails.fold(net) === railNet;
+  };
+  const at =
+    nearestBoardPin(input, (onPos ? posPins : negPins).map((p) => `${src.id}:${p}`), onRail) ??
+    firstBoardPin(input, onRail);
+  const board = at ? input.boards.find((b) => b.id === at.boardId) : undefined;
+  const pinName = at?.pinName;
+
+  // A pin where the board takes its power in: the netlist holds it at the
+  // rail the MCU runs from, which is not what a supply there does.
+  const runsFrom = board && pinName !== undefined && !rail.input ? board.powerInputs?.[pinName] : undefined;
+  if (board && pinName !== undefined && runsFrom) {
+    const range = `${v(runsFrom.min)} to ${v(runsFrom.max)}`;
+    const where = `the ${pinName} pin of ${board.id}, its power input (it runs from ${range})`;
+    const held =
+      `the simulation runs ${board.id} from its own ${v(rail.volts)} and holds that pin there, so the supply ` +
+      `sits at its ${amps} current limit and its own current reading means nothing`;
+    const absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === pinName)?.absMaxVoltage;
+    const setIt = `Set it between ${v(runsFrom.min)} and ${v(runsFrom.max)}.`;
+    let message: string;
+    if (!onPos) {
+      message = `Power supply ${src.id} has its − wired to ${where}; ${held}.`;
+    } else if (ac) {
+      message =
+        `Power supply ${src.id} is in AC mode and wired to ${where}, which runs from DC; ${held}. ` +
+        `Switch it to DC, between ${v(runsFrom.min)} and ${v(runsFrom.max)}.`;
+    } else if (set > runsFrom.max) {
+      const harm =
+        absMax !== undefined && set > absMax ? `, and above its ${v(absMax)} maximum, which would likely damage it` : '';
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: ${v(set)} is above that range${harm}; ` +
+        `${held}. ${setIt}`;
+    } else if (set < runsFrom.min) {
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: ${v(set)} is below that range, so on ` +
+        `hardware ${board.id} would not run from it; ${held}. ${setIt}`;
+    } else {
+      message =
+        `Power supply ${src.id} is set to ${v(set)} and wired to ${where}: on hardware it powers ${board.id} at ` +
+        `${v(set)}; ${held}.`;
+    }
+    return { severity: 'warning', code: 'supply-on-rail', componentId: src.id, message };
+  }
+
   const holder = rail.input
     ? `where the board's own ${v(rail.volts)} arrives through its USB diode`
     : `which the board's own supply holds at ${v(rail.volts)}`;
-
-  // Which board pin the supply meets the rail at, as the person wired it.
   let where = `a supply rail the simulator holds at ${v(rail.volts)}`;
   let inputHint = '';
   let absMax: number | undefined;
-  findPin: for (const board of input.boards) {
-    for (const wire of input.wires) {
-      for (const end of [wire.start, wire.end]) {
-        if (end.componentId !== board.id) continue;
-        const net = pinNetMap.get(`${board.id}:${end.pinName}`);
-        if (net === undefined || rails.fold(net) !== railNet) continue;
-        where = `the ${end.pinName} pin of ${board.id}, ${holder}`;
-        absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === end.pinName)?.absMaxVoltage;
-        // A 3.3 V board takes power in on its VIN / 5V side.
-        if (!rail.input && board.auxVolts !== undefined && board.auxVolts > board.vcc && board.auxPinNames?.length) {
-          const pins = board.auxPinNames.filter((p) => !/\.\d+$/.test(p));
-          inputHint = `, or wire it to ${board.id}'s ${pins.join(' or ')} pin, where it powers the board`;
-        }
-        break findPin;
-      }
+  if (board && pinName !== undefined) {
+    where = `the ${pinName} pin of ${board.id}, ${holder}`;
+    absMax = COMPONENT_RATINGS[board.boardKind ?? '']?.supplyPins.find((p) => p.name === pinName)?.absMaxVoltage;
+    // A 3.3 V board takes power in on its VIN / 5V side.
+    if (!rail.input && board.auxVolts !== undefined && board.auxVolts > board.vcc && board.auxPinNames?.length) {
+      const pins = board.auxPinNames.filter((p) => !/\.\d+$/.test(p));
+      inputHint = `, or wire it to ${board.id}'s ${pins.join(' or ')} pin, where it powers the board`;
     }
   }
 
   const reading =
     `in the simulation the board's ${v(rail.volts)} holds the pin and the supply sits at its ` +
-    `${formatQuantity(limit, 'A')} current limit, so its own current reading means nothing`;
+    `${amps} current limit, so its own current reading means nothing`;
   let message: string;
   if (ac || !onPos) {
     message = `Power supply ${src.id} is wired to ${where}: the two fight over that pin, and ${reading}.`;
@@ -1448,6 +1497,72 @@ function supplyOnRailWarning(
       `Set it to ${v(rail.volts)}, or remove it.`;
   }
   return { severity: 'warning', code: 'supply-on-rail', componentId: src.id, message };
+}
+
+/**
+ * The first board pin, in wire order, that `accept` takes: how the supply
+ * warnings named the pin a rail meets before nearestBoardPin.
+ */
+function firstBoardPin(
+  input: BuildNetlistInput,
+  accept: (boardId: string, pinName: string) => boolean,
+): { boardId: string; pinName: string } | undefined {
+  for (const board of input.boards) {
+    for (const wire of input.wires) {
+      for (const end of [wire.start, wire.end]) {
+        if (end.componentId === board.id && accept(board.id, end.pinName)) {
+          return { boardId: board.id, pinName: end.pinName };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The board pin nearest to `from` (`<part>:<pin>` keys) over wires and the
+ * strips of a breadboard, that `accept` takes. A part is not crossed: the pin
+ * found is the one the person wired the part's terminal to. All of a board's
+ * supply pins on one rail are one net in the netlist, so the net alone cannot
+ * say whether a supply went to an STM32's 5V or its 3V3.
+ */
+function nearestBoardPin(
+  input: BuildNetlistInput,
+  from: readonly string[],
+  accept: (boardId: string, pinName: string) => boolean,
+): { boardId: string; pinName: string } | undefined {
+  const meta = new Map(input.components.map((c) => [c.id, c.metadataId] as const));
+  const boards = new Set(input.boards.map((b) => b.id));
+  const adj = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    (adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
+    (adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
+  };
+  for (const wire of input.wires) {
+    link(`${wire.start.componentId}:${wire.start.pinName}`, `${wire.end.componentId}:${wire.end.pinName}`);
+    for (const end of [wire.start, wire.end]) {
+      const m = meta.get(end.componentId);
+      const key = m && hasInternalNets(m) ? breadboardGroupKey(m, end.pinName) : null;
+      if (key) link(`${end.componentId}:${end.pinName}`, `group|${end.componentId}|${key}`);
+    }
+  }
+  const seen = new Set<string>(from);
+  const queue = [...from];
+  while (queue.length) {
+    const at = queue.shift()!;
+    if (!at.startsWith('group|')) {
+      const i = at.indexOf(':');
+      const comp = at.slice(0, i);
+      const pin = at.slice(i + 1);
+      if (boards.has(comp) && accept(comp, pin)) return { boardId: comp, pinName: pin };
+    }
+    for (const next of adj.get(at) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return undefined;
 }
 
 /** The sorted node-pair key findSourceConflicts groups ideal sources by. */
