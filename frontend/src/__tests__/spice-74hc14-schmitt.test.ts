@@ -15,7 +15,7 @@
  * And a transient that does stop early is now reported instead of shown
  * frozen (transientShortfall).
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { buildNetlist } from '../simulation/spice/NetlistBuilder';
 import { componentToSpice } from '../simulation/spice/componentToSpice';
 import { runNetlist } from './helpers/testSolver';
@@ -166,7 +166,13 @@ describe('a transient that stops early is reported (#144)', () => {
     const stopReporter = startSolverFaultReporter((m) => reported.push(m));
     const stop = service.start();
     try {
-      await new Promise((r) => setTimeout(r, 20));
+      // The first solve lands on a timer. A fixed 20 ms of wall clock was
+      // not always enough on a loaded machine (the deploy gate runs many
+      // files at once), so wait for the snapshot itself.
+      await vi.waitFor(() => expect(snapshots.length).toBeGreaterThan(0), {
+        timeout: 2000,
+        interval: 5,
+      });
       const warning = snapshots[0]?.warnings.find((m) => m.startsWith(TRANSIENT_SHORTFALL_PREFIX));
       expect(warning).toContain('400.0 µs of 40.00 ms');
 
