@@ -32,6 +32,7 @@ import { buildNetlist, sanitizeSpiceId } from './NetlistBuilder';
 import type { TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
+import { transientShortfall } from './transientShortfall';
 
 /** What the service needs from the simulator store. */
 export interface SimulatorStorePort {
@@ -224,6 +225,8 @@ export class CircuitSimulationService {
     nets: string[];
     voltageSources: string[];
     analysisKind: 'op' | 'tran' | 'ac';
+    /** Period of the slowest periodic source of a .tran window (TimeWaveforms.period). */
+    period?: number;
     sourcedNets: Set<string>;
   } | null = null;
 
@@ -698,6 +701,7 @@ export class CircuitSimulationService {
       nets,
       voltageSources,
       analysisKind: input.analysis.kind,
+      period: input.analysis.kind === 'tran' ? input.analysis.period : undefined,
       sourcedNets,
     };
     this.loadPads(
@@ -738,9 +742,13 @@ export class CircuitSimulationService {
         const vec = result.vectors.get(`i(${vs.toLowerCase()})`);
         if (vec && vec.real.length > 0) branches.set(vs.toLowerCase(), Array.from(vec.real));
       }
-      timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches };
+      timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches, period: ctx.period };
     }
-    return { nodeVoltages, branchCurrents, timeWaveforms, warnings: result.warnings, result };
+    // A transient the solver gave up on part-way still has samples: say so,
+    // or the canvas shows the circuit frozen at that instant without a word.
+    const shortfall = transientShortfall(result.analysis, result.timeAxis);
+    const warnings = shortfall ? [...result.warnings, shortfall] : result.warnings;
+    return { nodeVoltages, branchCurrents, timeWaveforms, warnings, result };
   }
 
   /** Publish one state as the instantaneous snapshot, with the window it

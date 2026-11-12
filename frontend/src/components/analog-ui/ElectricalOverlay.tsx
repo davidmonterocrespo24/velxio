@@ -22,7 +22,7 @@
 import { useMemo } from 'react';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import { rms, isAC } from '../../simulation/spice/waveformStats';
+import { readSpan, spanStats } from '../../simulation/spice/waveformStats';
 import { cssVar } from '../../lib/theme';
 import { useResolvedTheme } from '../../hooks/useTheme';
 
@@ -60,6 +60,9 @@ export function ElectricalOverlay({
 
   const labels = useMemo(() => {
     if (Object.keys(nodeVoltages).length === 0) return [];
+    // The stretch the meters read (whole periods, after settling), so a wire
+    // label and a voltmeter on the same net agree (velxio/velxio-prod#100).
+    const span = timeWaveforms ? readSpan(timeWaveforms.time, timeWaveforms.period) : null;
 
     return wires
       .map((w) => {
@@ -75,8 +78,9 @@ export function ElectricalOverlay({
           pinNetMap.get(`${w.start.componentId}:${w.start.pinName}`) ??
           pinNetMap.get(`${w.end.componentId}:${w.end.pinName}`);
         const samples = netName ? timeWaveforms?.nodes.get(netName) : undefined;
-        const ac = samples && samples.length > 0 && isAC(samples);
-        const displayV = ac ? rms(samples!) : netName ? nodeVoltages[netName] : undefined;
+        const stats = samples && span && timeWaveforms ? spanStats(timeWaveforms.time, samples, span) : null;
+        const ac = stats !== null && stats.max - stats.min > 1e-4;
+        const displayV = ac ? stats!.rms : netName ? nodeVoltages[netName] : undefined;
         return {
           id: w.id,
           x: mx,

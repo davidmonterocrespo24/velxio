@@ -32,14 +32,33 @@ import { buildNetlist } from '../simulation/spice/NetlistBuilder';
 import type { ExampleProject } from '../data/examples';
 
 /**
+ * Keep 12 significant digits of any number that prints more.
+ *
+ * The last bit of a double from Math.pow is not the same on every
+ * platform: the photoresistor's `Math.pow(10 / lux, gamma)` printed
+ * 1640.0431109149174 on the machine that wrote the snapshot and
+ * 1640.0431109149172 on Linux (CI and the deploy gate), so a snapshot
+ * taken on one failed on the other. Twelve digits are far beyond what
+ * any circuit cares about and far above that one-bit noise. Numbers
+ * that already print 12 digits or fewer are left exactly as emitted.
+ */
+function stableDigits(netlist: string): string {
+  return netlist.replace(/\d+\.\d+(?:e[+-]?\d+)?/gi, (num) => {
+    const digits = num.replace(/e.*$/i, '').replace('.', '').replace(/^0+/, '');
+    return digits.length > 12 ? String(Number(Number(num).toPrecision(12))) : num;
+  });
+}
+
+/**
  * Normalise the netlist before snapshotting:
  *   - strip the leading `* Velxio circuit @ <ISO timestamp>` comment
  *     (timestamp would flake every run)
+ *   - keep 12 significant digits (see `stableDigits`)
  *
  * Everything else is verbatim — model lines, source ordering, etc.
  */
 function snapshotNetlist(netlist: string): string {
-  return netlist.replace(/^\* Velxio circuit @[^\n]*\n/, '* Velxio circuit\n');
+  return stableDigits(netlist.replace(/^\* Velxio circuit @[^\n]*\n/, '* Velxio circuit\n'));
 }
 
 function snapshotExample(example: ExampleProject): string {

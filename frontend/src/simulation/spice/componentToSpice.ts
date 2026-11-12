@@ -17,12 +17,29 @@ import { parseValueWithUnits } from './valueParser';
 import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
+import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
+import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
   cards: string[];
   /** Model or subckt names this emission depends on (so the builder adds `.model` later). */
   modelsUsed: Set<string>;
+  /**
+   * Nets this part powers: a battery's or a bench supply's positive terminal,
+   * a generator's output, a regulator's VOUT. NetlistBuilder reads it before
+   * it names the rails: a part's VCC pin on such a net, or behind series
+   * parts from it (a switch, an ammeter, a fuse), is powered by it and is not
+   * joined to the logic rail its name suggests (velxio/velxio-prod#102).
+   */
+  supplies?: string[];
+  /**
+   * Other nets this part holds at a voltage of its own (an op-amp's OUT): a
+   * VCC pin wired straight to one is powered by it, but no supply reaches
+   * past it. A V, B, E or H card on a wired net says so already; declare the
+   * nets the cards do not show (a subcircuit's output).
+   */
+  drives?: string[];
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -78,6 +95,11 @@ function behaviouralOpamp(
   return { cards, modelsUsed: new Set() };
 }
 
+/** A volt figure for a card, without float noise (0.55 * 5 is 2.7500000000000004). */
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000;
+}
+
 function twoPin(
   comp: ComponentForSpice,
   netLookup: NetLookup,
@@ -124,6 +146,15 @@ function emitInductor(
   };
 }
 
+// ── Bench power supply (constant voltage / constant current) ─────────────
+/** Output resistance of the supply in constant-voltage mode. */
+const SUPPLY_OUTPUT_OHMS = '10m';
+/** Gain of its current limiter (V/A): a dead short overshoots the limit by
+ *  setpoint / gain, 0.9 mA at 9 V. */
+const SUPPLY_CC_GAIN = 1e4;
+/** The lowest current limit the supply takes (A); the circuit check uses it too. */
+export const MIN_SUPPLY_LIMIT_A = 0.01;
+
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
 const LOGIC_EDGE_VOLTS = 0.05;
 /** `0..1` step of `V(net)` around `threshold`, with a finite slope (see the gates note). */
@@ -131,13 +162,30 @@ function logicStep(net: string, threshold: number): string {
   return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
 }
 
+// One entry per colour the part's colour select offers: a colour missing here
+// used to take the red card silently, so orange and purple (velxio/velxio-prod
+// #95) ran at 1.8 V. Forward voltage at 10 mA / 20 mA:
+//   red     1.82 / 1.85 V
+//   orange  1.98 / 2.01 V  Kingbright WP7113SED, 601 nm: 2.0 V typ at 20 mA
+//   yellow  2.04 / 2.07 V
+//   green   2.26 / 2.30 V
+//   blue    3.10 / 3.13 V  (white: the same InGaN die)
+//   purple  3.27 / 3.30 V  Lumimax LED5-PUR420, 420 nm: 3.3 V typ at 20 mA
+//                          (LED5PUR, 395 nm: 3.4 V)
+// ngspice keeps Is at 1e-28 or more, so a higher voltage than blue's takes a
+// larger emission coefficient, not a smaller Is.
 const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
   red: { name: 'LED_RED', Is: '1e-20', n: '1.7' },
+  orange: { name: 'LED_ORANGE', Is: '1e-21', n: '1.75' },
   green: { name: 'LED_GREEN', Is: '1e-22', n: '1.9' },
   yellow: { name: 'LED_YELLOW', Is: '1e-21', n: '1.8' },
   blue: { name: 'LED_BLUE', Is: '1e-28', n: '2.0' },
   white: { name: 'LED_WHITE', Is: '1e-28', n: '2.0' },
+  purple: { name: 'LED_PURPLE', Is: '1e-28', n: '2.11' },
 };
+
+/** Colours already reported as missing from LED_MODELS (one warning each). */
+const unknownLedColours = new Set<string>();
 
 // ── NTC β-model ────────────────────────────────────────────────────────────
 function ntcResistance(Tc: number, R0 = 10_000, T0 = 298.15, beta = 3950): number {
@@ -254,7 +302,17 @@ const MAPPERS: Record<string, Mapper> = {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     const color = String(comp.properties.color ?? 'red').toLowerCase();
-    const model = LED_MODELS[color] ?? LED_MODELS.red;
+    let model = LED_MODELS[color];
+    if (!model) {
+      // An imported project can name any colour. Say which curve it gets
+      // instead of handing it the red one in silence.
+      if (!unknownLedColours.has(color)) {
+        unknownLedColours.add(color);
+        // eslint-disable-next-line no-console
+        console.warn(`[spice] LED colour "${color}" has no diode model; simulated as red (1.8 V).`);
+      }
+      model = LED_MODELS.red;
+    }
     const midNet = `${comp.id}_sense_mid`;
     return {
       cards: [
@@ -478,6 +536,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
       modelsUsed: new Set([LM358_SUBCKT]),
+      drives: [out],
     };
   },
   'opamp-lm741': (comp, netLookup, ctx) =>
@@ -492,7 +551,13 @@ const MAPPERS: Record<string, Mapper> = {
   // ── Linear voltage regulators ────────────────────────────────────────────
   // Behavioral model: V_out = min(V_in - V_dropout, V_nom). Dropout voltage
   // ≈ 2V for classic 78xx / 79xx series. When V_in is too low, V_out drops
-  // to (V_in − V_dropout), matching real-chip behaviour in under-voltage.
+  // to (V_in − V_dropout), matching real-chip behaviour in under-voltage,
+  // down to 0 V and no further: the pass transistor only sources from VIN
+  // ("the output of the device does not sink current", TI LM340 8.1.2).
+  // Unclamped, 0 V in gave -2 V out (+2 V on a 7905), and the input mirror
+  // pushed the load's reverse current into VIN, so a supply's reservoir
+  // capacitor sat at 2 V before anything had powered it
+  // (velxio/velxio-prod#130).
   // Pin names: VIN, VOUT, GND (for 78xx) — for 79xx GND swaps to be a
   // reference rail since V_out is negative.
   'reg-7805': (comp, netLookup) => {
@@ -501,8 +566,9 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 5)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `max(0, min(V(${vin})-V(${gnd})-2, 5))`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   'reg-7812': (comp, netLookup) => {
@@ -511,8 +577,9 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `min(V(${vin})-V(${gnd})-2, 12)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `max(0, min(V(${vin})-V(${gnd})-2, 12))`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   'reg-7905': (comp, netLookup) => {
@@ -522,8 +589,9 @@ const MAPPERS: Record<string, Mapper> = {
     const vout = netLookup('VOUT');
     if (!vin || !gnd || !vout) return null;
     return {
-      cards: regulatorCards(comp.id, vin, gnd, vout, `max(V(${vin})-V(${gnd})+2, -5)`),
+      cards: regulatorCards(comp.id, vin, gnd, vout, `min(0, max(V(${vin})-V(${gnd})+2, -5))`),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
   // Adjustable regulator: V(VOUT) − V(ADJ) = 1.25 V (ideal). User wires
@@ -541,9 +609,10 @@ const MAPPERS: Record<string, Mapper> = {
         vin,
         '0',
         vout,
-        `V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25)`,
+        `max(0, V(${adj}) + min(V(${vin})-V(${adj})-2, 1.25))`,
       ),
       modelsUsed: new Set(),
+      supplies: [vout],
     };
   },
 
@@ -560,6 +629,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 1.5`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
   'battery-aa': (comp, netLookup) => {
@@ -572,6 +642,7 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 0.15`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
   'battery-coin-cell': (comp, netLookup) => {
@@ -584,41 +655,80 @@ const MAPPERS: Record<string, Mapper> = {
         `R_${comp.id}_esr ${comp.id}_int ${neg} 10`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
 
-  // ── Regulated power supply (DC / AC, current-limit aware) ───────────────
+  // ── Regulated power supply: constant voltage, then constant current ─────
   // Properties:
   //   mode:         'dc' | 'ac'   (default 'dc')
-  //   voltage:      V             (default 5)
+  //   voltage:      V             (default 5; the peak in AC mode)
   //   frequency:    Hz            (default 50, only used in AC mode)
-  //   currentLimit: A             (default 1; enforced by circuitVerifier,
-  //                                NOT SPICE — ngspice has no native
-  //                                foldback limiter)
+  //   currentLimit: A             (default 1)
   // The visual element reuses wokwi-signal-generator (no new Web Component
-  // needed). ESR is derived from the currentLimit so a near-short reads
-  // as I ≈ 1.5·limit, which the verifier then flags as source-overload.
+  // needed).
+  //
+  // A bench supply holds its voltage within millivolts whatever the load
+  // (Rigol DP800: load regulation < 0.01 % + 2 mV) until the load asks for
+  // more than the current limit; then it holds the current and lets its
+  // voltage fall (B&K: constant voltage / constant current). This one was
+  // an ideal source behind V / (1.5 · limit), a battery whose resistance
+  // grew with the setpoint: 9 V read 8.946 V on 1 kΩ (8.49 V with a 0.1 A
+  // limit), and a 9 Ω load on 9 V / 1 A silently read 5.4 V at 0.6 A
+  // (velxio/velxio-prod#96). Now:
+  //
+  //   B_<id>     <id>_int <neg>  V = Vset - G·(max(i - Ilim, 0) - max(-i - Ilim, 0))
+  //   R_<id>_out <id>_int <id>_a 10m
+  //   V_<id>     <id>_a   <pos>  DC 0        senses i: the circuit check reads i(v_<id>)
+  //
+  // Below the limit the B source is the setpoint and the output sits
+  // 10 mΩ · i under it. At the limit the gain G pulls the source down until
+  // the current is the limit (plus Vset / G at a dead short: 0.9 mA at
+  // 9 V). The limit acts on both signs, so a negative setpoint mirrors a
+  // positive one (#133). In AC mode the setpoint is the sine (B sources read
+  // `time`, which is 0 in an operating point, like SIN's), behind the same
+  // limiter.
+  //
+  // The B source sits on an internal node on purpose: the circuit check
+  // folds 0 V sense sources into wires (parseSourceCards), so a B source
+  // right behind the sense would count as an ideal source across the
+  // supply's terminals and make a supply wired to a board's 5V pin, or in
+  // parallel with another supply, a "source conflict". Through 10 mΩ it is
+  // none: two supplies in parallel share the load. One wired onto a board
+  // rail at another voltage runs at its limit, which the check names as a
+  // fight with the rail, not an overload; on a 3.3 V board's VIN / 5V it
+  // powers the board (NetlistBuilder, poweredInputRails).
+  //
+  // Known artefact: under the trapezoidal integration every Velxio deck
+  // runs, the supply's current can ring for a few dozen steps after a
+  // transient takes it from its limit back to constant voltage with a large
+  // capacitor on its output, while the voltages stay right (9 V / 0.1 A
+  // recharging 100 µF behind a 20 Ω load switched at 50 Hz: samples down to
+  // -48 mA where 9 mA flows). Gear integration damps that, but it also
+  // damps every resonance in the deck (a series RLC at 5 kHz read 8 % low),
+  // so the supply does not switch the method.
   'power-supply': (comp, netLookup) => {
     const pos = netLookup('+') ?? netLookup('SIG') ?? netLookup('VCC');
     const neg = netLookup('−') ?? netLookup('-') ?? netLookup('GND');
     if (!pos || !neg) return null;
     const mode = String(comp.properties.mode ?? 'dc').toLowerCase();
-    const voltage = Number(comp.properties.voltage ?? 5);
-    const currentLimit = Math.max(0.01, Number(comp.properties.currentLimit ?? 1));
-    const esr = Math.max(0.01, voltage / (currentLimit * 1.5));
-    let source: string;
-    if (mode === 'ac') {
-      const freq = Number(comp.properties.frequency ?? 50);
-      source = `SIN(0 ${voltage} ${freq})`;
-    } else {
-      source = `DC ${voltage}`;
-    }
+    // Read like every other field (valueParser): "9V", "500m" and "1k" are
+    // numbers. Number() made them NaN and ngspice refused the whole deck.
+    const voltage = parseValueWithUnits(comp.properties.voltage, 5);
+    const limit = Math.max(MIN_SUPPLY_LIMIT_A, parseValueWithUnits(comp.properties.currentLimit, 1));
+    const setpoint =
+      mode === 'ac'
+        ? `${voltage}*sin(${2 * Math.PI}*${parseValueWithUnits(comp.properties.frequency, 50)}*time)`
+        : `${voltage}`;
+    const i = `i(V_${comp.id})`;
     return {
       cards: [
-        `V_${comp.id} ${pos} ${comp.id}_int ${source}`,
-        `R_${comp.id}_esr ${comp.id}_int ${neg} ${esr}`,
+        `B_${comp.id} ${comp.id}_int ${neg} V = ${setpoint} - ${SUPPLY_CC_GAIN}*(max(${i}-${limit}, 0) - max(-${i}-${limit}, 0))`,
+        `R_${comp.id}_out ${comp.id}_int ${comp.id}_a ${SUPPLY_OUTPUT_OHMS}`,
+        `V_${comp.id} ${comp.id}_a ${pos} DC 0`,
       ],
       modelsUsed: new Set(),
+      supplies: [pos],
     };
   },
 
@@ -635,9 +745,11 @@ const MAPPERS: Record<string, Mapper> = {
     const gnd = netLookup('GND') ?? netLookup('-') ?? netLookup('−');
     if (!sig || !gnd) return null;
     const waveform = String(comp.properties.waveform ?? 'sine').toLowerCase();
-    const freq = Number(comp.properties.frequency ?? 1000);
-    const amp = Number(comp.properties.amplitude ?? 1);
-    const off = Number(comp.properties.offset ?? 0);
+    // "1k", "3V" and "500mV" are values (valueParser); Number() made them NaN
+    // and the deck was rejected with nothing pointing at the field.
+    const freq = parseValueWithUnits(comp.properties.frequency, 1000);
+    const amp = parseValueWithUnits(comp.properties.amplitude, 1);
+    const off = parseValueWithUnits(comp.properties.offset, 0);
     let source: string;
     if (waveform === 'square') {
       const period = 1 / freq;
@@ -653,6 +765,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`V_${comp.id} ${sig} ${gnd} ${source}`],
       modelsUsed: new Set(),
+      supplies: [sig],
     };
   },
 
@@ -1081,13 +1194,17 @@ const MAPPERS: Record<string, Mapper> = {
       ),
       // 74HC04 — hex inverter
       'ic-74hc04': ic1InputHex((a, _y, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)})`),
-      // 74HC14 — hex Schmitt-trigger inverter. Threshold moves based on
-      // current output state: high output → lower trip (0.4·Vcc), low output
-      // → higher trip (0.6·Vcc). This is the hysteresis band.
+      // 74HC14 — hex Schmitt-trigger inverter. The trip point follows the
+      // output: while Y is high (input low) the input must rise past VT+ to
+      // switch it, and once Y is low it must fall below VT-. The two were
+      // swapped (VT- while Y was high), so inside the band each output state
+      // implied the other and there was no solution: an RC on the input
+      // stopped the transient at 5 ms without a word, and an input parked
+      // at 2.5 V hung the operating point (velxio/velxio-prod#144).
       'ic-74hc14': ic1InputHex((a, y, _T, vcc) => {
-        const hi = 0.6 * vcc;
-        const lo = 0.4 * vcc;
-        return `${vcc} * (1 - u(V(${a}) - (${hi} - u(V(${y})-${vcc / 2}) * ${hi - lo})))`;
+        const hi = round3(HC14_VT_POS_FRACTION * vcc);
+        const lo = round3(HC14_VT_NEG_FRACTION * vcc);
+        return `${vcc} * (1 - u(V(${a}) - (${lo} + u(V(${y})-${vcc / 2}) * ${round3(hi - lo)})))`;
       }),
     };
   })(),
@@ -1150,8 +1267,8 @@ const MAPPERS: Record<string, Mapper> = {
     // Coil pins must be present — without them the relay can't be energised.
     // COM is required too; without it, neither NO nor NC contact is useful.
     if (!cp || !cn || !com) return null;
-    const coilR = Number(comp.properties.coil_resistance ?? 70);
-    const coilV = Number(comp.properties.coil_voltage ?? 5);
+    const coilR = parseValueWithUnits(comp.properties.coil_resistance, 70);
+    const coilV = parseValueWithUnits(comp.properties.coil_voltage, 5);
     // The contacts follow the voltage ACROSS the coil, not its current. With
     // a fixed R the two are proportional (I = V_coil / R), so a threshold in
     // volts is the same test as one in amps, and it stays right for every
@@ -1315,42 +1432,38 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // Photoresistor (R(lux) = R_dark / (1 + k·lux))
-  // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO).
-  // Internal topology: LDR between VCC and AO, plus an internal 10k pull-down
-  // from AO to GND. Brighter light → LDR resistance drops → V_AO rises.
-  // The DO (digital threshold) pin is ignored for analog simulation.
+  // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO), the
+  // LM393 light-sensor board. Internal topology, as on the real board and in
+  // Wokwi: a fixed 10k from VCC to AO and the LDR from AO to GND. Brighter
+  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). The DO
+  // (comparator) pin is not modelled.
+  // The LDR is a GL5528 by default, R = rl10 · (10 / lux)^gamma up to its
+  // dark resistance (ldrModel.ts, velxio/velxio-prod#103).
   photoresistor: (comp, netLookup) => {
     const lux = Number(comp.properties.lux ?? 500);
-    // `dark` goes through the SPICE suffix convention, where M is MILLI and
-    // mega is `Meg`. A dark resistance below 1k is not a photoresistor — it
-    // is almost always "1M" written meaning 1 megaohm, which parses to
-    // 0.001 ohm and shorts AO straight to VCC. The symptom is nasty because
-    // it looks like the part works: the ADC just reads full scale forever and
-    // the lux control does nothing (every value is still a short). Clamp to
-    // the documented default and say so, rather than emitting a short.
-    const darkRaw = parseValueWithUnits(comp.properties.dark, 1_000_000);
-    let Rdark = darkRaw;
-    if (!(darkRaw >= 1_000)) {
-      Rdark = 1_000_000;
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[spice] ${comp.id}: dark resistance ${JSON.stringify(comp.properties.dark)} ` +
-          `parsed as ${darkRaw} ohm — too low for a photoresistor. SPICE reads M as ` +
-          `milli; write "1Meg" for 1 megaohm. Using 1Meg.`,
-      );
-    }
-    const k = Number(comp.properties.k ?? 5);
-    const Rldr = Rdark / (1 + (k * lux) / 1000);
+    const Rldr = ldrResistance(
+      lux,
+      ldrParams(comp.properties, (raw, parsed) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[spice] ${comp.id}: dark resistance ${JSON.stringify(raw)} ` +
+            `parsed as ${parsed} ohm — too low for a photoresistor (a lower-case m is ` +
+            `milli; write "1M" or "1Meg" for 1 megaohm). Using the LDR's own dark resistance.`,
+        );
+      }),
+    );
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
     const ao = netLookup('AO');
-    if (vcc && gnd && ao) {
-      const Rpull = parseValueWithUnits(comp.properties.pullup, 10_000);
-      return {
-        cards: [`R_${comp.id}_ldr ${vcc} ${ao} ${Rldr}`, `R_${comp.id}_pull ${ao} ${gnd} ${Rpull}`],
-        modelsUsed: new Set(),
-      };
+    if (ao && (vcc || gnd)) {
+      // The legs that are wired: a module missing its GND reads VCC through
+      // the fixed resistor, one missing its VCC reads 0 V through the LDR. The
+      // solve then owns AO in every wiring that powers the module at all
+      // (velxio/velxio-prod#188: the part no longer writes it).
+      const cards: string[] = [];
+      if (gnd) cards.push(`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`);
+      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${ldrModuleFixedOhms(comp.properties)}`);
+      return { cards, modelsUsed: new Set() };
     }
     // Legacy / discrete LDR fallbacks: emit bare 2-terminal resistor.
     const pins = twoPin(comp, netLookup, 'LDR1', 'LDR2') ?? twoPin(comp, netLookup, '1', '2');
@@ -1431,6 +1544,31 @@ const proMappers: Record<string, Mapper> = {};
 
 export function registerSpiceMapper(id: string, mapper: Mapper): void {
   proMappers[id] = mapper;
+}
+
+/**
+ * The frequency of the periodic source a part emits (a SIN or a PULSE), in
+ * hertz, or null when it emits none or a DC one. pickDynamicAnalysis sizes
+ * the transient window from it (storeAdapter), so it lives next to the
+ * mappers that decide which source a part emits: a part that starts
+ * emitting a periodic source adds itself here. The power supply in AC mode
+ * was missing: its circuit was solved as .op, at t = 0, where its sine is
+ * 0 V, and every meter read 0 (velxio/velxio-prod#113).
+ */
+const PERIODIC_SOURCES: Readonly<Record<string, (comp: ComponentForSpice) => number | null>> = {
+  'signal-generator': (comp) =>
+    String(comp.properties.waveform ?? 'sine').toLowerCase() === 'dc'
+      ? null
+      : parseValueWithUnits(comp.properties.frequency, 1000),
+  'power-supply': (comp) =>
+    String(comp.properties.mode ?? 'dc').toLowerCase() === 'ac'
+      ? parseValueWithUnits(comp.properties.frequency, 50)
+      : null,
+};
+
+export function periodicSourceHz(comp: ComponentForSpice): number | null {
+  const hz = PERIODIC_SOURCES[comp.metadataId]?.(comp) ?? null;
+  return hz !== null && Number.isFinite(hz) && hz > 0 ? hz : null;
 }
 
 export function componentToSpice(
