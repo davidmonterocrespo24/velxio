@@ -22,7 +22,7 @@ R_autopull_n7 n7 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-auto-night-light-using-ldr-esp32-plus-micropython 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_night-ldr_ldr n1 0 1640.0431109149174
+R_night-ldr_ldr n1 0 1640.04311091
 R_night-ldr_pull vcc_rail n1 10000
 R_night-r1 n0 n2 220
 V_night-led1_sense n2 night-led1_sense_mid DC 0
@@ -37,8 +37,8 @@ R_autopull_n2 n2 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-battery-monitor-with-blynk-iot 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_bat-pot1_top vcc_rail n0 2179.863147605083
-R_bat-pot1_bot n0 0 7820.136852394917
+R_bat-pot1_top vcc_rail n0 2179.86314761
+R_bat-pot1_bot n0 0 7820.13685239
 .op
 .end"
 `;
@@ -70,7 +70,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.9799999999999998 Vh=0.49499999999999994 Ron=0.05 Roff=1G)
+.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
@@ -91,7 +91,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.9799999999999998 Vh=0.49499999999999994 Ron=0.05 Roff=1G)
+.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_BLUE D(Is=1e-28 N=2.0)
 .op
@@ -151,8 +151,8 @@ R_autopull_n0 n0 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-dimmer-led-using-potentiometer-micropython 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_dim-pot1_top vcc_rail n1 4995.112414467253
-R_dim-pot1_bot n1 0 5004.887585532747
+R_dim-pot1_top vcc_rail n1 4995.11241447
+R_dim-pot1_bot n1 0 5004.88758553
 R_dim-r1 n0 n2 220
 V_dim-led1_sense n2 dim-led1_sense_mid DC 0
 D_dim-led1 dim-led1_sense_mid 0 LED_YELLOW
@@ -261,12 +261,12 @@ R_autopull_n1 n1 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-iot-based-dsm-smart-metering 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_dsm-pot1_top vcc_rail n3 4995.112414467253
-R_dsm-pot1_bot n3 0 5004.887585532747
-R_dsm-pot2_top vcc_rail n4 4995.112414467253
-R_dsm-pot2_bot n4 0 5004.887585532747
-R_dsm-pot3_top vcc_rail n5 4995.112414467253
-R_dsm-pot3_bot n5 0 5004.887585532747
+R_dsm-pot1_top vcc_rail n3 4995.11241447
+R_dsm-pot1_bot n3 0 5004.88758553
+R_dsm-pot2_top vcc_rail n4 4995.11241447
+R_dsm-pot2_bot n4 0 5004.88758553
+R_dsm-pot3_top vcc_rail n5 4995.11241447
+R_dsm-pot3_bot n5 0 5004.88758553
 R_dsm-r1 n1 n6 220
 V_dsm-led1_sense n6 dsm-led1_sense_mid DC 0
 D_dsm-led1 dsm-led1_sense_mid 0 LED_RED
@@ -311,7 +311,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.9799999999999998 Vh=0.49499999999999994 Ron=0.05 Roff=1G)
+.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
@@ -321,8 +321,8 @@ R_autopull_n4 n4 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-iot-smart-irrigation-system 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_irr-pot1_top vcc_rail n1 7067.448680351907
-R_irr-pot1_bot n1 0 2932.551319648094
+R_irr-pot1_top vcc_rail n1 7067.44868035
+R_irr-pot1_bot n1 0 2932.55131965
 R_irr-rly_coil n0 irr-rly_coilmid 1000
 L_irr-rly_coil irr-rly_coilmid 0 20m
 S_irr-rly_no vcc_rail n3 n0 0 RELAY_SW
@@ -330,7 +330,7 @@ D_irr-rly_fly 0 n0 D1N4148
 R_irr-rlamp n3 n2 220
 V_irr-lamp_sense n2 irr-lamp_sense_mid DC 0
 D_irr-lamp irr-lamp_sense_mid 0 LED_BLUE
-.model RELAY_SW SW(Vt=1.9799999999999998 Vh=0.49499999999999994 Ron=0.05 Roff=1G)
+.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_BLUE D(Is=1e-28 N=2.0)
 .op
@@ -486,8 +486,8 @@ R_autopull_n2 n2 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-potentiometer-visualizer 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_potviz-pot1_top vcc_rail n10 4995.112414467253
-R_potviz-pot1_bot n10 0 5004.887585532747
+R_potviz-pot1_top vcc_rail n10 4995.11241447
+R_potviz-pot1_bot n10 0 5004.88758553
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
@@ -526,12 +526,12 @@ V_VCC_RAIL vcc_rail 0 DC 5
 R_rgb-r0 n0 n6 220
 R_rgb-r1 n1 n7 220
 R_rgb-r2 n2 n8 220
-R_rgb-pot1_top vcc_rail n3 4995.112414467253
-R_rgb-pot1_bot n3 0 5004.887585532747
-R_rgb-pot2_top vcc_rail n4 4995.112414467253
-R_rgb-pot2_bot n4 0 5004.887585532747
-R_rgb-pot3_top vcc_rail n5 4995.112414467253
-R_rgb-pot3_bot n5 0 5004.887585532747
+R_rgb-pot1_top vcc_rail n3 4995.11241447
+R_rgb-pot1_bot n3 0 5004.88758553
+R_rgb-pot2_top vcc_rail n4 4995.11241447
+R_rgb-pot2_bot n4 0 5004.88758553
+R_rgb-pot3_top vcc_rail n5 4995.11241447
+R_rgb-pot3_bot n5 0 5004.88758553
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
@@ -716,7 +716,7 @@ R_rb1 n4 n1 47000
 R_rb2 n1 0 10000
 R_rc n4 n2 4700
 R_re n0 0 1000
-C_cin n3 n1 0.000009999999999999999 IC=0
+C_cin n3 n1 0.00001 IC=0
 Q_q1 n2 n1 n0 Q2N2222
 R_vm_vmR n2 0 10Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
@@ -865,7 +865,7 @@ R_rg1 n4 n2 1000000
 R_rg2 n2 0 470000
 R_rd n4 n1 4700
 R_rs n0 0 1000
-C_cin n3 n2 0.000009999999999999999 IC=0
+C_cin n3 n2 0.00001 IC=0
 M_m1 n1 n2 n0 M2N7000
 R_vm_vmR n1 0 10Meg
 .model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)
@@ -1023,7 +1023,7 @@ exports[`netlist snapshot — analog (30 examples) > an-opamp-integrator 1`] = `
 V_VCC_RAIL vcc_rail 0 DC 5
 V_src n2 0 PULSE(1.5 3.5 0 1n 1n 0.0025 0.005)
 R_rin n2 n1 10000
-C_cf n1 n0 1.0000000000000001e-7 IC=0
+C_cf n1 n0 1e-7 IC=0
 X_u1 n3 n1 vcc_rail 0 n0 LM358
 V_vref n3 0 DC 2.5
 R_vm_vmR n0 0 10Meg
@@ -1271,7 +1271,7 @@ R_am_shunt amm_am_mid 0 1m
 exports[`netlist snapshot — analog (30 examples) > an-rc-high-pass 1`] = `
 "* Velxio circuit
 V_src n1 0 SIN(0 1 1000)
-C_c1 n1 n0 1.0000000000000001e-7 IC=0
+C_c1 n1 n0 1e-7 IC=0
 R_r1 n0 0 1600
 R_vm_vmR n0 0 10Meg
 * voltmeter probe: read v(n0) - v(0)
@@ -1283,7 +1283,7 @@ exports[`netlist snapshot — analog (30 examples) > an-rc-low-pass 1`] = `
 "* Velxio circuit
 V_src n1 0 SIN(0 1 1000)
 R_r1 n1 n0 1600
-C_c1 n0 0 1.0000000000000001e-7 IC=0
+C_c1 n0 0 1e-7 IC=0
 R_vm_vmR n0 0 10Meg
 * voltmeter probe: read v(n0) - v(0)
 .tran 5.000e-5 5.000e-3
@@ -1389,7 +1389,7 @@ exports[`netlist snapshot — analog (30 examples) > an-smoothed-rectifier 1`] =
 "* Velxio circuit
 V_src n1 0 SIN(0 10 50)
 D_d1 n1 n0 D1N4007
-C_c1 n0 0 0.00009999999999999999 IC=0
+C_c1 n0 0 0.0001 IC=0
 R_r1 n0 0 1000
 R_vm_vmR n0 0 10Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
@@ -1412,10 +1412,10 @@ R_vm_vmR n0 0 10Meg
 exports[`netlist snapshot — analog (30 examples) > an-voltage-doubler 1`] = `
 "* Velxio circuit
 V_src n2 0 SIN(0 8 50)
-C_c1 n2 n0 0.000009999999999999999 IC=0
+C_c1 n2 n0 0.00001 IC=0
 D_d1 0 n0 D1N4007
 D_d2 n0 n1 D1N4007
-C_c2 n1 0 0.00009999999999999999 IC=0
+C_c2 n1 0 0.0001 IC=0
 R_rl n1 0 10000
 R_vm_vmR n1 0 10Meg
 R_autopull_n0 n0 0 100Meg
@@ -1516,7 +1516,7 @@ C_cin n4 n2 0.000001 IC=0
 exports[`netlist snapshot — circuits (41 examples) > capacitor-charge-curve 1`] = `
 "* Velxio circuit
 R_r1 n0 n2 10000
-C_c1 n2 n1 0.00009999999999999999 IC=0
+C_c1 n2 n1 0.0001 IC=0
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
@@ -1876,8 +1876,8 @@ exports[`netlist snapshot — circuits (41 examples) > nano-sensor-station 1`] =
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
 R_ntc_pull vcc_rail n1 10000
-R_ntc_ntc n1 0 11441.484668193882
-R_ldr_ldr n0 0 1949.0299204580947
+R_ntc_ntc n1 0 11441.4846682
+R_ldr_ldr n0 0 1949.02992046
 R_ldr_pull vcc_rail n0 10000
 .op
 .end"
@@ -2240,7 +2240,7 @@ R_autopull_n2 n2 0 100Meg
 exports[`netlist snapshot — circuits (41 examples) > photoresistor-light 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-R_ldr_ldr n0 0 1434.5287496850556
+R_ldr_ldr n0 0 1434.52874969
 R_ldr_pull vcc_rail n0 10000
 .op
 .end"
@@ -2290,7 +2290,7 @@ R_rload n1 0 1000
 exports[`netlist snapshot — circuits (41 examples) > rc-low-pass-filter 1`] = `
 "* Velxio circuit
 R_r1 n0 n2 10000
-C_c1 n2 n1 0.000009999999999999999 IC=0
+C_c1 n2 n1 0.00001 IC=0
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
