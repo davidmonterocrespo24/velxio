@@ -340,7 +340,7 @@ export async function verifyCircuit(
   // the user their sensor will never answer.
   // Run a forced .op solve so currents are scalar and deterministic.
   const opInput: BuildNetlistInput = { ...input, analysis: { kind: 'op' } };
-  const { netlist, pinNetMap, nets } = buildNetlist(opInput);
+  const { netlist, pinNetMap, nets, partPoweredNets } = buildNetlist(opInput);
 
   // ── Ideal sources fighting over one net (graph-based, no solve) ────────
   // Two ideal voltage sources on the same pair of nodes make the .op matrix
@@ -349,7 +349,21 @@ export async function verifyCircuit(
   // 2026-09-05 nothing said why (a 7805's VOUT wired into a XIAO's 5V pin was
   // reported as "my 9 V battery reads 0 V"). Detected from the netlist itself
   // so both sides get named; blocking, because nothing on the canvas solves.
-  errors.push(...findSourceConflicts(netlist, input, config.synthesizedPins));
+  const sourceConflicts = findSourceConflicts(netlist, input, config.synthesizedPins);
+  errors.push(...sourceConflicts);
+  // A board pin driven against a part that powers its net (a bench supply or
+  // a battery behind its own resistance, so the solve has an answer): the
+  // same fight, named the same way, and never as that part's current limit
+  // or short circuit (Rule 1 leaves these parts alone).
+  const pinDriveConflicts = findPinDriveConflicts(
+    input,
+    pinNetMap,
+    partPoweredNets,
+    config.synthesizedPins,
+    new Set(sourceConflicts.map((c) => c.componentId ?? '')),
+  );
+  errors.push(...pinDriveConflicts);
+  const fightingPins = new Set(pinDriveConflicts.map((c) => c.componentId ?? ''));
 
 
   // ── Board over-voltage (graph-based, no solve) ─────────────────────────
@@ -952,6 +966,9 @@ export async function verifyCircuit(
     /^(battery|signal-generator|power-supply)/.test(c.metadataId),
   );
   for (const src of sourceComponents) {
+    // Fighting a pin the sketch drives: named above as that conflict, and its
+    // current is the fight's, not a load's.
+    if (fightingPins.has(src.id)) continue;
     // A non-finite source current means ngspice could not find a stable
     // operating point — treat it as a blocking "cannot emulate" fault
     // rather than waving the circuit through as 0 A.
@@ -1538,6 +1555,85 @@ export function findSourceConflicts(
       componentId: parts.find((p) => p.componentId)?.componentId,
       message: `${names.join(', ')} and ${last} are both driving the same net, so the circuit has no solution: the simulator cannot solve any voltage on the canvas until one of them is removed. Typical cause: a regulator or battery output wired straight into a board supply pin.`,
     });
+  }
+  return out;
+}
+
+/** How a part that powers a net holds it, for findPinDriveConflicts. */
+function heldLevel(part: BuildNetlistInput['components'][number]): string {
+  const v = (x: number) => formatQuantity(x, 'V');
+  if (part.metadataId === 'power-supply') {
+    const set = readValueField(part, 'voltage');
+    return String(part.properties.mode ?? 'dc').toLowerCase() === 'ac'
+      ? `drives that net with a ${v(Math.abs(set))} sine`
+      : `holds that net at ${v(set)}`;
+  }
+  if (part.metadataId === 'signal-generator') {
+    const waveform = String(part.properties.waveform ?? 'sine').toLowerCase();
+    return waveform === 'dc'
+      ? `holds that net at ${v(readValueField(part, 'offset'))}`
+      : `drives that net with its ${waveform} wave`;
+  }
+  const info = sourceInfo(part);
+  return info ? `holds that net at ${v(info.volts)}` : 'holds that net';
+}
+
+/**
+ * A board pin driven as an output on a net a part powers: a bench supply's or
+ * a battery's +, a generator's output or a regulator's VOUT with its return
+ * on ground (NetlistBuilder, partPoweredNets). Two drivers on one net: on
+ * hardware the pin's output stage carries whatever current the part pushes
+ * into it or draws from it. A bench supply holds its pin behind 10 mΩ and a
+ * battery behind its ESR, so findSourceConflicts (ideal sources only) does
+ * not see these, and the solve showed them as the supply at its current
+ * limit ("Raise the currentLimit", which no limit fixes) or as a battery's
+ * short circuit. Named here as the conflict it is, with the pin worded as
+ * findSourceConflicts words it: driven by the MCU, or assumed HIGH by the
+ * pre-flight. The pre-flight leaves a pin a part powers as an input
+ * (verifyFromStore), so this is what a sketch's own output meets. A part in
+ * `named` (one findSourceConflicts reported already) is left to it.
+ * Exported for tests.
+ */
+export function findPinDriveConflicts(
+  input: BuildNetlistInput,
+  pinNetMap: ReadonlyMap<string, string>,
+  partPoweredNets: ReadonlyMap<string, readonly string[]>,
+  synthesizedPins?: ReadonlySet<string>,
+  named: ReadonlySet<string> = new Set(),
+): CircuitWarning[] {
+  const out: CircuitWarning[] = [];
+  if (partPoweredNets.size === 0) return out;
+  const reported = new Set<string>();
+  for (const board of input.boards) {
+    for (const [pinName, state] of Object.entries(board.pins ?? {})) {
+      if (state.type === 'input') continue;
+      const net = pinNetMap.get(`${board.id}:${pinName}`);
+      if (net === undefined) continue;
+      for (const partId of partPoweredNets.get(net) ?? []) {
+        if (named.has(partId) || reported.has(partId)) continue;
+        const part = input.components.find((c) => c.id === partId);
+        if (!part) continue;
+        reported.add(partId);
+        const pinCard: SourceCard = { name: `V_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`, a: net, b: '0' };
+        const pin = describeSourceCard(pinCard, input, synthesizedPins).text;
+        const who = `${part.metadataId} ${part.id}`;
+        const own = `${who} ${part.metadataId.startsWith('reg-') ? 'output (VOUT)' : 'output'}`;
+        const holds = heldLevel(part);
+        const driven = synthesizedPins?.has(`${board.id}:${pinName}`)
+          ? `the check assumed the pin is an output the sketch may drive, while ${who} ${holds}`
+          : `the sketch drives the pin as an output while ${who} ${holds}`;
+        out.push({
+          severity: 'error',
+          code: 'source-conflict',
+          componentId: part.id,
+          message:
+            `${own} and ${pin} are both driving the same net: ${driven}. On hardware the two fight, and the ` +
+            `pin's output stage carries whatever current ${who} pushes into it or draws from it, which can ` +
+            `damage it. To read ${who}, leave the pin as an input (analogRead or digitalRead); to drive that ` +
+            `net from the pin, remove ${who}.`,
+        });
+      }
+    }
   }
   return out;
 }

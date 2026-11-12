@@ -70,6 +70,7 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
   }));
   let occupied = new Set<string>();
   let pinNet = new Map<string, string>();
+  let powered = new Map<string, string[]>();
   try {
     const bare = buildNetlist({
       ...buildInputFromStore({
@@ -81,6 +82,7 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
     });
     occupied = occupiedSourcePairs(bare.netlist);
     pinNet = bare.pinNetMap;
+    powered = bare.partPoweredNets;
   } catch {
     /* unbuildable: stamp as before */
   }
@@ -114,6 +116,17 @@ export function buildPreflightSnapshot(state: PreflightState): PreflightSnapshot
         // A board GPIO source is stamped as `V_<board>_<pin> <net> 0`, so the
         // pair it would occupy is (net, ground). Held already -> demote.
         if (occupied.has(sourcePairKey(net, '0'))) continue;
+        // A part powers that net: a bench supply, a battery or a generator
+        // wired to the pin (an analogRead of a supply, the common lab), with
+        // its return on ground. The bench supply holds its pin behind 10 mΩ
+        // and a battery behind its ESR, so the pair above never sees them;
+        // forced HIGH, the pin fought the supply, which sat at its current
+        // limit whatever the limit, and Run was blocked as an overload (a
+        // battery as a short circuit). The pin is an input the part drives,
+        // decided as a 3.3 V board's VIN is (NetlistBuilder, poweredBy). A
+        // sketch that drives it anyway is named as a conflict by the check
+        // (findPinDriveConflicts).
+        if (powered.has(net)) continue;
         // One invented source per net: the second GPIO on a shared net is the
         // other end of a link, and two ideal sources there is a conflict the
         // real sketch would never produce (one side reads).
