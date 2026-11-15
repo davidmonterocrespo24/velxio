@@ -21,6 +21,20 @@ import '../elements-register';
 import { exampleProjects } from '../data/examples';
 import { isBoardComponentType } from '../utils/exampleToBuildNetlistInput';
 
+// jsdom has no ImageData, and the SSD1306 element builds one in its
+// constructor. A throw there is reported by jsdom as an uncaught error, not
+// to createElement's caller, and fails the run. The pins do not depend on it.
+const g = globalThis as { ImageData?: unknown };
+g.ImageData ??= class {
+  readonly data: Uint8ClampedArray;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {
+    this.data = new Uint8ClampedArray(width * height * 4);
+  }
+};
+
 /**
  * Wired by a name the element lacks, still to be fixed one by one. Each
  * needs its own look in the app first: the 7-segment's digit logic listens on
@@ -58,14 +72,14 @@ function pinsOf(type: string, properties: Record<string, unknown>): string[] | n
       // a read-only property: the default stands
     }
   }
-  document.body.appendChild(el);
+  // Never connected to the document: pinInfo is a getter over the element's
+  // properties, and a connected element renders, which some cannot do in
+  // jsdom (the SSD1306 paints a canvas in firstUpdated).
   try {
     const pins = ((el.pinInfo as Array<{ name: string }> | undefined) ?? []).map((p) => p.name);
     return pins.length ? pins : null;
   } catch {
     return null;
-  } finally {
-    el.remove();
   }
 }
 
