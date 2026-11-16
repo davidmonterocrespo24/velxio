@@ -5,7 +5,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { CompilationLog, CompileTarget } from '../../utils/compilationLogger';
+import { compileErrorCount, type CompilationLog, type CompileTarget } from '../../utils/compilationLogger';
 
 /** One contiguous run of log lines for the same target (or none). */
 interface LogGroup {
@@ -95,6 +95,9 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
 
   const errorCount = logs.filter((l) => l.type === 'error').length;
   const warningCount = logs.filter((l) => l.type === 'warning').length;
+  // The badge counts every error line shown; a diagnosis is offered only
+  // for the compiler's (velxio/velxio-prod#222).
+  const compileErrors = compileErrorCount(logs);
 
   if (!isOpen) return null;
 
@@ -122,9 +125,10 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
               </span>
             )}
             {/* Pro overlay mounts a "Diagnose with AI" button here when
-                errorCount > 0. Empty in the OSS image — slotMounter
+                the compiler wrote errors (the Circuit check's lines are
+                not a failed compile). Empty in the OSS image — slotMounter
                 only fires when the pro tree is present. */}
-            {errorCount > 0 && (
+            {compileErrors > 0 && (
               <div data-velxio-slot="compile-console-actions" />
             )}
           </div>

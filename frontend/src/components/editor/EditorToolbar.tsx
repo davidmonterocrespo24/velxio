@@ -35,7 +35,7 @@ import {
 import { LibraryManagerModal } from '../simulator/LibraryManagerModal';
 import { InstallLibrariesModal } from '../simulator/InstallLibrariesModal';
 import { mergeSuggestedLibraries } from '../../utils/libraryManifest';
-import { parseCompileResult, isNoiseBuildLine } from '../../utils/compilationLogger';
+import { parseCompileResult, isNoiseBuildLine, CIRCUIT_CHECK_TARGET_ID } from '../../utils/compilationLogger';
 import type { CompilationLog, CompileTarget } from '../../utils/compilationLogger';
 import { exportToWokwiZip, retargetBoardWires } from '../../utils/wokwiZip';
 import { wifiSsidNoteFor } from '../../utils/firmwareWifiNote';
@@ -61,7 +61,7 @@ import { getResolvedTheme } from '../../lib/theme';
  * auto-compile triggered by the same Run.
  */
 const CIRCUIT_CHECK_TARGET: CompileTarget = {
-  id: 'circuit-check',
+  id: CIRCUIT_CHECK_TARGET_ID,
   label: 'Circuit check',
   kind: 'board',
 };
