@@ -12,7 +12,6 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { cssVar } from '../../lib/theme';
 import { useResolvedTheme } from '../../hooks/useTheme';
 import ReactDOM from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -29,10 +28,15 @@ import { boardDisplayName } from '../../types/board';
 import type { BoardKind } from '../../types/board';
 import { boardPads } from '../../simulation/boardPads';
 import { boardPinGroupFor } from '../../simulation/spice/boardPinGroups';
+import {
+  NUM_DIVS,
+  prepareCanvas,
+  drawWaveform,
+  drawAnalogWaveform,
+  drawRuler,
+} from './oscilloscopeDraw';
 import './Oscilloscope.css';
 
-// Horizontal divisions shown at once
-const NUM_DIVS = 10;
 /** Vertical divisions an analog channel's row spans. */
 const NUM_V_DIVS = OSC_V_DIVS;
 
@@ -92,262 +96,6 @@ function fallbackPinsForBoardKind(boardKind: BoardKind): { pin: number; label: s
   }
 }
 
-// ── Canvas rendering helpers ────────────────────────────────────────────────
-
-/** Chrome colours for the scope's 2D canvases.
- *
- * A canvas cannot inherit a CSS custom property, so the grid, the axes and
- * the trigger cursor read their values from the token layer at draw time.
- * The channel TRACE colour is not in here on purpose — it comes from the
- * channel's own configuration and identifies the signal, so it stays put
- * across themes the way a probe's clip colour does.
- */
-function scopeChrome() {
-  return {
-    grid: cssVar('--wb-2'),
-    centre: cssVar('--wb-4'),
-    zero: cssVar('--color-border-strong'),
-    axisText: cssVar('--wb-10'),
-    rulerLine: cssVar('--wb-7'),
-    rulerText: cssVar('--wb-10'),
-    trigger: cssVar('--color-feedback-warning'),
-  };
-}
-
-function drawWaveform(
-  canvas: HTMLCanvasElement,
-  samples: OscSample[],
-  color: string,
-  windowEndMs: number,
-  windowMs: number,
-  /**
-   * Trigger marker — when not null, render a vertical orange line at this
-   * X fraction (0..1) of the canvas to show where the trigger event
-   * landed.  Mirrors the orange "T" cursor on a real Tektronix / Rigol.
-   */
-  triggerXFrac: number | null = null,
-): void {
-  const { width, height } = canvas;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.clearRect(0, 0, width, height);
-
-  const chrome = scopeChrome();
-
-  // Background grid lines
-  ctx.strokeStyle = chrome.grid;
-  ctx.lineWidth = 1;
-  for (let d = 0; d <= NUM_DIVS; d++) {
-    const x = Math.round((d / NUM_DIVS) * width);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  }
-
-  // Horizontal center guide
-  ctx.strokeStyle = chrome.centre;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, height / 2);
-  ctx.lineTo(width, height / 2);
-  ctx.stroke();
-
-  // Trigger marker — drawn under the trace so the waveform sits on top.
-  if (triggerXFrac !== null) {
-    const x = Math.round(triggerXFrac * width);
-    ctx.strokeStyle = chrome.trigger;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = chrome.trigger;
-    ctx.font = 'bold 9px monospace';
-    ctx.fillText('T', x + 2, 10);
-  }
-
-  if (samples.length === 0) return;
-
-  const windowStartMs = windowEndMs - windowMs;
-  const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
-  const HIGH_Y = Math.round(height * 0.15);
-  const LOW_Y = Math.round(height * 0.85);
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-
-  let initState = false;
-  for (let i = samples.length - 1; i >= 0; i--) {
-    if (samples[i].timeMs <= windowStartMs) {
-      initState = samples[i].state;
-      break;
-    }
-  }
-
-  let currentY = initState ? HIGH_Y : LOW_Y;
-  ctx.moveTo(0, currentY);
-
-  for (const s of samples) {
-    if (s.timeMs < windowStartMs) continue;
-    if (s.timeMs > windowEndMs) break;
-
-    const x = Math.max(0, Math.min(width, toX(s.timeMs)));
-    const nextY = s.state ? HIGH_Y : LOW_Y;
-    ctx.lineTo(x, currentY);
-    ctx.lineTo(x, nextY);
-    currentY = nextY;
-  }
-
-  ctx.lineTo(width, currentY);
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.font = '9px monospace';
-  ctx.fillText('H', width - 12, HIGH_Y + 3);
-  ctx.fillText('L', width - 12, LOW_Y + 3);
-}
-
-/**
- * Draw one analog channel: a continuous trace on a volts axis.
- *
- * Not the digital step function with a different colour — an analog capture is
- * a dense block of samples where consecutive points can land on the same pixel
- * column, so the trace is drawn as a polyline and collapsed to a vertical
- * min/max bar wherever more than one sample shares a column. Plotting only
- * every Nth point instead would silently smooth away exactly the spikes a
- * scope exists to show.
- *
- * The vertical mapping is the scope's own: `voltsPerDiv` per division over
- * NUM_V_DIVS divisions, centred on `yOffsetV`, so a 3.3 V trace and a 5 V
- * square wave can share one row honestly.
- */
-function drawAnalogWaveform(
-  canvas: HTMLCanvasElement,
-  samples: OscSample[],
-  color: string,
-  windowEndMs: number,
-  windowMs: number,
-  voltsPerDiv: number,
-  yOffsetV: number,
-): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const { width, height } = canvas.getBoundingClientRect();
-  if (samples.length === 0) return;
-
-  const chrome = scopeChrome();
-  const windowStartMs = windowEndMs - windowMs;
-  const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
-  const spanV = voltsPerDiv * NUM_V_DIVS;
-  // Volts increase upward; y grows downward.
-  const toY = (v: number) => height / 2 - ((v - yOffsetV) / spanV) * height;
-
-  // Zero-volt reference, so the reader can see where ground sits.
-  const zeroY = toY(0);
-  if (zeroY > 0 && zeroY < height) {
-    ctx.strokeStyle = chrome.zero;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(0, zeroY);
-    ctx.lineTo(width, zeroY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-
-  let started = false;
-  let col = -1;
-  let colMin = 0;
-  let colMax = 0;
-
-  const flushColumn = () => {
-    if (col < 0) return;
-    const yA = toY(colMax);
-    const yB = toY(colMin);
-    if (!started) {
-      ctx.moveTo(col, yA);
-      started = true;
-    } else {
-      ctx.lineTo(col, yA);
-    }
-    if (yB !== yA) ctx.lineTo(col, yB);
-  };
-
-  for (const smp of samples) {
-    if (smp.volts === undefined) continue;
-    if (smp.timeMs < windowStartMs || smp.timeMs > windowEndMs) continue;
-    const x = Math.round(Math.max(0, Math.min(width, toX(smp.timeMs))));
-    if (x !== col) {
-      flushColumn();
-      col = x;
-      colMin = smp.volts;
-      colMax = smp.volts;
-    } else {
-      if (smp.volts < colMin) colMin = smp.volts;
-      if (smp.volts > colMax) colMax = smp.volts;
-    }
-  }
-  flushColumn();
-  if (started) ctx.stroke();
-
-  // Volts axis: the top and bottom of the visible span, plus the centre.
-  ctx.fillStyle = chrome.axisText;
-  ctx.font = '9px monospace';
-  const fmt = (v: number) => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
-  ctx.fillText(`${fmt(yOffsetV + spanV / 2)}V`, 2, 9);
-  ctx.fillText(`${fmt(yOffsetV)}V`, 2, height / 2 + 3);
-  ctx.fillText(`${fmt(yOffsetV - spanV / 2)}V`, 2, height - 3);
-}
-
-function drawRuler(
-  canvas: HTMLCanvasElement,
-  windowEndMs: number,
-  windowMs: number,
-  timeDivMs: number,
-): void {
-  const { width, height } = canvas;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.clearRect(0, 0, width, height);
-  const chrome = scopeChrome();
-  ctx.strokeStyle = chrome.rulerLine;
-  ctx.fillStyle = chrome.rulerText;
-  ctx.font = '9px monospace';
-  ctx.lineWidth = 1;
-
-  const windowStartMs = windowEndMs - windowMs;
-
-  for (let d = 0; d <= NUM_DIVS; d++) {
-    const timeAtDiv = windowStartMs + d * timeDivMs;
-    const x = Math.round((d / NUM_DIVS) * width);
-
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, 5);
-    ctx.stroke();
-
-    const absMs = Math.abs(timeAtDiv);
-    const label =
-      absMs >= 1000
-        ? `${(timeAtDiv / 1000).toFixed(1)}s`
-        : `${timeAtDiv.toFixed(absMs < 1 ? 2 : 1)}ms`;
-
-    if (d < NUM_DIVS) {
-      ctx.fillText(label, x + 2, height - 3);
-    }
-  }
-}
-
 // ── Channel canvas ──────────────────────────────────────────────────────────
 
 interface ChannelCanvasProps {
@@ -376,24 +124,23 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
 
+    // Drawn in CSS pixels on a context scaled to the backing store
+    // (prepareCanvas), whatever the devicePixelRatio.
     const { width, height } = wrap.getBoundingClientRect();
-    if (width === 0 || height === 0) return;
-
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
-    canvas.height = Math.floor(height) * window.devicePixelRatio;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    const size = { width, height };
+    const ctx = prepareCanvas(canvas, size);
+    if (!ctx) return;
     // Two genuinely different traces: a GPIO channel is a step function
     // between two fixed rails, an analog one is a continuous curve on a volts
     // axis. Drawing the latter with the former's H/L mapping would flatten
     // every waveform into a square wave.
     if (channel.kind === 'analog') {
       drawAnalogWaveform(
-        canvas, samples, channel.color, windowEndMs, windowMs,
-        channel.voltsPerDiv, channel.yOffsetV,
+        ctx, size, samples, channel.color, windowEndMs, windowMs,
+        channel.voltsPerDiv, channel.yOffsetV, NUM_V_DIVS, triggerXFrac,
       );
     } else {
-      drawWaveform(canvas, samples, channel.color, windowEndMs, windowMs, triggerXFrac);
+      drawWaveform(ctx, size, samples, channel.color, windowEndMs, windowMs, triggerXFrac);
     }
     // `theme` is not read inside the effect — scopeChrome() picks the new
     // values up on its own — but it belongs in the deps so a stopped scope
@@ -431,18 +178,22 @@ const RulerCanvas: React.FC<RulerCanvasProps> = ({ windowEndMs, windowMs, timeDi
     if (!canvas || !wrap) return;
 
     const { width, height } = wrap.getBoundingClientRect();
-    if (width === 0 || height === 0) return;
-
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
-    canvas.height = Math.floor(height) * window.devicePixelRatio;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    drawRuler(canvas, windowEndMs, windowMs, timeDivMs);
+    const size = { width, height };
+    const ctx = prepareCanvas(canvas, size);
+    if (!ctx) return;
+    drawRuler(ctx, size, windowEndMs, windowMs, timeDivMs);
   }, [windowEndMs, windowMs, timeDivMs, theme]);
 
+  // The ruler is a row like the channels': a cell as wide as their label
+  // column, then the drawing area, so its ticks fall on the traces' time
+  // divisions. Spanning the whole panel put tick 0 under the labels and
+  // drifted 72 px to 0 across the screen (velxio/velxio-prod#115).
   return (
-    <div ref={wrapRef} className="osc-ruler">
-      <canvas ref={canvasRef} className="osc-ruler-canvas" />
+    <div className="osc-ruler">
+      <div className="osc-ruler-spacer" />
+      <div ref={wrapRef} className="osc-ruler-canvas-wrap">
+        <canvas ref={canvasRef} className="osc-ruler-canvas" />
+      </div>
     </div>
   );
 };

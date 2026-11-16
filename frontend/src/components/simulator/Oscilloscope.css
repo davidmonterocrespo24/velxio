@@ -1,6 +1,9 @@
 /* ── Oscilloscope panel ─────────────────────────────────────────────────── */
 
 .osc-container {
+  /* The channel label column, and the ruler's cell under it, so the ruler's
+     ticks fall on the traces' time divisions (velxio/velxio-prod#115). */
+  --osc-label-width: 72px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -199,6 +202,9 @@
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--wb-0);
+  /* The ruler row reserves the same gutter, so a scrollbar never makes the
+     traces narrower than the ruler under them. */
+  scrollbar-gutter: stable;
 }
 
 .osc-empty {
@@ -220,7 +226,7 @@
 }
 
 .osc-channel-label {
-  width: 72px;
+  width: var(--osc-label-width);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -281,13 +287,29 @@
   height: 100%;
 }
 
-/* ── Time ruler ── */
+/* ── Time ruler ──
+   A row like the channels': a cell as wide as their label column, then the
+   drawing area, with the channel list's scrollbar gutter. */
 .osc-ruler {
+  display: flex;
   height: 20px;
   flex-shrink: 0;
   background: var(--wb-1);
   border-top: 1px solid var(--wb-3);
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
+
+.osc-ruler-spacer {
+  width: var(--osc-label-width);
+  flex-shrink: 0;
+  border-right: 1px solid var(--wb-3);
+}
+
+.osc-ruler-canvas-wrap {
+  flex: 1;
   position: relative;
+  overflow: hidden;
 }
 
 .osc-ruler-canvas {
