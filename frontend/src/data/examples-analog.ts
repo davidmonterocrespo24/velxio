@@ -241,7 +241,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-rlc-series-resonance',
     'Series RLC Resonant Circuit',
-    'L = 1 mH, C = 1 µF gives fr ≈ 5 kHz. Sweep the signal generator — Vc peaks at resonance (Q-dependent).',
+    'L = 1 mH, C = 1 µF: fr = 1/(2π√LC) ≈ 5.03 kHz, Q = √(L/C)/R ≈ 3.2. Sweep the signal generator: the current peaks at fr, while the capacitor voltage (about 3.2 × the input) peaks just below it, near 4.9 kHz, as it does in a series RLC whose Q is not high.',
     'intermediate',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 5000, amplitude: 1, offset: 0 }),
