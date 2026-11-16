@@ -60,7 +60,7 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-blynk-based-iot-rela
 "* Velxio circuit
 R_pblynk-rly_coil n1 pblynk-rly_coilmid 1000
 L_pblynk-rly_coil pblynk-rly_coilmid n3 20m
-S_pblynk-rly_no n0 n4 n1 n3 RELAY_SW
+S_pblynk-rly_no n0 n4 n1 n3 RELAY_NO_3p3
 D_pblynk-rly_fly n3 n1 D1N4148
 R_pblynk-rlamp n4 n2 220
 V_pblynk-lamp_sense n2 pblynk-lamp_sense_mid DC 0
@@ -70,7 +70,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
+.model RELAY_NO_3p3 SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
@@ -81,7 +81,7 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-blynk-controlled-dc-
 "* Velxio circuit
 R_fan-rly_coil n0 fan-rly_coilmid 1000
 L_fan-rly_coil fan-rly_coilmid n3 20m
-S_fan-rly_no n1 n4 n0 n3 RELAY_SW
+S_fan-rly_no n1 n4 n0 n3 RELAY_NO_3p3
 D_fan-rly_fly n3 n0 D1N4148
 R_fan-rlamp n4 n2 220
 V_fan-lamp_sense n2 fan-lamp_sense_mid DC 0
@@ -91,7 +91,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
+.model RELAY_NO_3p3 SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_BLUE D(Is=1e-28 N=2.0)
 .op
@@ -301,7 +301,7 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-iot-relay-control-we
 "* Velxio circuit
 R_prelay-rly_coil n0 prelay-rly_coilmid 1000
 L_prelay-rly_coil prelay-rly_coilmid n3 20m
-S_prelay-rly_no n0 n4 n0 n3 RELAY_SW
+S_prelay-rly_no n0 n4 n0 n3 RELAY_NO_3p3
 D_prelay-rly_fly n3 n0 D1N4148
 R_prelay-rlamp n4 n2 220
 V_prelay-lamp_sense n2 prelay-lamp_sense_mid DC 0
@@ -311,7 +311,7 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
+.model RELAY_NO_3p3 SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
@@ -325,12 +325,12 @@ R_irr-pot1_top vcc_rail n1 7067.44868035
 R_irr-pot1_bot n1 0 2932.55131965
 R_irr-rly_coil n0 irr-rly_coilmid 1000
 L_irr-rly_coil irr-rly_coilmid 0 20m
-S_irr-rly_no vcc_rail n3 n0 0 RELAY_SW
+S_irr-rly_no vcc_rail n3 n0 0 RELAY_NO_3p3
 D_irr-rly_fly 0 n0 D1N4148
 R_irr-rlamp n3 n2 220
 V_irr-lamp_sense n2 irr-lamp_sense_mid DC 0
 D_irr-lamp irr-lamp_sense_mid 0 LED_BLUE
-.model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
+.model RELAY_NO_3p3 SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_BLUE D(Is=1e-28 N=2.0)
 .op
@@ -2307,7 +2307,7 @@ R_rb n1 n3 1000
 Q_q1 n5 n3 n2 Q2N2222
 R_rly_coil n0 rly_coilmid 70
 L_rly_coil rly_coilmid n5 20m
-S_rly_no n6 n0 n0 n5 RELAY_SW
+S_rly_no n6 n0 n0 n5 RELAY_NO_5
 D_rly_fly n5 n0 D1N4148
 R_rl n6 n4 220
 V_led1_sense n4 led1_sense_mid DC 0
@@ -2320,7 +2320,7 @@ R_autopull_n4 n4 0 100Meg
 R_autopull_n5 n5 0 100Meg
 R_autopull_n6 n6 0 100Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
-.model RELAY_SW SW(Vt=3 Vh=0.75 Ron=0.05 Roff=1G)
+.model RELAY_NO_5 SW(Vt=3 Vh=0.75 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op

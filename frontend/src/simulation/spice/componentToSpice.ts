@@ -196,6 +196,31 @@ const RELAY_SW_VH = 0.15;
 /** The fraction of its nominal coil voltage at which a relay pulls in. The
  *  circuit check warns about a coil fed below it (velxio/velxio-prod#108). */
 export const RELAY_PULL_IN_FRACTION = RELAY_SW_VT + RELAY_SW_VH;
+/**
+ * The two switch models of a relay contact set for a coil of `coilV`, named by
+ * that voltage: NO conducts while the switch is on, NC is the same switch with
+ * the conductances swapped, so it conducts while the switch is off. Sharing
+ * the control and the hysteresis state makes NC exactly the complement of NO
+ * (velxio/velxio-prod#169). A name per coil voltage keeps a 5 V and a 12 V
+ * relay on one canvas from sharing one `.model` line (the first one won).
+ */
+function relaySwitchModels(
+  prefix: string,
+  coilV: number,
+): { no: string; nc: string; noCard: string; ncCard: string } {
+  const tag = String(round3(coilV)).replace('-', 'm').replace('.', 'p');
+  const no = `${prefix}_NO_${tag}`;
+  const nc = `${prefix}_NC_${tag}`;
+  const vt = round3(coilV * RELAY_SW_VT);
+  const vh = round3(coilV * RELAY_SW_VH);
+  return {
+    no,
+    nc,
+    noCard: `.model ${no} SW(Vt=${vt} Vh=${vh} Ron=0.05 Roff=1G)`,
+    ncCard: `.model ${nc} SW(Vt=${vt} Vh=${vh} Ron=1G Roff=0.05)`,
+  };
+}
+
 /** The KS2E-M-DC5 has no coil_voltage field: its coil is the 5 V of its name. */
 const KS2E_COIL_VOLTS = 5;
 
@@ -1359,9 +1384,13 @@ const MAPPERS: Record<string, Mapper> = {
   // ── Electromechanical relay (SPDT, 5-pin) ───────────────────────────────
   // Coil is modelled as R in series with L. Contacts are voltage-controlled
   // switches (ngspice `S` element) with native hysteresis via Vt/Vh — avoids
-  // chatter when V_COIL sits near the activation threshold. The NC contact
-  // uses a B-source that inverts the coil voltage as its control signal,
-  // because ngspice SW has no "normally closed" mode.
+  // chatter when V_COIL sits near the activation threshold. ngspice SW has no
+  // "normally closed" mode, so NC is a second switch on the SAME control with
+  // its on and off resistances swapped (relaySwitchModels): one armature, one
+  // hysteresis state, NC closed exactly when NO is open. It used to be a
+  // switch of its own on Vnom - V(coil), which opened at 55 % and reclosed at
+  // 25 % of Vnom, so whole ranges of coil voltage left both contacts open
+  // (velxio/velxio-prod#169).
   // Optional flyback diode across the coil (anode on COIL-, cathode on COIL+).
   // NO and NC contact cards are only emitted when their respective pins are
   // wired — leaving NC unconnected is a very common pattern and must not
@@ -1396,8 +1425,6 @@ const MAPPERS: Record<string, Mapper> = {
     // defaults describe, specifies 75% pull-in, so the closing edge is the
     // datasheet figure. A bare .op has no history and leaves the switch open
     // anywhere inside the band (3.3 V on a 5 V coil solves open).
-    const threshold = coilV * RELAY_SW_VT;
-    const hysteresis = coilV * RELAY_SW_VH;
     const includeFlyback = comp.properties.include_flyback !== false;
     // A relay coil is a wire-wound inductor: R (of the copper) in SERIES
     // with ideal L. Modelling R and L in parallel would make the coil a DC
@@ -1425,16 +1452,14 @@ const MAPPERS: Record<string, Mapper> = {
       ctrl = `${comp.id}_coilv 0`;
       cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
     }
+    const sw = relaySwitchModels('RELAY', coilV);
     if (no) {
-      // NO: closes when the coil drive exceeds Vt (normal SW behaviour)
-      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} RELAY_SW`);
+      // NO: closes when the coil drive exceeds Vt + Vh (normal SW behaviour)
+      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} ${sw.no}`);
     }
     if (nc) {
-      // NC: inverted control — B-source maps (drive → Vnom − drive) so that
-      // SW still "turns on when ctrl > Vt", but meaning is inverted.
-      const ctrlInvNet = `${comp.id}_ncctrl`;
-      cards.push(`B_${comp.id}_ncctrl ${ctrlInvNet} 0 V = ${coilV} - (${coilDrive})`);
-      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrlInvNet} 0 RELAY_SW`);
+      // NC: the same switch, conducting while it is off.
+      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrl} ${sw.nc}`);
     }
     if (includeFlyback) {
       cards.push(`D_${comp.id}_fly ${cn} ${cp} D1N4148`);
@@ -1442,7 +1467,8 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards,
       modelsUsed: new Set([
-        `.model RELAY_SW SW(Vt=${threshold} Vh=${hysteresis} Ron=0.05 Roff=1G)`,
+        ...(no ? [sw.noCard] : []),
+        ...(nc ? [sw.ncCard] : []),
         // Must match the canonical D1N4148 in `diode-1n4148` exactly, or
         // the netlist dedupe Set will emit two `.model D1N4148` lines.
         '.model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)',
@@ -1467,36 +1493,30 @@ const MAPPERS: Record<string, Mapper> = {
     const coilV = KS2E_COIL_VOLTS;
     const coilMid = `${comp.id}_coilmid`;
     const ctrl = `${comp.id}_coilv`;
-    const ctrlInv = `${comp.id}_ncctrl`;
     const cards = [
       `R_${comp.id}_coil ${c1} ${coilMid} 70`,
       `L_${comp.id}_coil ${coilMid} ${c2} 20m`,
       `B_${comp.id}_coilv ${ctrl} 0 V = abs(V(${c1}) - V(${c2}))`,
-      `B_${comp.id}_ncctrl ${ctrlInv} 0 V = ${coilV} - abs(V(${c1}) - V(${c2}))`,
     ];
-    let contacts = 0;
+    // Both poles' NO and NC on one control (relaySwitchModels): NC closed
+    // exactly when NO is open, as the generic relay (velxio/velxio-prod#169).
+    const sw = relaySwitchModels('KS2E', coilV);
+    const models = new Set<string>();
     for (const pole of ['1', '2']) {
       const com = netLookup(`P${pole}`);
       if (!com) continue;
       const no = netLookup(`NO${pole}`);
       const nc = netLookup(`NC${pole}`);
       if (no) {
-        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 KS2E_SW`);
-        contacts++;
+        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 ${sw.no}`);
+        models.add(sw.noCard);
       }
       if (nc) {
-        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrlInv} 0 KS2E_SW`);
-        contacts++;
+        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrl} 0 ${sw.nc}`);
+        models.add(sw.ncCard);
       }
     }
-    return {
-      cards,
-      modelsUsed: new Set(
-        // Its own model name: `relay` writes RELAY_SW with ITS coil voltage,
-        // and two different .model lines under one name break the netlist.
-        contacts ? [`.model KS2E_SW SW(Vt=${coilV * RELAY_SW_VT} Vh=${coilV * RELAY_SW_VH} Ron=0.05 Roff=1G)`] : [],
-      ),
-    };
+    return { cards, modelsUsed: models };
   },
 
   // ── Schottky diodes (Vf ≈ 0.3–0.45 V at 1 A). Phase 2: LTSpice models
