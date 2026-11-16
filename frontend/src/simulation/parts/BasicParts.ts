@@ -520,9 +520,18 @@ PartSimulationRegistry.register('led-bar-graph', {
  *   - 'button-press'   → push-button pressed
  *   - 'button-release' → push-button released
  *
- * Most Arduino encoder libraries sample CLK and read DT on a CLK rising edge:
- *   DT LOW  on CLK rising  → clockwise
- *   DT HIGH on CLK rising  → counter-clockwise
+ * Each detent is one full cycle of quadrature (velxio/velxio-prod#156): CLK
+ * and DT are square waves 90 degrees apart that never change together, both
+ * back HIGH (on their pull-ups) at rest. Clockwise, CLK goes LOW first and
+ * then DT; counter-clockwise, DT first (Wokwi's wokwi-ky-040):
+ *   clockwise          CLK,DT  11 -> 01 -> 00 -> 10 -> 11
+ *   counter-clockwise  CLK,DT  11 -> 10 -> 00 -> 01 -> 11
+ * So every way of reading one works: DT LOW at a CLK rise is clockwise, DT
+ * HIGH at a CLK fall is clockwise (Wokwi's reference code), and a 4-state
+ * decoder counts four steps a detent. The model used to set DT to the
+ * direction and pulse CLK: counter-clockwise DT never moved, the first
+ * clockwise click moved both lines at once, and CLK rested LOW, so only the
+ * first idiom counted right.
  *
  * The SW pin is active LOW (HIGH when not pressed).
  *
@@ -576,8 +585,16 @@ PartSimulationRegistry.register('ky-040', {
     let freeAt = 0;
     let lastNow = 0;
 
-    /** Emit one encoder pulse: set DT to dtLevel, pulse CLK HIGH→LOW. */
-    function emitPulse(dtLevel: boolean) {
+    /** One detent: the leading line falls, the other follows, then both rise in the same order. */
+    function emitDetent(clockwise: boolean) {
+      const lead = clockwise ? pinCLK : pinDT;
+      const lag = clockwise ? pinDT : pinCLK;
+      const edges: Array<[number | null, boolean]> = [
+        [lead, false],
+        [lag, false],
+        [lead, true],
+        [lag, true],
+      ];
       const clock = guestEdgeClockOf(simulator);
       if (clock) {
         const now = clock.getCurrentCycles();
@@ -585,34 +602,25 @@ PartSimulationRegistry.register('ky-040', {
         lastNow = now;
         const step = Math.max(1, Math.round((clock.getClockHz() * KY040_STEP_MS) / 1000));
         // A click that comes while the previous one is still on the wire
-        // waits for it: two clicks are two pulses, never one merged one.
+        // waits for it: two clicks are two cycles, never one merged one.
         const at = Math.max(now, freeAt);
-        if (pinDT !== null) clock.schedulePinChange(pinDT, dtLevel, at);
-        if (pinCLK !== null) {
-          clock.schedulePinChange(pinCLK, false, at); // CLK LOW first
-          clock.schedulePinChange(pinCLK, true, at + step); // rising edge: DT is read here
-          clock.schedulePinChange(pinCLK, false, at + 2 * step);
-        }
-        if (pinDT !== null) clock.schedulePinChange(pinDT, true, at + 2 * step); // restore DT
-        freeAt = at + 3 * step;
+        edges.forEach(([pin, level], i) => {
+          if (pin !== null) clock.schedulePinChange(pin, level, at + i * step);
+        });
+        freeAt = at + edges.length * step;
         return;
       }
-      if (pinDT !== null) simulator.setPinState(pinDT, dtLevel);
-      if (pinCLK !== null) {
-        simulator.setPinState(pinCLK, false); // CLK LOW first
-        // Small delay then CLK rising edge (encoder sampled on rising edge)
-        setTimeout(() => {
-          if (pinCLK !== null) simulator.setPinState(pinCLK, true);
-          setTimeout(() => {
-            if (pinCLK !== null) simulator.setPinState(pinCLK, false);
-            if (pinDT !== null) simulator.setPinState(pinDT, true); // restore DT
-          }, KY040_STEP_MS);
-        }, KY040_STEP_MS);
-      }
+      const next = (i: number) => {
+        if (i >= edges.length) return;
+        const [pin, level] = edges[i]!;
+        if (pin !== null) simulator.setPinState(pin, level);
+        if (i + 1 < edges.length) setTimeout(() => next(i + 1), KY040_STEP_MS);
+      };
+      next(0);
     }
 
-    const onCW = () => emitPulse(false); // DT LOW  = CW
-    const onCCW = () => emitPulse(true); // DT HIGH = CCW
+    const onCW = () => emitDetent(true);
+    const onCCW = () => emitDetent(false);
     const onPress = () => {
       if (pinSW !== null) simulator.setPinState(pinSW, false);
     };
