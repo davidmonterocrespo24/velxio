@@ -73,10 +73,11 @@ function ff(kind: 'd' | 't' | 'jk', id: string, x: number, y: number) {
   return { type: `velxio-flip-flop-${kind}`, id, x, y, properties: {} };
 }
 
-/** Placeholder code shown in the editor. No MCU is involved. */
-const DIGITAL_SKETCH = `// Pure digital circuit — no MCU.
-// Toggle the electrical-simulation (⚡) button to run the SPICE engine,
-// then click the slide switches on the canvas to drive the gate inputs.
+/** Placeholder code shown in the editor. No MCU is involved, and the circuit
+ *  runs on its own: there is no toggle to press (velxio/velxio-prod#98). */
+const DIGITAL_SKETCH = `// Digital circuit, no microcontroller: nothing to program here.
+// It simulates as soon as it is on the canvas: click the slide switches to
+// drive the gate inputs. Stop freezes it; Run resumes it.
 void setup() {}
 void loop()  {}
 `;

@@ -36,9 +36,13 @@ const C_OUT = '#22d3ee'; // output
 const C_WIRE = '#00aaff'; // generic signal
 
 // Standard placeholder sketch text so the editor has something non-empty
-// when the user loads an analog example.
-const ANALOG_SKETCH = `// Analog-only circuit — no Arduino sketch required.
-// Toggle the electrical-simulation (⚡) button to run the SPICE engine.
+// when the user loads an analog example. A board-less circuit runs on its
+// own: loadExample leaves it unpaused, and the toolbar's Stop and Run pause
+// and resume it (there has been no electrical-simulation toggle since
+// 2026-04, velxio/velxio-prod#98).
+const ANALOG_SKETCH = `// Analog circuit, no microcontroller: nothing to program here.
+// It simulates as soon as it is on the canvas: change a part's value and the
+// circuit re-solves. Stop freezes it; Run resumes it.
 void setup() {}
 void loop() {}
 `;
