@@ -14,7 +14,8 @@
  *  4. Extract the <svg> block from the result string.
  *  5. Write to frontend/public/component-svgs/<name>.svg
  *
- * Run:  node scripts/generate-component-svgs.cjs
+ * Run:  node scripts/generate-component-svgs.cjs [tag ...]
+ *       (with tag names, e.g. wokwi-potentiometer, only those are written)
  */
 
 'use strict';
@@ -88,7 +89,9 @@ const mockLit = {
   },
   html:    tagConcat,
   svg:     tagConcat,
-  css:     () => '',
+  // Keep the element's CSS text: its `svg text` rule is carried onto the
+  // labels (applyTextStyles).
+  css:     tagConcat,
   nothing: '',
   unsafeHTML: (s) => s,
 };
@@ -379,10 +382,53 @@ function movePaintServersIntoDefs(svgStr) {
   return svgStr;
 }
 
+// ── Carry the element's own label styling ────────────────────────────────────
+// Some elements size and colour their SVG labels from CSS (`static styles`):
+// potentiometer-element has `svg text { font-size: 1px; fill: #ffffff }`. A
+// static file has no stylesheet, so a standalone renderer drew those labels at
+// its 16 px default in black, which on the potentiometer's 20-unit viewBox is a
+// black blob over the knob and the right edge (velxio/velxio-prod#112). The
+// declarations of an `svg text` rule are copied onto every <text> as SVG
+// presentation attributes, unless the text sets them itself.
+const TEXT_PRESENTATION = ['font-family', 'font-size', 'font-weight', 'fill', 'letter-spacing', 'word-spacing'];
+
+function svgTextDeclarations(ElementClass) {
+  let styles;
+  try {
+    styles = ElementClass.styles;
+  } catch {
+    return [];
+  }
+  const cssText = (Array.isArray(styles) ? styles.flat(Infinity) : [styles])
+    .filter((x) => typeof x === 'string')
+    .join('\n');
+  const rule = /(?:^|[}\s])svg\s+text\s*\{([^}]*)\}/.exec(cssText);
+  if (!rule) return [];
+  return rule[1]
+    .split(';')
+    .map((d) => d.split(':').map((x) => x.trim()))
+    .filter(([prop, value]) => value && TEXT_PRESENTATION.includes(prop));
+}
+
+function applyTextStyles(svgStr, ElementClass) {
+  const decls = svgTextDeclarations(ElementClass);
+  if (decls.length === 0) return svgStr;
+  return svgStr.replace(/<text\b([^>]*)>/g, (tag, attrs) => {
+    let extra = '';
+    for (const [prop, value] of decls) {
+      if (!new RegExp(`\\s${prop}\\s*=`).test(attrs)) extra += ` ${prop}="${value}"`;
+    }
+    return `<text${attrs}${extra}>`;
+  });
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 let ok = 0, skip = 0, fail = 0;
+// Tag names given on the command line: write only those.
+const ONLY = new Set(process.argv.slice(2));
 
 for (const [tagName, fileName, defaultProps, useRenderSVG] of ELEMENTS) {
+  if (ONLY.size > 0 && !ONLY.has(tagName)) continue;
   const filePath = path.join(CJS_DIR, `${fileName}.js`);
   if (!fs.existsSync(filePath)) {
     console.warn(`  ⚠ skip  ${tagName} — ${fileName}.js not found`);
@@ -436,6 +482,9 @@ for (const [tagName, fileName, defaultProps, useRenderSVG] of ELEMENTS) {
     // Convert mm-based dimensions to px so <img> can determine intrinsic size
     fullSvg = normalizeSvgDimensions(fullSvg);
 
+    // Labels styled by the element's CSS get those styles as attributes
+    fullSvg = applyTextStyles(fullSvg, ExportedClass);
+
     // Ensure XML declaration with UTF-8 encoding so <img> handles non-ASCII correctly
     if (!fullSvg.startsWith('<?xml')) {
       fullSvg = '<?xml version="1.0" encoding="UTF-8"?>\n' + fullSvg;
@@ -480,6 +529,7 @@ const BOARD_COPIES = [
 
 console.log('\n📋 Copying board SVGs from public/boards/...');
 for (const [tagName, srcFile] of BOARD_COPIES) {
+  if (ONLY.size > 0 && !ONLY.has(tagName)) continue;
   const src = path.join(BOARDS_DIR, srcFile);
   const dst = path.join(OUT_DIR, `${tagName.replace(/^wokwi-/, '')}.svg`);
   if (fs.existsSync(src)) {

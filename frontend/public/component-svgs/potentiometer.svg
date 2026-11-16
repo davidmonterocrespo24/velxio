@@ -31,9 +31,9 @@
       />
       <rect x="6" y="17" width="8" height="2" fill-opacity="0" stroke="#fff" stroke-width=".30" />
       <g stroke-width=".15">
-        <text x="6.21" y="16.6">GND</text>
-        <text x="9.2" y="16.63">SIG</text>
-        <text x="11.5" y="16.59">VCC</text>
+        <text x="6.21" y="16.6" font-size="1px" letter-spacing="0px" word-spacing="0px" fill="#ffffff">GND</text>
+        <text x="9.2" y="16.63" font-size="1px" letter-spacing="0px" word-spacing="0px" fill="#ffffff">SIG</text>
+        <text x="11.5" y="16.59" font-size="1px" letter-spacing="0px" word-spacing="0px" fill="#ffffff">VCC</text>
       </g>
       <g fill="#fff" stroke-width=".15">
         <ellipse cx="1.68" cy="1.81" rx=".99" ry=".96" />
