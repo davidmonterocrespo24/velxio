@@ -1030,9 +1030,16 @@ class AvrUartPort implements UartControllerPort {
       enableRegister: config.UCSRB,
       enableMask: UCSRB_TXCIE,
     };
+    // One frame in CPU cycles, as avr8js times its receiver: (UBRR + 1) clock
+    // periods of 16 (8 with U2X) per symbol, start + data + parity + stop.
+    const frameCycles = (): number => {
+      const ubrr = (cpu.data[config.UBRRH] << 8) | cpu.data[config.UBRRL];
+      const perSymbol = (ubrr + 1) * (cpu.data[config.UCSRA] & UCSRA_U2X ? 8 : 16);
+      return perSymbol * (1 + usart.bitsPerChar + usart.stopBits + (usart.parityEnabled ? 1 : 0));
+    };
     const startFrame = (byte: number, atCycle: number): void => {
       this.shifting = true;
-      this.frameEnd = atCycle + usart.cyclesPerChar;
+      this.frameEnd = atCycle + frameCycles();
       // The buffer is free again the moment its byte reaches the shift register.
       cpu.setInterruptFlag(udre);
       this.emit(usart, byte, atCycle);
