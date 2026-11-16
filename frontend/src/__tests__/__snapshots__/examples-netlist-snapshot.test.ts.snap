@@ -863,7 +863,7 @@ V_vcc n4 0 DC 12
 V_src n3 0 SIN(0 0.1 1000)
 R_rg1 n4 n2 1000000
 R_rg2 n2 0 470000
-R_rd n4 n1 4700
+R_rd n4 n1 2200
 R_rs n0 0 1000
 C_cin n3 n2 0.00001 IC=0
 M_m1 n1 n2 n0 M2N7000

@@ -644,14 +644,14 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-mosfet-common-source',
     'MOSFET Common-Source Amplifier',
-    '2N7000 as a small-signal amp: drain resistor sets gain, source resistor stabilises bias. AC-coupled signal input.',
+    '2N7000 as a small-signal amp. The gate divider and the 1 kΩ source resistor set the bias; the 2.2 kΩ drain resistor puts the drain near the middle of its range (about 7.4 V between the source, 2.1 V, and 12 V), so it stays in saturation and swings both ways. With the source resistor unbypassed the gain is Rd / (Rs + 1/gm), about 2: the 0.2 Vpp input comes out about 0.42 Vpp, inverted. AC-coupled signal input.',
     'advanced',
     [
       sigGen('vcc', 60, 40, { waveform: 'dc', offset: 12, amplitude: 0, frequency: 1 }),
       sigGen('src', 60, 260, { waveform: 'sine', frequency: 1000, amplitude: 0.1, offset: 0 }),
       res('rg1', 240, 40, '1000000'),
       res('rg2', 240, 200, '470000'),
-      res('rd', 420, 40, '4700'),
+      res('rd', 420, 40, '2200'),
       res('rs', 420, 300, '1000'),
       cap('cin', 220, 260, '10u'),
       mosN('m1', 380, 160),
