@@ -172,14 +172,22 @@ export function largestTimeConstant(cards: readonly string[]): number {
 }
 
 /**
- * The start of the stored window: SETTLE_TAUS time constants, rounded up to
- * whole periods of the slowest source (so every capture starts at the same
- * phase, and a window replayed in a loop joins up), and at most
- * MAX_SETTLE_STEPS steps of `stepS`. 0 when there is nothing to wait for.
+ * The start of the stored window: SETTLE_TAUS time constants, at most
+ * MAX_SETTLE_STEPS steps of `stepS`, in whole periods of the slowest source
+ * where the budget allows (so every capture starts at the same phase, and a
+ * window replayed in a loop joins up): rounded up when that stays within the
+ * budget, down when a whole period still fits, as it is otherwise. A slow
+ * source with a fast one (1 Hz and 1 kHz) has periods of 20 000 steps, so
+ * rounding up alone could double the budget. 0 when there is nothing to wait
+ * for.
  */
 export function settleSeconds(tau: number, stepS: number, periodS: number | undefined): number {
   if (!(tau > 0) || !(stepS > 0)) return 0;
-  const wanted = Math.min(SETTLE_TAUS * tau, MAX_SETTLE_STEPS * stepS);
+  const budget = MAX_SETTLE_STEPS * stepS;
+  const wanted = Math.min(SETTLE_TAUS * tau, budget);
   if (!(periodS && periodS > 0)) return wanted;
-  return Math.ceil(wanted / periodS - 1e-9) * periodS;
+  const up = Math.ceil(wanted / periodS - 1e-9) * periodS;
+  if (up <= budget * (1 + 1e-9)) return up;
+  const down = Math.floor(wanted / periodS + 1e-9) * periodS;
+  return down > 0 ? down : wanted;
 }

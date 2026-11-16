@@ -23,10 +23,16 @@ import { PASSIVE_PRESETS, periodicSourceHz } from './componentToSpice';
 
 // Shortest transient window, for a very high-frequency source.
 const MIN_TRAN_STOP_S = 5e-3;
-// Cap transient stop time to keep solve cost bounded for very low-frequency
-// sources (e.g. 0.1 Hz → 40 s would be absurd). 400 ms covers 20 cycles at
-// 50 Hz.
+// The step-response window's cap (an MCU pin into a capacitor or an
+// inductor). That transient starts from the operating point the pin already
+// holds, so a longer one would show nothing more (velxio/velxio-prod#153).
 const MAX_TRAN_STOP_S = 0.4;
+// A periodic source's window is bounded in steps, not seconds. A single
+// source's four periods are 80 steps whatever its frequency (the step is a
+// twentieth of a period), so a 0.5 Hz generator gets its 8 s; what costs is a
+// slow source next to a much faster one, whose step is the fast one's. 8000
+// is what the old 0.4 s cap left a 1 kHz source (velxio/velxio-prod#107).
+const MAX_WINDOW_STEPS = 8000;
 const SAMPLES_PER_PERIOD = 20;
 // Periods of the slowest periodic source in the stored window. The circuit's
 // start-up runs before it (settleTime.ts), so these are its steady state.
@@ -133,8 +139,17 @@ function pickDynamicAnalysis(
     const maxFreq = Math.max(...frequencies);
     const minFreq = Math.min(...frequencies);
     const stepS = 1 / (maxFreq * SAMPLES_PER_PERIOD);
-    const rawStop = PERIODS_SHOWN / minFreq;
-    const stopS = Math.min(MAX_TRAN_STOP_S, Math.max(MIN_TRAN_STOP_S, rawStop));
+    const periodS = 1 / minFreq;
+    // Four periods of the slowest source. A window the step budget cannot
+    // hold keeps the whole periods that fit (the meters read whole periods),
+    // or the budget when not even one does.
+    let stopS = PERIODS_SHOWN * periodS;
+    const maxS = MAX_WINDOW_STEPS * stepS;
+    if (stopS > maxS) {
+      const whole = Math.floor(maxS / periodS + 1e-9);
+      stopS = whole >= 1 ? whole * periodS : maxS;
+    }
+    stopS = Math.max(MIN_TRAN_STOP_S, stopS);
     return {
       kind: 'tran',
       step: stepS.toExponential(3),

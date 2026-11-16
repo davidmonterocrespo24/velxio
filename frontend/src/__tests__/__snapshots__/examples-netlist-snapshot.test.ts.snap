@@ -884,7 +884,7 @@ R_rl n1 0 220
 R_vm_vmR n1 0 10Meg
 .model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p Vds=-200 Ron=.5 Qg=44n)
 * voltmeter probe: read v(n1) - v(0)
-.tran 1.000e-2 4.000e-1
+.tran 1.000e-2 8.000e-1
 .end"
 `;
 
