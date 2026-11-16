@@ -1,21 +1,20 @@
 /**
- * Digital example projects — board-less SPICE circuits.
+ * Digital example projects — board-less logic circuits.
  *
- * Every circuit here runs on the same ngspice-WASM backend that powers the
- * analog gallery. There is no Arduino, ESP32 or any MCU on the canvas. A
- * `signal-generator` set to DC = 5 V is the power rail (its `GND` pin
- * canonicalises to SPICE node 0). Switches feed gate inputs through
- * pull-down resistors, gates feed LEDs through series resistors.
+ * There is no Arduino, ESP32 or any MCU on the canvas. A `signal-generator`
+ * set to DC = 5 V is the power rail (its `GND` pin canonicalises to SPICE node
+ * 0). Switches feed gate inputs through pull-down resistors, gates feed LEDs
+ * through series resistors.
  *
- * Logic-gate behaviour is built by ngspice B-sources via
- * `componentToSpice.ts` — every gate emits
- *   `B_<id> Y 0 V = 5 * u(V(A) - 2.5) * u(V(B) - 2.5)`   (AND, etc.)
- * which is why these examples need at least one 5 V rail in the netlist:
- * the unit-step threshold is fixed at vcc/2 = 2.5 V.
- *
- * Sequential parts (D / T / JK flip-flops) do NOT have a SPICE mapper —
- * edge detection is digital-only and currently requires a board. They are
- * therefore not represented here yet.
+ * Every circuit here is all-digital (gates, flip-flops, switches, LEDs,
+ * resistors and the rail: `isAllDigital`), so the event-driven digital engine
+ * runs it (simulation/digital, on by default): gates evaluate exactly and at
+ * once, and the flip-flops keep their state between clocks, which is how the
+ * board-less ripple counter below counts. ngspice skips such a circuit
+ * (CircuitSimulationService). With `?digitalgates=off` they fall back to
+ * ngspice, where each gate is a B-source with a steep step at vcc/2 = 2.5 V
+ * (componentToSpice, logicStep), `V(Y) = 5 * s(A) * s(B)` for an AND, and
+ * the flip-flops, which have no SPICE mapper, do nothing.
  */
 import type { ExampleProject } from './examples';
 

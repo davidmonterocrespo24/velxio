@@ -1,8 +1,9 @@
 /**
  * digitalGateController — Phase 2 of project/digital-gate-engine/.
  *
- * Mounts the digital gate engine into the live app: when `?digitalgates=on` and
- * the board-less circuit is all-digital, it builds the network from the store,
+ * Mounts the digital gate engine into the live app: when the engine is on (the
+ * default; `?digitalgates=off` turns it off) and the board-less circuit is
+ * all-digital, it builds the network from the store,
  * settles it on the multichip-bus kernel, and pushes the resolved levels onto
  * the real `wokwi-led` DOM elements. ngspice is told to skip all-digital
  * circuits (CircuitSimulationService guard) so the two motors do not fight.
@@ -11,7 +12,7 @@
  * incrementally via setSwitch (NOT a rebuild). That is essential for SEQUENTIAL
  * circuits — rebuilding resets flip-flop state, so a counter would never count.
  * A rebuild happens only on a structural change (components added/removed, wires
- * changed). Flag OFF (default-overridable) => no-op; mixed/analog circuits never
+ * changed). With the engine off it is a no-op; mixed/analog circuits never
  * qualify as all-digital and stay on ngspice.
  */
 import { useSimulatorStore } from '../../store/useSimulatorStore';

@@ -3,7 +3,9 @@ brand: Generic tactile switch
 buy: https://www.amazon.com/s?k=tactile+pushbutton+momentary+switch
 ---
 Momentary tactile pushbutton. Bridges its two contact pairs while held, then
-springs open. It bounces on press/release — debounce in code or with an RC.
+springs open. A real button bounces for a few milliseconds on press and
+release; Velxio's switches cleanly, once per press, so debounce code is never
+exercised here. Keep it anyway: on hardware, debounce in code or with an RC.
 
 | Pin | Role |
 | --- | --- |

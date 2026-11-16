@@ -739,10 +739,10 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     return () => window.removeEventListener(PROPERTY_CHANGE_EVENT, onPropertyChange);
   }, []);
 
-  // Digital-gate engine (project/digital-gate-engine): when ?digitalgates=on and
-  // the board-less circuit is all-digital, evaluate the logic gates on the
-  // event-driven settle kernel and paint the LEDs, instead of ngspice B-sources.
-  // No-op when the flag is off (default).
+  // Digital-gate engine (project/digital-gate-engine): when the board-less
+  // circuit is all-digital, evaluate the logic gates on the event-driven settle
+  // kernel and paint the LEDs, instead of ngspice B-sources. On by default;
+  // a no-op with ?digitalgates=off.
   useEffect(() => mountDigitalGateEngine(), []);
 
   // Auto-start/stop Pi bridges when simulation state changes: each remote
