@@ -1406,11 +1406,12 @@ const MAPPERS: Record<string, Mapper> = {
     if (!cp || !cn || !com) return null;
     const coilR = parseValueWithUnits(comp.properties.coil_resistance, 70);
     const coilV = parseValueWithUnits(comp.properties.coil_voltage, 5);
-    // The contacts follow the voltage ACROSS the coil, not its current. With
-    // a fixed R the two are proportional (I = V_coil / R), so a threshold in
-    // volts is the same test as one in amps, and it stays right for every
-    // Vnom / R pair: a 12 V / 400 Ω relay (30 mA) pulls in at 12 V exactly
-    // like the 5 V / 70 Ω default (71 mA). coil_resistance therefore sets the
+    // The contacts follow the coil current, read as the voltage across the
+    // coil's resistance, R * I (below). At DC that IS the voltage across the
+    // coil (L is a short), so a threshold in volts is the same test as one in
+    // amps, and it stays right for every Vnom / R pair: a 12 V / 400 Ω relay
+    // (30 mA) pulls in at 12 V exactly like the 5 V / 70 Ω default (71 mA).
+    // coil_resistance therefore sets the
     // CURRENT the coil draws (an ammeter in series reads Vnom / R: 71.4 mA
     // at 70 Ω, 0.9 nA at 5.365 GΩ) and matters as soon as the drive has
     // resistance of its own: through 1 kΩ a 70 Ω coil keeps 0.33 V and
@@ -1435,23 +1436,30 @@ const MAPPERS: Record<string, Mapper> = {
       `R_${comp.id}_coil ${cp} ${coilMidNet} ${coilR}`,
       `L_${comp.id}_coil ${coilMidNet} ${cn} 20m`,
     ];
-    // What the armature responds to. A bare coil has no polarity: current
-    // either way magnetises it, so the contacts follow |V| and a relay wired
-    // COIL+ to GND with the drive on COIL- pulls in like any other (the
-    // component doc always said "polarity only matters for the flyback
-    // diode"; the model used the signed voltage and stayed open). With the
-    // diode fitted the part IS polarised: driven backwards the diode conducts
-    // and, on silicon, clamps the coil to a diode drop, so it never pulls in.
-    // The solve's sources are ideal and would hold the full voltage across
-    // coil and diode alike, hence the signed control in that case, read
-    // straight off the coil pins as it always was (the deck of a relay with
-    // its diode is unchanged; only the bare coil gets the |V| source).
-    const coilDrive = includeFlyback ? `V(${cp}) - V(${cn})` : `abs(V(${cp}) - V(${cn}))`;
-    let ctrl = `${cp} ${cn}`;
-    if (!includeFlyback && (no || nc)) {
-      ctrl = `${comp.id}_coilv 0`;
-      cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
-    }
+    // What the armature responds to: the flux, which the coil CURRENT sets.
+    // The control is R * I, the voltage across the coil's resistance. When
+    // the drive is cut the current keeps flowing through the suppressor and
+    // decays with L/R and the clamp voltage, and the contacts hold until it
+    // falls below the drop-out: about 0.19 ms behind the built-in 1N4148,
+    // sooner behind a diode and a Zener, as TE and Omron describe (a
+    // suppressor that lets the energy decay slowly retards the release).
+    // Read off the terminal voltage, which a diode collapses to one drop at
+    // once, the contacts opened in the first time step and a diode and a
+    // Zener could not be told apart (velxio/velxio-prod#137).
+    //
+    // A bare coil has no polarity: current either way magnetises it, so the
+    // contacts follow |R * I| and a relay wired COIL+ to GND with the drive on
+    // COIL- pulls in like any other (the component doc always said "polarity
+    // only matters for the flyback diode"). With the diode fitted the part IS
+    // polarised: driven backwards the diode conducts and, on silicon, clamps
+    // the coil to a diode drop, so it never pulls in. The solve's sources are
+    // ideal and would hold the full voltage across coil and diode alike,
+    // hence the signed control in that case.
+    const coilDrive = includeFlyback
+      ? `V(${cp}) - V(${coilMidNet})`
+      : `abs(V(${cp}) - V(${coilMidNet}))`;
+    const ctrl = `${comp.id}_coilv 0`;
+    if (no || nc) cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
     const sw = relaySwitchModels('RELAY', coilV);
     if (no) {
       // NO: closes when the coil drive exceeds Vt + Vh (normal SW behaviour)
@@ -1480,8 +1488,8 @@ const MAPPERS: Record<string, Mapper> = {
   // One coil between COIL1 and COIL2 and two change-over poles: P1 to NO1 /
   // NC1 and P2 to NO2 / NC2, switched together. Same coil and switch model as
   // `relay` above (R in series with L, 75 % pull-in, 45 % drop-out), with two
-  // differences. The coil is not polarised, so the contacts follow |V| across
-  // it and a relay wired COIL2-high still pulls in. And the part has no
+  // differences. The coil is not polarised, so the contacts follow |R * I|
+  // through it and a relay wired COIL2-high still pulls in. And the part has no
   // properties, so the coil is the 5 V nominal on its label; the KEST sheet
   // only gives coil power < 0.36 W, i.e. at least ~70 ohm, the generic
   // relay's default. Without this mapper the contacts were open pins in the
@@ -1496,7 +1504,8 @@ const MAPPERS: Record<string, Mapper> = {
     const cards = [
       `R_${comp.id}_coil ${c1} ${coilMid} 70`,
       `L_${comp.id}_coil ${coilMid} ${c2} 20m`,
-      `B_${comp.id}_coilv ${ctrl} 0 V = abs(V(${c1}) - V(${c2}))`,
+      // |R * I|: the coil current, as the generic relay (velxio/velxio-prod#137).
+      `B_${comp.id}_coilv ${ctrl} 0 V = abs(V(${c1}) - V(${coilMid}))`,
     ];
     // Both poles' NO and NC on one control (relaySwitchModels): NC closed
     // exactly when NO is open, as the generic relay (velxio/velxio-prod#169).

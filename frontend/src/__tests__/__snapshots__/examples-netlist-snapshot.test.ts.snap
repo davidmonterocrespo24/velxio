@@ -60,7 +60,8 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-blynk-based-iot-rela
 "* Velxio circuit
 R_pblynk-rly_coil n1 pblynk-rly_coilmid 1000
 L_pblynk-rly_coil pblynk-rly_coilmid n3 20m
-S_pblynk-rly_no n0 n4 n1 n3 RELAY_NO_3p3
+B_pblynk-rly_coilv pblynk-rly_coilv 0 V = V(n1) - V(pblynk-rly_coilmid)
+S_pblynk-rly_no n0 n4 pblynk-rly_coilv 0 RELAY_NO_3p3
 D_pblynk-rly_fly n3 n1 D1N4148
 R_pblynk-rlamp n4 n2 220
 V_pblynk-lamp_sense n2 pblynk-lamp_sense_mid DC 0
@@ -81,7 +82,8 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-blynk-controlled-dc-
 "* Velxio circuit
 R_fan-rly_coil n0 fan-rly_coilmid 1000
 L_fan-rly_coil fan-rly_coilmid n3 20m
-S_fan-rly_no n1 n4 n0 n3 RELAY_NO_3p3
+B_fan-rly_coilv fan-rly_coilv 0 V = V(n0) - V(fan-rly_coilmid)
+S_fan-rly_no n1 n4 fan-rly_coilv 0 RELAY_NO_3p3
 D_fan-rly_fly n3 n0 D1N4148
 R_fan-rlamp n4 n2 220
 V_fan-lamp_sense n2 fan-lamp_sense_mid DC 0
@@ -301,7 +303,8 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-iot-relay-control-we
 "* Velxio circuit
 R_prelay-rly_coil n0 prelay-rly_coilmid 1000
 L_prelay-rly_coil prelay-rly_coilmid n3 20m
-S_prelay-rly_no n0 n4 n0 n3 RELAY_NO_3p3
+B_prelay-rly_coilv prelay-rly_coilv 0 V = V(n0) - V(prelay-rly_coilmid)
+S_prelay-rly_no n0 n4 prelay-rly_coilv 0 RELAY_NO_3p3
 D_prelay-rly_fly n3 n0 D1N4148
 R_prelay-rlamp n4 n2 220
 V_prelay-lamp_sense n2 prelay-lamp_sense_mid DC 0
@@ -325,7 +328,8 @@ R_irr-pot1_top vcc_rail n1 7067.44868035
 R_irr-pot1_bot n1 0 2932.55131965
 R_irr-rly_coil n0 irr-rly_coilmid 1000
 L_irr-rly_coil irr-rly_coilmid 0 20m
-S_irr-rly_no vcc_rail n3 n0 0 RELAY_NO_3p3
+B_irr-rly_coilv irr-rly_coilv 0 V = V(n0) - V(irr-rly_coilmid)
+S_irr-rly_no vcc_rail n3 irr-rly_coilv 0 RELAY_NO_3p3
 D_irr-rly_fly 0 n0 D1N4148
 R_irr-rlamp n3 n2 220
 V_irr-lamp_sense n2 irr-lamp_sense_mid DC 0
@@ -796,7 +800,6 @@ Q_q2 n0 n2 0 Q2N2222
 R_rload n3 n1 4700
 V_am_sense n1 amm_am_mid DC 0
 R_am_shunt amm_am_mid n0 1m
-R_autopull_n0 n0 0 100Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
 * ammeter probe: read i(v_am_sense)
 .op
@@ -2307,7 +2310,8 @@ R_rb n1 n3 1000
 Q_q1 n5 n3 n2 Q2N2222
 R_rly_coil n0 rly_coilmid 70
 L_rly_coil rly_coilmid n5 20m
-S_rly_no n6 n0 n0 n5 RELAY_NO_5
+B_rly_coilv rly_coilv 0 V = V(n0) - V(rly_coilmid)
+S_rly_no n6 n0 rly_coilv 0 RELAY_NO_5
 D_rly_fly n5 n0 D1N4148
 R_rl n6 n4 220
 V_led1_sense n4 led1_sense_mid DC 0

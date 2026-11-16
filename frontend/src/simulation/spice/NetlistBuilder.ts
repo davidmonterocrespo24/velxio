@@ -879,6 +879,7 @@ function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set
   // Cards that define a DC path between their listed nets. Capacitor ('C')
   // is deliberately excluded.
   const DC_PREFIXES = 'RLVISBEGFHX';
+  const TWO_NODE_PREFIXES = 'RLVB';
 
   for (const line of cards) {
     const prefix = line[0];
@@ -886,11 +887,19 @@ function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set
     const tokens = line.split(/\s+/);
     // tokens[0] is the element name (e.g. "R_r1", "V_VCC_RAIL"). The nets
     // appear next; stop at the first token that isn't a valid net name.
+    // Two-terminal elements always list exactly two nodes, so theirs are
+    // taken whatever they are called: a part's internal node (an ammeter's
+    // shunt, a relay coil's R-L midpoint) then joins the walk, and a pin
+    // whose only DC path runs through one is not taken for floating.
     const pinNets: string[] = [];
-    for (let i = 1; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (!nets.has(t) && t !== '0' && t !== 'vcc_rail') break;
-      pinNets.push(t);
+    if (TWO_NODE_PREFIXES.indexOf(prefix) >= 0 && tokens.length >= 3) {
+      pinNets.push(tokens[1]!, tokens[2]!);
+    } else {
+      for (let i = 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (!nets.has(t) && t !== '0' && t !== 'vcc_rail') break;
+        pinNets.push(t);
+      }
     }
     // Connect every pair of pins — handles both 2-terminal and N-terminal.
     for (let i = 0; i < pinNets.length; i++) {
