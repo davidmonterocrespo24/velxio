@@ -2958,7 +2958,7 @@ class ESPIDFCompiler:
     # a quote, a parenthesis or a `$` would end or expand the CMake argument
     # they sit in, so anything else is dropped with a warning.
     _PRECOMPILED_SAFE_NAME = re.compile(r'[A-Za-z0-9_.+-]+')
-    _PRECOMPILED_SAFE_FLAG = re.compile(r'[A-Za-z0-9_.,=+:/@-]+')
+    _PRECOMPILED_SAFE_FLAG = re.compile(r'[A-Za-z0-9_.,=+:/-]+')
 
     def _precompiled_link(
         self, lib_root: Path, has_src_layout: bool, idf_target: str | None,

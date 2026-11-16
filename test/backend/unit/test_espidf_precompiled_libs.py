@@ -304,6 +304,26 @@ class TestLdflagsAndArchiveNames(PrecompiledBase):
         self.assertIn('"-lm"', text)
 
 
+class TestLdflagsThatReadFiles(PrecompiledBase):
+    """A response file in ldflags (@file, -Wl,@file, -Xlinker @file) makes the
+    linker read a file of the build server as more options, and each of its
+    lines comes back in the compile log ("cannot find <line>"). Such a token
+    is dropped like any other that is not a plain linker flag (security,
+    velxio/velxio-prod#223)."""
+
+    PROPS = (
+        'name=MixedCore\nversion=1.0.0\nprecompiled=true\n'
+        'ldflags=-lm -Wl,@/srv/example/flags @/srv/example/flags -Xlinker @/srv/example/flags\n'
+        'architectures=*\n'
+    )
+
+    def test_a_response_file_never_reaches_the_link_line(self):
+        self.resolve(['MixedCore.h'], 'esp32')
+        flags = [i for kw, items in self.linked_items() if kw == 'INTERFACE' for i in items]
+        self.assertIn('-lm', flags)
+        self.assertEqual([f for f in flags if '@' in f], [], self.cmake_text())
+
+
 class TestNotPrecompiled(PrecompiledBase):
     """An archive alone means nothing: arduino-cli needs precompiled= to link it."""
 
