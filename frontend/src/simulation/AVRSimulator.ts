@@ -85,6 +85,113 @@ interface PwmPinDef {
   /** TCCRnA data address and COMnx mask; absent where the layout differs (ATtiny85). */
   comAddr?: number;
   comMask?: number;
+  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85. */
+  timer?: PwmTimer;
+}
+
+/**
+ * A timer's registers, as the duty of its compare outputs needs them
+ * (velxio/velxio-prod#155). Data-space addresses, the same on the ATmega328P
+ * and the ATmega2560 for Timers 0-2.
+ */
+interface PwmTimer {
+  /** A 16-bit timer: OCRn, ICRn and its TOP are read as two bytes. */
+  wide: boolean;
+  tccrA: number;
+  tccrB: number;
+  /** OCRnA, TOP in the modes that count to it. */
+  ocrA: number;
+  /** ICRn (16-bit timers), TOP in the modes that count to it. */
+  icr?: number;
+}
+
+const TIMER0: PwmTimer = { wide: false, tccrA: 0x44, tccrB: 0x45, ocrA: 0x47 };
+const TIMER1: PwmTimer = { wide: true, tccrA: 0x80, tccrB: 0x81, ocrA: 0x88, icr: 0x86 };
+const TIMER2: PwmTimer = { wide: false, tccrA: 0xb0, tccrB: 0xb1, ocrA: 0xb3 };
+const TIMER3: PwmTimer = { wide: true, tccrA: 0x90, tccrB: 0x91, ocrA: 0x98, icr: 0x96 };
+const TIMER4: PwmTimer = { wide: true, tccrA: 0xa0, tccrB: 0xa1, ocrA: 0xa8, icr: 0xa6 };
+const TIMER5: PwmTimer = { wide: true, tccrA: 0x120, tccrB: 0x121, ocrA: 0x128, icr: 0x126 };
+
+/**
+ * A waveform generation mode: the PWM it makes (null for Normal, CTC and the
+ * reserved modes), its TOP, and whether COMnA = 01 toggles OCnA in it.
+ */
+interface WaveMode {
+  pwm: 'fast' | 'phase' | null;
+  top: number | 'ocra' | 'icr';
+  toggleA: boolean;
+}
+const mode = (pwm: WaveMode['pwm'], top: WaveMode['top'], toggleA = false): WaveMode => ({ pwm, top, toggleA });
+/** WGM02:0 of the 8-bit timers (ATmega328P datasheet Tables 15-8 and 18-8). */
+const WGM_8BIT: readonly WaveMode[] = [
+  mode(null, 0xff),
+  mode('phase', 0xff),
+  mode(null, 'ocra'),
+  mode('fast', 0xff),
+  mode(null, 0xff),
+  mode('phase', 'ocra', true),
+  mode(null, 0xff),
+  mode('fast', 'ocra', true),
+];
+/** WGMn3:0 of the 16-bit timers (Table 16-4); phase and frequency correct counts as phase correct. */
+const WGM_16BIT: readonly WaveMode[] = [
+  mode(null, 0xffff),
+  mode('phase', 0xff),
+  mode('phase', 0x1ff),
+  mode('phase', 0x3ff),
+  mode(null, 'ocra'),
+  mode('fast', 0xff),
+  mode('fast', 0x1ff),
+  mode('fast', 0x3ff),
+  mode('phase', 'icr'),
+  mode('phase', 'ocra', true),
+  mode('phase', 'icr'),
+  mode('phase', 'ocra', true),
+  mode(null, 'icr'),
+  mode(null, 0xffff),
+  mode('fast', 'icr', true),
+  mode('fast', 'ocra', true),
+];
+
+/**
+ * The share of the period a compare output holds its pin HIGH, from the
+ * timer's live registers (velxio/velxio-prod#155); 0 while the channel is
+ * disconnected from the pin (COMnx = 00, how analogWrite(pin, 0) and
+ * analogWrite(pin, 255) leave it).
+ *
+ * Fast PWM sets the pin at BOTTOM and clears it on the compare match, one
+ * timer tick after OCR: HIGH for OCR + 1 of TOP + 1 ticks (datasheet section
+ * 15.7.3: OCR at BOTTOM is a one-tick spike, OCR at MAX a constant HIGH).
+ * Phase correct PWM is HIGH for OCR of TOP. Inverting (COMnx = 11) is the
+ * complement; COMnA = 01 toggles OCnA where the mode allows it, a 50 % wave.
+ * The circuit used OCR / 255 for every timer: right for the Uno's
+ * phase-correct pins (3, 9, 10, 11), slightly low for Timer0's fast PWM pins
+ * (5 and 6; 4 and 13 on the Mega), and blind to the 16-bit timers' TOP and
+ * high bytes. Normal and CTC modes, which are not PWM, keep that old figure.
+ */
+function pwmDuty(data: Uint8Array, def: PwmPinDef): number {
+  const timer = def.timer;
+  if (!timer || def.comMask === undefined) {
+    const connected = def.comAddr === undefined || (data[def.comAddr] & (def.comMask ?? 0)) !== 0;
+    return connected ? data[def.ocrAddr] / 255 : 0;
+  }
+  const shift = def.comMask === 0xc0 ? 6 : def.comMask === 0x30 ? 4 : 2;
+  const com = (data[timer.tccrA] & def.comMask) >> shift;
+  if (com === 0) return 0;
+  const tccrA = data[timer.tccrA];
+  const tccrB = data[timer.tccrB];
+  const wave = timer.wide
+    ? WGM_16BIT[((tccrB & 0x18) >> 1) | (tccrA & 0x03)]
+    : WGM_8BIT[((tccrB & 0x08) >> 1) | (tccrA & 0x03)];
+  if (!wave.pwm) return data[def.ocrAddr] / 255;
+  if (com === 1) return shift === 6 && wave.toggleA ? 0.5 : 0;
+  const read = (addr: number) => (timer.wide ? data[addr] | (data[addr + 1] << 8) : data[addr]);
+  const top =
+    wave.top === 'ocra' ? read(timer.ocrA) : wave.top === 'icr' ? read(timer.icr ?? 0) : wave.top;
+  const ocr = read(def.ocrAddr);
+  const high =
+    wave.pwm === 'fast' ? Math.min(1, (ocr + 1) / (top + 1)) : top > 0 ? Math.min(1, ocr / top) : 1;
+  return com === 3 ? 1 - high : high;
 }
 
 // OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano).
@@ -95,35 +202,35 @@ interface PwmPinDef {
 // kept reporting the last duty, so the circuit solver held the pin at that
 // average voltage after analogWrite(0).
 const PWM_PINS_UNO: PwmPinDef[] = [
-  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A low byte → D9
-  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B low byte → D10
-  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D11
-  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D3
+  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0, timer: TIMER0 }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30, timer: TIMER0 }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0, timer: TIMER1 }, // Timer1A → D9
+  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30, timer: TIMER1 }, // Timer1B → D10
+  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0, timer: TIMER2 }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30, timer: TIMER2 }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
 // Timers 0/1/2 same addresses; Timers 3/4/5 at higher addresses.
 const PWM_PINS_MEGA: PwmPinDef[] = [
-  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D13
-  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D4
-  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A → D11
-  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B → D12
-  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D10
-  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D9
+  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0, timer: TIMER0 }, // Timer0A → D13
+  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30, timer: TIMER0 }, // Timer0B → D4
+  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0, timer: TIMER1 }, // Timer1A → D11
+  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30, timer: TIMER1 }, // Timer1B → D12
+  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0, timer: TIMER2 }, // Timer2A → D10
+  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30, timer: TIMER2 }, // Timer2B → D9
   // Timer3 (0x80–0x8D, but OCR3A/B/C at 0x98/0x9A/0x9C)
-  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0 }, // Timer3A → D5
-  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30 }, // Timer3B → D2
-  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c }, // Timer3C → D3
+  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0, timer: TIMER3 }, // Timer3A → D5
+  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30, timer: TIMER3 }, // Timer3B → D2
+  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c, timer: TIMER3 }, // Timer3C → D3
   // Timer4 (OCR4A/B/C at 0xA8/0xAA/0xAC)
-  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0 }, // Timer4A → D6
-  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30 }, // Timer4B → D7
-  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c }, // Timer4C → D8
+  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0, timer: TIMER4 }, // Timer4A → D6
+  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30, timer: TIMER4 }, // Timer4B → D7
+  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c, timer: TIMER4 }, // Timer4C → D8
   // Timer5 (OCR5A/B/C at 0x128/0x12A/0x12C — extended I/O)
-  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0 }, // Timer5A → D46
-  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30 }, // Timer5B → D45
-  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c }, // Timer5C → D44
+  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0, timer: TIMER5 }, // Timer5A → D46
+  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30, timer: TIMER5 }, // Timer5B → D45
+  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c, timer: TIMER5 }, // Timer5C → D44
 ];
 
 /**
@@ -1184,7 +1291,8 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   // (DDR 1 -> 0 with PORT already what it was) is exactly such a change: it
   // must reach PinManager.updatePort so the pad's drive state is reported.
   private lastDdr: Map<string, number> = new Map();
-  private lastOcrValues: number[] = [];
+  /** The duty last reported per PWM channel (pwmPins order). */
+  private lastPwmDuties: number[] = [];
   /**
    * Last known TXEN bit value per USART, used to detect 0→1 transitions and
    * seed the TX pin baseline at idle HIGH the moment the firmware enables the
@@ -1444,7 +1552,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.lastPortCValue = 0;
     this.lastPortDValue = 0;
     this.lastDdr.clear();
-    this.lastOcrValues = new Array(this.pwmPins.length).fill(0);
+    this.lastPwmDuties = new Array(this.pwmPins.length).fill(0);
     this.lastTxEnable = this.uartPorts.map(() => false);
 
     this.setupPinHooks();
@@ -1756,13 +1864,13 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // audio use it to recover the real onset time instead of the frame edge.
     const timeMs = this.cpu.cycles / 16_000;
     const pins = this.pwmPins;
+    const data = this.cpu.data;
     for (let i = 0; i < pins.length; i++) {
-      const { ocrAddr, pin, comAddr, comMask } = pins[i] as PwmPinDef;
-      const connected = comAddr === undefined || (this.cpu.data[comAddr] & comMask!) !== 0;
-      const ocrValue = connected ? this.cpu.data[ocrAddr] : 0;
-      if (ocrValue !== this.lastOcrValues[i]) {
-        this.lastOcrValues[i] = ocrValue;
-        this.pinManager.updatePwm(pin, ocrValue / 255, timeMs);
+      const def = pins[i] as PwmPinDef;
+      const duty = pwmDuty(data, def);
+      if (duty !== this.lastPwmDuties[i]) {
+        this.lastPwmDuties[i] = duty;
+        this.pinManager.updatePwm(def.pin, duty, timeMs);
       }
     }
   }
