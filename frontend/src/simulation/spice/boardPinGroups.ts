@@ -7,6 +7,7 @@
  */
 import type { BoardKind } from '../../types/board';
 import { getProBoard } from '../../lib/proBoardRegistry';
+import { FAMILIES } from '../LogicFamilies';
 
 export interface BoardPinGroup {
   /** Supply voltage (V). */
@@ -40,7 +41,45 @@ export interface BoardPinGroup {
    * stamps the load on a wired pin; the pin is not a supply pin.
    */
   pinLoads?: Record<string, number>;
+  /**
+   * The output pins' driver (velxio/velxio-prod#140): the netlist puts each
+   * driven pin's source behind `ohms`, and the run checks the pins' currents
+   * against the chip's ratings (simulation/verify/pinCurrent.ts). Absent, a
+   * pin is an ideal source and nothing checks it: the boards whose datasheet
+   * figures this table does not carry yet.
+   */
+  pinDrive?: PinDrive;
 }
+
+/** A board's output pins as their datasheet gives them. */
+export interface PinDrive {
+  /** Series output impedance of one pin, ohms. */
+  ohms: number;
+  /** The current a pin's output levels are specified at, A: above it, a warning. */
+  ratedA: number;
+  /** Absolute maximum DC current of one I/O pin, A: above it, an error. */
+  absMaxA: number;
+  /** Absolute maximum current through the chip's VCC and GND pins, A: the pins' total each way. */
+  supplyMaxA: number;
+  /** The chip, for the messages. */
+  chip: string;
+}
+
+/**
+ * ATmega328P and ATmega2560 at 5 V. Absolute maximum ratings: 40 mA per I/O
+ * pin and 200 mA through the VCC and GND pins (ATmega328P datasheet 7810D
+ * section 28.1, ATmega2560 section 31.1); the DC characteristics are
+ * specified at 20 mA (VOH >= 4.1 V, VOL <= 0.8 V, section 28.2). A pin sags
+ * about 0.5 V at 20 mA (DS40002061B Figure 31-355), about 25 ohms, the AVR
+ * family's output impedance in LogicFamilies.
+ */
+const atmegaDrive = (chip: string): PinDrive => ({
+  ohms: FAMILIES.AVR_HC.output_impedance_ohm,
+  ratedA: 0.02,
+  absMaxA: 0.04,
+  supplyMaxA: 0.2,
+  chip,
+});
 
 /** The supply voltages a power input runs from, V (datasheet operating range). */
 export interface PowerInputRange {
@@ -92,6 +131,7 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3.3V'] },
     pinLoads: { AREF: 32_000 },
+    pinDrive: atmegaDrive('ATmega328P'),
   },
   'arduino-nano': {
     vcc: 5,
@@ -99,6 +139,7 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3V3'] },
     pinLoads: { AREF: 32_000 },
+    pinDrive: atmegaDrive('ATmega328P'),
   },
   'arduino-mega': {
     vcc: 5,
@@ -106,6 +147,7 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3.3V'] },
     pinLoads: { AREF: 32_000 },
+    pinDrive: atmegaDrive('ATmega2560'),
   },
   // A bare chip: VCC is its only supply pin, and the ATtiny85 runs from
   // 2.7 V to 5.5 V (datasheet, operating voltage). Velxio runs it at 5 V.

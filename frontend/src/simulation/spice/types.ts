@@ -67,6 +67,11 @@ export interface BoardForSpice {
    * (BoardPinGroup.pinLoads): an ATmega's AREF.
    */
   pinLoads?: Record<string, number>;
+  /**
+   * Series output impedance of a driven pin, ohms (BoardPinGroup.pinDrive):
+   * the pin's source sits behind it. Absent, the pin is an ideal source.
+   */
+  pinOutputOhms?: number;
 }
 
 export type PinSourceState =

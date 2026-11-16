@@ -172,14 +172,17 @@ describe('pre-flight demotion: a pin a component already sources is an input', (
   });
 
   it('names an invented source honestly when a conflict remains', () => {
-    // Force the old behaviour by hand: pin 0 stamped although a component holds it.
+    // Force the old behaviour by hand: a pin stamped although a component
+    // holds it. On an ESP32, whose pins are still ideal sources: an ATmega's
+    // pin sits behind its output impedance (velxio/velxio-prod#140), so there
+    // the fight is a pin current the run reports, not a source conflict.
     const input = buildInputFromStore({
       components: [dcSource('sg')],
-      wires: [wire('w1', ['sg', 'SIG'], ['uno', '0']), wire('w2', ['sg', 'GND'], ['uno', 'GND.1'])],
-      boards: [{ id: 'uno', boardKind: 'arduino-uno', pinStates: { '0': { type: 'digital', v: 5 } } }],
+      wires: [wire('w1', ['sg', 'SIG'], ['esp', '4']), wire('w2', ['sg', 'GND'], ['esp', 'GND'])],
+      boards: [{ id: 'esp', boardKind: 'esp32', pinStates: { '4': { type: 'digital', v: 3.3 } } }],
     } as never);
     const { netlist } = buildNetlist({ ...input, analysis: { kind: 'op' } });
-    const found = findSourceConflicts(netlist, input, new Set(['uno:0']));
+    const found = findSourceConflicts(netlist, input, new Set(['esp:4']));
     expect(found).toHaveLength(1);
     expect(found[0]!.message).toContain('assumed HIGH by the circuit check');
     expect(found[0]!.message).not.toContain('driven by the MCU');
