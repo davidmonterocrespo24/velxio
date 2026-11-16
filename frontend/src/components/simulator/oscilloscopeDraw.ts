@@ -213,6 +213,11 @@ export function drawAnalogWaveform(
   yOffsetV: number,
   vDivs: number,
   triggerXFrac: number | null = null,
+  /** Volts taken from every sample before it is drawn: the capture's mean
+   *  under AC coupling, 0 otherwise. The axis is in the volts drawn. */
+  shiftV = 0,
+  /** The row's scale, written in its top right corner ("500mV/div AC"). */
+  scaleText: string | null = null,
 ): void {
   const { width, height } = size;
   ctx.clearRect(0, 0, width, height);
@@ -265,15 +270,16 @@ export function drawAnalogWaveform(
     for (const smp of samples) {
       if (smp.volts === undefined) continue;
       if (smp.timeMs < windowStartMs || smp.timeMs > windowEndMs) continue;
+      const v = smp.volts - shiftV;
       const x = Math.round(Math.max(0, Math.min(width, toX(smp.timeMs))));
       if (x !== col) {
         flushColumn();
         col = x;
-        colMin = smp.volts;
-        colMax = smp.volts;
+        colMin = v;
+        colMax = v;
       } else {
-        if (smp.volts < colMin) colMin = smp.volts;
-        if (smp.volts > colMax) colMax = smp.volts;
+        if (v < colMin) colMin = v;
+        if (v > colMax) colMax = v;
       }
     }
     flushColumn();
@@ -283,10 +289,37 @@ export function drawAnalogWaveform(
   // Volts axis: the top and bottom of the visible span, plus the centre.
   ctx.fillStyle = chrome.axisText;
   ctx.font = '9px monospace';
-  const fmt = (v: number) => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
-  ctx.fillText(`${fmt(yOffsetV + spanV / 2)}V`, 2, 9);
-  ctx.fillText(`${fmt(yOffsetV)}V`, 2, height / 2 + 3);
-  ctx.fillText(`${fmt(yOffsetV - spanV / 2)}V`, 2, height - 3);
+  ctx.fillText(formatVolts(yOffsetV + spanV / 2), 2, 9);
+  ctx.fillText(formatVolts(yOffsetV), 2, height / 2 + 3);
+  ctx.fillText(formatVolts(yOffsetV - spanV / 2), 2, height - 3);
+  if (scaleText) {
+    ctx.textAlign = 'right';
+    ctx.fillText(scaleText, width - 4, 9);
+    ctx.textAlign = 'left';
+  }
+}
+
+/**
+ * Volts as a scope writes them, with the digits the scale needs: an axis at
+ * 5 mV/div must not print every label as "4.8V" (the old one-decimal
+ * format), so below a volt it is millivolts.
+ */
+export function formatVolts(v: number): string {
+  const a = Math.abs(v);
+  if (a === 0) return '0V';
+  if (a >= 10) return `${trim(v.toFixed(1))}V`;
+  if (a >= 1) return `${trim(v.toFixed(3))}V`;
+  if (a >= 1e-3) return `${trim((v * 1e3).toFixed(1))}mV`;
+  return `${trim((v * 1e6).toFixed(0))}µV`;
+}
+
+/** V/div as a scope writes it: "500mV", "2V", "0.5mV". */
+export function formatVoltsPerDiv(v: number): string {
+  return v >= 1 ? `${trim(String(v))}V` : `${trim(String(Number((v * 1e3).toPrecision(6))))}mV`;
+}
+
+function trim(num: string): string {
+  return num.includes('.') ? num.replace(/\.?0+$/, '') : num;
 }
 
 /** The time ruler: a tick and a time under each of the NUM_DIVS divisions. */

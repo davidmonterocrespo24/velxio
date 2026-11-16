@@ -18,11 +18,14 @@ import { useTranslation } from 'react-i18next';
 import {
   useOscilloscopeStore,
   OSC_V_DIVS,
+  displayShiftV,
   type OscChannel,
+  type OscAnalogChannel,
   type OscSample,
   type TriggerMode,
   type TriggerEdge,
 } from '../../store/useOscilloscopeStore';
+import { parseValue } from '../../simulation/spice/valueParser';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
 import type { BoardKind } from '../../types/board';
@@ -34,11 +37,64 @@ import {
   drawWaveform,
   drawAnalogWaveform,
   drawRuler,
+  formatVoltsPerDiv,
 } from './oscilloscopeDraw';
 import './Oscilloscope.css';
 
 /** Vertical divisions an analog channel's row spans. */
 const NUM_V_DIVS = OSC_V_DIVS;
+
+/** V/div steps an analog channel can be set to by hand (1-2-5, as on a bench
+ *  scope); "Auto" fits each capture instead. */
+const VOLTS_DIV_OPTIONS = [
+  0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20,
+];
+
+/**
+ * A number typed into the scope's header: a voltage, read with the app's value
+ * parser ("4.83", "500m", "-1.2"). The text is the user's while they type and
+ * is committed on Enter or on leaving the field; an unreadable text goes back
+ * to the value it had. With `allowEmpty`, an empty field commits null.
+ */
+const VoltsField: React.FC<{
+  value: number | null;
+  onCommit: (value: number | null) => void;
+  allowEmpty?: boolean;
+  className: string;
+  title: string;
+  placeholder?: string;
+}> = ({ value, onCommit, allowEmpty = false, className, title, placeholder }) => {
+  const shown = value === null ? '' : String(Number(value.toPrecision(6)));
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const text = draft.trim();
+    setDraft(null);
+    if (text === '') {
+      if (allowEmpty) onCommit(null);
+      return;
+    }
+    const parsed = parseValue(text);
+    if (parsed.ok && Number.isFinite(parsed.value)) onCommit(parsed.value);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className={`osc-input ${className}`}
+      value={draft ?? shown}
+      placeholder={placeholder}
+      title={title}
+      aria-label={title}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') setDraft(null);
+      }}
+    />
+  );
+};
 
 /** Time/div options shown in the selector */
 const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [
@@ -118,6 +174,14 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const theme = useResolvedTheme();
+  const isAnalog = channel.kind === 'analog';
+  const { color, voltsPerDiv, yOffsetV } = channel;
+  // What an analog row draws besides its samples: the mean AC coupling takes
+  // away, and its scale, written in the row ("500mV/div AC").
+  const shiftV = displayShiftV(channel);
+  const scaleText = isAnalog
+    ? `${formatVoltsPerDiv(voltsPerDiv)}/div${channel.coupling === 'ac' ? ' AC' : ''}`
+    : null;
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -134,22 +198,20 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
     // between two fixed rails, an analog one is a continuous curve on a volts
     // axis. Drawing the latter with the former's H/L mapping would flatten
     // every waveform into a square wave.
-    if (channel.kind === 'analog') {
+    if (isAnalog) {
       drawAnalogWaveform(
-        ctx, size, samples, channel.color, windowEndMs, windowMs,
-        channel.voltsPerDiv, channel.yOffsetV, NUM_V_DIVS, triggerXFrac,
+        ctx, size, samples, color, windowEndMs, windowMs,
+        voltsPerDiv, yOffsetV, NUM_V_DIVS, triggerXFrac, shiftV, scaleText,
       );
     } else {
-      drawWaveform(ctx, size, samples, channel.color, windowEndMs, windowMs, triggerXFrac);
+      drawWaveform(ctx, size, samples, color, windowEndMs, windowMs, triggerXFrac);
     }
     // `theme` is not read inside the effect — scopeChrome() picks the new
     // values up on its own — but it belongs in the deps so a stopped scope
     // still repaints its grid when the user switches appearance.
   }, [
-    samples, channel.color, channel.kind, windowEndMs, windowMs, triggerXFrac,
-    channel.kind === 'analog' ? channel.voltsPerDiv : 0,
-    channel.kind === 'analog' ? channel.yOffsetV : 0,
-    theme,
+    samples, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
+    voltsPerDiv, yOffsetV, shiftV, scaleText, theme,
   ]);
 
   return (
@@ -316,7 +378,21 @@ export const Oscilloscope: React.FC = () => {
     setTriggerChannel,
     setTriggerEdge,
     rearmTrigger,
+    triggerLevelV,
+    setTriggerLevelV,
+    setChannelVoltsPerDiv,
+    setChannelOffset,
+    setChannelAutoScale,
+    setChannelCoupling,
   } = useOscilloscopeStore();
+
+  // The vertical controls act on one analog channel at a time, as a bench
+  // scope's knobs act on the selected channel; the first one by default.
+  const analogChannels = channels.filter((c): c is OscAnalogChannel => c.kind === 'analog');
+  const [vChannelId, setVChannelId] = useState<string | null>(null);
+  const vChannel = analogChannels.find((c) => c.id === vChannelId) ?? analogChannels[0];
+  // The channel the trigger listens on (the first one unless one is picked).
+  const triggerChannel = channels.find((c) => c.id === triggerChannelId) ?? channels[0];
 
   // Any board running → oscilloscope can capture
   const anyRunning = useSimulatorStore((s) => s.boards.some((b) => b.running));
@@ -483,6 +559,72 @@ export const Oscilloscope: React.FC = () => {
           ))}
         </select>
 
+        {/* ── Vertical: V/div, offset and coupling of an analog channel ──
+            Auto fits each capture (with 0 V in view under DC coupling); a
+            V/div or an offset typed here fixes the scale until Auto is
+            chosen again (velxio/velxio-prod#114). */}
+        {vChannel && (
+          <>
+            <span className="osc-label">{t('editor.oscilloscope.voltsDiv')}</span>
+            {analogChannels.length > 1 && (
+              <select
+                className="osc-select osc-vchannel"
+                value={vChannel.id}
+                onChange={(e) => setVChannelId(e.target.value)}
+                title={t('editor.oscilloscope.vChannelTitle')}
+                aria-label={t('editor.oscilloscope.vChannelTitle')}
+              >
+                {analogChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              className="osc-select osc-vdiv"
+              value={vChannel.autoScale === false ? String(vChannel.voltsPerDiv) : 'auto'}
+              onChange={(e) =>
+                e.target.value === 'auto'
+                  ? setChannelAutoScale(vChannel.id)
+                  : setChannelVoltsPerDiv(vChannel.id, Number(e.target.value))
+              }
+              title={t('editor.oscilloscope.voltsDivTitle')}
+              aria-label={t('editor.oscilloscope.voltsDivTitle')}
+            >
+              <option value="auto">
+                {t('editor.oscilloscope.auto')} ({formatVoltsPerDiv(vChannel.voltsPerDiv)})
+              </option>
+              {VOLTS_DIV_OPTIONS.concat(
+                vChannel.autoScale === false && !VOLTS_DIV_OPTIONS.includes(vChannel.voltsPerDiv)
+                  ? [vChannel.voltsPerDiv]
+                  : [],
+              ).map((v) => (
+                <option key={v} value={String(v)}>
+                  {formatVoltsPerDiv(v)}
+                </option>
+              ))}
+            </select>
+            <span className="osc-label">{t('editor.oscilloscope.offset')}</span>
+            <VoltsField
+              className="osc-offset"
+              value={vChannel.yOffsetV}
+              onCommit={(v) => v !== null && setChannelOffset(vChannel.id, v)}
+              title={t('editor.oscilloscope.offsetTitle')}
+            />
+            <button
+              className={`osc-btn osc-coupling${vChannel.coupling === 'ac' ? ' osc-btn-active' : ''}`}
+              onClick={() =>
+                setChannelCoupling(vChannel.id, vChannel.coupling === 'ac' ? 'dc' : 'ac')
+              }
+              title={t('editor.oscilloscope.couplingTitle')}
+              aria-label={t('editor.oscilloscope.couplingTitle')}
+            >
+              {vChannel.coupling === 'ac' ? 'AC' : 'DC'}
+            </button>
+          </>
+        )}
+
         {/* Run / Pause */}
         <button
           className={`osc-btn${capturing ? '' : ' osc-btn-active'}`}
@@ -535,6 +677,22 @@ export const Oscilloscope: React.FC = () => {
               <option value="falling">↓ Falling</option>
               <option value="either">⇅ Either</option>
             </select>
+
+            {/* An analog source crosses a level; empty is the middle of each
+                capture, so any signal that moves triggers. */}
+            {triggerChannel?.kind === 'analog' && (
+              <>
+                <span className="osc-label">{t('editor.oscilloscope.triggerLevel')}</span>
+                <VoltsField
+                  className="osc-trigger-level"
+                  value={triggerLevelV}
+                  allowEmpty
+                  placeholder={t('editor.oscilloscope.auto')}
+                  onCommit={setTriggerLevelV}
+                  title={t('editor.oscilloscope.triggerLevelTitle')}
+                />
+              </>
+            )}
 
             <span
               className={`osc-trigger-status osc-trigger-status-${triggerStatus}`}

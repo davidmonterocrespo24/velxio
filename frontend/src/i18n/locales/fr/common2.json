@@ -264,7 +264,16 @@
       "noChannels": "Aucun canal ajouté.",
       "noChannelsHint": "Cliquez sur \"+ Ajouter un canal\" pour surveiller une broche.",
       "removeChannel": "Supprimer {{label}}",
-      "probeLost": "Le point mesuré n'est plus dans le circuit"
+      "probeLost": "Le point mesuré n'est plus dans le circuit",
+      "voltsDiv": "V/div :",
+      "vChannelTitle": "Canal analogique réglé par V/div, décalage et couplage",
+      "voltsDivTitle": "Volts par division. Auto ajuste chaque capture ; une valeur fixe l'échelle.",
+      "auto": "Auto",
+      "offset": "Décalage :",
+      "offsetTitle": "Tension au centre de la ligne. Une valeur saisie ici fixe l'échelle.",
+      "couplingTitle": "Couplage : DC montre le signal avec sa polarisation, AC retire la moyenne pour montrer une petite ondulation sur une polarisation",
+      "triggerLevel": "Niveau :",
+      "triggerLevelTitle": "Tension que le canal de déclenchement analogique doit franchir. Vide : le milieu de chaque capture."
     },
     "componentProps": {
       "close": "Fermer",

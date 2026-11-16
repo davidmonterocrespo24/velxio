@@ -264,7 +264,16 @@
       "noChannels": "Nessun canale aggiunto.",
       "noChannelsHint": "Clicca \"+ Aggiungi canale\" per monitorare un pin.",
       "removeChannel": "Rimuovi {{label}}",
-      "probeLost": "Il punto misurato non è più nel circuito"
+      "probeLost": "Il punto misurato non è più nel circuito",
+      "voltsDiv": "V/div:",
+      "vChannelTitle": "Canale analogico regolato da V/div, offset e accoppiamento",
+      "voltsDivTitle": "Volt per divisione. Auto adatta ogni acquisizione; un valore fissa la scala.",
+      "auto": "Auto",
+      "offset": "Offset:",
+      "offsetTitle": "Tensione al centro della riga. Un valore scritto qui fissa la scala.",
+      "couplingTitle": "Accoppiamento: DC mostra il segnale con la sua polarizzazione, AC toglie la media per mostrare un piccolo ripple su una polarizzazione",
+      "triggerLevel": "Livello:",
+      "triggerLevelTitle": "Tensione che il canale di trigger analogico deve attraversare. Vuoto: il centro di ogni acquisizione."
     },
     "componentProps": {
       "close": "Chiudi",

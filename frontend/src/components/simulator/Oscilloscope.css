@@ -92,6 +92,27 @@
   border-color: var(--color-action-primary);
 }
 
+/* A voltage typed in the header (offset, trigger level). */
+.osc-input {
+  background: var(--wb-2);
+  border: 1px solid var(--wb-7);
+  color: var(--wb-12);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+  width: 56px;
+  outline: none;
+}
+
+.osc-input:focus {
+  border-color: var(--color-action-primary);
+}
+
+.osc-input::placeholder {
+  color: var(--wb-8);
+}
+
 /* ── Channel picker dropdown ── */
 .osc-picker-wrap {
   position: relative;
