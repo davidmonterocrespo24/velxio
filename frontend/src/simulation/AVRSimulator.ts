@@ -1048,17 +1048,23 @@ class AvrSpiPort implements SpiControllerPort {
     this.engine = engine;
     this.cpu = cpu;
     this.spcr = config.SPCR;
-    engine.onByte = (mosi) => this.frame(engine, mosi);
+    engine.onByte = (mosi) => this.frame(engine, cpu, mosi);
   }
 
-  private frame(engine: AVRSPI, mosi: number): void {
+  private frame(engine: AVRSPI, cpu: CPU, mosi: number): void {
     // A peripheral of a CPU that has been replaced reaches nobody.
     if (engine !== this.engine) {
       engine.completeTransfer(0xff);
       return;
     }
+    // The target answers as the frame starts; the guest sees SPIF and reads
+    // the byte when the eight SCK periods are over (SPSR: "When a serial
+    // transfer is complete, the SPIF Flag is set"), transferCycles after the
+    // SPDR write, as avr8js's own default handler does. Completed inside the
+    // write, 64 bytes at 125 kHz took 56 us instead of 4.1 ms
+    // (velxio/velxio-prod#159).
     const miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
-    engine.completeTransfer(miso);
+    cpu.addClockEvent(() => engine.completeTransfer(miso), engine.transferCycles);
   }
 
   setFrameHandler(handler: ((mosi: number, bits: number) => number) | null): void {
@@ -1216,6 +1222,23 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.i2cBus = new I2CBusManager(nullI2CMaster(), {
       unit: 0,
       name: boardVariant === 'tiny85' ? 'USI' : 'TWI',
+    });
+    // The TWI spends bus time on every step (velxio/velxio-prod#159): each
+    // address or data packet is nine SCL periods (ATmega328P datasheet,
+    // sections 22.3.3 and 22.3.4), and a START, a repeated START or a STOP
+    // about one. SCL = CPU clock / (16 + 2 * TWBR * 4^TWPS) (section 22.5.2),
+    // read when the step starts. Completing at once made a 100 kHz register
+    // read take 80 us instead of about 440 us. Bus-free time and clock
+    // stretching are not modelled.
+    this.i2cBus.setBusTiming((phase, complete) => {
+      const cpu = this.cpu;
+      if (!cpu || !this.twi) {
+        complete();
+        return;
+      }
+      const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
+      const sclCycles = 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+      cpu.addClockEvent(complete, phase === 'byte' ? 9 * sclCycles : sclCycles);
     });
     // Seed the input register to the pull's resting level the instant the
     // firmware enables it (INPUT_PULLUP -> HIGH). Real silicon does this in
