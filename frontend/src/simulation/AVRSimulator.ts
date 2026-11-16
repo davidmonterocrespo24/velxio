@@ -806,6 +806,13 @@ class AvrUartPort implements UartControllerPort {
     usart.onByteTransmit = (value: number) => {
       // A peripheral of a CPU that has been replaced reaches nobody.
       if (usart !== this.usart) return;
+      // Neither does a byte written while the transmitter is off. avr8js
+      // reports every write to UDR, but with TXEN clear the USART does not
+      // drive TXD and shifts nothing out (ATmega328P datasheet, section 20.6
+      // and UDRn): a sketch that never calls Serial.begin() prints nothing on
+      // a real board, to the monitor or to a board wired to TX, and keeps
+      // running (velxio/velxio-prod#167).
+      if (!usart.txEnable) return;
       const byte = value & 0xff;
       this.handler?.(byte);
       this.hooks.transmitted(byte);

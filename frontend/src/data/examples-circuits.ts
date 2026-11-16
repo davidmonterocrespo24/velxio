@@ -1471,6 +1471,7 @@ void loop() {
 #define IN1 7
 #define IN2 8
 void setup() {
+  Serial.begin(9600);
   pinMode(EN, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
