@@ -475,12 +475,12 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-bjt-emitter-follower',
     'BJT Emitter Follower',
-    'Common-collector buffer: unity voltage gain, high input impedance, low output impedance. Great as a driver stage.',
+    'Common-collector buffer: the emitter follows the base one diode drop (about 0.7 V) below it, a voltage gain of 0.99. Input resistance about (β + 1)(re + RE) ≈ 200 kΩ, output resistance about 10 Ω. Great as a driver stage. The 1 kΩ base resistor matters: 100 kΩ there would make a divider with that 200 kΩ and cut the gain to 0.67.',
     'intermediate',
     [
       sigGen('vcc', 60, 40, { waveform: 'dc', offset: 12, amplitude: 0, frequency: 1 }),
       sigGen('src', 60, 240, { waveform: 'sine', frequency: 1000, amplitude: 1, offset: 6 }),
-      res('rb', 260, 80, '100000'),
+      res('rb', 260, 80, '1000'),
       bjtNpn('q1', 420, 160),
       res('re', 500, 300, '1000'),
       vmeter('vm', 640, 220),
