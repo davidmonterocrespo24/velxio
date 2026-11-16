@@ -33,6 +33,37 @@ const FIRMWARE_MAP: Record<string, FirmwareConfig> = {
   },
 };
 
+/** The MicroPython image an overlay serves for a board kind: where it is (same
+ *  origin), its IndexedDB key, and the flash offset of its first byte. */
+export interface Esp32MicroPythonImage {
+  url: string;
+  cacheKey: string;
+  flashOffset: number;
+}
+
+type Esp32MicroPythonImageResolver = (boardKind: BoardKind) => Esp32MicroPythonImage | null;
+
+let overlayImageFor: Esp32MicroPythonImageResolver = () => null;
+
+/**
+ * Overlay seam (velxio/velxio-prod#219): the image a board kind boots, when an
+ * overlay serves it. The table above knows this edition's kinds and asks
+ * micropython.org first; an overlay board fell through to the classic ESP32
+ * image there. The default answers nothing, and the table decides.
+ */
+export function installEsp32MicroPythonImages(resolve: Esp32MicroPythonImageResolver | null): void {
+  overlayImageFor = resolve ?? (() => null);
+}
+
+function overlayFirmware(boardKind: BoardKind): FirmwareConfig | null {
+  const image = overlayImageFor(boardKind);
+  return image ? { remote: image.url, cacheKey: image.cacheKey, fallback: image.url } : null;
+}
+
+function overlayFlashOffset(boardKind: BoardKind | undefined): number | null {
+  return boardKind ? (overlayImageFor(boardKind)?.flashOffset ?? null) : null;
+}
+
 /** Map any ESP32-family board kind to firmware variant key */
 export function toFirmwareVariant(boardKind: BoardKind): 'esp32' | 'esp32-s3' | 'esp32-c3' {
   if (
@@ -61,7 +92,7 @@ export async function getEsp32Firmware(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<Uint8Array> {
   const variant = toFirmwareVariant(boardKind);
-  const config = FIRMWARE_MAP[variant];
+  const config = overlayFirmware(boardKind) ?? FIRMWARE_MAP[variant];
   if (!config) throw new Error(`No MicroPython firmware for board: ${boardKind}`);
 
   // 1. Check IndexedDB cache
@@ -157,7 +188,7 @@ export function padToFlashSize(firmware: Uint8Array, boardKind?: BoardKind): Uin
   // ESP32 (LX6): 2nd-stage bootloader header must sit at flash offset 0x1000.
   // Placing the .bin at 0x0 puts arbitrary bytes at 0x1000, triggering
   // "invalid header" loops from the ROM bootloader.
-  const flashOffset = variant === 'esp32' ? 0x1000 : 0x0;
+  const flashOffset = overlayFlashOffset(boardKind) ?? (variant === 'esp32' ? 0x1000 : 0x0);
 
   // Every official MicroPython ESP32 build (LX6, S3, C3) is compiled with
   // CONFIG_ESPTOOLPY_FLASHSIZE_4MB, so the firmware header declares 4 MB.
