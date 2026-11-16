@@ -8,6 +8,7 @@ import { RP2040Simulator } from '../RP2040Simulator';
 import { getADC, setAdcVoltage, emitPropertyChange, elementNumber, analogRailVolts } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
 import { LOG_SLIDER_STEPS, logSliderToValue } from '../sensorControlConfig';
+import { fontWithCgram } from './lcdCgram';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -838,6 +839,11 @@ function createLcdSimulation(cols: number, rows: number) {
 
       const ddram = new Uint8Array(128).fill(0x20);
       let ddramAddress = 0;
+      // CGRAM: the eight custom 5x8 patterns createChar() writes, and whether
+      // data writes go there (after Set CGRAM address) or to the text.
+      const cgram = new Uint8Array(64);
+      let cgramAddress = 0;
+      let cgramMode = false;
       let entryIncrement = true;
       let displayOn = true;
       let cursorOn = false;
@@ -892,8 +898,13 @@ function createLcdSimulation(cols: number, rows: number) {
         if (!rs) {
           if (data & 0x80) {
             ddramAddress = data & 0x7f;
+            cgramMode = false;
           } else if (data & 0x40) {
-            // CGRAM — not implemented
+            // Set CGRAM address: the data bytes that follow are a custom
+            // character's rows, not text (velxio/velxio-prod#162). They used
+            // to land in the text at the cursor.
+            cgramAddress = data & 0x3f;
+            cgramMode = true;
           } else if (data & 0x20) {
             initialized = true;
           } else if (data & 0x10) {
@@ -910,10 +921,18 @@ function createLcdSimulation(cols: number, rows: number) {
             entryIncrement = !!(data & 0x02);
           } else if (data & 0x02) {
             ddramAddress = 0;
+            cgramMode = false;
           } else if (data & 0x01) {
             ddram.fill(0x20);
             ddramAddress = 0;
+            cgramMode = false;
           }
+        } else if (cgramMode) {
+          cgram[cgramAddress] = data;
+          cgramAddress = (cgramAddress + (entryIncrement ? 1 : -1)) & 0x3f;
+          // Codes 0-15 draw these patterns: hand the element its font with them.
+          el.font = fontWithCgram(cgram, el.font);
+          return;
         } else {
           ddram[ddramAddress & 0x7f] = data;
           ddramAddress = entryIncrement ? (ddramAddress + 1) & 0x7f : (ddramAddress - 1) & 0x7f;

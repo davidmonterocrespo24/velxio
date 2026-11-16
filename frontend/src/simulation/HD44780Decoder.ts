@@ -95,6 +95,11 @@ export class HD44780Decoder {
   public onBacklightChange: ((on: boolean) => void) | null = null;
   /** Fired on any cursor/display config change so the host can re-render. */
   public onCursorChange: ((s: HD44780Snapshot) => void) | null = null;
+  /**
+   * Fired after every CGRAM write with the 64 bytes of the eight custom
+   * characters, so the host can draw codes 0-15 with them (lcdCgram.ts).
+   */
+  public onCgramChange: ((cgram: Uint8Array) => void) | null = null;
 
   // ── Geometry ───────────────────────────────────────────────────────────
   private readonly cols: number;
@@ -237,6 +242,7 @@ export class HD44780Decoder {
     if (this.cgramMode) {
       this.cgram[this.address & 0x3f] = byte;
       this.advanceAddress(64);
+      this.onCgramChange?.(this.cgram);
     } else {
       this.ddram[this.address & 0x7f] = byte;
       this.advanceAddress(128);
