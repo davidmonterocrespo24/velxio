@@ -4607,16 +4607,46 @@
       "name": "NTC Temperature Sensor",
       "category": "sensors",
       "thumbnail": "",
-      "properties": [],
-      "defaultValues": {},
-      "pinCount": 0,
+      "properties": [
+        {
+          "name": "R0",
+          "type": "number",
+          "defaultValue": 10000,
+          "control": "number",
+          "min": 1,
+          "description": "NTC resistance at 25 °C, ohm"
+        },
+        {
+          "name": "beta",
+          "type": "number",
+          "defaultValue": 3950,
+          "control": "number",
+          "min": 1,
+          "description": "NTC beta constant, K (3950 is the common 10k module)"
+        },
+        {
+          "name": "pullup",
+          "type": "number",
+          "defaultValue": 10000,
+          "control": "number",
+          "min": 1,
+          "description": "The module's fixed resistor from VCC to OUT, ohm"
+        }
+      ],
+      "defaultValues": {
+        "R0": 10000,
+        "beta": 3950,
+        "pullup": 10000
+      },
+      "pinCount": 3,
       "tags": [
         "ntc-temperature-sensor",
         "ntc temperature sensor",
         "ntc",
         "temperature",
         "sensor"
-      ]
+      ],
+      "description": "NTC thermistor module: the NTC from OUT to GND under a fixed pull-up from VCC, so OUT = VCC x R_ntc / (R_ntc + pull-up) and falls as it warms. R_ntc = R0 x exp(beta x (1/T - 1/298.15 K)). Set the temperature in the sensor panel."
     },
     {
       "thumbnail": "",

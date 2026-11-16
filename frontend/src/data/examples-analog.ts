@@ -368,7 +368,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-diode-clipper',
     'Diode Clipper',
-    'Two diodes to VCC/GND via a series resistor limit the output swing to roughly ±0.7 V — symmetric clipping.',
+    'Two diodes in anti-parallel from the output to ground, after a 1 kΩ series resistor, clip the output at one forward drop either way: about ±0.6 V for a 1N4007 at the few milliamps this circuit draws. Symmetric clipping.',
     'intermediate',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 1000, amplitude: 5, offset: 0 }),
@@ -381,7 +381,7 @@ export const analogExamples: ExampleProject[] = [
       w('w1', ['src', 'SIG'], ['r1', '1'], C_SIG),
       w('w2', ['r1', '2'], ['d1', 'A'], C_OUT),
       w('w3', ['r1', '2'], ['d2', 'C'], C_OUT),
-      w('w4', ['d1', 'C'], ['src', 'GND'], C_GND), // upper clip to 0 (really D inside ±0.7 both sides)
+      w('w4', ['d1', 'C'], ['src', 'GND'], C_GND), // d1 clips the positive half, d2 the negative
       w('w5', ['d2', 'A'], ['src', 'GND'], C_GND),
       w('w6', ['r1', '2'], ['vm', 'V+'], C_OUT),
       w('w7', ['src', 'GND'], ['vm', 'V-'], C_GND),
