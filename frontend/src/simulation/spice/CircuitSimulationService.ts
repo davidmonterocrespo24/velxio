@@ -118,7 +118,8 @@ export interface ElectricalSnapshot {
 export interface MixedModeSchedulerPort {
   loadCircuit(netlist: string, pinNetMap: Map<string, string>): Promise<void>;
   resolveDc(): Promise<void>;
-  resolveTran(step: string, stop: string): Promise<void>;
+  /** `start`: ngspice's TSTART, the start of the stored window. */
+  resolveTran(step: string, stop: string, start?: string): Promise<void>;
   /**
    * The last SolveResult the scheduler produced.  Used by the service
    * to extract waveforms / branch currents without going around the
@@ -273,6 +274,9 @@ export class CircuitSimulationService {
     analysisKind: 'op' | 'tran' | 'ac';
     /** Period of the slowest periodic source of a .tran window (TimeWaveforms.period). */
     period?: number;
+    /** Where the stored window starts (TSTART, seconds): taken off the time
+     *  axis, so the readers get a window that starts at 0. */
+    start?: number;
     sourcedNets: Set<string>;
   } | null = null;
 
@@ -723,7 +727,9 @@ export class CircuitSimulationService {
       } else {
         if (changes.length > 0) await this.scheduler.alterSources(changes);
         alterMs = nowMs() - started;
-        if (analysis.kind === 'tran') await this.scheduler.resolveTran(analysis.step, analysis.stop);
+        if (analysis.kind === 'tran') {
+          await this.scheduler.resolveTran(analysis.step, analysis.stop, analysis.start);
+        }
         else await this.scheduler.resolveDc();
       }
       resolveMs = nowMs() - started - alterMs;
@@ -871,7 +877,11 @@ export class CircuitSimulationService {
       })),
     };
     const input = buildInputFromStore(snap as Parameters<typeof buildInputFromStore>[0]);
-    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads } = buildNetlist(input);
+    // The analysis the deck's card runs, with the start-up a periodic source
+    // settles through before the stored window (velxio/velxio-prod#143).
+    const built = buildNetlist(input);
+    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads } = built;
+    let analysis = built.analysis;
     const padNames = new Set<string>();
     for (const b of input.boards) {
       for (const [pin, st] of Object.entries(b.pins)) {
@@ -895,8 +905,20 @@ export class CircuitSimulationService {
     const loadStart = nowMs();
     await this.scheduler.loadCircuit(netlist, pinNetMap);
     const loadMs = nowMs() - loadStart;
-    if (input.analysis.kind === 'tran') {
-      await this.scheduler.resolveTran(input.analysis.step, input.analysis.stop);
+    if (analysis.kind === 'tran') {
+      await this.scheduler.resolveTran(analysis.step, analysis.stop, analysis.start);
+      if (analysis.start && !this.scheduler.getLastResult()?.timeAxis.length) {
+        // The solver gave up during the start-up, and a run that settles first
+        // stores nothing before its window. Run the window from t = 0, as
+        // before the start-up was skipped: an unsettled picture with the
+        // shortfall said, rather than none at all.
+        analysis = {
+          ...analysis,
+          start: undefined,
+          stop: (Number(analysis.stop) - Number(analysis.start)).toExponential(6),
+        };
+        await this.scheduler.resolveTran(analysis.step, analysis.stop);
+      }
     } else {
       await this.scheduler.resolveDc();
     }
@@ -916,13 +938,16 @@ export class CircuitSimulationService {
       pinNetMap,
       nets,
       voltageSources,
-      analysisKind: input.analysis.kind,
-      period: input.analysis.kind === 'tran' ? input.analysis.period : undefined,
+      analysisKind: analysis.kind,
+      period: analysis.kind === 'tran' ? analysis.period : undefined,
+      start: analysis.kind === 'tran' && analysis.start ? Number(analysis.start) : undefined,
       sourcedNets,
     };
     this.padStateAnalysis =
-      input.analysis.kind === 'tran' && input.analysis.timeVarying
-        ? { kind: 'tran', step: input.analysis.step, stop: input.analysis.stop }
+      analysis.kind === 'tran' && analysis.timeVarying
+        ? analysis.start
+          ? { kind: 'tran', step: analysis.step, stop: analysis.stop, start: analysis.start }
+          : { kind: 'tran', step: analysis.step, stop: analysis.stop }
         : { kind: 'op' };
     const sameShape = shape === this.deckShape;
     this.deckShape = shape;
@@ -975,7 +1000,12 @@ export class CircuitSimulationService {
         const vec = result.vectors.get(`i(${vs.toLowerCase()})`);
         if (vec && vec.real.length > 0) branches.set(vs.toLowerCase(), Array.from(vec.real));
       }
-      timeWaveforms = { time: Array.from(result.timeAxis), nodes, branches, period: ctx.period };
+      // A run that settled first (TSTART) is stored from its start: the
+      // readers get the window from 0, as they always did (the ADC replays it
+      // in a loop of its own length, the scope draws it from its left edge).
+      const t0 = ctx.start ?? 0;
+      const time = t0 > 0 ? Array.from(result.timeAxis, (t) => Math.max(0, t - t0)) : Array.from(result.timeAxis);
+      timeWaveforms = { time, nodes, branches, period: ctx.period };
     }
     // A transient the solver gave up on part-way still has samples: say so,
     // or the canvas shows the circuit frozen at that instant without a word.

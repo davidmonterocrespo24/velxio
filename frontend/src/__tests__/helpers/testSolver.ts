@@ -28,7 +28,7 @@ function getAdapter(): NgSpiceNodeAdapter {
 /** Detect the analysis directive inside a netlist string. */
 function detectAnalysis(netlist: string):
   | { kind: 'op' }
-  | { kind: 'tran'; step: string; stop: string }
+  | { kind: 'tran'; step: string; stop: string; start?: string }
   | { kind: 'ac'; sweep: 'dec' | 'oct' | 'lin'; points: number; fstart: number; fstop: number } {
   const lines = netlist.split('\n');
   for (const line of lines) {
@@ -36,7 +36,10 @@ function detectAnalysis(netlist: string):
     if (trimmed.startsWith('.op')) return { kind: 'op' };
     if (trimmed.startsWith('.tran ')) {
       const parts = trimmed.split(/\s+/);
-      return { kind: 'tran', step: parts[1] ?? '1u', stop: parts[2] ?? '1m' };
+      // `.tran tstep tstop [tstart]`: a deck that settles first stores from tstart.
+      return parts[3]
+        ? { kind: 'tran', step: parts[1] ?? '1u', stop: parts[2] ?? '1m', start: parts[3] }
+        : { kind: 'tran', step: parts[1] ?? '1u', stop: parts[2] ?? '1m' };
     }
     if (trimmed.startsWith('.ac ')) {
       const parts = trimmed.split(/\s+/);

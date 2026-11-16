@@ -92,6 +92,20 @@ export type AnalysisMode =
        * those pad states are operating points.
        */
       timeVarying?: boolean;
+      /**
+       * Store only the circuit's steady state: the netlist builder runs it
+       * first for about seven of its largest time constants (settleTime.ts),
+       * and `stop` is then the length of the stored window. In the analysis a
+       * built netlist returns, `stop` is the end of the run and `start` the
+       * start of the window (velxio/velxio-prod#143).
+       */
+      settle?: boolean;
+      /**
+       * ngspice's TSTART: the run is computed from t = 0 but stored from here
+       * on. The time axis the readers get (TimeWaveforms) starts at 0 anyway:
+       * the service takes `start` off it.
+       */
+      start?: string;
     }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 

@@ -14,7 +14,9 @@
  *    (`pickDynamicAnalysis` looks for a non-DC source or a driven reactive
  *    part). A plain resistor divider solves as `.op` and produces no waveform
  *    at all. So while an analog channel exists we ask for transient
- *    explicitly, and re-ask on a timer to keep the window fresh.
+ *    explicitly, and re-ask on a timer to keep the window fresh whenever the
+ *    latest publish (a pin edge solved as an operating point) has no capture
+ *    of its own.
  *
  * The subscription is driven by the channel list: no analog channels means no
  * forced transient and no timer, so a user who never probes a wire pays
@@ -25,7 +27,8 @@ import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { requestElectricalResolve } from './electricalResolveHook';
 
-/** How often to re-run the transient while an analog channel is live.
+/** How often to re-run the transient while an analog channel is live and
+ *  the latest publish has no capture of its own.
  *
  *  A solve reloads and re-runs the whole circuit, so this is a real cost paid
  *  on the main worker; 250 ms keeps the trace visibly alive without competing
@@ -64,7 +67,16 @@ function refreshWatchedNets(): void {
 
   if (watchedNets.length > 0) {
     if (timer === null) {
-      timer = setInterval(() => requestElectricalResolve(), RECAPTURE_MS);
+      timer = setInterval(() => {
+        // A publish that carries its own capture is the latest sweep already:
+        // the same deck re-solved draws the same one again, at the cost of a
+        // whole transient, and a circuit with a periodic source runs its
+        // start-up before every window it stores (velxio/velxio-prod#143).
+        // An edge solved as an operating point publishes none; then a new
+        // sweep is due.
+        if (useElectricalStore.getState().timeWaveforms) return;
+        requestElectricalResolve();
+      }, RECAPTURE_MS);
     }
     // Ask immediately so the first trace does not wait a whole interval.
     requestElectricalResolve();

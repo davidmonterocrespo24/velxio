@@ -21,7 +21,8 @@
  */
 export type SolveAnalysis =
   | { kind: 'op' }
-  | { kind: 'tran'; step: string; stop: string }
+  /** `start` is ngspice's TSTART: computed from 0, stored from there. */
+  | { kind: 'tran'; step: string; stop: string; start?: string }
   | { kind: 'ac'; sweep: 'dec' | 'oct' | 'lin'; points: number; fstart: number; fstop: number };
 
 /**

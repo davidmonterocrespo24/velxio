@@ -21,15 +21,16 @@ import { boardPinGroupFor } from './boardPinGroups';
 import { parseValueWithUnits } from './valueParser';
 import { PASSIVE_PRESETS, periodicSourceHz } from './componentToSpice';
 
-// Minimum transient stop time so RC/decoupling networks reach steady-state
-// even if the source is very high frequency.
+// Shortest transient window, for a very high-frequency source.
 const MIN_TRAN_STOP_S = 5e-3;
 // Cap transient stop time to keep solve cost bounded for very low-frequency
 // sources (e.g. 0.1 Hz → 40 s would be absurd). 400 ms covers 20 cycles at
-// 50 Hz and gives plenty of time to reach steady state for filter networks.
+// 50 Hz.
 const MAX_TRAN_STOP_S = 0.4;
 const SAMPLES_PER_PERIOD = 20;
-const PERIODS_TO_SETTLE = 4;
+// Periods of the slowest periodic source in the stored window. The circuit's
+// start-up runs before it (settleTime.ts), so these are its steady state.
+const PERIODS_SHOWN = 4;
 
 // Transient forced by an analog scope channel on an otherwise-DC circuit.
 // Short and coarse on purpose: it exists to give the trace a live window, and
@@ -132,7 +133,7 @@ function pickDynamicAnalysis(
     const maxFreq = Math.max(...frequencies);
     const minFreq = Math.min(...frequencies);
     const stepS = 1 / (maxFreq * SAMPLES_PER_PERIOD);
-    const rawStop = PERIODS_TO_SETTLE / minFreq;
+    const rawStop = PERIODS_SHOWN / minFreq;
     const stopS = Math.min(MAX_TRAN_STOP_S, Math.max(MIN_TRAN_STOP_S, rawStop));
     return {
       kind: 'tran',
@@ -141,6 +142,10 @@ function pickDynamicAnalysis(
       // Meters average over whole periods of the slowest source (readSpan).
       period: 1 / minFreq,
       timeVarying: true,
+      // The window above is what is stored; the netlist builder runs the
+      // circuit's start-up before it, sized from its time constants
+      // (settleTime.ts, velxio/velxio-prod#143).
+      settle: true,
     };
   }
 

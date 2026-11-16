@@ -135,13 +135,13 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
    * Run a `.tran` solve and publish the steady-state (last-sample)
    * voltage for every (component, pin) in pinNetMap.  The full
    * waveform is available via `getLastResult()` for callers that need
-   * the time series.
+   * the time series. `start` is ngspice's TSTART (stored from there on).
    */
-  async resolveTran(step: string, stop: string): Promise<void> {
+  async resolveTran(step: string, stop: string, start?: string): Promise<void> {
     if (!this.solver) {
       throw new Error('MixedModeScheduler.resolveTran(): call loadCircuit first');
     }
-    await this.solveAndPublish({ kind: 'tran', step, stop });
+    await this.solveAndPublish(start ? { kind: 'tran', step, stop, start } : { kind: 'tran', step, stop });
   }
 
   private lastResult: import('./ports/SolverPort').SolveResult | null = null;
