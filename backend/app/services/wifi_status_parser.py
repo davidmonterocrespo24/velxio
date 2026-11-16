@@ -17,6 +17,7 @@ Typical BLE log patterns:
   I (xxx) GATTS: ...
   I (xxx) GAP_BLE: ...
 """
+import functools
 import re
 from typing import TypedDict
 
@@ -51,14 +52,40 @@ _RE_WIFI_BEGIN = re.compile(r'wifi\s*:\s*new\s*:\s*([^,]+)', re.IGNORECASE)
 _RE_WIFI_MODE_STA = re.compile(r'wifi\s*:\s*mode\s*:\s*sta', re.IGNORECASE)
 _RE_WIFI_CONNECTING = re.compile(r'Connecting\s+to\s+WiFi', re.IGNORECASE)
 
+# The address the QEMU lane's station holds once it has its lease: the first
+# one slirp's DHCP server hands out on the network the radio is given
+# (net=192.168.4.0/24, leases from .15; esp32_worker.wifi_nic_arg), and the
+# address the IoT gateway's host forward targets.
+QEMU_STATION_IP = '192.168.4.15'
+
+
+@functools.lru_cache(maxsize=8)
+def _whole_address(ip: str) -> re.Pattern[str]:
+    """`ip` as a whole address: 192.168.4.15 is not in 192.168.4.150,
+    10.192.168.4.15 or 192.168.4.15.99."""
+    return re.compile(r'(?<![\d.])' + re.escape(ip) + r'(?!\d|\.\d)')
+
 # ── BLE patterns ─────────────────────────────────────────────────────────────
 
 _RE_BLE_INIT = re.compile(r'BT_INIT.*BT\s+controller\s+compile', re.IGNORECASE)
 _RE_BLE_ADV = re.compile(r'(GATTS|GAP_BLE).*advert', re.IGNORECASE)
 
 
-def parse_wifi_line(line: str) -> WifiEvent | None:
-    """Parse a single line for WiFi status. Returns None if no match."""
+def parse_wifi_line(line: str, station_ip: str | None = None) -> WifiEvent | None:
+    """Parse a single line for WiFi status. Returns None if no match.
+
+    `station_ip` is the address the board's station is known to get from the
+    network it joins (QEMU_STATION_IP on the QEMU lane). A line that names it
+    reports got_ip, whatever else it says. The IDF's own "sta ip:" line is
+    INFO level, which the firmware Velxio builds leaves out (sdkconfig
+    CONFIG_LOG_DEFAULT_LEVEL=2), so a sketch printing WiFi.localIP() ("Server
+    started at: http://192.168.4.15/") is the only sign of the lease there.
+    An access point's own address (192.168.4.1 after WiFi.softAP()) is not
+    the station's, and the gateway could not reach it.
+    """
+    if station_ip and _whole_address(station_ip).search(line):
+        return WifiEvent(status='got_ip', ip=station_ip)
+
     if _RE_WIFI_GOT_IP.search(line):
         m = _RE_WIFI_GOT_IP.search(line)
         return WifiEvent(status='got_ip', ip=m.group(1) if m else '')
@@ -94,9 +121,11 @@ def parse_ble_line(line: str) -> BleEvent | None:
     return None
 
 
-def parse_serial_text(text: str) -> tuple[list[WifiEvent], list[BleEvent]]:
+def parse_serial_text(text: str, station_ip: str | None = None,
+                      ) -> tuple[list[WifiEvent], list[BleEvent]]:
     """
     Parse a block of serial output and return all WiFi and BLE events found.
+    `station_ip` as for parse_wifi_line.
 
     Returns (wifi_events, ble_events).
     """
@@ -104,7 +133,7 @@ def parse_serial_text(text: str) -> tuple[list[WifiEvent], list[BleEvent]]:
     ble_events: list[BleEvent] = []
 
     for line in text.splitlines():
-        we = parse_wifi_line(line)
+        we = parse_wifi_line(line, station_ip)
         if we:
             wifi_events.append(we)
         be = parse_ble_line(line)
@@ -137,11 +166,13 @@ class SerialStatusLines:
         self._max_line = max_line
         self._pending = ''
 
-    def feed(self, text: str) -> tuple[list[WifiEvent], list[BleEvent]]:
-        """Take the next chunk; return the events of the lines it completed."""
+    def feed(self, text: str, station_ip: str | None = None,
+             ) -> tuple[list[WifiEvent], list[BleEvent]]:
+        """Take the next chunk; return the events of the lines it completed.
+        `station_ip` as for parse_wifi_line."""
         pending = self._pending + text
         end = max(pending.rfind('\n'), pending.rfind('\r')) + 1
         whole, self._pending = pending[:end], pending[end:]
         if len(self._pending) >= self._max_line:
             whole, self._pending = pending, ''
-        return parse_serial_text(whole)
+        return parse_serial_text(whole, station_ip)

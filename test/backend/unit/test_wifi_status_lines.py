@@ -109,12 +109,12 @@ def wifi_events(got: list[tuple[str, dict]]) -> list[dict]:
     return [data for etype, data in got if etype == 'wifi_status']
 
 
-def feed_all(lines: 'wsp.SerialStatusLines', chunks) -> tuple[list[dict], list[dict]]:
+def feed_all(lines: 'wsp.SerialStatusLines', chunks, **kw) -> tuple[list[dict], list[dict]]:
     wifi: list[dict] = []
     ble: list[dict] = []
     for chunk in chunks:
         text = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-        w, b = lines.feed(text)
+        w, b = lines.feed(text, **kw)
         wifi += w
         ble += b
     return wifi, ble
@@ -244,6 +244,102 @@ class TestTheSubprocessLaneReadsWholeLinesToo(unittest.TestCase):
         got = self._read_serial(data)
         self.assertEqual(wifi_events(got), [{'status': 'got_ip', 'ip': '192.168.4.15'}])
         self.assertEqual(b''.join(d['data'].encode() for e, d in got if e == 'serial_output'), data)
+
+    def test_its_own_address_is_no_sign_here(self):
+        """The gateway reaches only the lib manager's boards (iot_gateway.py),
+        so a link on this lane would open "No board to reach"."""
+        self.assertEqual(wifi_events(self._read_serial(GALLERY_HTTP_SERVER)),
+                         [{'status': 'connected', 'ssid': 'Velxio-GUEST'}])
+
+
+# The gallery's esp32-http-server sketch, as it prints on the QEMU lane:
+#   Serial.println("ESP32 HTTP Server");
+#   WiFi.begin(ssid, "", 6);
+#   Serial.print("Connecting to WiFi");
+#   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+#   Serial.println(" Connected!");
+#   ...
+#   Serial.printf("Server started at: http://%s/\n", WiFi.localIP().toString().c_str());
+#   Serial.println("Open the IoT Gateway link to access it from your browser.");
+# The IDF's "sta ip:" line is INFO level, and the firmware Velxio builds logs
+# from WARN up (CONFIG_LOG_DEFAULT_LEVEL=2), so nothing else in it says the
+# station got its lease.
+GALLERY_HTTP_SERVER = (b'ESP32 HTTP Server\r\n' + b'Connecting to WiFi' + b'.' * 3
+                       + b' Connected!\r\n' + b'Server started at: http://192.168.4.15/\n'
+                       + b'Open the IoT Gateway link to access it from your browser.\r\n')
+
+# Lines that name the QEMU station's own address, and the sketch each is from.
+STATION_LINES = [
+    b'Server started at: http://192.168.4.15/',            # esp32-http-server
+    b'IP Address: 192.168.4.15',                           # esp32-wifi-connect
+    b'WiFi still connected - IP: 192.168.4.15',            # esp32-wifi-connect, loop()
+    b'WiFi connected, IP 192.168.4.15',                    # the MQTT examples
+    b'Connected! IP: 192.168.4.15',                        # the WiFi part examples
+    b'Open: 192.168.4.15',                                 # MicroPython, wlan.ifconfig()[0]
+    b"('192.168.4.15', '255.255.255.0', '192.168.4.2', '192.168.4.3')",  # wlan.ifconfig()
+    b'Connecting to WiFi.... IP: 192.168.4.15',            # the dots and the address on one line
+]
+
+# Lines with an address that is not the station's.
+NOT_STATION_LINES = [
+    b'AP IP address: 192.168.4.1',       # WiFi.softAP(): the board is the access point
+    b'Gateway: 192.168.4.2',
+    b'Lease 192.168.4.150',
+    b'Route 10.192.168.4.15',
+    b'Host 192.168.4.15.99',
+    b'192.168.4.1',
+]
+
+
+class TestTheStationsOwnAddress(unittest.TestCase):
+    """On the QEMU lane the station's lease is known before it is given: the
+    radio's network is slirp's 192.168.4.0/24, whose DHCP server hands its
+    first lease out at .15, and the host forward the IoT gateway goes through
+    targets that address. A sketch printing WiFi.localIP() prints it."""
+
+    def test_the_gallery_web_server_reaches_got_ip(self):
+        got = read_loop(uart_tx_lines(0, GALLERY_HTTP_SERVER))
+        self.assertEqual(wifi_events(got), [
+            {'status': 'connected', 'ssid': 'Velxio-GUEST'},
+            {'status': 'got_ip', 'ip': '192.168.4.15'},
+        ])
+
+    def test_a_line_naming_the_station_reports_got_ip(self):
+        for line in STATION_LINES:
+            with self.subTest(line=line):
+                wifi, _ = feed_all(wsp.SerialStatusLines(), monitor_chunks(line + b'\r\n'),
+                                   station_ip=wsp.QEMU_STATION_IP)
+                self.assertEqual(wifi, [{'status': 'got_ip', 'ip': '192.168.4.15'}])
+
+    def test_another_address_is_not_the_station(self):
+        for line in NOT_STATION_LINES:
+            with self.subTest(line=line):
+                wifi, _ = feed_all(wsp.SerialStatusLines(), monitor_chunks(line + b'\r\n'),
+                                   station_ip=wsp.QEMU_STATION_IP)
+                self.assertEqual(wifi, [])
+
+    def test_the_known_lines_read_as_before_beside_it(self):
+        for line, wifi_expected, ble_expected in KNOWN_LINES:
+            with self.subTest(line=line):
+                got = feed_all(wsp.SerialStatusLines(), monitor_chunks(line + b'\r\n'),
+                               station_ip=wsp.QEMU_STATION_IP)
+                self.assertEqual(got, (wifi_expected, ble_expected))
+
+    def test_without_a_station_the_parser_reads_as_before(self):
+        for line in STATION_LINES[:-1]:
+            with self.subTest(line=line):
+                self.assertEqual(wsp.parse_serial_text(line.decode()), ([], []))
+                self.assertEqual(feed_all(wsp.SerialStatusLines(), [line + b'\r\n']), ([], []))
+
+    def test_only_a_board_with_a_host_forward_reads_its_address(self):
+        got = read_loop(uart_tx_lines(0, GALLERY_HTTP_SERVER), hostfwd_port=0)
+        self.assertEqual(wifi_events(got), [{'status': 'connected', 'ssid': 'Velxio-GUEST'}])
+
+    def test_the_forward_targets_that_address(self):
+        from app.services.esp32_worker import wifi_nic_arg
+        nic = wifi_nic_arg('esp32-picsimlab', True, 18080)
+        self.assertIn('net=192.168.4.0/24', nic)
+        self.assertTrue(nic.endswith(f'-{wsp.QEMU_STATION_IP}:80'), nic)
 
 
 if __name__ == '__main__':

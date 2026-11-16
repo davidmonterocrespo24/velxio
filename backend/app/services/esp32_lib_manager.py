@@ -50,7 +50,7 @@ import sys
 import threading
 from typing import Callable, Awaitable
 
-from app.services.wifi_status_parser import SerialStatusLines
+from app.services.wifi_status_parser import QEMU_STATION_IP, SerialStatusLines
 
 logger = logging.getLogger(__name__)
 
@@ -761,7 +761,12 @@ class EspLibManager:
                             })
                             # Parse WiFi/BLE status from UART0 output
                             if uart_id == 0 and inst.wifi_enabled:
-                                wifi_evts, ble_evts = inst.status_lines.feed(text)
+                                # A board the gateway reaches (its host forward
+                                # targets the station) reports got_ip on a line
+                                # naming its address: the IDF logs its own
+                                # got-IP line at INFO, below the firmware's level.
+                                station = QEMU_STATION_IP if inst.wifi_hostfwd_port else None
+                                wifi_evts, ble_evts = inst.status_lines.feed(text, station)
                                 for we in wifi_evts:
                                     self._dispatch(inst, 'wifi_status', dict(we))
                                 for be in ble_evts:
