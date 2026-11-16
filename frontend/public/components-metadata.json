@@ -4453,8 +4453,22 @@
         "weather",
         "barometer"
       ],
-      "properties": [],
-      "defaultValues": {},
+      "properties": [
+        {
+          "name": "i2cAddress",
+          "type": "string",
+          "defaultValue": "0x76",
+          "control": "select",
+          "options": [
+            "0x76",
+            "0x77"
+          ],
+          "description": "I2C address. On the real board SDO picks it: 0x76 with SDO to GND, 0x77 with SDO to VDDIO. Give a second BMP280 on the bus the other one."
+        }
+      ],
+      "defaultValues": {
+        "i2cAddress": "0x76"
+      },
       "pinCount": 4,
       "id": "bmp280",
       "tagName": "velxio-bmp280",

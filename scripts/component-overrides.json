@@ -2357,8 +2357,22 @@
       "name": "BMP280 (Pressure + Temp)",
       "category": "sensor",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"4\" fill=\"#0d1730\"/><rect x=\"10\" y=\"8\" width=\"44\" height=\"48\" rx=\"2\" fill=\"#172952\"/><circle cx=\"16\" cy=\"15\" r=\"3\" fill=\"#9a916c\"/><circle cx=\"26\" cy=\"15\" r=\"3\" fill=\"#9a916c\"/><circle cx=\"36\" cy=\"15\" r=\"3\" fill=\"#9a916c\"/><circle cx=\"46\" cy=\"15\" r=\"3\" fill=\"#9a916c\"/><rect x=\"22\" y=\"24\" width=\"14\" height=\"10\" fill=\"#303030\"/><rect x=\"14\" y=\"38\" width=\"18\" height=\"14\" fill=\"#e0e0e0\"/><text x=\"23\" y=\"48\" text-anchor=\"middle\" font-size=\"5\" fill=\"#222\" font-family=\"monospace\" font-weight=\"bold\">BMP280</text><circle cx=\"44\" cy=\"45\" r=\"5\" fill=\"#999\"/></svg>",
-      "properties": [],
-      "defaultValues": {},
+      "properties": [
+        {
+          "name": "i2cAddress",
+          "type": "string",
+          "defaultValue": "0x76",
+          "control": "select",
+          "options": [
+            "0x76",
+            "0x77"
+          ],
+          "description": "I2C address. On the real board SDO picks it: 0x76 with SDO to GND, 0x77 with SDO to VDDIO. Give a second BMP280 on the bus the other one."
+        }
+      ],
+      "defaultValues": {
+        "i2cAddress": "0x76"
+      },
       "pinCount": 4,
       "tags": [
         "sensor",
