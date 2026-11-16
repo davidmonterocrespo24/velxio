@@ -184,6 +184,51 @@ const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
   purple: { name: 'LED_PURPLE', Is: '1e-28', n: '2.11' },
 };
 
+// ── Relays: pull-in, drop-out, and which pins are the coil ────────────────
+// ngspice SW closes at Vt + Vh and opens at Vt - Vh. With Vt = 0.6 and
+// Vh = 0.15 of the nominal coil voltage a relay's contacts close at 75 % of
+// it and, within a time-domain run, open again below 45 %. 75 % is the
+// Songle SRD-05VDC-SL-C's must-operate maximum, the voltage at which every
+// relay is guaranteed to close (Omron: apply that percentage or more to make
+// sure it operates); 45 % is above its guaranteed 10 % release.
+const RELAY_SW_VT = 0.6;
+const RELAY_SW_VH = 0.15;
+/** The fraction of its nominal coil voltage at which a relay pulls in. The
+ *  circuit check warns about a coil fed below it (velxio/velxio-prod#108). */
+export const RELAY_PULL_IN_FRACTION = RELAY_SW_VT + RELAY_SW_VH;
+/** The KS2E-M-DC5 has no coil_voltage field: its coil is the 5 V of its name. */
+const KS2E_COIL_VOLTS = 5;
+
+/** A relay part's coil, as the circuit check needs it. */
+export interface RelayCoil {
+  /** The coil's two pins. */
+  coil: [string, string];
+  /** Each group of contact pins the armature switches among; galvanically
+   *  isolated from the coil and from each other. */
+  contacts: string[][];
+  /** The property holding the nominal coil voltage, when the part has one. */
+  voltageField?: string;
+  /** The nominal coil voltage when no field sets it (and the field's default). */
+  volts: number;
+}
+
+const RELAY_COILS: Record<string, RelayCoil> = {
+  relay: { coil: ['COIL+', 'COIL-'], contacts: [['COM', 'NO', 'NC']], voltageField: 'coil_voltage', volts: 5 },
+  'ks2e-m-dc5': {
+    coil: ['COIL1', 'COIL2'],
+    contacts: [
+      ['P1', 'NO1', 'NC1'],
+      ['P2', 'NO2', 'NC2'],
+    ],
+    volts: KS2E_COIL_VOLTS,
+  },
+};
+
+/** The coil of a relay part, or null for a part that is not a relay. */
+export function relayCoilOf(metadataId: string): RelayCoil | null {
+  return RELAY_COILS[metadataId] ?? null;
+}
+
 /** Colours already reported as missing from LED_MODELS (one warning each). */
 const unknownLedColours = new Set<string>();
 
@@ -1351,8 +1396,8 @@ const MAPPERS: Record<string, Mapper> = {
     // defaults describe, specifies 75% pull-in, so the closing edge is the
     // datasheet figure. A bare .op has no history and leaves the switch open
     // anywhere inside the band (3.3 V on a 5 V coil solves open).
-    const threshold = coilV * 0.6;
-    const hysteresis = coilV * 0.15;
+    const threshold = coilV * RELAY_SW_VT;
+    const hysteresis = coilV * RELAY_SW_VH;
     const includeFlyback = comp.properties.include_flyback !== false;
     // A relay coil is a wire-wound inductor: R (of the copper) in SERIES
     // with ideal L. Modelling R and L in parallel would make the coil a DC
@@ -1419,7 +1464,7 @@ const MAPPERS: Record<string, Mapper> = {
     const c1 = netLookup('COIL1');
     const c2 = netLookup('COIL2');
     if (!c1 || !c2) return null;
-    const coilV = 5;
+    const coilV = KS2E_COIL_VOLTS;
     const coilMid = `${comp.id}_coilmid`;
     const ctrl = `${comp.id}_coilv`;
     const ctrlInv = `${comp.id}_ncctrl`;
@@ -1449,7 +1494,7 @@ const MAPPERS: Record<string, Mapper> = {
       modelsUsed: new Set(
         // Its own model name: `relay` writes RELAY_SW with ITS coil voltage,
         // and two different .model lines under one name break the netlist.
-        contacts ? [`.model KS2E_SW SW(Vt=${coilV * 0.6} Vh=${coilV * 0.15} Ron=0.05 Roff=1G)`] : [],
+        contacts ? [`.model KS2E_SW SW(Vt=${coilV * RELAY_SW_VT} Vh=${coilV * RELAY_SW_VH} Ron=0.05 Roff=1G)`] : [],
       ),
     };
   },

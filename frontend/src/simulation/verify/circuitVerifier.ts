@@ -23,7 +23,7 @@
  */
 import { lineGaps } from '../line/requestLine';
 import { GROUND_PIN_RE, buildNetlist, connectionPairs, sanitizeSpiceId } from '../spice/NetlistBuilder';
-import { MIN_SUPPLY_LIMIT_A } from '../spice/componentToSpice';
+import { MIN_SUPPLY_LIMIT_A, RELAY_PULL_IN_FRACTION, relayCoilOf } from '../spice/componentToSpice';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
 import { BOARD_PIN_GROUPS, auxRailNetName, railVolts } from '../spice/boardPinGroups';
@@ -583,11 +583,12 @@ export async function verifyCircuit(
     // all their wired pins (over-approximating conduction keeps false
     // positives down); transistors only conduct through their channel (a
     // MOSFET gate does not power its drain), and a relay's coil is
-    // galvanically isolated from its contacts.
+    // galvanically isolated from its contacts (each pole from the others).
     const conductionGroups = (metadataId: string, pins: string[]): string[][] => {
       if (/^mosfet-/.test(metadataId)) return [['D', 'S']];
       if (/^bjt-/.test(metadataId)) return [['C', 'E']];
-      if (metadataId === 'relay') return [['COIL+', 'COIL-'], ['COM', 'NO', 'NC']];
+      const relay = relayCoilOf(metadataId);
+      if (relay) return [relay.coil, ...relay.contacts];
       return [pins];
     };
 
@@ -796,11 +797,15 @@ export async function verifyCircuit(
     }
 
     // ── Rule C: relay coil voltage vs the supply actually feeding it ──────
-    // A 12 V-coil relay on a 5 V rail sits far below its ~60% pull-in
-    // threshold and never actuates (audited case); the reverse overdrives
-    // and burns the coil. Compare coil_voltage against the nominal voltage
-    // of the supply on the coil nets (falling back to the coil's power
-    // region for coils fed through a switch or transistor).
+    // A relay pulls in at 75% of its nominal coil voltage
+    // (RELAY_PULL_IN_FRACTION, the must-operate maximum of its datasheet, and
+    // where the simulated contacts close). A coil fed below it never actuates:
+    // a 12 V coil on a 5 V rail (audited case), and a 5 V coil on a 3.3 V rail
+    // or a GPIO, which the old ~60% threshold let through
+    // (velxio/velxio-prod#108). The reverse overdrives and burns the coil.
+    // Compare the coil's nominal voltage against the nominal voltage of the
+    // supply on the coil nets (falling back to the coil's power region for
+    // coils fed through a switch or transistor).
     const dominantVcc =
       input.boards[0]?.vcc ??
       (() => {
@@ -849,11 +854,12 @@ export async function verifyCircuit(
       return best;
     };
     for (const comp of input.components) {
-      if (comp.metadataId !== 'relay') continue;
-      const coilV = readValueField(comp, 'coil_voltage');
+      const relay = relayCoilOf(comp.metadataId);
+      if (!relay) continue;
+      const coilV = relay.voltageField ? readValueField(comp, relay.voltageField) : relay.volts;
       if (!Number.isFinite(coilV) || coilV <= 0) continue;
       const coilNets = new Set<string>();
-      for (const pinName of ['COIL+', 'COIL-']) {
+      for (const pinName of relay.coil) {
         const net = netOf(comp.id, pinName);
         if (net && !returnNets.has(net)) coilNets.add(net);
       }
@@ -868,13 +874,16 @@ export async function verifyCircuit(
         supplyV = nominalOnNets(reachable);
       }
       if (supplyV === undefined) continue; // unpowered coil — Rule A covers it
-      if (supplyV < coilV * 0.6) {
+      const coilField = relay.voltageField ? ` (${relay.voltageField} = ${coilV})` : '';
+      // The contacts close only ABOVE the pull-in voltage (SW: v > Vt + Vh).
+      if (supplyV <= coilV * RELAY_PULL_IN_FRACTION) {
+        const pct = Math.round(RELAY_PULL_IN_FRACTION * 100);
         warnings.push({
           severity: 'warning',
           code: 'voltage-mismatch',
           componentId: comp.id,
           metric: supplyV,
-          message: `Relay ${comp.id} has a ${formatVolts(coilV)} coil (coil_voltage = ${coilV}) but its coil is fed from a ${formatVolts(supplyV)} supply — below the ~60% pull-in threshold, so the relay will never energise. Use a relay with a ${formatVolts(supplyV)} coil, or feed the coil ${formatVolts(coilV)}.`,
+          message: `Relay ${comp.id} has a ${formatVolts(coilV)} coil${coilField} but its coil is fed from a ${formatVolts(supplyV)} supply — under ${pct}% of its rating (${formatQuantity(coilV * RELAY_PULL_IN_FRACTION, 'V')}), its must-operate voltage: a real relay is not guaranteed to pull in below it, and the simulated one does not. Use a relay with a ${formatVolts(supplyV)} coil, or feed the coil ${formatVolts(coilV)}.`,
         });
       } else if (supplyV > coilV * 1.5) {
         warnings.push({
@@ -882,7 +891,7 @@ export async function verifyCircuit(
           code: 'voltage-mismatch',
           componentId: comp.id,
           metric: supplyV,
-          message: `Relay ${comp.id} has a ${formatVolts(coilV)} coil (coil_voltage = ${coilV}) but its coil is fed from ${formatVolts(supplyV)} — far above its rating. A real coil would overheat and burn out; use a ${formatVolts(supplyV)}-rated coil or the matching ${formatVolts(coilV)} supply.`,
+          message: `Relay ${comp.id} has a ${formatVolts(coilV)} coil${coilField} but its coil is fed from ${formatVolts(supplyV)} — far above its rating. A real coil would overheat and burn out; use a ${formatVolts(supplyV)}-rated coil or the matching ${formatVolts(coilV)} supply.`,
         });
       }
     }
