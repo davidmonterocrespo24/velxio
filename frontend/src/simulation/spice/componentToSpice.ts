@@ -1259,43 +1259,57 @@ const MAPPERS: Record<string, Mapper> = {
   })(),
 
   // ── Optocouplers (LED + phototransistor in one package) ─────────────────
-  // Pattern: LED on input side, current-sense resistor (0V source) measures
-  // I_LED, an F-source (CCCS) mirrors that current into the phototransistor
-  // output with the part's Current Transfer Ratio (CTR).
-  'opto-4n25': (comp, netLookup) => {
-    const an = netLookup('AN');
-    const cat = netLookup('CAT');
-    const col = netLookup('COL');
-    const emit = netLookup('EMIT');
-    if (!an || !cat || !col || !emit) return null;
-    const CTR = 0.5; // 50%
+  // The IR LED's current, read by a 0 V sense source, is mirrored by an F
+  // source (CCCS) as photocurrent from the collector into the base of an NPN
+  // phototransistor, which amplifies it: I_C = CTR * I_LED while V_CE is above
+  // saturation, and the transistor saturates when the load cannot take that
+  // much. The output used to be the F source alone, an ideal current source
+  // from collector to emitter: behind the usual 10 k pull-up it drove the
+  // collector to -59.67 V (4N25) in the gallery's optocoupler-signal, and to
+  // -124 V with a PC817 (velxio/velxio-prod#131).
+  //
+  // The LED (shared by both parts) drops 1.18 V at 10 mA, 1.22 V at 20 mA and
+  // 1.30 V at 50 mA: Vishay 4N25 1.3 V typ / 1.5 max at 50 mA, Sharp PC817X
+  // 1.2 V typ / 1.4 max at 20 mA. The old card dropped 1.48 V at 10 mA and
+  // 1.76 V at 50 mA. The transistor: BF = 100, and RC = 50 ohm for the
+  // phototransistor's collector body, so V_CE(sat) is about 0.1 V at 1 mA and
+  // 0.15 V at 2 mA (PC817 0.1 typ / 0.2 max at IC 1 mA; 4N25 0.5 max at
+  // 2 mA). The base has no pin: 100 Meg to the emitter keeps it defined in
+  // the dark, and 100 Meg from collector to emitter stays as before.
+  ...(() => {
+    const OPTO_BF = 100;
+    const optocoupler =
+      (ctr: number): Mapper =>
+      (comp, netLookup) => {
+        const an = netLookup('AN');
+        const cat = netLookup('CAT');
+        const col = netLookup('COL');
+        const emit = netLookup('EMIT');
+        if (!an || !cat || !col || !emit) return null;
+        const base = `${comp.id}_base`;
+        return {
+          cards: [
+            `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
+            `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
+            // Photocurrent: I_LED * CTR / (BF + 1), so I_C = CTR * I_LED.
+            `F_${comp.id}_pt ${col} ${base} V_${comp.id}_sense ${ctr / (OPTO_BF + 1)}`,
+            `Q_${comp.id}_pt ${col} ${base} ${emit} QOPTO_PT`,
+            `R_${comp.id}_be ${base} ${emit} 100Meg`,
+            `R_${comp.id}_leak ${col} ${emit} 100Meg`,
+          ],
+          modelsUsed: new Set([
+            '.model DLED_OPTO D(Is=1.3e-13 N=1.8 Rs=1.1)',
+            `.model QOPTO_PT NPN(IS=1e-14 BF=${OPTO_BF} RC=50)`,
+          ]),
+        };
+      };
     return {
-      cards: [
-        `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
-        `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
-        `F_${comp.id}_pt ${col} ${emit} V_${comp.id}_sense ${CTR}`,
-        `R_${comp.id}_leak ${col} ${emit} 100Meg`,
-      ],
-      modelsUsed: new Set(['.model DLED_OPTO D(Is=1e-14 N=2 Rs=5)']),
+      // 4N25: CTR 50 % typ at IF 10 mA (20 % min).
+      'opto-4n25': optocoupler(0.5),
+      // PC817: CTR 50-600 % by rank; 100 % here.
+      'opto-pc817': optocoupler(1.0),
     };
-  },
-  'opto-pc817': (comp, netLookup) => {
-    const an = netLookup('AN');
-    const cat = netLookup('CAT');
-    const col = netLookup('COL');
-    const emit = netLookup('EMIT');
-    if (!an || !cat || !col || !emit) return null;
-    const CTR = 1.0; // 100% (typical for PC817, min 50% max 600%)
-    return {
-      cards: [
-        `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
-        `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
-        `F_${comp.id}_pt ${col} ${emit} V_${comp.id}_sense ${CTR}`,
-        `R_${comp.id}_leak ${col} ${emit} 100Meg`,
-      ],
-      modelsUsed: new Set(['.model DLED_OPTO D(Is=1e-14 N=2 Rs=5)']),
-    };
-  },
+  })(),
 
   // ── Electromechanical relay (SPDT, 5-pin) ───────────────────────────────
   // Coil is modelled as R in series with L. Contacts are voltage-controlled

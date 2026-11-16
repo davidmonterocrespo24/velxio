@@ -2211,7 +2211,9 @@ exports[`netlist snapshot — circuits (41 examples) > optocoupler-signal 1`] = 
 R_rled n1 n2 270
 D_u1_led n2 u1_mid DLED_OPTO
 V_u1_sense u1_mid n4 DC 0
-F_u1_pt n3 n4 V_u1_sense 0.5
+F_u1_pt n3 u1_base V_u1_sense 0.0049504950495
+Q_u1_pt n3 u1_base n4 QOPTO_PT
+R_u1_be u1_base n4 100Meg
 R_u1_leak n3 n4 100Meg
 R_rpull n0 n3 10000
 R_autopull_n0 n0 0 100Meg
@@ -2219,7 +2221,8 @@ R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-.model DLED_OPTO D(Is=1e-14 N=2 Rs=5)
+.model DLED_OPTO D(Is=1.3e-13 N=1.8 Rs=1.1)
+.model QOPTO_PT NPN(IS=1e-14 BF=100 RC=50)
 .op
 .end"
 `;
