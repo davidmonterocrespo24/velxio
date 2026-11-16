@@ -393,7 +393,13 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N2222`],
       modelsUsed: new Set([
-        '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
+        // ISE/NE (velxio/velxio-prod#136): the stock card had no base
+        // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
+        // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
+        // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
+        // (179 at 10 mA, 141 at 150 mA as before, every point above the
+        // datasheet minimums 35 / 50 / 75 / 100).
+        '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
       ]),
     };
   },
@@ -417,7 +423,13 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3055`],
       modelsUsed: new Set([
-        '.model Q2N3055 NPN(BF=73 BR=2.66 RB=.81 RC=.0856 RE=.000856 CJC=1000P PC=.75 MC=.33 TR=.5703U IS=2.37E-8 CJE=415P PE=.75 ME=.5 TF=99.52N NE=1.26 IK=1)',
+        // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
+        // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
+        // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
+        // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
+        // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
+        // Junction capacitances and transit times are the old card's.
+        '.model Q2N3055 NPN(IS=3E-12 BF=115 IKF=4 BR=2.66 RB=.81 RC=.0856 RE=.03 CJC=1000P PC=.75 MC=.33 TR=.5703U CJE=415P PE=.75 ME=.5 TF=99.52N)',
       ]),
     };
   },
@@ -510,16 +522,25 @@ const MAPPERS: Record<string, Mapper> = {
       ]),
     };
   },
-  // FQP27P06 has no good LTSpice equivalent — kept on Level=1 PMOS with the
-  // historical parameter set. Upgrade when a Fairchild VDMOS model is found.
+  // FQP27P06: a VDMOS card fitted to Fairchild's datasheet (Rev. A2), as no
+  // library carries one (velxio/velxio-prod#136). RDS(on) 54 mohm at VGS
+  // -10 V, ID -13.5 A (0.055 typ, 0.07 max); VGS(th) -2.66 V at 250 uA
+  // (-2 to -4 V); gFS 12.6 S at 13.5 A (12.4 typ); 14.8 A at VGS -5 V, VDS
+  // -30 V (Fig. 2: about 15 A); Ciss / Crss / Coss 1114 / 114 / 466 pF at
+  // VDS -25 V (1100 / 120 / 510 typ); BV at its -60 V rating (#110). A 5 V
+  // gate swing turns it well on (0.11 ohm at 1 A); 3.3 V barely (0.5 A at
+  // VDS -1 V). The Level-1 placeholder it replaces was 32.6 ohm at -5 V and
+  // 10.7 ohm at -10 V (200 times the datasheet), with no breakdown.
   'mosfet-fqp27p06': (comp, netLookup) => {
     const d = netLookup('D');
     const g = netLookup('G');
     const s = netLookup('S');
     if (!d || !g || !s) return null;
     return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} ${s} MFQP27P06 L=2u W=500u`],
-      modelsUsed: new Set(['.model MFQP27P06 PMOS(Level=1 Vto=-2.5 Kp=50u Lambda=0.01)']),
+      cards: [`M_${comp.id} ${d} ${g} ${s} MFQP27P06`],
+      modelsUsed: new Set([
+        '.model MFQP27P06 VDMOS(pchan Vto=-2.9 Kp=6 Rd=20m Rs=10m Rb=10m lambda=.01 Cgdmax=1n Cgdmin=.1n Cgs=1n Cjo=2n BV=60 Vds=-60 Ron=55m Qg=33n)',
+      ]),
     };
   },
 

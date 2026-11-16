@@ -164,7 +164,7 @@
       "tagName": "wokwi-mosfet-2n7000",
       "name": "2N7000 (N-MOSFET)",
       "category": "analog",
-      "description": "Logic-level N-channel MOSFET. Vth ≈ 1.6 V, fully enhanced at 3.3 V — perfect for GPIO-driven load switching."
+      "description": "Small-signal N-channel MOSFET, 60 V / 200 mA. VGS(th) 0.8-3 V, RDS(on) 1.8 Ω typ at VGS 4.5 V. Switches LEDs, buzzers and small relays from a 5 V pin; from a 3.3 V pin it is only partly on (about 4 Ω, 0.2 A at most)."
     },
     {
       "thumbnail": "",
@@ -367,7 +367,7 @@
       "tagName": "wokwi-mosfet-fqp27p06",
       "name": "FQP27P06 (P-MOSFET)",
       "category": "analog",
-      "description": "Logic-level P-channel MOSFET. Suitable for 3.3V / 5V gate drive."
+      "description": "P-channel power MOSFET, -60 V / -27 A, R_DS(on) 0.055 Ω typ at VGS -10 V. VGS(th) -2 to -4 V: a 5 V gate swing turns it well on (about 0.1 Ω), 3.3 V barely. High-side load switching."
     },
     {
       "thumbnail": "",
@@ -405,7 +405,7 @@
       "tagName": "wokwi-mosfet-irf540",
       "name": "IRF540 (N-MOSFET Power)",
       "category": "analog",
-      "description": "Power N-channel MOSFET. Vth ≈ 3 V (needs 10 V for full enhancement), 33 A / 100 V, R_DS(on) ≈ 77 mΩ. Classic motor / solenoid driver."
+      "description": "Power N-channel MOSFET, 100 V / 28 A, R_DS(on) ≤ 77 mΩ at VGS 10 V. VGS(th) 2-4 V: it needs about 10 V on the gate to turn fully on; from a 5 V pin it carries a couple of amps at about 0.3 Ω, and 3.3 V leaves it off. Classic motor / solenoid driver."
     },
     {
       "thumbnail": "",

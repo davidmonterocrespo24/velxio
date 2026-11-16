@@ -76,6 +76,9 @@ describe('Phase 2.1 — MOSFETs use VDMOS 3-terminal syntax', () => {
     ['mosfet-2n7000', 'M2N7000'],
     ['mosfet-irf540', 'MIRF540'],
     ['mosfet-irf9540', 'MIRF9540'],
+    // Fitted to Fairchild's datasheet (velxio/velxio-prod#136); it was the
+    // last Level=1 placeholder.
+    ['mosfet-fqp27p06', 'MFQP27P06'],
   ])('%s emits a VDMOS .model and a 3-terminal Mxxx card', (id, modelName) => {
     const comp: PlacedComponent = { id: 'q1', metadataId: id, properties: {} };
     const result = componentToSpice(comp, netLookupStub, { vcc: 5 });
@@ -91,14 +94,6 @@ describe('Phase 2.1 — MOSFETs use VDMOS 3-terminal syntax', () => {
     expect(instance).not.toMatch(/W=\d/);
     // 3-terminal Mxxx: `M_id D G S MODEL` → 5 tokens.
     expect((instance ?? '').trim().split(/\s+/)).toHaveLength(5);
-  });
-
-  it('mosfet-fqp27p06 still on Level=1 (no upstream VDMOS model yet)', () => {
-    const comp: PlacedComponent = { id: 'q1', metadataId: 'mosfet-fqp27p06', properties: {} };
-    const result = componentToSpice(comp, netLookupStub, { vcc: 5 });
-    if (!result) throw new Error('no emission for mosfet-fqp27p06');
-    const m = Array.from(result.modelsUsed).find((s) => s.includes('MFQP27P06'));
-    expect(m).toMatch(/Level=1/);
   });
 });
 
