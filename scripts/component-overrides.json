@@ -714,7 +714,7 @@
       "tagName": "wokwi-diode-1n5817",
       "name": "1N5817 (Schottky 20V)",
       "category": "analog",
-      "description": "Schottky diode, 1 A / 20 V. Vf \u2248 0.32 V at 1 A. Used in low-drop rectification and reverse-polarity protection.",
+      "description": "Schottky diode, 1 A / 20 V. Vf \u2264 0.45 V at 1 A (0.32 V at 0.1 A). Used in low-drop rectification and reverse-polarity protection.",
       "properties": [],
       "defaultValues": {},
       "pinCount": 2,

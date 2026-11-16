@@ -345,20 +345,39 @@ const MAPPERS: Record<string, Mapper> = {
       ]),
     };
   },
+  // Vishay's own 1N4007 model (vishay.com/docs/89789/1n4007.txt): 0.63 V at
+  // 10 mA, 0.74 V at 0.1 A and 0.89 V at 1 A, on the typical curve of the
+  // 1N4001-1N4007 datasheet (Fig. 4: about 0.62 / 0.75 / 0.9 V; 1.1 V max at
+  // 1 A). The card before dropped 0.44 V at 10 mA and 0.67 V at 1 A, 0.2 V
+  // under any silicon rectifier (velxio/velxio-prod#132). Its storage time,
+  // Tt=4.10886u, is left out: at an amp it is a diffusion capacitance of
+  // about 90 uF, and on the trapezoidal method a rectifier charging 1000 uF
+  // from the lab supply rang +-17 mA every sample (power-supply-cv-cc spec)
+  // for a recovery that only matters at tens of kHz, where a 1N4007 is the
+  // wrong part anyway.
   'diode-1n4007': (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     return {
       cards: [`D_${comp.id} ${pins[0]} ${pins[1]} D1N4007`],
-      modelsUsed: new Set(['.model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)']),
+      modelsUsed: new Set([
+        '.model D1N4007 D(Is=14.3733n N=1.80829 Rs=0.0414712 Eg=1.11 Xti=3 Cjo=28.119p Vj=0.700053 M=0.346714 Fc=0.5 Bv=1100 Ibv=10)',
+      ]),
     };
   },
+  // 1N4733A (Vishay 1N4728A series): VZ 5.1 V at IZT = 49 mA, ZZT 7 ohm max,
+  // VF 1.2 V max at 200 mA. ngspice puts the junction at Bv when it carries
+  // Ibv, and Rs adds IZT * Rs on top, so Bv is 5.1 V less that: the card had
+  // Bv=5.1 with Rs=5 and read 5.34 V at IZT (velxio/velxio-prod#132). Rs=2
+  // gives a 2.5 ohm slope at IZT (4.95 V at 5 mA, 5.22 V at 0.1 A) and keeps
+  // the forward drop a silicon one: 0.69 V at 10 mA, 1.15 V at 200 mA (it was
+  // 0.47 V and 1.49 V).
   'zener-1n4733': (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     return {
       cards: [`D_${comp.id} ${pins[0]} ${pins[1]} D1N4733`],
-      modelsUsed: new Set(['.model D1N4733 D(Is=1n N=1 Rs=5 Bv=5.1 Ibv=50m)']),
+      modelsUsed: new Set(['.model D1N4733 D(Is=50f N=1 Rs=2 Bv=5.002 Ibv=49m)']),
     };
   },
 
