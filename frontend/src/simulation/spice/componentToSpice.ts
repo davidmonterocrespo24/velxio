@@ -57,6 +57,9 @@ export interface MapperContext {
   /** A part with memory (SpiceEmission.memory): whether its last solve left
    *  it operated. Absent: released, as at power-up. */
   operated?: boolean;
+  /** Nets driven by a logic gate on a feedback loop (an SR latch), which the
+   *  deck seeds with .nodeset (velxio/velxio-prod#147). */
+  latchNets?: ReadonlySet<string>;
 }
 
 export type Mapper = (
@@ -170,6 +173,50 @@ const LOGIC_EDGE_VOLTS = 0.05;
 /** `0..1` step of `V(net)` around `threshold`, with a finite slope (see the gates note). */
 function logicStep(net: string, threshold: number): string {
   return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
+}
+
+/**
+ * Output resistance of a logic gate on a feedback loop, about a 74HC output
+ * (TI SN74HC00: VOH 4.31 V min at -4 mA from 4.5 V). It is what lets the
+ * deck's .nodeset place the loop in a state (see the gates note).
+ */
+const LATCH_GATE_OHMS = 25;
+
+/** The node a gate's B source drives: its output pin, or, on a feedback loop
+ *  (MapperContext.latchNets), an internal node behind LATCH_GATE_OHMS. */
+function gateOutput(id: string, y: string, ctx: MapperContext): { node: string; cards: string[] } {
+  if (!ctx.latchNets?.has(y)) return { node: y, cards: [] };
+  const node = `${id}_yi`;
+  return { node, cards: [`R_${id}_ro ${node} ${y} ${LATCH_GATE_OHMS}`] };
+}
+
+/** Which pins of a logic part drive which: per gate, its inputs and its output. */
+export interface GateLink {
+  inputs: string[];
+  output: string;
+}
+
+const GATE_LINKS: Record<string, GateLink[]> = (() => {
+  const t: Record<string, GateLink[]> = {};
+  for (const g of ['and', 'or', 'nand', 'nor', 'xor', 'xnor']) t[`logic-gate-${g}`] = [{ inputs: ['A', 'B'], output: 'Y' }];
+  t['logic-gate-not'] = [{ inputs: ['A'], output: 'Y' }];
+  for (const g of ['and', 'or', 'nand', 'nor']) {
+    t[`logic-gate-${g}-3`] = [{ inputs: ['A', 'B', 'C'], output: 'Y' }];
+    t[`logic-gate-${g}-4`] = [{ inputs: ['A', 'B', 'C', 'D'], output: 'Y' }];
+  }
+  for (const ic of ['ic-74hc00', 'ic-74hc08', 'ic-74hc32', 'ic-74hc02', 'ic-74hc86']) {
+    t[ic] = [1, 2, 3, 4].map((i) => ({ inputs: [`${i}A`, `${i}B`], output: `${i}Y` }));
+  }
+  for (const ic of ['ic-74hc04', 'ic-74hc14']) {
+    t[ic] = [1, 2, 3, 4, 5, 6].map((i) => ({ inputs: [`${i}A`], output: `${i}Y` }));
+  }
+  return t;
+})();
+
+/** The gates of a logic part (inputs -> output), or null for any other part.
+ *  NetlistBuilder finds the feedback loops (latches) from them. */
+export function logicGateLinks(metadataId: string): readonly GateLink[] | null {
+  return GATE_LINKS[metadataId] ?? null;
 }
 
 // One entry per colour the part's colour select offers: a colour missing here
@@ -1081,107 +1128,65 @@ const MAPPERS: Record<string, Mapper> = {
   // the canvas, and the pre-flight refuses the example before it compiles
   // (project/gallery-libraries-2026-09, cause H). A 50 mV tanh edge keeps
   // every truth table exact at 0 V / vcc (the gate examples solve to the
-  // same numbers to two decimals) and gives the loop a solution: the
-  // symmetric midpoint at power-up, which is what a real latch does until an
-  // input breaks the tie. The Schmitt inverter (hysteresis by design) and
-  // the L293D enable logic keep the ideal step: neither is cross-coupled.
-  // Written as one helper so the edge width is a single number.
+  // same numbers to two decimals) and gives the loop a solution. A real
+  // latch powers up in one of its two states and keeps it; the symmetric
+  // midpoint the loop also has is an unstable equilibrium a real one leaves
+  // in nanoseconds, but an operating point with no history lands on it. So a
+  // gate on a feedback loop (MapperContext.latchNets) drives its pin through
+  // LATCH_GATE_OHMS, and the deck seeds the loop's nets with .nodeset
+  // (NetlistBuilder): with the state they had at the last solve, or a
+  // definite power-up state. ngspice's .nodeset cannot move an ideal source's
+  // node, hence the resistance (velxio/velxio-prod#147). The Schmitt inverter
+  // (hysteresis by design) and the L293D enable logic keep the ideal step:
+  // neither is cross-coupled. Written as one helper so the edge width is a
+  // single number.
 
   // Convention: inputs at 2-input gates are 'A','B'; output is 'Y'. Threshold
   // is ctx.vcc/2. A 1 MΩ load keeps the output node DC-connected so ngspice
   // doesn't see it as floating (otherwise .op returns matrix singular).
-  'logic-gate-and': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
+  ...(() => {
+    const twoInput = (expr: (a: string, b: string, T: number, vcc: number) => string): Mapper => (comp, netLookup, ctx) => {
+      const a = netLookup('A'),
+        b = netLookup('B'),
+        y = netLookup('Y');
+      if (!a || !b || !y) return null;
+      const out = gateOutput(comp.id, y, ctx);
+      return {
+        cards: [
+          `B_${comp.id} ${out.node} 0 V = ${expr(a, b, ctx.vcc / 2, ctx.vcc)}`,
+          ...out.cards,
+          `R_${comp.id}_load ${y} 0 1Meg`,
+        ],
+        modelsUsed: new Set(),
+      };
     };
-  },
-  'logic-gate-or': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
     return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
+      'logic-gate-and': twoInput((a, b, T, vcc) => `${vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`),
+      'logic-gate-or': twoInput(
+        (a, b, T, vcc) => `${vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
+      ),
+      'logic-gate-nand': twoInput((a, b, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`),
+      'logic-gate-nor': twoInput((a, b, T, vcc) => `${vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`),
+      'logic-gate-xor': twoInput(
+        (a, b, T, vcc) =>
+          `${vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
+      ),
+      'logic-gate-xnor': twoInput(
+        (a, b, T, vcc) =>
+          `${vcc} * (1 - (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)}))`,
+      ),
     };
-  },
-  'logic-gate-nand': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-nor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-xor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-xnor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)}))`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
+  })(),
   'logic-gate-not': (comp, netLookup, ctx) => {
     const a = netLookup('A'),
       y = netLookup('Y');
     if (!a || !y) return null;
     const T = ctx.vcc / 2;
+    const out = gateOutput(comp.id, y, ctx);
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)})`,
+        `B_${comp.id} ${out.node} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)})`,
+        ...out.cards,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -1205,9 +1210,11 @@ const MAPPERS: Record<string, Mapper> = {
         const y = netLookup('Y');
         if (inputs.some((n) => !n) || !y) return null;
         const T = ctx.vcc / 2;
+        const out = gateOutput(comp.id, y, ctx);
         return {
           cards: [
-            `B_${comp.id} ${y} 0 V = ${build(inputs as string[], T, ctx.vcc)}`,
+            `B_${comp.id} ${out.node} 0 V = ${build(inputs as string[], T, ctx.vcc)}`,
+            ...out.cards,
             `R_${comp.id}_load ${y} 0 1Meg`,
           ],
           modelsUsed: new Set(),
@@ -1300,7 +1307,9 @@ const MAPPERS: Record<string, Mapper> = {
           const b = netLookup(`${i}B`);
           const y = netLookup(`${i}Y`);
           if (!a || !b || !y) continue; // skip unwired gates silently
-          cards.push(`B_${comp.id}_${i} ${y} 0 V = ${build(a, b, y, T, ctx.vcc)}`);
+          const out = gateOutput(`${comp.id}_${i}`, y, ctx);
+          cards.push(`B_${comp.id}_${i} ${out.node} 0 V = ${build(a, b, y, T, ctx.vcc)}`);
+          cards.push(...out.cards);
           cards.push(`R_${comp.id}_${i}_load ${y} 0 1Meg`);
         }
         if (cards.length === 0) return null;
@@ -1318,7 +1327,9 @@ const MAPPERS: Record<string, Mapper> = {
           const a = netLookup(`${i}A`);
           const y = netLookup(`${i}Y`);
           if (!a || !y) continue;
-          cards.push(`B_${comp.id}_${i} ${y} 0 V = ${build(a, y, T, ctx.vcc)}`);
+          const out = gateOutput(`${comp.id}_${i}`, y, ctx);
+          cards.push(`B_${comp.id}_${i} ${out.node} 0 V = ${build(a, y, T, ctx.vcc)}`);
+          cards.push(...out.cards);
           cards.push(`R_${comp.id}_${i}_load ${y} 0 1Meg`);
         }
         if (cards.length === 0) return null;

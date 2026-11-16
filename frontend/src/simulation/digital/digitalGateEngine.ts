@@ -16,8 +16,8 @@
  *   - a resistor with one end on GND  = PULL 0 on the other net (pull-down).
  *   - a resistor with one end on rail = PULL 1 on the other net (pull-up).
  *   - a resistor between two signal nets = pass-through (the nets merge).
- *   - a slide-switch closed = pass its rail-side level to its other pin (STRONG);
- *     open = Hi-Z (the pull-down then wins -> 0).
+ *   - a slide-switch joins its common (pin 2) with the selected throw, both
+ *     ways, like the wire it is (attachSwitch); its other throw is open.
  *   - a gate computes its boolean and drives Y STRONG.
  *   - an LED is a pure sink: it reads its anode net (lit iff the net is 1).
  *
@@ -26,8 +26,8 @@
  * wires those in.
  */
 import { PinManager } from '../PinManager';
-import { setBusDrive } from '../customChips/busNets';
-import { Strength, type Drive } from '../customChips/busLogic';
+import { resolveBusNetWithout, setBusDrive } from '../customChips/busNets';
+import { HIGHZ_DRIVE, Strength, type Drive } from '../customChips/busLogic';
 import { isJunction } from '../../utils/junction';
 
 const STRONG = (v: 0 | 1): Drive => ({ value: v, strength: Strength.STRONG });
@@ -146,6 +146,55 @@ export function isAllDigital(components: DigitalComponent[]): boolean {
 // as a NUL byte by the edit tools, turning the source into a git-binary).
 const epKey = (compId: string, pin: string) => `${compId}::${pin}`;
 
+/**
+ * A slide switch as the wire it is: pin 2, the common, joined to pin 1 at
+ * value 0 or to pin 3 at value 1, both ways. Each side of the closed contact
+ * is driven with what the other side resolves to without the switch, at that
+ * strength, so a common on GND pulls the selected throw low and a common on a
+ * gate input takes the level of the throw. The switch used to drive only its
+ * common, with the throw's level: wired as the textbook SR-latch debouncer
+ * (common to ground, the throws on the pulled-up S-bar and R-bar inputs) that
+ * was two strong drivers fighting on the ground net (contention, resolved X)
+ * while the throws never moved, so the latch never set (velxio/velxio-prod
+ * #147). A throw that isn't wired leaves the common floating (any pull
+ * resistor then decides), as the SPICE model omits an unwired leg; the throw
+ * not selected is open.
+ *
+ * Returns `apply`, which re-drives both sides for the switch's current value;
+ * it also runs on every level change of the three nets.
+ */
+function attachSwitch(
+  pm: PinManager,
+  c: DigitalComponent,
+  netKey: (compId: string, pin: string) => number,
+  wiredPins: ReadonlySet<string>,
+  valueOf: () => 0 | 1,
+): () => void {
+  const common = netKey(c.id, '2');
+  const throws = { '1': netKey(c.id, '1'), '3': netKey(c.id, '3') } as const;
+  const asDrive = (r: ReturnType<typeof resolveBusNetWithout>): Drive =>
+    r.v === 'Z' ? HIGHZ_DRIVE : { value: r.v === '1' ? 1 : 0, strength: r.strength };
+  const apply = () => {
+    const selected = valueOf() === 1 ? '3' : '1';
+    for (const pin of ['1', '3'] as const) {
+      if (pin !== selected && throws[pin] !== common) {
+        setBusDrive(pm, throws[pin], `${c.id}::pass${pin}`, HIGHZ_DRIVE);
+      }
+    }
+    const t = throws[selected];
+    if (!wiredPins.has(epKey(c.id, selected)) || t === common) {
+      setBusDrive(pm, common, `${c.id}::pass`, HIGHZ_DRIVE);
+      return;
+    }
+    const fromCommon = asDrive(resolveBusNetWithout(common, `${c.id}::pass`));
+    const fromThrow = asDrive(resolveBusNetWithout(t, `${c.id}::pass${selected}`));
+    setBusDrive(pm, t, `${c.id}::pass${selected}`, fromCommon);
+    setBusDrive(pm, common, `${c.id}::pass`, fromThrow);
+  };
+  for (const net of new Set([common, throws['1'], throws['3']])) pm.onPinChange(net, () => apply());
+  return apply;
+}
+
 // ── Union-find over wire endpoints ──────────────────────────────────────────
 class UnionFind {
   private parent = new Map<string, string>();
@@ -262,27 +311,23 @@ export function buildDigitalNetwork(
     // else: pass-through (already merged) — contributes no driver.
   }
 
-  // ── Switches: SPDT. Pin 2 is the common wiper; it connects to pin 1 at
-  // value=0 or pin 3 at value=1 and passes that throw's level to the common.
-  // A throw that isn't wired leaves the common floating (any pull resistor then
-  // decides), mirroring the SPICE model which omits an unwired leg.
+  // ── Switches: SPDT. Pin 2 is the common; it is joined both ways to pin 1 at
+  // value=0 or pin 3 at value=1 (attachSwitch). A throw that isn't wired
+  // leaves the common floating (any pull resistor then decides), mirroring
+  // the SPICE model which omits an unwired leg.
   const wiredPins = new Set<string>();
   for (const w of wires) {
     wiredPins.add(epKey(w.start.componentId, w.start.pinName));
     wiredPins.add(epKey(w.end.componentId, w.end.pinName));
   }
   const switchState = new Map<string, 0 | 1>();
-  const driveSwitch = (c: DigitalComponent) => {
-    const value = switchState.get(c.id) ?? (Number(c.properties?.value) === 1 ? 1 : 0);
-    const common = netKey(c.id, '2');
-    const throwPin = value === 1 ? '3' : '1';
-    if (wiredPins.has(epKey(c.id, throwPin))) {
-      const level = pm.getPinState(netKey(c.id, throwPin)) ? 1 : 0;
-      setBusDrive(pm, common, `${c.id}::pass`, STRONG(level as 0 | 1));
-    } else {
-      setBusDrive(pm, common, `${c.id}::pass`, { value: 0, strength: Strength.HIGHZ });
-    }
-  };
+  const switches = new Map<string, () => void>();
+  for (const c of components) {
+    if (!isSwitch(kindOf(c))) continue;
+    const valueOf = () => switchState.get(c.id) ?? (Number(c.properties?.value) === 1 ? 1 : 0);
+    switches.set(c.id, attachSwitch(pm, c, netKey, wiredPins, valueOf));
+  }
+  const driveSwitch = (c: DigitalComponent) => switches.get(c.id)?.();
   for (const c of components) if (isSwitch(kindOf(c))) driveSwitch(c);
 
   // ── Gates: subscribe inputs, compute, drive Y (event-driven) ───────────────
@@ -421,25 +466,22 @@ export function buildMixedNetwork(
       setBusDrive(pm, netKey(c.id, 'GND'), `${c.id}::GND`, STRONG(0));
     }
   }
-  // SPDT (same model as the all-digital path): pin 2 is the common wiper,
-  // connecting to pin 1 at value=0 or pin 3 at value=1; an unwired throw leaves
-  // the common floating.
+  // SPDT (same model as the all-digital path, attachSwitch): pin 2 is the
+  // common, joined both ways to pin 1 at value=0 or pin 3 at value=1; an
+  // unwired throw leaves the common floating.
   const wiredPins = new Set<string>();
   for (const w of wires) {
     wiredPins.add(epKey(w.start.componentId, w.start.pinName));
     wiredPins.add(epKey(w.end.componentId, w.end.pinName));
   }
   const switchState = new Map<string, 0 | 1>();
-  const driveSwitch = (c: DigitalComponent) => {
-    const value = switchState.get(c.id) ?? (Number(c.properties?.value) === 1 ? 1 : 0);
-    const common = netKey(c.id, '2');
-    const throwPin = value === 1 ? '3' : '1';
-    if (wiredPins.has(epKey(c.id, throwPin))) {
-      setBusDrive(pm, common, `${c.id}::pass`, STRONG(pm.getPinState(netKey(c.id, throwPin)) ? 1 : 0));
-    } else {
-      setBusDrive(pm, common, `${c.id}::pass`, { value: 0, strength: Strength.HIGHZ });
-    }
-  };
+  const switches = new Map<string, () => void>();
+  for (const c of components) {
+    if (!isSwitch(kindOf(c))) continue;
+    const valueOf = () => switchState.get(c.id) ?? (Number(c.properties?.value) === 1 ? 1 : 0);
+    switches.set(c.id, attachSwitch(pm, c, netKey, wiredPins, valueOf));
+  }
+  const driveSwitch = (c: DigitalComponent) => switches.get(c.id)?.();
   for (const c of components) if (isSwitch(kindOf(c))) driveSwitch(c);
   for (const c of components) {
     if (!isGate(kindOf(c))) continue;

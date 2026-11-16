@@ -1859,9 +1859,11 @@ R_setBtn_sw n5 n6 1000000000
 R_rstBtn_sw n4 n6 1000000000
 R_rpuS n0 n5 10000
 R_rpuR n0 n4 10000
-B_g1 n1 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
+B_g1 g1_yi 0 V = 5 * (1 - (0.5*(1+tanh((V(n5)-2.5)/0.05))) * (0.5*(1+tanh((V(n2)-2.5)/0.05))))
+R_g1_ro g1_yi n1 25
 R_g1_load n1 0 1Meg
-B_g2 n2 0 V = 5 * (1 - (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))))
+B_g2 g2_yi 0 V = 5 * (1 - (0.5*(1+tanh((V(n4)-2.5)/0.05))) * (0.5*(1+tanh((V(n1)-2.5)/0.05))))
+R_g2_ro g2_yi n2 25
 R_g2_load n2 0 1Meg
 R_rl n1 n3 220
 V_qled_sense n3 qled_sense_mid DC 0
@@ -1871,6 +1873,7 @@ R_autopull_n4 n4 0 100Meg
 R_autopull_n5 n5 0 100Meg
 R_autopull_n6 n6 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
+.nodeset V(n1)=0 V(n2)=5
 .op
 .end"
 `;

@@ -103,6 +103,24 @@ export type AnalysisMode =
 export interface CircuitMemory {
   /** Component id -> whether its armature is operated (a relay pulled in). */
   switches?: ReadonlyMap<string, boolean>;
+  /** "componentId:pinName" of a latch gate's output -> its volts
+   *  (velxio/velxio-prod#147). */
+  nodes?: ReadonlyMap<string, number>;
+}
+
+/**
+ * A net a logic gate on a feedback loop drives (one side of an SR latch): the
+ * deck seeds it with .nodeset, and the latch settles in the state the seeds
+ * describe. `key` is the driving gate's output pin, which survives a rebuild
+ * that renames the net.
+ */
+export interface NodeMemoryCell {
+  key: string;
+  net: string;
+  /** The logic threshold: a solve that ends on the other side of it from
+   *  `seed` has flipped the latch. */
+  threshold: number;
+  seed: number;
 }
 
 /**

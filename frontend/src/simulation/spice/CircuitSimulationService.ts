@@ -29,7 +29,7 @@
  */
 import { buildInputFromStore } from './storeAdapter';
 import { buildNetlist, sanitizeSpiceId } from './NetlistBuilder';
-import type { SwitchMemoryCell, TimeWaveforms } from './types';
+import type { NodeMemoryCell, SwitchMemoryCell, TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
 import { transientShortfall } from './transientShortfall';
@@ -370,6 +370,15 @@ export class CircuitSimulationService {
   /** The loaded deck's switches with memory and the state it starts them in. */
   private memoryCells: SwitchMemoryCell[] = [];
   /**
+   * A latch of logic gates is the same story: two stable states and an
+   * unstable midpoint an operating point with no history lands on. Each
+   * latch output's volts at the last published solve, by the gate's output
+   * pin, seed the next deck (.nodeset), so an SR latch keeps its state when
+   * SET or RESET is released (velxio/velxio-prod#147).
+   */
+  private nodeMemory = new Map<string, number>();
+  private nodeMemoryCells: NodeMemoryCell[] = [];
+  /**
    * A pad-state solve starts the switches where the loaded deck does, so one
    * that ends elsewhere (a pin pulled a relay in) asks for a rebuild that
    * starts them there, at most once per MEMORY_REBUILD_MS: a relay whose own
@@ -378,6 +387,13 @@ export class CircuitSimulationService {
   private memoryRebuildAt = -Infinity;
   private memoryRebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly MEMORY_REBUILD_MS = 250;
+  /**
+   * Set from a pad-state solve that moved the memory until the rebuild it
+   * asked for runs. Pad-state solves in between come from a deck that starts
+   * the memory in its old state (a window that closes first, a cached state),
+   * so they do not get to overwrite what was learnt.
+   */
+  private memoryStale = false;
 
   /** How often the window closes and publishes while pads keep changing. */
   static readonly PUBLISH_WINDOW_MS = 33;
@@ -807,7 +823,7 @@ export class CircuitSimulationService {
    *  the circuit's memory. */
   private adopt(vec: StateVectors): void {
     if (this.scheduler.getLastResult() !== vec.result) this.scheduler.adoptResult?.(vec.result);
-    this.noteMemory(vec.result);
+    if (!this.memoryStale) this.noteMemory(vec.result);
   }
 
   /**
@@ -817,28 +833,42 @@ export class CircuitSimulationService {
    * elsewhere asks for a rebuild (see memoryRebuildAt).
    */
   private noteMemory(result: import('./ports/SolverPort').SolveResult): void {
-    if (this.memoryCells.length === 0) return;
+    if (this.memoryCells.length === 0 && this.nodeMemoryCells.length === 0) return;
+    const last = (name: string): number | undefined => {
+      const vec = result.vectors.get(`v(${name.toLowerCase()})`);
+      return vec && vec.real.length > 0 ? vec.real[vec.real.length - 1] : undefined;
+    };
     let moved = false;
     for (const cell of this.memoryCells) {
-      const vec = result.vectors.get(`v(${cell.control.toLowerCase()})`);
-      if (!vec || vec.real.length === 0) continue;
-      const v = vec.real[vec.real.length - 1]!;
+      const v = last(cell.control);
+      if (v === undefined) continue;
       const operated = v > cell.on ? true : v < cell.off ? false : cell.seed;
       this.switchMemory.set(cell.id, operated);
       if (operated !== cell.seed) moved = true;
+    }
+    for (const cell of this.nodeMemoryCells) {
+      const v = last(cell.net);
+      if (v === undefined || !Number.isFinite(v)) continue;
+      this.nodeMemory.set(cell.key, v);
+      if (v > cell.threshold !== cell.seed > cell.threshold) moved = true;
     }
     if (moved && this.padSources.length > 0) this.requestMemoryRebuild();
   }
 
   private requestMemoryRebuild(): void {
-    if (this.stopped || this.memoryRebuildTimer !== null) return;
-    const wait = Math.max(0, this.memoryRebuildAt + CircuitSimulationService.MEMORY_REBUILD_MS - nowMs());
-    this.memoryRebuildTimer = setTimeout(() => {
+    if (this.stopped) return;
+    this.memoryStale = true;
+    if (this.memoryRebuildTimer !== null) return;
+    const go = () => {
       this.memoryRebuildTimer = null;
       this.memoryRebuildAt = nowMs();
-      this.note({ memoryRebuild: [...this.switchMemory] });
+      this.note({ memoryRebuild: [...this.switchMemory, ...this.nodeMemory] });
+      // Queued now, it runs before any window that closes after this solve.
       void this.tick();
-    }, wait);
+    };
+    const wait = this.memoryRebuildAt + CircuitSimulationService.MEMORY_REBUILD_MS - nowMs();
+    if (wait <= 0) go();
+    else this.memoryRebuildTimer = setTimeout(go, wait);
   }
 
   private levelsRecord(levels: readonly number[]): Record<string, number> {
@@ -911,6 +941,8 @@ export class CircuitSimulationService {
 
   private async runSolve(): Promise<void> {
     this.rebuildCount++;
+    // This rebuild starts the memory where the last solves left it.
+    this.memoryStale = false;
     this.lastRebuildAt = Date.now();
     this.rebuildStartedAt = nowMs();
     const state = this.simStore.getState();
@@ -934,8 +966,8 @@ export class CircuitSimulationService {
       })),
     };
     const input = buildInputFromStore(snap as Parameters<typeof buildInputFromStore>[0]);
-    input.memory = { switches: this.switchMemory };
-    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads, memoryCells } =
+    input.memory = { switches: this.switchMemory, nodes: this.nodeMemory };
+    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads, memoryCells, nodeMemoryCells } =
       buildNetlist(input);
     const padNames = new Set<string>();
     for (const b of input.boards) {
@@ -993,6 +1025,8 @@ export class CircuitSimulationService {
     // The memory the new deck starts from, and only for parts still in it.
     this.memoryCells = memoryCells;
     this.switchMemory = new Map(memoryCells.map((c) => [c.id, c.seed] as const));
+    this.nodeMemoryCells = nodeMemoryCells;
+    this.nodeMemory = new Map(nodeMemoryCells.map((c) => [c.key, c.seed] as const));
     const sameShape = shape === this.deckShape;
     this.deckShape = shape;
     this.loadPads(
