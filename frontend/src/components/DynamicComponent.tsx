@@ -39,6 +39,7 @@ import { getBoardLogicFamily } from '../simulation/LogicFamilies';
 import { getSensorControlForComponent } from '../simulation/sensorControlConfig';
 import { mountReseatPolicy } from '../utils/mountReseatPolicy';
 import { tagOwnsPointer } from '../utils/partOwnsPointer';
+import { flagProperty } from '../utils/flagProperty';
 
 // Side-effect imports: register every web component we'll create at runtime.
 // `@wokwi/elements` covers the upstream catalog; `../velxio-elements` adds
@@ -210,7 +211,9 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
           if (typeof def === 'number' && value.trim() !== '' && !Number.isNaN(Number(value))) {
             coerced = Number(value);
           } else if (typeof def === 'boolean') {
-            coerced = value === 'true' || value === '1';
+            // The same reading the circuit uses (componentToSpice), so a
+            // part drawn released is open in the solve too.
+            coerced = flagProperty(value);
           }
         }
         (elementRef.current as any)[key] = coerced;
