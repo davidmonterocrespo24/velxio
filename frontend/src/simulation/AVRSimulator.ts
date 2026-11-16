@@ -41,6 +41,7 @@ import type {
   TWIConfig,
 } from 'avr8js';
 import type { AVRTimerConfig } from 'avr8js/dist/esm/peripherals/timer';
+import type { AVRInterruptConfig } from 'avr8js/dist/esm/cpu/cpu';
 import type { ADCConfig, ADCMuxConfiguration } from 'avr8js/dist/esm/peripherals/adc';
 import { ADCMuxInputType, ADCReference } from 'avr8js/dist/esm/peripherals/adc';
 import { PinManager } from './PinManager';
@@ -762,8 +763,8 @@ const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
 
 /** What the simulator itself does with a USART's traffic (console, scope). */
 interface UsartHooks {
-  /** The guest shifted a byte out of this USART. */
-  transmitted(byte: number): void;
+  /** The guest shifted a byte out of this USART; its frame starts at `atCycle`. */
+  transmitted(byte: number, atCycle: number): void;
   /** The guest wrote UCSRA/UCSRB/UCSRC/UBRR: the line settings may have changed. */
   configured(): void;
 }
@@ -783,6 +784,19 @@ interface UsartHooks {
  * would. The queue is this port's, per USART, and a rebuild empties it: on a
  * reset the line is quiet, and what the previous run never read is gone
  * (finding avr-rx-queue-stale-and-throttled).
+ *
+ * Transmitting: the ATmega's transmitter is double-buffered, and avr8js's is
+ * not, so the port takes over the UDR and UCSRA writes (velxio/velxio-prod#161).
+ * UDRn is a buffer in front of the shift register. A byte written there moves
+ * to the shift register at once when it is idle, or right after the stop bit
+ * of the frame on the wire, and UDREn is set as soon as the buffer is free
+ * again (ATmega328P datasheet DS40002061B, sections 20.6.1 and 20.6.3). The
+ * next byte is queued while the current one shifts out, so frames leave back
+ * to back. avr8js set UDRE only when the whole frame was over, which added
+ * the UDRE interrupt's latency to every character: +0.4 % at 9600 baud and
+ * +4.9 % at 115200 with HardwareSerial. Each byte reaches the console, the
+ * fabric and the scope when its frame starts. TXC is set when a frame ends
+ * with the buffer empty; writing UDR does not clear it, writing a one does.
  */
 class AvrUartPort implements UartControllerPort {
   readonly bus = 'uart' as const;
@@ -792,6 +806,11 @@ class AvrUartPort implements UartControllerPort {
   private handler: ((byte: number) => void) | null = null;
   private pending: number[] = [];
   private readonly hooks: UsartHooks;
+  /** A frame is on the wire (the shift register is busy) until `frameEnd`. */
+  private shifting = false;
+  private frameEnd = 0;
+  /** The byte waiting in UDR for the shift register, or null when UDR is empty. */
+  private buffered: number | null = null;
 
   constructor(unit: number, hooks: UsartHooks) {
     this.unit = unit;
@@ -800,22 +819,71 @@ class AvrUartPort implements UartControllerPort {
   }
 
   /** The CPU was (re)built: take over its USART. */
-  attach(usart: AVRUSART): void {
+  attach(usart: AVRUSART, cpu: CPU, config: USARTConfig): void {
     this.usart = usart;
     this.pending = [];
-    usart.onByteTransmit = (value: number) => {
-      // A peripheral of a CPU that has been replaced reaches nobody.
+    this.shifting = false;
+    this.buffered = null;
+    // A byte avr8js itself reports (nothing in this tree writes UDR around
+    // the hook below, but a caller may hand one over) starts its frame now.
+    usart.onByteTransmit = (value: number) => this.emit(usart, value & 0xff, cpu.cycles);
+    const udre: AVRInterruptConfig = {
+      address: config.dataRegisterEmptyInterrupt,
+      flagRegister: config.UCSRA,
+      flagMask: UCSRA_UDRE,
+      enableRegister: config.UCSRB,
+      enableMask: UCSRB_UDRIE,
+    };
+    const txc: AVRInterruptConfig = {
+      address: config.txCompleteInterrupt,
+      flagRegister: config.UCSRA,
+      flagMask: UCSRA_TXC,
+      enableRegister: config.UCSRB,
+      enableMask: UCSRB_TXCIE,
+    };
+    const startFrame = (byte: number, atCycle: number): void => {
+      this.shifting = true;
+      this.frameEnd = atCycle + usart.cyclesPerChar;
+      // The buffer is free again the moment its byte reaches the shift register.
+      cpu.setInterruptFlag(udre);
+      this.emit(usart, byte, atCycle);
+      cpu.addClockEvent(frameDone, this.frameEnd - cpu.cycles);
+    };
+    const frameDone = (): void => {
       if (usart !== this.usart) return;
-      // Neither does a byte written while the transmitter is off. avr8js
-      // reports every write to UDR, but with TXEN clear the USART does not
-      // drive TXD and shifts nothing out (ATmega328P datasheet, section 20.6
-      // and UDRn): a sketch that never calls Serial.begin() prints nothing on
-      // a real board, to the monitor or to a board wired to TX, and keeps
-      // running (velxio/velxio-prod#167).
-      if (!usart.txEnable) return;
+      this.shifting = false;
+      const next = this.buffered;
+      if (next === null) {
+        cpu.setInterruptFlag(txc);
+        return;
+      }
+      // Right after the stop bit: the next frame starts where this one ended,
+      // not where the clock event happened to run.
+      this.buffered = null;
+      startFrame(next, this.frameEnd);
+    };
+    cpu.writeHooks[config.UDR] = (value) => {
+      // Nothing reaches a transmitter that is off (velxio/velxio-prod#167):
+      // no frame, and UDRE stays as it was, so the sketch keeps running.
+      if (!usart.txEnable) return true;
       const byte = value & 0xff;
-      this.handler?.(byte);
-      this.hooks.transmitted(byte);
+      if (!this.shifting) startFrame(byte, cpu.cycles);
+      else if (this.buffered === null) {
+        this.buffered = byte;
+        cpu.clearInterrupt(udre);
+      }
+      // A write while UDRE is clear is ignored by the transmitter (UDRn).
+      return true;
+    };
+    // UCSRA: RXC, UDRE, FE, DOR and UPE are read-only and TXC is cleared by
+    // writing a one. avr8js stored the written value masked to U2X and MPCM,
+    // which cleared UDRE on every write: HardwareSerial writes UCSRA right
+    // after each UDR write, and with UDRE back at one at once that dropped it.
+    cpu.writeHooks[config.UCSRA] = (value, oldValue) => {
+      cpu.data[config.UCSRA] = (oldValue & UCSRA_READ_ONLY) | (value & (UCSRA_U2X | UCSRA_MPCM));
+      cpu.clearInterruptByFlag(txc, value);
+      if ((value & UCSRA_U2X) !== (oldValue & UCSRA_U2X)) usart.onConfigurationChange?.();
+      return true;
     };
     usart.onRxComplete = () => this.drain();
     usart.onConfigurationChange = () => {
@@ -823,6 +891,21 @@ class AvrUartPort implements UartControllerPort {
       // Serial.begin turned the receiver on: what arrived before it can go in now.
       this.drain();
     };
+  }
+
+  /** A frame leaves the transmitter: the fabric, the console and the scope hear it. */
+  private emit(usart: AVRUSART, byte: number, atCycle: number): void {
+    // A peripheral of a CPU that has been replaced reaches nobody.
+    if (usart !== this.usart) return;
+    // Neither does a byte written while the transmitter is off. avr8js
+    // reports every write to UDR, but with TXEN clear the USART does not
+    // drive TXD and shifts nothing out (ATmega328P datasheet, section 20.6
+    // and UDRn): a sketch that never calls Serial.begin() prints nothing on
+    // a real board, to the monitor or to a board wired to TX, and keeps
+    // running (velxio/velxio-prod#167).
+    if (!usart.txEnable) return;
+    this.handler?.(byte);
+    this.hooks.transmitted(byte, atCycle);
   }
 
   /** The live avr8js peripheral, for the simulator's own reporting. */
@@ -873,6 +956,16 @@ class AvrUartPort implements UartControllerPort {
     return 'static';
   }
 }
+
+// UCSRnA and UCSRnB bits (the same on every USART here).
+const UCSRA_TXC = 0x40;
+const UCSRA_UDRE = 0x20;
+const UCSRA_U2X = 0x02;
+const UCSRA_MPCM = 0x01;
+/** RXC, UDRE, FE, DOR, UPE: the flags of UCSRnA a write does not change (TXC is write-one-to-clear). */
+const UCSRA_READ_ONLY = 0x80 | UCSRA_TXC | UCSRA_UDRE | 0x10 | 0x08 | 0x04;
+const UCSRB_TXCIE = 0x40;
+const UCSRB_UDRIE = 0x20;
 
 // SPCR bits (the same on every ATmega here).
 const SPCR_SPE = 0x40;
@@ -1061,7 +1154,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.uartPorts = this.usartDefs().map(
       (def, unit) =>
         new AvrUartPort(unit, {
-          transmitted: (byte) => this.usartTransmitted(unit, def, byte),
+          transmitted: (byte, atCycle) => this.usartTransmitted(unit, def, byte, atCycle),
           configured: () => this.handleUartConfigChange(unit, def),
         }),
     );
@@ -1217,7 +1310,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       // Every USART of the variant, each behind its port: the console, the
       // scope and the bus fabric all read them through AvrUartPort.attach.
       const usarts = cfg.usarts.map((def) => new AVRUSART(cpu, def.config, AVR_CPU_HZ));
-      usarts.forEach((usart, unit) => this.uartPorts[unit].attach(usart));
+      usarts.forEach((usart, unit) => this.uartPorts[unit].attach(usart, cpu, cfg.usarts[unit].config));
       this.usart = usarts[0];
 
       this.twi = new AVRTWI(cpu, cfg.twi, AVR_CPU_HZ);
@@ -1334,9 +1427,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * that port and no other), and the oscilloscope sees the frame on the TX
    * pin of whichever USART it was.
    */
-  private usartTransmitted(unit: number, def: UsartDef, byte: number): void {
+  private usartTransmitted(unit: number, def: UsartDef, byte: number, atCycle: number): void {
     if (unit === 0 && this.onSerialData) this.onSerialData(String.fromCharCode(byte));
-    this.emitUartTxFrame(this.uartPorts[unit].engine, def.txPin, byte);
+    this.emitUartTxFrame(this.uartPorts[unit].engine, def.txPin, byte, atCycle);
   }
 
   /**
@@ -1358,8 +1451,17 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * timing that holds at any sweep speed. The scope channel only: the bus
    * fabric hears the byte from the port, and a decoder on a hardware TX pad
    * would otherwise read every byte a second time.
+   *
+   * The frame starts at `startCycle`, where the shift register loads it: at
+   * the UDR write when the transmitter was idle, right after the previous
+   * stop bit when the byte waited in the buffer (AvrUartPort).
    */
-  private emitUartTxFrame(usart: AVRUSART | null, txPin: number, byte: number): void {
+  private emitUartTxFrame(
+    usart: AVRUSART | null,
+    txPin: number,
+    byte: number,
+    startCycle = this.cpu?.cycles ?? 0,
+  ): void {
     if (!usart || !this.cpu || !this.onPinChangeWithTime) return;
     if (!usart.txEnable) return;
 
@@ -1368,7 +1470,6 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
 
     const freqHz = 16_000_000;
     const cyclesPerBit = freqHz / baud;
-    const startCycle = this.cpu.cycles;
 
     // Build the frame bit-by-bit. UART idles HIGH; start = LOW; data LSB first;
     // optional parity; stop bit(s) HIGH.  Idle->start gives the first transition.
