@@ -458,6 +458,14 @@ const MAPPERS: Record<string, Mapper> = {
   // `standard.mos`. IRF530 (100 V N-MOS, same series) substitutes for IRF540.
   // IRF9640 (200 V P-MOS) substitutes for IRF9540 — both close enough that
   // a casual circuit drawn around "IRF540" still behaves correctly.
+  //
+  // Breakdown: LTspice's `Vds=` is a label ngspice ignores, so none of these
+  // ever broke down, and a coil switched off with no flyback diode drove the
+  // drain to kilovolts (2.6 kV on a 2N7000 from 5 V). `BV` puts the
+  // avalanche on the body diode (ngspice README.vdmos), at the part's rated
+  // V(BR)DSS: 60 V for the 2N7000 (onsemi), 100 V for the IRF540 and the
+  // IRF9540 (Vishay). The drain now clamps there, as a real part's does
+  // before it dissipates the energy or fails (velxio/velxio-prod#110).
   'mosfet-2n7000': (comp, netLookup) => {
     const d = netLookup('D');
     const g = netLookup('G');
@@ -466,7 +474,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`M_${comp.id} ${d} ${g} ${s} M2N7000`],
       modelsUsed: new Set([
-        '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)',
+        '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)',
       ]),
     };
   },
@@ -480,7 +488,7 @@ const MAPPERS: Record<string, Mapper> = {
       modelsUsed: new Set([
         // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
         // smaller die). Close enough for the canvas.
-        '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p Vds=100 Ron=160m Qg=26n)',
+        '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p BV=100 Vds=100 Ron=160m Qg=26n)',
       ]),
     };
   },
@@ -495,9 +503,10 @@ const MAPPERS: Record<string, Mapper> = {
       cards: [`M_${comp.id} ${d} ${g} ${s} MIRF9540`],
       modelsUsed: new Set([
         // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
-        // identical pin-out and similar Vto. The `pchan` keyword is what
-        // tells the VDMOS engine to flip polarity.
-        '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p Vds=-200 Ron=.5 Qg=44n)',
+        // identical pin-out and similar Vto; BV gives it the IRF9540's own
+        // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
+        // engine to flip polarity.
+        '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p BV=100 Vds=-100 Ron=.5 Qg=44n)',
       ]),
     };
   },

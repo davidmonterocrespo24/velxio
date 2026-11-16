@@ -868,7 +868,7 @@ R_rs n0 0 1000
 C_cin n3 n2 0.00001 IC=0
 M_m1 n1 n2 n0 M2N7000
 R_vm_vmR n1 0 10Meg
-.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)
+.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)
 * voltmeter probe: read v(n1) - v(0)
 .tran 5.000e-5 5.000e-3
 .end"
@@ -882,7 +882,7 @@ R_rg n0 n2 1000
 M_m1 n1 n2 n3 MIRF9540
 R_rl n1 0 220
 R_vm_vmR n1 0 10Meg
-.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p Vds=-200 Ron=.5 Qg=44n)
+.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p BV=100 Vds=-100 Ron=.5 Qg=44n)
 * voltmeter probe: read v(n1) - v(0)
 .tran 1.000e-2 4.000e-1
 .end"
@@ -897,7 +897,7 @@ R_rl n3 n1 470
 M_m1 n1 n0 0 M2N7000
 R_rgp n0 0 100000
 R_vm_vmR n1 0 10Meg
-.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)
+.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)
 * voltmeter probe: read v(n1) - v(0)
 .tran 5.000e-4 4.000e-2
 .end"
@@ -1808,7 +1808,7 @@ R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
 .model LED_WHITE D(Is=1e-28 N=2.0)
-.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)
+.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)
 .op
 .end"
 `;
