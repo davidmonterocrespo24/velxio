@@ -112,3 +112,36 @@ def parse_serial_text(text: str) -> tuple[list[WifiEvent], list[BleEvent]]:
             ble_events.append(be)
 
     return wifi_events, ble_events
+
+
+class SerialStatusLines:
+    """One board's UART0 text, handed to the parsers a whole line at a time.
+
+    The text arrives in the serial monitor's chunks, and a chunk ends where a
+    buffer flushed, not where a line ends. The lib manager's _UartBuffer
+    flushes at every period, so that a progress line ("Connecting....")
+    reaches the monitor at once, and an address is full of periods: "sta ip:
+    192.168.4.15" reached the parser as "sta ip: 192.", "168.", "4." and "15",
+    no chunk held the whole address, and the WiFi status never got past
+    'connected', so the monitor never linked the IoT gateway
+    (velxio/velxio-prod#229). The socket lane breaks a line wherever a read of
+    256 bytes ends.
+
+    So the text waits here until its line ends (a newline or a carriage
+    return), and only whole lines reach the parsers. A line that never ends is
+    read anyway once it holds max_line characters, and dropped, which keeps
+    the buffer bounded.
+    """
+
+    def __init__(self, max_line: int = 1024) -> None:
+        self._max_line = max_line
+        self._pending = ''
+
+    def feed(self, text: str) -> tuple[list[WifiEvent], list[BleEvent]]:
+        """Take the next chunk; return the events of the lines it completed."""
+        pending = self._pending + text
+        end = max(pending.rfind('\n'), pending.rfind('\r')) + 1
+        whole, self._pending = pending[:end], pending[end:]
+        if len(self._pending) >= self._max_line:
+            whole, self._pending = pending, ''
+        return parse_serial_text(whole)

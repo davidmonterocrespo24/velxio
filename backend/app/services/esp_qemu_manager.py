@@ -30,7 +30,7 @@ import socket
 import tempfile
 import time
 from typing import Callable, Awaitable
-from app.services.wifi_status_parser import parse_serial_text
+from app.services.wifi_status_parser import SerialStatusLines
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ class EspInstance:
         self._gpio_writer:   asyncio.StreamWriter | None = None
         self._tasks:         list[asyncio.Task] = []
         self.running:        bool = False
+        # UART0 for the WiFi/BLE status parser, a whole line at a time: a
+        # socket read ends anywhere, the middle of an address included.
+        self.status_lines = SerialStatusLines()
 
         # Sensor state: gpio_pin → {type, properties..., saw_low, responding}
         self.sensors:  dict[int, dict] = {}
@@ -298,7 +301,7 @@ class EspQemuManager:
                 buf.clear()
                 asyncio.create_task(inst.emit('serial_output', {'data': text}))
                 # Parse WiFi/BLE status from serial output
-                wifi_evts, ble_evts = parse_serial_text(text)
+                wifi_evts, ble_evts = inst.status_lines.feed(text)
                 for we in wifi_evts:
                     asyncio.create_task(inst.emit('wifi_status', dict(we)))
                 for be in ble_evts:

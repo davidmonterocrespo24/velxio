@@ -50,6 +50,8 @@ import sys
 import threading
 from typing import Callable, Awaitable
 
+from app.services.wifi_status_parser import SerialStatusLines
+
 logger = logging.getLogger(__name__)
 
 # ── Library path detection ────────────────────────────────────────────────────
@@ -204,6 +206,9 @@ class _WorkerInstance:
     running:    bool = True
     wifi_enabled: bool = False
     wifi_hostfwd_port: int = 0
+    # UART0 for the WiFi/BLE status parser, a whole line at a time: the
+    # monitor's chunks end at every period, and an address is full of them.
+    status_lines: SerialStatusLines = dataclasses.field(default_factory=SerialStatusLines)
 
 
 # ── Manager ───────────────────────────────────────────────────────────────────
@@ -756,8 +761,7 @@ class EspLibManager:
                             })
                             # Parse WiFi/BLE status from UART0 output
                             if uart_id == 0 and inst.wifi_enabled:
-                                from app.services.wifi_status_parser import parse_serial_text
-                                wifi_evts, ble_evts = parse_serial_text(text)
+                                wifi_evts, ble_evts = inst.status_lines.feed(text)
                                 for we in wifi_evts:
                                     self._dispatch(inst, 'wifi_status', dict(we))
                                 for be in ble_evts:
