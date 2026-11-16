@@ -452,12 +452,16 @@ PartSimulationRegistry.register('servo', {
             const pulseCycles = getCycles() - riseTime;
             const pulseUs = (pulseCycles / clockHz) * 1_000_000;
             riseTime = -1;
-            if (pulseUs >= MIN_PULSE_US && pulseUs <= MAX_PULSE_US) {
-              const angle = Math.round(
-                ((pulseUs - MIN_PULSE_US) / (MAX_PULSE_US - MIN_PULSE_US)) * 180,
-              );
-              el.angle = angle;
-            }
+            // Any pulse a servo takes moves the horn, and past either end it
+            // sits on the stop (velxio/velxio-prod#168). Only 544-2400 us used
+            // to count: the Servo library's own 0 degree pulse jitters around
+            // 544 us (543.4-544.6 us from its Timer1 ISR), so most of them were
+            // dropped, and with attach(pin, 500, 2500) write(0) and write(180)
+            // never moved it. A real servo has a dead band of about 10 us and
+            // hard stops at both ends. Same window and clamp as the ESP32 path.
+            if (pulseUs < 200 || pulseUs > 4000) return;
+            const angle = Math.round(((pulseUs - MIN_PULSE_US) / (MAX_PULSE_US - MIN_PULSE_US)) * 180);
+            el.angle = Math.max(0, Math.min(180, angle));
           }
         });
 
