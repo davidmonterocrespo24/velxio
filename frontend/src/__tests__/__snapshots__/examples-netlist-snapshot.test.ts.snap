@@ -1024,11 +1024,12 @@ RL3 22 28 100K
 exports[`netlist snapshot — analog (30 examples) > an-opamp-integrator 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-V_src n2 0 PULSE(1.5 3.5 0 1n 1n 0.0025 0.005)
+V_src n2 0 PULSE(1.5 2.5 0 1n 1n 0.0025 0.005)
 R_rin n2 n1 10000
 C_cf n1 n0 1e-7 IC=0
+R_rfb n1 n0 22000
 X_u1 n3 n1 vcc_rail 0 n0 LM358
-V_vref n3 0 DC 2.5
+V_vref n3 0 DC 2
 R_vm_vmR n0 0 10Meg
 .SUBCKT LM358 1 2 99 50 28
 IOS 2 1 5N
@@ -1083,11 +1084,11 @@ RL3 22 28 100K
 exports[`netlist snapshot — analog (30 examples) > an-opamp-inverting 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-V_src n2 0 SIN(2.5 0.2 500)
+V_src n2 0 SIN(2 0.1 500)
 R_rin n2 n1 1000
 R_rf n1 n0 10000
 X_u1 n3 n1 vcc_rail 0 n0 LM358
-V_vref n3 0 DC 2.5
+V_vref n3 0 DC 2
 R_vm_vmR n0 0 10Meg
 .SUBCKT LM358 1 2 99 50 28
 IOS 2 1 5N
@@ -1142,7 +1143,7 @@ RL3 22 28 100K
 exports[`netlist snapshot — analog (30 examples) > an-opamp-non-inverting 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-V_src n1 0 SIN(2.5 0.1 500)
+V_src n1 0 SIN(0.2 0.1 500)
 X_u1 n1 n0 vcc_rail 0 n2 LM358
 R_rf n2 n0 10000
 R_rg n0 0 1000
@@ -1200,13 +1201,13 @@ RL3 22 28 100K
 exports[`netlist snapshot — analog (30 examples) > an-opamp-summing 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-V_v1 n2 0 DC 1
-V_v2 n3 0 DC 2
+V_v1 n2 0 DC 1.5
+V_v2 n3 0 DC 1.7
 R_r1 n2 n0 10000
 R_r2 n3 n0 10000
 R_rf n0 n1 10000
 X_u1 n4 n0 vcc_rail 0 n1 LM358
-V_vref n4 0 DC 2.5
+V_vref n4 0 DC 2
 R_vm_vmR n1 0 10Meg
 .SUBCKT LM358 1 2 99 50 28
 IOS 2 1 5N
