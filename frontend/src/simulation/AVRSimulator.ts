@@ -611,6 +611,55 @@ const TINY85_DDRB = 0x37;
 /** Every AVR variant here runs at 16 MHz. */
 const AVR_CPU_HZ = 16_000_000;
 
+/** SREG's data address and its global interrupt enable bit. */
+const SREG = 0x5f;
+const SREG_I = 0x80;
+
+/**
+ * avr8js's CPU, entering interrupts the way the AVR core does
+ * (velxio/velxio-prod#158).
+ *
+ * "The interrupt execution response for all the enabled AVR interrupts is
+ * four clock cycles minimum" (ATmega328P datasheet DS40002061B, section 7.7):
+ * the PC is pushed and I cleared, then the vector's jump runs. A device with a
+ * 3-byte PC takes five (ATmega2560, section 7.8.1). avr8js charges two on
+ * every device, so each interrupt started 125 ns early on the Uno.
+ *
+ * The same section: "the instruction following SEI will be executed before
+ * any pending interrupts", and after RETI the AVR "will always return to the
+ * main program and execute one more instruction before any pending interrupt
+ * is served". avr8js served a pending interrupt right after either (its issue
+ * #38 asked for the RETI rule in 2020), so a level that stays pending, such as
+ * a low INT0, starved the main program. Here any instruction that turns I on
+ * (SEI, RETI, a write to SREG) lets one more instruction run first, as simavr
+ * does; the peripherals tick as usual meanwhile.
+ */
+class AvrCpu extends CPU {
+  /**
+   * SREG.I as the previous tick left it, so before the instruction that just
+   * ran. Unknown before the first tick: a host that sets I before running
+   * anything (a test enabling interrupts on a bare program) gets it at once.
+   */
+  private interruptsWereOn: boolean | undefined = undefined;
+
+  tick(): void {
+    const data = this.data;
+    const on = (data[SREG] & SREG_I) !== 0;
+    if (on && this.interruptsWereOn === false) {
+      this.interruptsWereOn = true;
+      data[SREG] &= ~SREG_I;
+      super.tick();
+      data[SREG] |= SREG_I;
+      return;
+    }
+    super.tick();
+    const stillOn = (data[SREG] & SREG_I) !== 0;
+    // tick() cleared I: it entered an interrupt, and charged two cycles.
+    if (on && !stillOn) this.cycles += this.pc22Bits ? 3 : 2;
+    this.interruptsWereOn = stillOn;
+  }
+}
+
 /**
  * Peripheral configs of each ATmega variant. The ATmega2560 keeps the
  * ATmega328P's register addresses for Timer0-2, USART0, SPI, TWI, ADC and
@@ -1268,7 +1317,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // ATtiny85 RAMEND = 0x025F; 512 bytes SRAM.
     const sramBytes =
       this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
-    const cpu = new CPU(this.program, sramBytes);
+    const cpu = new AvrCpu(this.program, sramBytes);
     this.cpu = cpu;
 
     if (this.boardVariant === 'tiny85') {
