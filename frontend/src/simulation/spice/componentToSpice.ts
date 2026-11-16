@@ -157,6 +157,12 @@ export const MIN_SUPPLY_LIMIT_A = 0.01;
 
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
 const LOGIC_EDGE_VOLTS = 0.05;
+/**
+ * The L293D's input threshold: the midpoint of its guaranteed levels, VIL 1.5 V
+ * max and VIH 2.3 V min (TI SLRS008D, 6.3), for any board supply.
+ */
+const L293D_VT = 1.9;
+
 /** `0..1` step of `V(net)` around `threshold`, with a finite slope (see the gates note). */
 function logicStep(net: string, threshold: number): string {
   return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
@@ -1080,47 +1086,69 @@ const MAPPERS: Record<string, Mapper> = {
     };
   })(),
 
-  // ── L293D dual H-bridge motor driver ────────────────────────────────────
-  // 16-pin package with two independent channels. Per channel:
-  //   EN, IN1, IN2, OUT1, OUT2  + shared VCC1 (logic) and VCC2 (motor)
+  // ── L293D quadruple half-H driver (TI SLRS008D) ─────────────────────────
+  // Pins: EN1 (IN1 -> OUT1, IN2 -> OUT2), EN2 (IN3 -> OUT3, IN4 -> OUT4),
+  // VCC1 (logic), VCC2 (the load supply), GND.1..GND.4.
   //
-  // Truth table per output:
-  //   EN=LOW  → output high-Z (modeled as weak 10MΩ pull to GND)
-  //   EN=HIGH → OUT follows IN: HIGH → V_motor, LOW → 0
+  // Each output is a pseudo-Darlington source from VCC2 and a Darlington sink
+  // to GND (8.1), as two switches with the drop of their stage behind them:
+  //   VCC2 --S_src-- D_src -- OUT -- S_snk -- D_snk -- GND
+  // The source conducts while EN and IN are high, the sink while EN is high
+  // and IN is low, and with EN low neither does: the output is
+  // high-impedance (8.1, Table 1), so a motor across a channel coasts. The
+  // stages drop what 6.5 gives at 0.6 A, VCC2 - 1.4 V and 1.2 V typical, and
+  // less at a smaller current (two junctions each); the current comes out of
+  // VCC2, so a supply or a meter there sees the load. The integrated clamp
+  // diodes (VOKH = VCC2 + 1.3 V, VOKL = 1.3 V at 0.6 A) catch an output
+  // pushed past either rail. The chip limits no current (600 mA is a rating,
+  // 6.1), so nothing is limited here.
   //
-  // Uses ctx.vcc as the logic threshold reference; V_motor is taken from the
-  // VCC2 net if wired, otherwise defaults to ctx.vcc. The behavioural output
-  // linearly drives OUT via a B-source + load resistor for DC path.
-  'motor-driver-l293d': (comp, netLookup, ctx) => {
-    const T = ctx.vcc / 2;
+  // The inputs switch at the chip's own thresholds (VIH 2.3 V min, VIL 1.5 V
+  // max, 6.3), the midpoint here, whatever the board's supply. An input left
+  // open reads HIGH: each sits on a current source from VCC1 (Figure 3).
+  //
+  // This replaced an ideal source per output, `V(OUT) = EN * IN * V(VCC2)`
+  // from ground: 0 V with EN low (it braked a motor and sank 5 mA from a
+  // 1 kohm pull-up), no drop, and a current that never came out of VCC2
+  // (velxio/velxio-prod#165).
+  'motor-driver-l293d': (comp, netLookup) => {
     const vcc2 = netLookup('VCC2') ?? netLookup('+VS') ?? netLookup('VS');
-    const vMotorExpr = vcc2 ? `V(${vcc2})` : `${ctx.vcc}`;
+    const high = (net: string | null): string => (net ? `u(V(${net})-${L293D_VT})` : '1');
     const cards: string[] = [];
-
     for (const ch of [1, 2]) {
-      const en = netLookup(`EN${ch}`);
-      const in1 = netLookup(`IN${2 * ch - 1}`);
-      const in2 = netLookup(`IN${2 * ch}`);
-      const out1 = netLookup(`OUT${2 * ch - 1}`);
-      const out2 = netLookup(`OUT${2 * ch}`);
-      if (!en) continue;
-      if (in1 && out1) {
-        // OUT1 = u(EN-T) * (u(IN1-T) * V_motor)
-        cards.push(
-          `B_${comp.id}_ch${ch}a ${out1} 0 V = u(V(${en})-${T}) * u(V(${in1})-${T}) * ${vMotorExpr}`,
-        );
-        cards.push(`R_${comp.id}_ch${ch}a_load ${out1} 0 10Meg`);
-      }
-      if (in2 && out2) {
-        cards.push(
-          `B_${comp.id}_ch${ch}b ${out2} 0 V = u(V(${en})-${T}) * u(V(${in2})-${T}) * ${vMotorExpr}`,
-        );
-        cards.push(`R_${comp.id}_ch${ch}b_load ${out2} 0 10Meg`);
+      const enabled = high(netLookup(`EN${ch}`));
+      for (const k of [2 * ch - 1, 2 * ch]) {
+        const out = netLookup(`OUT${k}`);
+        if (!out) continue;
+        const input = high(netLookup(`IN${k}`));
+        const o = `${comp.id}_o${k}`;
+        cards.push(`B_${o}_src ${o}_srcc 0 V = ${enabled} * ${input}`);
+        cards.push(`B_${o}_snk ${o}_snkc 0 V = ${enabled} * (1 - ${input})`);
+        if (vcc2) {
+          cards.push(`S_${o}_src ${vcc2} ${o}_src ${o}_srcc 0 L293D_SW`);
+          cards.push(`D_${o}_src ${o}_src ${out} L293D_SRC`);
+          cards.push(`D_${o}_clamph ${out} ${vcc2} L293D_CLAMP`);
+        }
+        cards.push(`S_${o}_snk ${out} ${o}_snk ${o}_snkc 0 L293D_SW`);
+        cards.push(`D_${o}_snk ${o}_snk 0 L293D_SNK`);
+        cards.push(`D_${o}_clampl 0 ${out} L293D_CLAMP`);
       }
     }
-
     if (cards.length === 0) return null;
-    return { cards, modelsUsed: new Set() };
+    return {
+      cards,
+      modelsUsed: new Set([
+        // Closed above 0.6 V of its control, open below 0.4 V: the controls
+        // are 0 or 1 V.
+        '.model L293D_SW SW(Vt=0.5 Vh=0.1 Ron=0.01 Roff=1G)',
+        // Two junctions (N = 2) and a little bulk resistance, sized to the
+        // typical drops at 0.6 A: 1.40 V for the source, 1.20 V for the sink.
+        '.model L293D_SRC D(Is=1.35e-11 N=2 Rs=0.22)',
+        '.model L293D_SNK D(Is=6.5e-10 N=2 Rs=0.22)',
+        // One junction, 1.3 V at 0.6 A.
+        '.model L293D_CLAMP D(Is=1e-12 N=1 Rs=1)',
+      ]),
+    };
   },
 
   // ── 74HC series logic ICs (multiple gates per package) ──────────────────
