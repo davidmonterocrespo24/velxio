@@ -95,6 +95,32 @@ export type AnalysisMode =
     }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 
+/**
+ * What a circuit remembers between solves: the state each part with memory
+ * ended its last solve in. A deck built with it starts every such part there
+ * instead of from scratch (velxio/velxio-prod#109).
+ */
+export interface CircuitMemory {
+  /** Component id -> whether its armature is operated (a relay pulled in). */
+  switches?: ReadonlyMap<string, boolean>;
+}
+
+/**
+ * A switch with hysteresis in the deck (a relay's armature): the node it
+ * follows and where it changes state. A solve that ends with the control
+ * above `on` leaves it operated, below `off` released, and in between in the
+ * state it started in (`seed`, what the deck gave it).
+ */
+export interface SwitchMemoryCell {
+  /** The component id. */
+  id: string;
+  /** The node whose voltage to ground the switch follows. */
+  control: string;
+  on: number;
+  off: number;
+  seed: boolean;
+}
+
 /** Everything the NetlistBuilder needs to emit a netlist. */
 export interface BuildNetlistInput {
   components: ComponentForSpice[];
@@ -103,6 +129,8 @@ export interface BuildNetlistInput {
   analysis: AnalysisMode;
   /** Extra cards to append verbatim (e.g., `.options abstol=1n`). */
   extraCards?: string[];
+  /** Where the parts with memory start (absent: from scratch). */
+  memory?: CircuitMemory;
 }
 
 /**

@@ -40,6 +40,13 @@ export interface SpiceEmission {
    * nets the cards do not show (a subcircuit's output).
    */
   drives?: string[];
+  /**
+   * A switch with memory (a relay's armature): the node its S cards follow
+   * and where they change state. The circuit service reads the node after a
+   * solve and builds the next deck with the switches where they ended
+   * (MapperContext.operated), so a sealed-in relay stays in.
+   */
+  memory?: { control: string; on: number; off: number };
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -47,6 +54,9 @@ export type NetLookup = (pinName: string) => string | null;
 export interface MapperContext {
   /** Supply voltage in effect (V). Boards set this; ground is 0. */
   vcc: number;
+  /** A part with memory (SpiceEmission.memory): whether its last solve left
+   *  it operated. Absent: released, as at power-up. */
+  operated?: boolean;
 }
 
 export type Mapper = (
@@ -196,6 +206,31 @@ const RELAY_SW_VH = 0.15;
 /** The fraction of its nominal coil voltage at which a relay pulls in. The
  *  circuit check warns about a coil fed below it (velxio/velxio-prod#108). */
 export const RELAY_PULL_IN_FRACTION = RELAY_SW_VT + RELAY_SW_VH;
+/** ...and the fraction below which a pulled-in relay drops out again. */
+const RELAY_DROP_OUT_FRACTION = RELAY_SW_VT - RELAY_SW_VH;
+
+/**
+ * A relay contact set's memory (SpiceEmission.memory) and the state flag its S
+ * cards start in. ngspice starts a switch whose control sits inside its
+ * hysteresis band in the state its ON/OFF instance flag gives it, OFF by
+ * default; with no flag every solve began with the contacts open, so a relay
+ * fed through its own NO contact (a seal-in) dropped out the moment its
+ * START button was released (velxio/velxio-prod#109).
+ */
+function relayMemory(
+  control: string,
+  coilV: number,
+  operated: boolean | undefined,
+): { memory: NonNullable<SpiceEmission['memory']>; flag: string } {
+  return {
+    memory: {
+      control,
+      on: round3(coilV * RELAY_PULL_IN_FRACTION),
+      off: round3(coilV * RELAY_DROP_OUT_FRACTION),
+    },
+    flag: operated ? ' ON' : '',
+  };
+}
 /**
  * The two switch models of a relay contact set for a coil of `coilV`, named by
  * that voltage: NO conducts while the switch is on, NC is the same switch with
@@ -1395,7 +1430,7 @@ const MAPPERS: Record<string, Mapper> = {
   // NO and NC contact cards are only emitted when their respective pins are
   // wired — leaving NC unconnected is a very common pattern and must not
   // suppress the rest of the relay (coil + NO switch).
-  relay: (comp, netLookup) => {
+  relay: (comp, netLookup, ctx) => {
     const cp = netLookup('COIL+');
     const cn = netLookup('COIL-');
     const com = netLookup('COM');
@@ -1461,13 +1496,14 @@ const MAPPERS: Record<string, Mapper> = {
     const ctrl = `${comp.id}_coilv 0`;
     if (no || nc) cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
     const sw = relaySwitchModels('RELAY', coilV);
+    const mem = relayMemory(`${comp.id}_coilv`, coilV, ctx.operated);
     if (no) {
       // NO: closes when the coil drive exceeds Vt + Vh (normal SW behaviour)
-      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} ${sw.no}`);
+      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} ${sw.no}${mem.flag}`);
     }
     if (nc) {
       // NC: the same switch, conducting while it is off.
-      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrl} ${sw.nc}`);
+      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrl} ${sw.nc}${mem.flag}`);
     }
     if (includeFlyback) {
       cards.push(`D_${comp.id}_fly ${cn} ${cp} D1N4148`);
@@ -1481,6 +1517,7 @@ const MAPPERS: Record<string, Mapper> = {
         // the netlist dedupe Set will emit two `.model D1N4148` lines.
         '.model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)',
       ]),
+      ...(no || nc ? { memory: mem.memory } : {}),
     };
   },
 
@@ -1494,7 +1531,7 @@ const MAPPERS: Record<string, Mapper> = {
   // only gives coil power < 0.36 W, i.e. at least ~70 ohm, the generic
   // relay's default. Without this mapper the contacts were open pins in the
   // netlist: a load on any of them never conducted.
-  'ks2e-m-dc5': (comp, netLookup) => {
+  'ks2e-m-dc5': (comp, netLookup, ctx) => {
     const c1 = netLookup('COIL1');
     const c2 = netLookup('COIL2');
     if (!c1 || !c2) return null;
@@ -1510,6 +1547,7 @@ const MAPPERS: Record<string, Mapper> = {
     // Both poles' NO and NC on one control (relaySwitchModels): NC closed
     // exactly when NO is open, as the generic relay (velxio/velxio-prod#169).
     const sw = relaySwitchModels('KS2E', coilV);
+    const mem = relayMemory(ctrl, coilV, ctx.operated);
     const models = new Set<string>();
     for (const pole of ['1', '2']) {
       const com = netLookup(`P${pole}`);
@@ -1517,15 +1555,15 @@ const MAPPERS: Record<string, Mapper> = {
       const no = netLookup(`NO${pole}`);
       const nc = netLookup(`NC${pole}`);
       if (no) {
-        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 ${sw.no}`);
+        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 ${sw.no}${mem.flag}`);
         models.add(sw.noCard);
       }
       if (nc) {
-        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrl} 0 ${sw.nc}`);
+        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrl} 0 ${sw.nc}${mem.flag}`);
         models.add(sw.ncCard);
       }
     }
-    return { cards, modelsUsed: models };
+    return { cards, modelsUsed: models, ...(models.size ? { memory: mem.memory } : {}) };
   },
 
   // ── Schottky diodes (Vf ≈ 0.3–0.45 V at 1 A). Phase 2: LTSpice models

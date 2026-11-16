@@ -22,7 +22,13 @@ import { parseValueWithUnits } from './valueParser';
 import { componentToSpice } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
-import type { BuildNetlistInput, ComponentForSpice, BoardForSpice, WireForSpice } from './types';
+import type {
+  BuildNetlistInput,
+  ComponentForSpice,
+  BoardForSpice,
+  WireForSpice,
+  SwitchMemoryCell,
+} from './types';
 
 /** True for any self-driven supply net: ground, the main rail, or an aux rail. */
 function isRailNet(net: string): boolean {
@@ -143,10 +149,16 @@ export interface BuildNetlistResult {
    * mean voltage is what the part integrates, and the pad stays at it.
    */
   staticPads: Set<string>;
+  /**
+   * The switches with memory in the deck (a relay's armature), with the state
+   * each one starts in (BuildNetlistInput.memory). The circuit service reads
+   * their control nodes after a solve to know where they ended.
+   */
+  memoryCells: SwitchMemoryCell[];
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
-  const { components, wires, boards, analysis, extraCards = [] } = input;
+  const { components, wires, boards, analysis, extraCards = [], memory } = input;
 
   // ── 1. Union-Find over wires ─────────────────────────────────────────────
   const uf = new UnionFind();
@@ -286,11 +298,14 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // (a C or L card), for BuildNetlistResult.staticPads.
   const partNets: Array<{ nets: string[]; reactive: boolean }> = [];
 
+  const memoryCells: SwitchMemoryCell[] = [];
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
-    const emission = componentToSpice(comp, localLookup, { vcc: dominantVcc });
+    const operated = memory?.switches?.get(comp.id);
+    const emission = componentToSpice(comp, localLookup, { vcc: dominantVcc, operated });
     if (!emission) continue;
     cards.push(...emission.cards);
+    if (emission.memory) memoryCells.push({ id: comp.id, ...emission.memory, seed: operated === true });
     if (emission.supplies?.length) powering.push({ id: comp.id, supplies: emission.supplies, cards: emission.cards });
     emitted.push({ id: comp.id, cards: emission.cards });
     for (const m of emission.modelsUsed) modelLines.add(m);
@@ -554,6 +569,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     sourcedNets,
     partPoweredNets: poweredBy(boardPinNets, powering, partConnections),
     staticPads,
+    memoryCells,
   };
 }
 

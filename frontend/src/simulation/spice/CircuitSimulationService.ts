@@ -29,7 +29,7 @@
  */
 import { buildInputFromStore } from './storeAdapter';
 import { buildNetlist, sanitizeSpiceId } from './NetlistBuilder';
-import type { TimeWaveforms } from './types';
+import type { SwitchMemoryCell, TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
 import { transientShortfall } from './transientShortfall';
@@ -353,6 +353,32 @@ export class CircuitSimulationService {
   private recentLevels = new Map<string, { volts: number; at: number }>();
   private rebuildStartedAt = 0;
 
+  // ── Memory: the parts that keep a state between solves ────────────────
+  //
+  // A relay's armature stays where it is while its coil sits between its
+  // drop-out and pull-in levels, so a relay fed through its own NO contact
+  // (a seal-in, a motor starter's hold contact) stays in after START is
+  // released. ngspice has that hysteresis inside one analysis only: every
+  // deck started its switches released, every operating point found the
+  // open solution, and a sealed-in relay dropped out (velxio/velxio-prod
+  // #109). The service carries each armature's state from the solve it
+  // published to the next deck it builds (BuildNetlistInput.memory).
+
+  /** Component id -> whether its armature ended the last published solve
+   *  operated. */
+  private switchMemory = new Map<string, boolean>();
+  /** The loaded deck's switches with memory and the state it starts them in. */
+  private memoryCells: SwitchMemoryCell[] = [];
+  /**
+   * A pad-state solve starts the switches where the loaded deck does, so one
+   * that ends elsewhere (a pin pulled a relay in) asks for a rebuild that
+   * starts them there, at most once per MEMORY_REBUILD_MS: a relay whose own
+   * contact cuts its coil changes state on every solve.
+   */
+  private memoryRebuildAt = -Infinity;
+  private memoryRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly MEMORY_REBUILD_MS = 250;
+
   /** How often the window closes and publishes while pads keep changing. */
   static readonly PUBLISH_WINDOW_MS = 33;
   /**
@@ -413,6 +439,10 @@ export class CircuitSimulationService {
     this.pwmPads = [];
     this.healRequests.clear();
     this.recentLevels.clear();
+    if (this.memoryRebuildTimer !== null) {
+      clearTimeout(this.memoryRebuildTimer);
+      this.memoryRebuildTimer = null;
+    }
   }
 
   /** What `__spiceDebug()` shows of the edge path: where the edges stand
@@ -773,9 +803,42 @@ export class CircuitSimulationService {
     }
   }
 
-  /** The scheduler's per-pin voltages follow what is published. */
+  /** The scheduler's per-pin voltages follow what is published, and so does
+   *  the circuit's memory. */
   private adopt(vec: StateVectors): void {
     if (this.scheduler.getLastResult() !== vec.result) this.scheduler.adoptResult?.(vec.result);
+    this.noteMemory(vec.result);
+  }
+
+  /**
+   * Where the switches with memory ended the solve being published: operated
+   * above their pull-in, released below their drop-out, and between the two
+   * in the state the deck started them in. A pad-state solve that leaves one
+   * elsewhere asks for a rebuild (see memoryRebuildAt).
+   */
+  private noteMemory(result: import('./ports/SolverPort').SolveResult): void {
+    if (this.memoryCells.length === 0) return;
+    let moved = false;
+    for (const cell of this.memoryCells) {
+      const vec = result.vectors.get(`v(${cell.control.toLowerCase()})`);
+      if (!vec || vec.real.length === 0) continue;
+      const v = vec.real[vec.real.length - 1]!;
+      const operated = v > cell.on ? true : v < cell.off ? false : cell.seed;
+      this.switchMemory.set(cell.id, operated);
+      if (operated !== cell.seed) moved = true;
+    }
+    if (moved && this.padSources.length > 0) this.requestMemoryRebuild();
+  }
+
+  private requestMemoryRebuild(): void {
+    if (this.stopped || this.memoryRebuildTimer !== null) return;
+    const wait = Math.max(0, this.memoryRebuildAt + CircuitSimulationService.MEMORY_REBUILD_MS - nowMs());
+    this.memoryRebuildTimer = setTimeout(() => {
+      this.memoryRebuildTimer = null;
+      this.memoryRebuildAt = nowMs();
+      this.note({ memoryRebuild: [...this.switchMemory] });
+      void this.tick();
+    }, wait);
   }
 
   private levelsRecord(levels: readonly number[]): Record<string, number> {
@@ -871,7 +934,9 @@ export class CircuitSimulationService {
       })),
     };
     const input = buildInputFromStore(snap as Parameters<typeof buildInputFromStore>[0]);
-    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads } = buildNetlist(input);
+    input.memory = { switches: this.switchMemory };
+    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads, memoryCells } =
+      buildNetlist(input);
     const padNames = new Set<string>();
     for (const b of input.boards) {
       for (const [pin, st] of Object.entries(b.pins)) {
@@ -890,6 +955,7 @@ export class CircuitSimulationService {
     const extraVectors: string[] = [];
     for (const net of nets) extraVectors.push(`v(${net})`);
     for (const vs of voltageSources) extraVectors.push(`i(${vs.toLowerCase()})`);
+    for (const cell of memoryCells) extraVectors.push(`v(${cell.control.toLowerCase()})`);
     this.scheduler.setExtraVectorsOfInterest?.(extraVectors);
 
     const loadStart = nowMs();
@@ -924,6 +990,9 @@ export class CircuitSimulationService {
       input.analysis.kind === 'tran' && input.analysis.timeVarying
         ? { kind: 'tran', step: input.analysis.step, stop: input.analysis.stop }
         : { kind: 'op' };
+    // The memory the new deck starts from, and only for parts still in it.
+    this.memoryCells = memoryCells;
+    this.switchMemory = new Map(memoryCells.map((c) => [c.id, c.seed] as const));
     const sameShape = shape === this.deckShape;
     this.deckShape = shape;
     this.loadPads(
@@ -935,6 +1004,7 @@ export class CircuitSimulationService {
     const result = this.scheduler.getLastResult();
     if (!result) return;
     const vec = this.extract(result, this.loadedContext);
+    this.noteMemory(result);
     const levels = (this.solverLevels ?? []).slice();
     const key = stateKey(levels);
     this.remember(key, vec);
