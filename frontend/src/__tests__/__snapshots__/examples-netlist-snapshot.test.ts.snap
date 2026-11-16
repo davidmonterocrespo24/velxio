@@ -1625,7 +1625,7 @@ D_u1_o2_clamph n5 n0 L293D_CLAMP
 S_u1_o2_snk n5 u1_o2_snk u1_o2_snkc 0 L293D_SW
 D_u1_o2_snk u1_o2_snk 0 L293D_SNK
 D_u1_o2_clampl 0 n5 L293D_CLAMP
-R_rm n4 n5 5
+R_rm n4 n5 56
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
@@ -1661,7 +1661,7 @@ D_u1_o2_clamph n5 vcc_rail L293D_CLAMP
 S_u1_o2_snk n5 u1_o2_snk u1_o2_snkc 0 L293D_SW
 D_u1_o2_snk u1_o2_snk 0 L293D_SNK
 D_u1_o2_clampl 0 n5 L293D_CLAMP
-R_rm n4 n5 5
+R_rm n4 n5 56
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
