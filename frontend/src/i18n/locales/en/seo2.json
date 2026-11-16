@@ -157,7 +157,7 @@
         "q1": "Can I simulate a Raspberry Pi 3 in my browser?",
         "a1": "Yes. Velxio runs Raspberry Pi projects (Zero through Pi 5) in your browser: Python scripts execute against the circuit on the canvas, and a Linux guest under QEMU gives you a terminal when a script needs one. The guest is Alpine Linux, not Raspberry Pi OS.",
         "q2": "Is the Raspberry Pi simulator included in the free plan?",
-        "a2": "Partly. You can build and save a Raspberry Pi circuit with any account, and a free account gets three 15-minute trial sessions to run it (every run inside a session is free). Unlimited Raspberry Pi Linux emulation runs a full ARM guest on our servers, so it is part of the Maker and Pro plans, or of Velxio Desktop with a paid licence. The editor and the Arduino, ESP32 and Raspberry Pi Pico simulators are free and need no account. Velxio itself stays open-source (GNU AGPLv3).",
+        "a2": "Partly. You can build and save a Raspberry Pi circuit with any account, and a free account gets three 15-minute trial sessions to run it (every run inside a session is free). Unlimited Raspberry Pi Linux emulation runs a full ARM guest on our servers, so it is part of the Maker and Pro plans. The editor and the Arduino, ESP32 and Raspberry Pi Pico simulators are free and need no account. Velxio itself stays open-source (GNU AGPLv3).",
         "q3": "Can I run Python scripts on the Raspberry Pi simulator?",
         "a3": "Yes. Python 3 runs in the browser with RPi.GPIO, gpiozero and smbus2, or in the Linux guest. Third-party packages are installed from a requirements.txt in your project; pip cannot reach the internet from inside the guest.",
         "q4": "What is the difference between Pi Pico and Pi 3 simulation?",

@@ -444,7 +444,10 @@ def wifi_nic_arg(machine: str, wifi_enabled: bool,
     the reason -icount is off for Xtensa — but idle beacons cost nothing here.
 
     `wifi_enabled` still gates the host forward, which exposes the GUEST's
-    server to the host and so belongs to a sketch that actually serves.
+    server to the host and so belongs to a sketch that actually serves. The
+    forward listens on loopback only: without a host address slirp binds
+    every interface, and its one consumer, the backend's gateway proxy
+    (iot_gateway.py), dials 127.0.0.1.
 
     The ESP32-C3 is the exception, and gets its radio only when the sketch
     uses WiFi. The C3 machine of the fork does not survive the NIC: with an
@@ -471,7 +474,7 @@ def wifi_nic_arg(machine: str, wifi_enabled: bool,
         return None
     arg = f'user,model={model},net=192.168.4.0/24'
     if wifi_enabled and hostfwd_port:
-        arg += f',hostfwd=tcp::{hostfwd_port}-192.168.4.15:80'
+        arg += f',hostfwd=tcp:127.0.0.1:{hostfwd_port}-192.168.4.15:80'
     return arg
 
 

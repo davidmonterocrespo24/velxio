@@ -8477,7 +8477,7 @@ void loop() {
     id: 'uno-photoresistor',
     title: 'Uno: Photoresistor Light Sensor',
     description:
-      'Read analog light level from a photoresistor module on A0. An LED on pin 9 dims proportionally to compensate for darkness.',
+      'Read the light level from a photoresistor module on A0. Its output falls as the light rises (the LDR sits between AO and GND, as on the real module), so the sketch inverts the reading into a light percentage. An LED on pin 9 glows brighter as the room gets darker.',
     category: 'sensors',
     difficulty: 'beginner',
     boardFilter: 'arduino-uno',
@@ -8495,10 +8495,12 @@ void setup() {
 }
 
 void loop() {
-  int raw = analogRead(PHOTO_PIN);  // 0–1023
-  int percent = map(raw, 0, 1023, 0, 100);
-  // Invert: brighter environment → lower LED brightness
-  int ledPWM = map(raw, 0, 1023, 255, 0);
+  // 0–1023. The module's AO FALLS as the light rises: its LDR sits between
+  // AO and GND under a 10 kΩ resistor, so darkness reads high.
+  int raw = analogRead(PHOTO_PIN);
+  int percent = map(raw, 0, 1023, 100, 0);
+  // The darker the room (the higher the reading), the brighter the LED
+  int ledPWM = map(raw, 0, 1023, 0, 255);
   analogWrite(LED_PIN, ledPWM);
 
   Serial.print("Light: ");

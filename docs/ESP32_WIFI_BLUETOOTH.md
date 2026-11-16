@@ -157,7 +157,7 @@ SimulatorCanvas: ícono WiFi cambia a verde ✓
 
 Cuando tu sketch ejecuta un WebServer en el ESP32, Velxio crea un proxy HTTP reverso para que puedas acceder desde tu navegador:
 
-1. QEMU inicia con `hostfwd=tcp::{puerto}-192.168.4.15:80`
+1. QEMU inicia con `hostfwd=tcp:127.0.0.1:{puerto}-192.168.4.15:80`
 2. El backend asigna un puerto dinámico libre
 3. Un proxy en `/api/gateway/{client_id}/` reenvía peticiones al ESP32
 4. Tu navegador puede interactuar con el servidor del ESP32

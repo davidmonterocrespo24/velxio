@@ -433,7 +433,10 @@
       "productPage": "Page produit",
       "datasheetPage": "Specifications",
       "sensorValues": "Valeurs du capteur",
-      "sensorValuesHint": "Les valeurs avec lesquelles le capteur démarre la simulation, et auxquelles Reset le ramène. Déplacer son curseur pendant la simulation ne les modifie pas."
+      "sensorValuesHint": "Les valeurs avec lesquelles le capteur démarre la simulation, et auxquelles Reset le ramène. Déplacer son curseur pendant la simulation ne les modifie pas.",
+      "valueComma": "Utilisez un point pour les décimales (4.7k, pas 4,7k).",
+      "valueInvalid": "Valeur illisible : écrivez par exemple 4.7k, 4k7, 100n ou 1M.",
+      "valueSimulatesAs": "Simulé avec"
     },
     "flash": {
       "title": "Flasher {{board}}",

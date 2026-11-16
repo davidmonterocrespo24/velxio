@@ -15,10 +15,12 @@
  * per distinct message: the continuous solver re-runs on every canvas change
  * and a still-broken circuit must not spam the log. Convergence chatter on a
  * transient analysis is not reported here — only a solve that produced no
- * voltages at all, or a message ngspice only prints for a rejected deck.
+ * voltages at all, a message ngspice only prints for a rejected deck, or a
+ * transient that stopped before its end (transientShortfall).
  */
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { railVolts } from './boardPinGroups';
+import { TRANSIENT_SHORTFALL_PREFIX } from './transientShortfall';
 
 /** ngspice messages that mean "no operating point at all", not a warning. */
 const HARD_ERROR_RE = /singular matrix|shorted [av]src|no such vector|circuit not parsed|error on line|fatal/i;
@@ -49,6 +51,9 @@ export function pickSolverError(warnings: readonly string[]): string | null {
   if (lines.length === 0) return null;
   const rank = (l: string): number => {
     if (/^fatal|^error|singular matrix|shorted [av]src|no such vector|not parsed/i.test(l)) return 0;
+    // Our own sentence for a transient that ended early: it says what the
+    // "timestep too small" chatter before it means for the canvas.
+    if (isTransientShortfall(l)) return 0;
     if (/failed|iteration limit|no convergence|timestep too small|gmin.*fail/i.test(l)) return 1;
     if (/^warning/i.test(l)) return 2;
     return 3;
@@ -65,9 +70,15 @@ export function pickSolverError(warnings: readonly string[]): string | null {
   return best;
 }
 
+/** True for the message transientShortfall writes for a run that ended early. */
+export function isTransientShortfall(error: string | null): boolean {
+  return !!error && error.trim().startsWith(TRANSIENT_SHORTFALL_PREFIX);
+}
+
 /** Turn a raw ngspice line into a sentence with a likely fix. */
 export function describeSolverError(raw: string): string {
   const text = raw.trim();
+  if (isTransientShortfall(text)) return text;
   const shorted = /instance\s+(\S+)\s+is a shorted [av]src/i.exec(text);
   if (shorted) {
     return (
@@ -130,7 +141,9 @@ export function startSolverFaultReporter(
   let lastReported: string | null = null;
   return useElectricalStore.subscribe((state, prev) => {
     if (state.error === prev.error) return;
-    if (!isDeadSolve(state)) {
+    // A transient that stopped early still has voltages, so it is not a dead
+    // solve, but its values are frozen at the failure: report it as well.
+    if (!isDeadSolve(state) && !isTransientShortfall(state.error)) {
       // A clean solve re-arms the reporter: the next failure is news again.
       if (!state.error) lastReported = null;
       return;

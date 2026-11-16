@@ -295,6 +295,9 @@ describe('CircuitSimulationService — orchestration', () => {
     expect(snap?.analysisMode).toBe('tran');
     expect(snap?.timeWaveforms).toBeDefined();
     expect(snap?.timeWaveforms?.time.length).toBe(5);
+    // The meters read whole periods of the source the window was sized from
+    // (velxio/velxio-prod#100), so the waveforms carry its period.
+    expect(snap?.timeWaveforms?.period).toBe(1 / 100);
   });
 
   it('publishes warnings from the solver', async () => {

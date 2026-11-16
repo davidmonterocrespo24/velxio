@@ -810,17 +810,20 @@ describe('Slide-potentiometer — attachEvents', () => {
 // ─── Photoresistor Sensor ────────────────────────────────────────────────────
 
 describe('Photoresistor-sensor — attachEvents', () => {
-  it('injects initial 2.5V (moderate light) on the AO pin immediately', () => {
+  // Before any solve the part writes the module's divider for its light (a
+  // GL5528 under 10 kOhm on the board's 5 V): 0.627 V at the default 500 lux.
+  // It used to write (lux / 1000) * 5 V, 2.5 V (velxio/velxio-prod#188).
+  it('injects the module divider at the default 500 lux on the AO pin immediately', () => {
     const logic = PartSimulationRegistry.get('photoresistor-sensor')!;
     const adc = makeADC();
     const el = makeElement();
     const sim = makeSimulator(adc);
 
-    logic.attachEvents!(el, sim as any, pinMap({ AO: 14 }));
-    expect(adc.channelValues[0]).toBeCloseTo(2.5, 1);
+    logic.attachEvents!(el, sim as any, pinMap({ AO: 14 }), 'ldr-sp1');
+    expect(adc.channelValues[0]).toBeCloseTo(0.627, 2);
   });
 
-  it('updates ADC voltage to 5V on input event (full light)', () => {
+  it('moves AO down on an input event at full light (1000 lux: 0.43 V, not 5 V)', () => {
     const logic = PartSimulationRegistry.get('photoresistor-sensor')!;
     const adc = makeADC();
     const el = makeElement({ value: 1023 });
@@ -833,9 +836,9 @@ describe('Photoresistor-sensor — attachEvents', () => {
       },
     );
 
-    logic.attachEvents!(el, sim as any, pinMap({ AO: 14 }));
+    logic.attachEvents!(el, sim as any, pinMap({ AO: 14 }), 'ldr-sp2');
     inputHandler();
-    expect(adc.channelValues[0]).toBeCloseTo(5.0, 1);
+    expect(adc.channelValues[0]).toBeCloseTo(0.432, 2);
   });
 
   it('registers DO indicator listener when digital output pin is connected', () => {

@@ -433,7 +433,10 @@
       "productPage": "产品页面",
       "datasheetPage": "Specifications",
       "sensorValues": "传感器数值",
-      "sensorValuesHint": "仿真开始时传感器使用的数值，Reset 也会恢复到这些数值。运行时拖动滑块不会改变它们。"
+      "sensorValuesHint": "仿真开始时传感器使用的数值，Reset 也会恢复到这些数值。运行时拖动滑块不会改变它们。",
+      "valueComma": "小数点请用英文句点（写 4.7k，不要写 4,7k）。",
+      "valueInvalid": "无法识别的数值，请写成 4.7k、4k7、100n 或 1M 等形式。",
+      "valueSimulatesAs": "仿真使用"
     },
     "flash": {
       "title": "烧录 {{board}}",

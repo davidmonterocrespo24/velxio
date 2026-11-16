@@ -55,7 +55,9 @@ export const robotDesktopExamples: ExampleProject[] = [
     description:
       'Cozmo-style desktop robot on ESP32: OLED face with random blinks/looks/expressions, ' +
       'DHT11 weather mode, PIR-triggered wakeup, LDR sleep when dark, sound-triggered reactions ' +
-      'and two eyebrow servos. 34-file C++ project, real Arduino libraries (U8g2lib, DHT, ESP32Servo).',
+      'and two eyebrow servos. The room starts dark, so the robot sleeps: raise the light on the ' +
+      'light sensor, then press Simulate motion on the PIR to wake it. ' +
+      '34-file C++ project, real Arduino libraries (U8g2lib, DHT, ESP32Servo).',
     category: 'displays',
     difficulty: 'advanced',
     boardType: 'esp32',
@@ -123,7 +125,13 @@ export const robotDesktopExamples: ExampleProject[] = [
       { type: 'wokwi-dht22', id: 'dht', x: 380, y: 240, properties: {} },
       { type: 'wokwi-pir-motion-sensor', id: 'pir', x: 380, y: 360, properties: {} },
       { type: 'wokwi-big-sound-sensor', id: 'sound', x: 540, y: 360, properties: {} },
-      { type: 'wokwi-photoresistor-sensor', id: 'ldr', x: 540, y: 240, properties: { lux: '500' } },
+      // The room starts dark. SensorDriver.h counts a LOW reading as light (the
+      // real module's AO falls as the light rises) against a threshold halfway
+      // between the darkest and brightest readings so far, both starting at
+      // 10: a steady light reads as darkness until the robot has seen a dark
+      // spell, on the real robot too. Starting dark gives it that spell, so
+      // raising the light then wakes it.
+      { type: 'wokwi-photoresistor-sensor', id: 'ldr', x: 540, y: 240, properties: { lux: '0' } },
       { type: 'wokwi-servo', id: 'servo-r', x: 700, y: 40, properties: {} },
       { type: 'wokwi-servo', id: 'servo-l', x: 700, y: 180, properties: {} },
     ],

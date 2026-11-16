@@ -4,6 +4,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
+import { readSpan, spanStats } from '../spice/waveformStats';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -278,7 +279,10 @@ PartSimulationRegistry.register('led', {
       // (≈ steady state). If a full waveform is available we instead
       // compute the period-averaged |I|, which is what a real observer
       // sees — a 50 Hz rectified LED does not flicker to the eye, it
-      // glows at ~Ipeak/π of its peak brightness.
+      // glows at ~Ipeak/π of its peak brightness. Averaged over TIME, on
+      // the span a meter reads (whole periods, after settling): a plain
+      // average of ngspice's points, crowded after every edge, lit an
+      // RC-coupled LED at 20 % for a 1 % mean current (velxio/velxio-prod#106).
       //
       // Digital fallback (anodeHigh && cathodeLow) is only used if
       // the electrical store can't be loaded at all — e.g. in a
@@ -289,9 +293,9 @@ PartSimulationRegistry.register('led', {
       if (timeWaveforms) {
         const samples = timeWaveforms.branches.get(iKey);
         if (samples && samples.length > 0) {
-          let sum = 0;
-          for (const s of samples) sum += Math.abs(s);
-          raw = sum / samples.length;
+          const span = readSpan(timeWaveforms.time, timeWaveforms.period);
+          const stats = span ? spanStats(timeWaveforms.time, samples, span) : null;
+          raw = stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
         }
       }
       // A publish window is the circuit over the last few tens of
@@ -521,7 +525,39 @@ PartSimulationRegistry.register('led-bar-graph', {
  *   DT HIGH on CLK rising  → counter-clockwise
  *
  * The SW pin is active LOW (HIGH when not pressed).
+ *
+ * The edges of a click are placed on the GUEST's clock when the board's
+ * simulator can place them there (schedulePinChange with the cycle counter
+ * and clock it runs on: the AVR, RP2040 and overlay ARM simulators), and
+ * KY040_STEP_MS of guest time apart. They used to be a setTimeout(1) chain:
+ * an Uno runs only inside its animation frames, so when both timers fired in
+ * the idle gap between two frames (a light frame, a fast machine) the guest
+ * never saw the CLK pulse, measured at 1 to 3 clicks in 40 in Chromium
+ * (velxio/velxio-prod#157). A board that cannot place edges keeps the timers.
  */
+const KY040_STEP_MS = 5;
+
+/** The guest-clock half of a simulator, when it has one. */
+interface GuestEdgeClock {
+  schedulePinChange(pin: number, state: boolean, atCycle: number): void;
+  getCurrentCycles(): number;
+  getClockHz(): number;
+}
+
+function guestEdgeClockOf(simulator: unknown): GuestEdgeClock | null {
+  const s = simulator as Partial<GuestEdgeClock> | null;
+  if (
+    !s ||
+    typeof s.schedulePinChange !== 'function' ||
+    typeof s.getCurrentCycles !== 'function' ||
+    typeof s.getClockHz !== 'function'
+  ) {
+    return null;
+  }
+  const hz = s.getClockHz();
+  return Number.isFinite(hz) && hz > 0 ? (s as GuestEdgeClock) : null;
+}
+
 PartSimulationRegistry.register('ky-040', {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
     const pinCLK = getArduinoPinHelper('CLK');
@@ -534,8 +570,33 @@ PartSimulationRegistry.register('ky-040', {
     if (pinCLK !== null) simulator.setPinState(pinCLK, true);
     if (pinDT !== null) simulator.setPinState(pinDT, true);
 
+    // Guest cycle at which the last queued click is off the wire, and the
+    // cycle counter as last read (a counter that went back is a rebooted
+    // guest: nothing queued for the old one is pending any more).
+    let freeAt = 0;
+    let lastNow = 0;
+
     /** Emit one encoder pulse: set DT to dtLevel, pulse CLK HIGH→LOW. */
     function emitPulse(dtLevel: boolean) {
+      const clock = guestEdgeClockOf(simulator);
+      if (clock) {
+        const now = clock.getCurrentCycles();
+        if (now < lastNow) freeAt = 0;
+        lastNow = now;
+        const step = Math.max(1, Math.round((clock.getClockHz() * KY040_STEP_MS) / 1000));
+        // A click that comes while the previous one is still on the wire
+        // waits for it: two clicks are two pulses, never one merged one.
+        const at = Math.max(now, freeAt);
+        if (pinDT !== null) clock.schedulePinChange(pinDT, dtLevel, at);
+        if (pinCLK !== null) {
+          clock.schedulePinChange(pinCLK, false, at); // CLK LOW first
+          clock.schedulePinChange(pinCLK, true, at + step); // rising edge: DT is read here
+          clock.schedulePinChange(pinCLK, false, at + 2 * step);
+        }
+        if (pinDT !== null) clock.schedulePinChange(pinDT, true, at + 2 * step); // restore DT
+        freeAt = at + 3 * step;
+        return;
+      }
       if (pinDT !== null) simulator.setPinState(pinDT, dtLevel);
       if (pinCLK !== null) {
         simulator.setPinState(pinCLK, false); // CLK LOW first
@@ -545,8 +606,8 @@ PartSimulationRegistry.register('ky-040', {
           setTimeout(() => {
             if (pinCLK !== null) simulator.setPinState(pinCLK, false);
             if (pinDT !== null) simulator.setPinState(pinDT, true); // restore DT
-          }, 1);
-        }, 1);
+          }, KY040_STEP_MS);
+        }, KY040_STEP_MS);
       }
     }
 

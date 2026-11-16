@@ -16,7 +16,7 @@ import type { Wire } from '../../types/wire';
 import { UnionFind } from './unionFind';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { GROUND_PIN_RE, VCC_PIN_RE } from './NetlistBuilder';
-import { rms, mean, peak, subtract, isAC, steadyState } from './waveformStats';
+import { subtract, readSpan, spanStats, type SpanStats } from './waveformStats';
 
 export type ProbeKind = 'voltmeter' | 'ammeter' | 'multimeter';
 
@@ -58,9 +58,14 @@ export function isInstrument(metadataId: string): boolean {
   return metadataId.startsWith('instr-');
 }
 
+/**
+ * Volts for a display: µV below 1 mV, mV below 1 V, V above, like the hover
+ * labels. The µV band used to stop at 1 µV, so 1.10 µV read "0.00 mV" while
+ * a smaller 0.90 µV read "0.90 µV" (velxio/velxio-prod#129).
+ */
 function formatV(v: number): { value: number; unit: ProbeReading['unit']; display: string } {
   const abs = Math.abs(v);
-  if (abs < 1e-6) return { value: v * 1e6, unit: 'µV', display: `${(v * 1e6).toFixed(2)} µV` };
+  if (abs < 1e-3) return { value: v * 1e6, unit: 'µV', display: `${(v * 1e6).toFixed(2)} µV` };
   if (abs < 1) return { value: v * 1e3, unit: 'mV', display: `${(v * 1e3).toFixed(2)} mV` };
   return { value: v, unit: 'V', display: `${v.toFixed(3)} V` };
 }
@@ -126,10 +131,28 @@ export function buildPinNetLookup(
   };
 }
 
-function buildAcStatsV(samples: readonly number[]): ProbeAcStats {
-  const r = rms(samples);
-  const dc = mean(samples);
-  const pk = peak(samples);
+/** Below this peak-to-peak a waveform is DC for a meter (V or A). */
+const AC_EPSILON = 1e-4;
+
+/**
+ * A meter's statistics of a transient waveform: time-weighted, over the
+ * span it reads (whole periods of the slowest source, after settling), or
+ * undefined when the waveform is flat there. A plain average of ngspice's
+ * points weighted the moments where it crowds its time steps: the default
+ * 1 kHz, 1 V generator read RMS 692.6 mV and DC -91 mV, an RC driven by a
+ * square wave 393 µA for 157 µA (velxio/velxio-prod#100).
+ */
+function steadyStats(tw: TimeWaveforms, samples: readonly number[]): SpanStats | undefined {
+  const span = readSpan(tw.time, tw.period);
+  const stats = span ? spanStats(tw.time, samples, span) : null;
+  if (!stats || stats.max - stats.min <= AC_EPSILON) return undefined;
+  return stats;
+}
+
+function buildAcStatsV(stats: SpanStats): ProbeAcStats {
+  const r = stats.rms;
+  const dc = stats.mean;
+  const pk = stats.peak;
   const rmsFmt = formatV(r);
   const dcFmt = formatV(dc);
   const pkFmt = formatV(pk);
@@ -143,10 +166,10 @@ function buildAcStatsV(samples: readonly number[]): ProbeAcStats {
   };
 }
 
-function buildAcStatsI(samples: readonly number[]): ProbeAcStats {
-  const r = rms(samples);
-  const dc = mean(samples);
-  const pk = peak(samples);
+function buildAcStatsI(stats: SpanStats): ProbeAcStats {
+  const r = stats.rms;
+  const dc = stats.mean;
+  const pk = stats.peak;
   const rmsFmt = formatI(r);
   const dcFmt = formatI(dc);
   const pkFmt = formatI(pk);
@@ -251,7 +274,10 @@ export function readVoltmeter(
   let ac: ProbeAcStats | undefined;
   if (timeWaveforms) {
     const plusSamples = timeWaveforms.nodes.get(plusNet);
-    const minusSamples = plusNet === '0' ? undefined : timeWaveforms.nodes.get(minusNet);
+    // Ground ('0') has no waveform: each lead's own net decides. Testing the
+    // plus net here dropped the minus waveform whenever V+ sat on ground, and
+    // the meter printed the last sample under "DC V" (velxio/velxio-prod#116).
+    const minusSamples = minusNet === '0' ? undefined : timeWaveforms.nodes.get(minusNet);
     const plusArr = plusSamples ?? (plusNet === '0' ? [] : undefined);
     const minusArr = minusSamples ?? (minusNet === '0' ? [] : undefined);
     if (plusArr !== undefined && minusArr !== undefined) {
@@ -262,10 +288,8 @@ export function readVoltmeter(
           : minusArr.length === 0
             ? [...plusArr]
             : subtract(plusArr, minusArr);
-      const settled = steadyState(diffSamples);
-      if (settled.length > 0 && isAC(settled)) {
-        ac = buildAcStatsV(settled);
-      }
+      const stats = steadyStats(timeWaveforms, diffSamples);
+      if (stats) ac = buildAcStatsV(stats);
     }
   }
 
@@ -305,10 +329,8 @@ export function readAmmeter(
   let ac: ProbeAcStats | undefined;
   if (timeWaveforms) {
     const raw = timeWaveforms.branches.get(key);
-    const settled = raw ? steadyState(raw) : [];
-    if (settled.length > 0 && isAC(settled)) {
-      ac = buildAcStatsI(settled);
-    }
+    const stats = raw ? steadyStats(timeWaveforms, raw) : undefined;
+    if (stats) ac = buildAcStatsI(stats);
   }
 
   return {

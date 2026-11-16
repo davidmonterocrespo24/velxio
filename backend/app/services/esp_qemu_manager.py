@@ -23,6 +23,7 @@ Board types and QEMU machines
 
 import asyncio
 import base64
+import itertools
 import logging
 import os
 import socket
@@ -84,6 +85,11 @@ class EspInstance:
 class EspQemuManager:
     def __init__(self):
         self._instances: dict[str, EspInstance] = {}
+        # The pending reload of each client (load_firmware). A stop or a new
+        # start drops it, so a reload never launches QEMU for a client whose
+        # socket has gone.
+        self._latest: dict[str, int] = {}
+        self._requests = itertools.count(1)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -92,6 +98,7 @@ class EspQemuManager:
                        firmware_b64: str | None = None,
                        wifi_enabled: bool = False,
                        wifi_hostfwd_port: int = 0) -> None:
+        self._latest.pop(client_id, None)
         if client_id in self._instances:
             logger.warning('start_instance: %s already running', client_id)
             return
@@ -103,9 +110,14 @@ class EspQemuManager:
         asyncio.create_task(self._boot(inst, firmware_b64, wifi_enabled, wifi_hostfwd_port))
 
     def stop_instance(self, client_id: str) -> None:
+        self._latest.pop(client_id, None)
         inst = self._instances.pop(client_id, None)
         if inst:
             asyncio.create_task(self._shutdown(inst))
+
+    def client_ids(self) -> list[str]:
+        """Clients that hold a QEMU process (esp32_qemu_access counts them)."""
+        return list(self._instances)
 
     def load_firmware(self, client_id: str, firmware_b64: str,
                       wifi_enabled: bool = False,
@@ -118,11 +130,23 @@ class EspQemuManager:
         board_type = inst.board_type
         callback   = inst.callback
         self.stop_instance(client_id)
+        request = self._latest[client_id] = next(self._requests)
+        # The client keeps its slot in the caps until the new QEMU is
+        # registered (esp32_qemu_access).
+        from app.services import esp32_qemu_access
+        esp32_qemu_access.hold(client_id)
+
         # Re-start with new firmware after brief delay for cleanup
         async def _restart() -> None:
-            await asyncio.sleep(0.5)
-            self.start_instance(client_id, board_type, callback, firmware_b64,
-                                wifi_enabled, wifi_hostfwd_port)
+            try:
+                await asyncio.sleep(0.5)
+                if self._latest.get(client_id) != request:
+                    return  # stopped, restarted or reloaded again meanwhile
+                self._latest.pop(client_id, None)
+                self.start_instance(client_id, board_type, callback, firmware_b64,
+                                    wifi_enabled, wifi_hostfwd_port)
+            finally:
+                esp32_qemu_access.release(client_id)
         asyncio.create_task(_restart())
 
     def set_pin_state(self, client_id: str, pin: int | str, state: int) -> None:
@@ -213,7 +237,9 @@ class EspQemuManager:
             nic_model = 'esp32c3_wifi' if 'c3' in machine else 'esp32_wifi'
             nic_arg = f'user,model={nic_model},net=192.168.4.0/24'
             if wifi_hostfwd_port:
-                nic_arg += f',hostfwd=tcp::{wifi_hostfwd_port}-192.168.4.15:80'
+                # Loopback only: the gateway proxy dials 127.0.0.1, and a
+                # forward with no host address listens on every interface.
+                nic_arg += f',hostfwd=tcp:127.0.0.1:{wifi_hostfwd_port}-192.168.4.15:80'
             cmd += ['-nic', nic_arg]
 
         logger.info('Launching ESP32 QEMU for %s: %s', inst.client_id, ' '.join(cmd))
@@ -228,6 +254,12 @@ class EspQemuManager:
         except FileNotFoundError:
             await inst.emit('error', {'message': f'{qemu_bin} not found in PATH'})
             self._instances.pop(inst.client_id, None)
+            return
+
+        if self._instances.get(inst.client_id) is not inst:
+            # Stopped while QEMU was launching: _shutdown already ran and
+            # found no process, so this one is ours to stop.
+            await self._shutdown(inst)
             return
 
         inst.running = True

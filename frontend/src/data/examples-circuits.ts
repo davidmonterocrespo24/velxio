@@ -270,18 +270,20 @@ void loop() {
     id: 'photoresistor-light',
     title: 'Photoresistor Light Sensor',
     description:
-      'LDR + pull-down resistor. Brighter light = lower LDR resistance = higher voltage.',
+      'Photoresistor module: a 10 kOhm resistor from VCC to AO and the LDR from AO to GND. Brighter light = lower LDR resistance = lower voltage on AO, so the sketch inverts the reading into a light percentage.',
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Photoresistor light sensor
+// The module's AO falls as the light rises (LDR from AO to GND,
+// 10 kOhm from VCC to AO): 1023 is dark, 0 is bright.
 void setup() {
   Serial.begin(9600);
 }
 void loop() {
   int raw = analogRead(A0);
-  float lux = map(raw, 0, 1023, 0, 100);
+  float light = map(raw, 0, 1023, 100, 0);
   Serial.print("Light: ");
-  Serial.print(lux, 0);
+  Serial.print(light, 0);
   Serial.println("%");
   delay(300);
 }`,
@@ -1750,7 +1752,8 @@ void loop() {
   int tempRaw = analogRead(NTC_PIN);
   int lightRaw = analogRead(LDR_PIN);
   float tempV = tempRaw * 5.0 / 1023.0;
-  float lightPct = lightRaw * 100.0 / 1023.0;
+  // The LDR module's output falls as the light rises: invert it.
+  float lightPct = 100.0 - lightRaw * 100.0 / 1023.0;
   Serial.print("Temp_V=");
   Serial.print(tempV, 2);
   Serial.print("  Light=");

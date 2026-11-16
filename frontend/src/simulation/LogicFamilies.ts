@@ -22,11 +22,23 @@
  * Parameter sources:
  *   - 74HC family: TI SN74HC datasheets (VIL = 1.5V, VIH = 3.5V @ 5V Vcc)
  *   - 74HCT family: TI SN74HCT (TTL-compatible inputs: VIL = 0.8V, VIH = 2.0V)
- *   - 74HC14 Schmitt: TI SN74HC14 (Vt+ ≈ 3.0V, Vt- ≈ 1.6V @ 5V Vcc)
+ *   - 74HC14 Schmitt: TI SN74HC14, SCLS085L (Vt+ 2.75 V, Vt- 1.75 V @ 5V Vcc:
+ *     the typical values at 4.5 V and 6 V interpolated, see HC14_VT_*_FRACTION)
  *   - AVR_HC: ATmega328P datasheet section 28.2 (IO DC characteristics)
  *   - LVCMOS33: ESP32 / RP2040 / generic 3.3V logic, JEDEC JESD8-7A
  *   - TTL: 7400 series classic TTL
  */
+
+/**
+ * 74HC14 Schmitt-trigger thresholds as fractions of VCC. TI SN74HC14
+ * (SCLS085L, 5.5) gives typical VT+ / VT- of 1.2 / 0.6 V at 2 V, 2.5 / 1.6 V
+ * at 4.5 V and 3.3 / 2.0 V at 6 V: about 55 % and 35 % of VCC, so 2.75 /
+ * 1.75 V at 5 V against 2.77 / 1.73 V interpolated from the table. The SPICE
+ * model of the part (componentToSpice, ic-74hc14) and the Schmitt family
+ * below use these same numbers.
+ */
+export const HC14_VT_POS_FRACTION = 0.55;
+export const HC14_VT_NEG_FRACTION = 0.35;
 
 export interface LogicFamily {
   /** Display name for logs / UI. */
@@ -102,16 +114,16 @@ export const FAMILIES = {
   /**
    * 74HC14, 74HC13, and other Schmitt-trigger inputs @ 5V CMOS.
    * Use the Vt+/Vt- thresholds; the resolver ignores vil/vih when the
-   * _schmitt variants are present.  Hysteresis ≈ 1.4V (3.0V - 1.6V)
-   * per TI's SN74HC14 datasheet.
+   * _schmitt variants are present.  Hysteresis 1.0 V (2.75 V - 1.75 V)
+   * per TI's SN74HC14 datasheet (HC14_VT_*_FRACTION at 5 V).
    */
   'CMOS-5V-SCHMITT': {
     name: 'CMOS-5V (Schmitt)',
     vcc: 5,
     vil: 1.5,
     vih: 3.5,
-    vil_schmitt: 1.6,
-    vih_schmitt: 3.0,
+    vil_schmitt: 1.75,
+    vih_schmitt: 2.75,
     cin_pF: 7,
     vol_max: 0.1,
     voh_min: 4.9,

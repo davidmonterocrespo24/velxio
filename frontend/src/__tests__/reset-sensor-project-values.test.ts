@@ -589,8 +589,18 @@ describe('Reset returns an NTC to its resting value', () => {
   });
 });
 
+/**
+ * The module's AO for a GL5528 at `lux` under its 10 kOhm on 5 V: what the
+ * part writes while no solve knows the pin, and what the solve gives
+ * (velxio/velxio-prod#103, #188).
+ */
+const ldrModuleVolts = (lux: number, vcc = 5) => {
+  const r = Math.min(1e6, 15_000 * Math.pow(10 / lux, 0.6));
+  return (vcc * r) / (r + 10_000);
+};
+
 describe('Reset returns a photoresistor to the project illumination', () => {
-  it('project lux 100: 0.5 V on the first run, after a live move and after Reset', () => {
+  it('project lux 100: 1.37 V on the first run, after a live move and after Reset', () => {
     const b = bench();
     b.wire('ldr', 'VCC', '5V');
     b.wire('ldr', 'GND', 'GND.1');
@@ -598,14 +608,14 @@ describe('Reset returns a photoresistor to the project illumination', () => {
     b.mount({ id: 'ldr', metadataId: 'photoresistor-sensor', properties: { lux: 100 } });
     b.load();
     b.run();
-    expect(b.adcVolts(0)).toBeCloseTo(0.5, 6);
+    expect(b.adcVolts(0)).toBeCloseTo(ldrModuleVolts(100), 6);
 
     dispatchSensorUpdate('ldr', { lux: 900 });
-    expect(b.adcVolts(0)).toBeCloseTo(4.5, 6);
+    expect(b.adcVolts(0)).toBeCloseTo(ldrModuleVolts(900), 6);
 
     b.reset();
     b.run();
-    expect(b.adcVolts(0)).toBeCloseTo(0.5, 6);
+    expect(b.adcVolts(0)).toBeCloseTo(ldrModuleVolts(100), 6);
     expect(b.props('ldr')).toEqual({ lux: 100 });
   });
 });

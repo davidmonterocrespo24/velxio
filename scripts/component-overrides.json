@@ -1071,7 +1071,7 @@
       "name": "Regulated Power Supply",
       "category": "analog",
       "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n      <rect x=\"10\" y=\"14\" width=\"44\" height=\"30\" fill=\"#2a3548\" rx=\"3\" stroke=\"#4a5878\"/>\n      <text x=\"32\" y=\"30\" text-anchor=\"middle\" font-size=\"9\" font-family=\"monospace\" fill=\"#4ade80\" font-weight=\"bold\">5.00V</text>\n      <text x=\"32\" y=\"40\" text-anchor=\"middle\" font-size=\"7\" font-family=\"monospace\" fill=\"#fbbf24\">1.00A</text>\n      <circle cx=\"18\" cy=\"52\" r=\"3\" fill=\"#dc2626\"/>\n      <circle cx=\"46\" cy=\"52\" r=\"3\" fill=\"#0f172a\" stroke=\"#64748b\"/>\n      <text x=\"32\" y=\"60\" text-anchor=\"middle\" font-size=\"6\" fill=\"#9d9d9d\">PSU</text>\n    </svg>",
-      "description": "Bench DC/AC power supply with optional current limit. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The current limit is enforced by the circuit verifier \u2014 if any load pulls more than the configured amperage, Run is blocked with a 'source-overload' warning, mimicking a real bench supply's foldback behavior.",
+      "description": "Bench DC/AC power supply with a current limit. It holds its voltage (constant voltage, about 10 m\u03a9 output resistance) until the load asks for more than the current limit, then holds the current and lets its voltage drop (constant current), like a real bench supply. DC mode for fixed rails (5V, 12V, etc.); AC mode for sine sources. Visually shares the signal-generator chassis so no new Web Component is needed. The circuit check reports a supply at its limit ('source-overload') before Run.",
       "properties": [
         {
           "name": "mode",
@@ -1103,7 +1103,7 @@
           "type": "number",
           "defaultValue": 1,
           "control": "text",
-          "description": "Maximum sourced current in A. The verifier warns when exceeded."
+          "description": "Current limit in A. Below it the supply holds its voltage; at it the supply holds the current and its voltage drops. The circuit check reports a load at the limit."
         }
       ],
       "defaultValues": {
@@ -2808,6 +2808,30 @@
     "defaultValues": {
       "irAddress": "0x00",
       "channel": ""
+    }
+  },
+  "photoresistor-sensor": {
+    "properties": {
+      "rl10": {
+        "name": "rl10",
+        "type": "number",
+        "defaultValue": 15,
+        "control": "number",
+        "min": 0.1,
+        "description": "LDR resistance at 10 lux, kOhm (GL5528: 10-20; Wokwi default: 50)"
+      },
+      "gamma": {
+        "name": "gamma",
+        "type": "number",
+        "defaultValue": 0.6,
+        "control": "number",
+        "min": 0.1,
+        "description": "LDR slope: log(R) per log(lux) (GL5528: 0.6; Wokwi default: 0.7)"
+      }
+    },
+    "defaultValues": {
+      "rl10": 15,
+      "gamma": 0.6
     }
   }
 }

@@ -23,7 +23,7 @@ import type { ExampleProject } from './examples';
 // Shared listing + write/read-back body, parameterised per board so the two
 // examples stay in lock-step.
 const UNO_CODE = `// microSD card over SPI (Arduino Uno)
-// Wiring: CS->10  MOSI->11  MISO->12  SCK->13  VCC->5V  GND->GND
+// Wiring: CS->10  DI (MOSI)->11  DO (MISO)->12  SCK->13  VCC->5V  GND->GND
 //
 // The card already holds this project's files (auto-copied, free). Paid users
 // can add their own files via the component's "SD Card" panel. Open the Serial
@@ -36,6 +36,7 @@ const int CS_PIN = 10;
 void listRoot() {
   File root = SD.open("/");
   Serial.println(F("Files on card:"));
+  int count = 0;
   while (true) {
     File entry = root.openNextFile();
     if (!entry) break;
@@ -45,8 +46,11 @@ void listRoot() {
     Serial.print(entry.size());
     Serial.println(F(" bytes"));
     entry.close();
+    count++;
   }
   root.close();
+  // The sketch itself is not copied: code lives in flash, not on the card.
+  if (count == 0) Serial.println(F("  (none yet: add a .txt or .csv file to the project)"));
 }
 
 void setup() {
@@ -81,7 +85,7 @@ void loop() {}
 `;
 
 const ESP32_CODE = `// microSD card over SPI (ESP32, VSPI default)
-// Wiring: CS->5  MOSI->23  MISO->19  SCK->18  VCC->3V3  GND->GND
+// Wiring: CS->5  DI (MOSI)->23  DO (MISO)->19  SCK->18  VCC->3V3  GND->GND
 //
 // The card already holds this project's files (auto-copied, free). Paid users
 // can add their own files via the component's "SD Card" panel. Open the Serial
@@ -92,13 +96,17 @@ const ESP32_CODE = `// microSD card over SPI (ESP32, VSPI default)
 void listRoot() {
   File root = SD.open("/");
   Serial.println("Files on card:");
+  int count = 0;
   File entry = root.openNextFile();
   while (entry) {
     Serial.printf("  %s  %u bytes\\n", entry.name(), (unsigned) entry.size());
     entry.close();
     entry = root.openNextFile();
+    count++;
   }
   root.close();
+  // The sketch itself is not copied: code lives in flash, not on the card.
+  if (count == 0) Serial.println("  (none yet: add a .txt or .csv file to the project)");
 }
 
 void setup() {
@@ -160,8 +168,8 @@ export const microsdExamples: ExampleProject[] = [
     ],
     wires: [
       { id: 'w-cs', start: { componentId: 'arduino-uno', pinName: '10' }, end: { componentId: 'sd1', pinName: 'CS' }, color: '#ffaa00' },
-      { id: 'w-mosi', start: { componentId: 'arduino-uno', pinName: '11' }, end: { componentId: 'sd1', pinName: 'MOSI' }, color: '#22aaff' },
-      { id: 'w-miso', start: { componentId: 'arduino-uno', pinName: '12' }, end: { componentId: 'sd1', pinName: 'MISO' }, color: '#22cc22' },
+      { id: 'w-mosi', start: { componentId: 'arduino-uno', pinName: '11' }, end: { componentId: 'sd1', pinName: 'DI' }, color: '#22aaff' },
+      { id: 'w-miso', start: { componentId: 'arduino-uno', pinName: '12' }, end: { componentId: 'sd1', pinName: 'DO' }, color: '#22cc22' },
       { id: 'w-sck', start: { componentId: 'arduino-uno', pinName: '13' }, end: { componentId: 'sd1', pinName: 'SCK' }, color: '#ffdd33' },
       { id: 'w-vcc', start: { componentId: 'arduino-uno', pinName: '5V' }, end: { componentId: 'sd1', pinName: 'VCC' }, color: '#ff4444' },
       { id: 'w-gnd', start: { componentId: 'arduino-uno', pinName: 'GND.1' }, end: { componentId: 'sd1', pinName: 'GND' }, color: '#000000' },
@@ -193,8 +201,8 @@ export const microsdExamples: ExampleProject[] = [
     ],
     wires: [
       { id: 'w-cs', start: { componentId: 'esp32', pinName: '5' }, end: { componentId: 'sd1', pinName: 'CS' }, color: '#ffaa00' },
-      { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'sd1', pinName: 'MOSI' }, color: '#22aaff' },
-      { id: 'w-miso', start: { componentId: 'esp32', pinName: '19' }, end: { componentId: 'sd1', pinName: 'MISO' }, color: '#22cc22' },
+      { id: 'w-mosi', start: { componentId: 'esp32', pinName: '23' }, end: { componentId: 'sd1', pinName: 'DI' }, color: '#22aaff' },
+      { id: 'w-miso', start: { componentId: 'esp32', pinName: '19' }, end: { componentId: 'sd1', pinName: 'DO' }, color: '#22cc22' },
       { id: 'w-sck', start: { componentId: 'esp32', pinName: '18' }, end: { componentId: 'sd1', pinName: 'SCK' }, color: '#ffdd33' },
       { id: 'w-vcc', start: { componentId: 'esp32', pinName: '3V3' }, end: { componentId: 'sd1', pinName: 'VCC' }, color: '#ff4444' },
       { id: 'w-gnd', start: { componentId: 'esp32', pinName: 'GND' }, end: { componentId: 'sd1', pinName: 'GND' }, color: '#000000' },

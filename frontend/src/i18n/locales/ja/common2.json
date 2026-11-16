@@ -433,7 +433,10 @@
       "productPage": "製品ページ",
       "datasheetPage": "Specifications",
       "sensorValues": "センサー値",
-      "sensorValuesHint": "シミュレーション開始時のセンサーの値で、Reset でこの値に戻ります。実行中にスライダーを動かしても変わりません。"
+      "sensorValuesHint": "シミュレーション開始時のセンサーの値で、Reset でこの値に戻ります。実行中にスライダーを動かしても変わりません。",
+      "valueComma": "小数点にはピリオドを使ってください（4,7k ではなく 4.7k）。",
+      "valueInvalid": "値として読み取れません。例：4.7k、4k7、100n、1M。",
+      "valueSimulatesAs": "シミュレーションでの値:"
     },
     "flash": {
       "title": "{{board}} に書き込む",

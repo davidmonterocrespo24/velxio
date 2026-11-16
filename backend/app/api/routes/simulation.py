@@ -5,6 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.esp_qemu_manager import esp_qemu_manager
 from app.services.board_access import PRO_BOARD_MESSAGE
 from app.services.esp32_lib_manager import esp_lib_manager
+from app.services import esp32_qemu_access
 from app.core.hooks import dispatch_ws_sim_message, dispatch_ws_sim_disconnect
 
 
@@ -109,32 +110,44 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             # ── ESP32 lifecycle ──────────────────────────────────────────
             elif msg_type == 'start_esp32':
                 board        = msg_data.get('board', 'esp32')
-                firmware_b64 = msg_data.get('firmware_b64')
-                sensors      = msg_data.get('sensors', [])
-                wifi_enabled = bool(msg_data.get('wifi_enabled', False))
-                # Who is on the board's SPI bus and how each one is selected
-                # (project board-buses-2026-09, F4). It rides with the start so
-                # the worker knows the bus before the guest clocks a byte.
-                bus_map      = msg_data.get('bus_map') or {}
-                fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
-                lib_available = _use_lib()
+                # The firmware in this message runs on the server, so the
+                # start is admitted first: a global cap on QEMU ESP32 workers,
+                # and the overlay's gate when one is installed. An admitted
+                # start holds a slot until the manager has its worker.
+                denial = await esp32_qemu_access.admit(websocket, client_id, board)
+                if denial is not None:
+                    logger.info('[%s] start_esp32 refused (%s)', client_id, denial.code)
+                    await qemu_callback('error', {'message': denial.message, 'code': denial.code})
+                    continue
+                try:
+                    firmware_b64 = msg_data.get('firmware_b64')
+                    sensors      = msg_data.get('sensors', [])
+                    wifi_enabled = bool(msg_data.get('wifi_enabled', False))
+                    # Who is on the board's SPI bus and how each one is selected
+                    # (project board-buses-2026-09, F4). It rides with the start so
+                    # the worker knows the bus before the guest clocks a byte.
+                    bus_map      = msg_data.get('bus_map') or {}
+                    fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
+                    lib_available = _use_lib()
 
-                # Allocate a host port for WiFi hostfwd if WiFi is enabled
-                wifi_hostfwd_port = _find_free_port() if wifi_enabled else 0
+                    # Allocate a host port for WiFi hostfwd if WiFi is enabled
+                    wifi_hostfwd_port = _find_free_port() if wifi_enabled else 0
 
-                logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s sensors=%d wifi=%s hostfwd=%d spi_map=%d',
-                            client_id, board, fw_size_kb, lib_available, len(sensors),
-                            wifi_enabled, wifi_hostfwd_port, len(bus_map.get('spi') or []))
-                if lib_available:
-                    await esp_lib_manager.start_instance(
-                        client_id, board, qemu_callback, firmware_b64, sensors,
-                        wifi_enabled=wifi_enabled, wifi_hostfwd_port=wifi_hostfwd_port,
-                        bus_map=bus_map)
-                else:
-                    logger.warning('[%s] libqemu-xtensa not available — using subprocess fallback', client_id)
-                    esp_qemu_manager.start_instance(
-                        client_id, board, qemu_callback, firmware_b64,
-                        wifi_enabled=wifi_enabled, wifi_hostfwd_port=wifi_hostfwd_port)
+                    logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s sensors=%d wifi=%s hostfwd=%d spi_map=%d',
+                                client_id, board, fw_size_kb, lib_available, len(sensors),
+                                wifi_enabled, wifi_hostfwd_port, len(bus_map.get('spi') or []))
+                    if lib_available:
+                        await esp_lib_manager.start_instance(
+                            client_id, board, qemu_callback, firmware_b64, sensors,
+                            wifi_enabled=wifi_enabled, wifi_hostfwd_port=wifi_hostfwd_port,
+                            bus_map=bus_map)
+                    else:
+                        logger.warning('[%s] libqemu-xtensa not available — using subprocess fallback', client_id)
+                        esp_qemu_manager.start_instance(
+                            client_id, board, qemu_callback, firmware_b64,
+                            wifi_enabled=wifi_enabled, wifi_hostfwd_port=wifi_hostfwd_port)
+                finally:
+                    esp32_qemu_access.release(client_id)
 
             elif msg_type == 'stop_esp32':
                 await esp_lib_manager.stop_instance(client_id)

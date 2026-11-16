@@ -183,7 +183,7 @@ For flip-flops / latches, pair the above with a voltage-controlled switch (`S-el
 | Sensor | Modeling approach |
 |---|---|
 | NTC temperature | `NTCThermistor` (β-model) — parameterized by host code from UI |
-| Photoresistor / LDR | Resistor with `R(lux) = R_dark / (1 + k·lux)` — user/UI sets resistance |
+| Photoresistor / LDR | Power law `R = rl10 · (10 / lux)^gamma`, capped at the dark resistance (a GL5528 by default, `spice/ldrModel.ts`). The 4-pin module puts the LDR between AO and GND under a 10 kΩ from VCC, as the real board and Wokwi do, so AO falls as the light rises |
 | Pushbutton | `Switch` toggled between open/closed |
 | Potentiometer | `Potentiometer` with UI-driven `wiperPos` |
 | Microphone / piezo | `CurrentSource` or `VoltageSource` with PWL waveform |

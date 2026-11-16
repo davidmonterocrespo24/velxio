@@ -57,7 +57,19 @@ class TestWifiNicArg(unittest.TestCase):
 
     def test_hostfwd_included_when_port_set(self):
         arg = wifi_nic_arg('esp32-picsimlab', wifi_enabled=True, hostfwd_port=12345)
-        self.assertIn('hostfwd=tcp::12345-192.168.4.15:80', arg)
+        self.assertIn('hostfwd=tcp:127.0.0.1:12345-192.168.4.15:80', arg)
+
+    def test_hostfwd_listens_on_loopback_only(self):
+        """A forward with no host address listens on every interface of the
+        server (the fork's slirp_hostfwd defaults to INADDR_ANY). Its only
+        consumer is the backend's own gateway proxy, which dials 127.0.0.1,
+        so the forward must not be reachable from anywhere else (#182)."""
+        arg = wifi_nic_arg('esp32-picsimlab', wifi_enabled=True, hostfwd_port=12345)
+        rule = next(p for p in arg.split(',') if p.startswith('hostfwd='))
+        proto, host_addr, rest = rule[len('hostfwd='):].split(':', 2)
+        self.assertEqual(proto, 'tcp')
+        self.assertEqual(host_addr, '127.0.0.1')
+        self.assertEqual(rest, '12345-192.168.4.15:80')
 
     def test_hostfwd_absent_when_port_zero(self):
         arg = wifi_nic_arg('esp32-picsimlab', wifi_enabled=True, hostfwd_port=0)
@@ -95,6 +107,30 @@ class TestEspQemuManagerWifiArgs(unittest.TestCase):
                 wifi_enabled=True,
                 wifi_hostfwd_port=8080,
             )
+
+
+class TestEspQemuManagerHostfwd(unittest.IsolatedAsyncioTestCase):
+    """The subprocess fallback builds its own -nic: same rule as the worker."""
+
+    async def test_hostfwd_listens_on_loopback_only(self):
+        from unittest.mock import AsyncMock
+        from app.services.esp_qemu_manager import EspInstance, EspQemuManager
+
+        mgr = EspQemuManager()
+        inst = EspInstance('c1', 'esp32', AsyncMock())
+        mgr._instances['c1'] = inst
+        captured: dict = {}
+
+        async def fake_exec(*cmd, **kwargs):
+            captured['cmd'] = list(cmd)
+            raise FileNotFoundError(cmd[0])
+
+        with patch('asyncio.create_subprocess_exec', side_effect=fake_exec):
+            await mgr._boot(inst, None, wifi_enabled=True, wifi_hostfwd_port=4321)
+
+        cmd = captured['cmd']
+        nic = cmd[cmd.index('-nic') + 1]
+        self.assertIn('hostfwd=tcp:127.0.0.1:4321-192.168.4.15:80', nic)
 
 
 class TestSimulationWifiPort(unittest.TestCase):

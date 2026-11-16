@@ -433,7 +433,10 @@
       "productPage": "Produktseite",
       "datasheetPage": "Specifications",
       "sensorValues": "Sensorwerte",
-      "sensorValuesHint": "Mit diesen Werten startet der Sensor in der Simulation, und Reset setzt ihn darauf zurück. Den Regler während der Simulation zu bewegen ändert sie nicht."
+      "sensorValuesHint": "Mit diesen Werten startet der Sensor in der Simulation, und Reset setzt ihn darauf zurück. Den Regler während der Simulation zu bewegen ändert sie nicht.",
+      "valueComma": "Dezimalstellen mit Punkt schreiben (4.7k, nicht 4,7k).",
+      "valueInvalid": "Kein gültiger Wert: z. B. 4.7k, 4k7, 100n oder 1M schreiben.",
+      "valueSimulatesAs": "Simuliert mit"
     },
     "flash": {
       "title": "{{board}} flashen",
