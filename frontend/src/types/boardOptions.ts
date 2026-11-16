@@ -96,6 +96,19 @@ function proEsp32Family(kind: BoardKind): ProEsp32Family | null {
 
 type ProEsp32Family = 'esp32' | 'esp32-s3' | 'esp32-c3' | 'esp32-c6' | 'esp32-p4' | 'esp32-c5';
 
+/**
+ * The Espressif chip a board kind carries, or null for a board that is not an
+ * ESP32. OSS kinds by the sets above; an overlay board by its esp32Family.
+ */
+export function esp32ChipOf(kind: BoardKind): ProEsp32Family | null {
+  const pro = proEsp32Family(kind);
+  if (pro) return pro;
+  if (ESP32_XTENSA_KINDS.has(kind)) return 'esp32';
+  if (ESP32_S3_KINDS.has(kind)) return 'esp32-s3';
+  if (ESP32_C3_KINDS.has(kind)) return 'esp32-c3';
+  return null;
+}
+
 export function isEsp32Family(kind: BoardKind): boolean {
   return (
     ESP32_XTENSA_KINDS.has(kind) ||

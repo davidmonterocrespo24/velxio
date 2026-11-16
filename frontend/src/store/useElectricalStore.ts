@@ -35,7 +35,9 @@ export interface SolveWindowState {
  * the latest one. What the eye, a meter or a coil integrates reads this;
  * what reacts to a level (a logic input, a comparator) reads the
  * instantaneous fields. Absent on a publish made for a single state
- * (a rebuild, the first edge after idle).
+ * (a rebuild, the first edge after idle), unless a hardware-PWM pad on a
+ * static load is in it: that state is published as the HIGH and LOW states
+ * the pad alternates between, weighted by its duty.
  */
 export interface SolveWindow {
   ms: number;
@@ -48,7 +50,12 @@ export interface ElectricalSnapshot {
   window?: SolveWindow;
   pinNetMap: Map<string, string>;
   analysisMode: 'op' | 'tran' | 'ac';
+  /** The transient capture of the published state, when it has one; see
+   *  CircuitSimulationService's ElectricalSnapshot. */
   timeWaveforms?: TimeWaveforms;
+  /** The last capture the deck produced, for the oscilloscope only: it may
+   *  describe an earlier state than the one published. */
+  scopeWaveforms?: TimeWaveforms;
   converged: boolean;
   error: string | null;
   lastSolveMs: number;
@@ -84,6 +91,7 @@ const EMPTY: ElectricalSnapshot = {
   pinNetMap: new Map(),
   analysisMode: 'op',
   timeWaveforms: undefined,
+  scopeWaveforms: undefined,
   converged: true,
   error: null,
   lastSolveMs: 0,

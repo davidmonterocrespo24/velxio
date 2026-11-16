@@ -65,8 +65,35 @@ function adcList(
   return gpios.map((gpio, i) => ({ pinName: `${prefix}${gpio}`, channel: firstChannel + i }));
 }
 
+/** Classic ESP32 ADC1 channel -> GPIO (soc/esp32/include/soc/adc_channel.h). */
+const ESP32_ADC1_GPIOS = [36, 37, 38, 39, 32, 33, 34, 35] as const;
 /** Classic ESP32 ADC2 channel -> GPIO (soc/esp32/include/soc/adc_channel.h). */
 const ESP32_ADC2_GPIOS = [4, 0, 2, 15, 13, 12, 14, 27, 25, 26] as const;
+/**
+ * Two ADC1 pads the devkits silk by their function, not their GPIO:
+ * SENSOR_VP is GPIO36 (ADC1 channel 0, the core's A0) and SENSOR_VN is
+ * GPIO39 (ADC1 channel 3) — ESP32 datasheet, ESP32-DevKitC header J2.
+ */
+const ESP32_ADC1_SILK = [
+  { pinName: 'VP', channel: 0 },
+  { pinName: 'VN', channel: 3 },
+] as const;
+
+/**
+ * A classic ESP32 board's ADC pads: both units by GPIO number (with the
+ * board's GPIO prefix) in the chip's channel order, and the VP / VN silk
+ * names on a board that breaks those pads out under them. The feed looks a
+ * pad up by the exact name its wire carries, so a board whose pads are
+ * called 'VP'/'VN' needs those names here: listed as '36'/'39' only, a
+ * divider on VP never reached analogRead (velxio/velxio-prod#171).
+ */
+function classicEsp32Adc(prefix: string, silk: boolean): Array<{ pinName: string; channel: number }> {
+  return [
+    ...adcList(prefix, ESP32_ADC1_GPIOS, 0),
+    ...(silk ? ESP32_ADC1_SILK.map((e) => ({ ...e })) : []),
+    ...adcList(prefix, ESP32_ADC2_GPIOS, 10),
+  ];
+}
 
 const ADC_6CH = adcRange('A', 0, 6);
 const ADC_8CH = adcRange('A', 0, 8);
@@ -120,10 +147,12 @@ export const ADC_PIN_MAP: Partial<Record<BoardKind, Array<{ pinName: string; cha
   // used; the bridges turn it into their engine's own addressing. Until
   // 2026-10-29 only ADC1 was here, so a solve never reached an ADC2 pin: a pH
   // probe on GPIO27 and an NTC on GPIO26 read 0.0 and -90 C in a user project.
-  esp32: [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
-  'esp32-devkit-c-v4': [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
-  'esp32-cam': [...adcRange('', 32, 8), ...adcList('', ESP32_ADC2_GPIOS, 10)],
-  'wemos-lolin32-lite': [...adcRange('GPIO', 32, 8), ...adcList('GPIO', ESP32_ADC2_GPIOS, 10)],
+  // The DevKit V1, the DevKitC V4 and the LOLIN32 Lite break GPIO36/39 out
+  // as VP/VN; the ESP32-CAM does not break them out at all.
+  esp32: classicEsp32Adc('', true),
+  'esp32-devkit-c-v4': classicEsp32Adc('', true),
+  'esp32-cam': classicEsp32Adc('', false),
+  'wemos-lolin32-lite': classicEsp32Adc('GPIO', true),
   // S3: ADC1 GPIO1-10 (ch0-9) and ADC2 GPIO11-20 (10 + ch0-9).
   'esp32-s3': [...adcRange('', 1, 10), ...adcRange('', 11, 10, 10)],
   'xiao-esp32-s3': adcRange('D', 0, 9),

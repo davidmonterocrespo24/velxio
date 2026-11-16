@@ -83,6 +83,15 @@ export type AnalysisMode =
       /** Period (s) of the slowest periodic source, when the window was sized
        *  from one: meters average over whole periods of it (waveformStats). */
       period?: number;
+      /**
+       * True when a source in the circuit moves on its own (a signal
+       * generator's sine or square, a supply in AC mode: periodicSourceHz):
+       * the waveform is the circuit, whatever level the board pads hold, so
+       * every pad state is solved as this same transient. Absent when the
+       * transient only exists for a step response or for the oscilloscope;
+       * those pad states are operating points.
+       */
+      timeVarying?: boolean;
     }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 

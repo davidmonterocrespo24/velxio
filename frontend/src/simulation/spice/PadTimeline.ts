@@ -106,6 +106,21 @@ export class PadTimeline {
   }
 
   /**
+   * Start the open window at `startMs` instead of the last close. For the
+   * first edge after a window that closed on one state: since that close the
+   * pads held that state, the canvas shows it on its own, and that time
+   * belongs to no window. Counted, it made the window the edge opens mostly
+   * the state before the edge (a second of it after a Blink's delay(1000)):
+   * every LED and meter fell back to its old reading for one window after
+   * each toggle (velxio/velxio-prod#152). A no-op once the window holds an
+   * edge, or for a time before the window's start.
+   */
+  restartAt(startMs: number): void {
+    if (this.edges.length > 0 || this.overflow || !(startMs > this.startMs)) return;
+    this.startMs = startMs;
+  }
+
+  /**
    * Integrate the window that ends now and start the next one.
    */
   close(endMs: number): WindowResult {
