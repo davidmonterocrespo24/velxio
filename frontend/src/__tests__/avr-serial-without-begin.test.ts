@@ -45,7 +45,7 @@ function run(ms: number, enableTx: boolean): Run {
     text += ch;
   };
   const fabric: number[] = [];
-  sim.getBusBinding().uart[0].setTxHandler((byte) => fabric.push(byte));
+  sim.getBusBinding().uart![0]!.setTxHandler((byte) => fabric.push(byte));
   const cpu = (sim as unknown as { cpu: { cycles: number; data: Uint8Array; writeHooks: Record<number, unknown>; writeData(a: number, v: number): void } }).cpu;
   // Count the sketch's writes to UDR0, whatever the USART does with them.
   let udrWrites = 0;

@@ -41,7 +41,7 @@ beforeAll(() => {
   sim.loadHex(HEX);
   // A BMP280 at 0x76: the register pointer write, then its chip id 0x58.
   addressed = [];
-  sim.getBusBinding().i2c[0].setTransactionHandler({
+  sim.getBusBinding().i2c![0]!.setTransactionHandler({
     start: (address, read) => {
       addressed.push({ address, read });
       return address === 0x76;
