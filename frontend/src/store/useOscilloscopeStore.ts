@@ -141,6 +141,22 @@ export interface OscAnalogChannel extends OscChannelBase {
    * channel would go dead the moment the user taps the wire it was watching.
    */
   netName: string;
+  /**
+   * The part pin the wire was probed at, when the probe came from the canvas.
+   *
+   * Net names are positional (n0, n1, ... in NetlistBuilder's order), so any
+   * edit can renumber them: adding an LED on D2 moved a divider tap from n2 to
+   * n3, and a channel holding "n2" went on plotting the other node, under the
+   * same label (velxio/velxio-prod#119). The pin does not move; the feed looks
+   * its net up in every published pinNetMap (followProbes).
+   */
+  probe?: { componentId: string; pinName: string };
+  /**
+   * The probed pin is in no net of the latest solve (its part or its wire was
+   * removed). The trace is blank rather than frozen at its last capture, and
+   * the channel asks the solver for nothing until the pin is back.
+   */
+  lost?: boolean;
 }
 
 export type OscChannel = OscDigitalChannel | OscAnalogChannel;
@@ -203,8 +219,28 @@ interface OscilloscopeState {
   setTimeDivMs: (ms: number) => void;
   addChannel: (boardId: string, pin: number, pinLabel: string, amplitudeV?: number) => void;
   /** Add (or reveal) a channel watching a SPICE net by name. Keyed on the NET
-   *  so it survives the wire it was probed from being split by a junction. */
-  addNetChannel: (netName: string, label: string) => string;
+   *  so it survives the wire it was probed from being split by a junction;
+   *  `probe` is the part pin the net was found at, which the channel follows
+   *  when the nets are renumbered (see OscAnalogChannel.probe). */
+  addNetChannel: (
+    netName: string,
+    label: string,
+    probe?: { componentId: string; pinName: string },
+  ) => string;
+  /**
+   * Point every probed analog channel at the net its pin is on in this
+   * published pinNetMap: a renumbered net is followed, a pin no net holds any
+   * more blanks the channel (`lost`). Called by the analog feed with each
+   * solve, before it plots.
+   */
+  followProbes: (pinNetMap: ReadonlyMap<string, string>) => void;
+  /**
+   * Drop every channel, its samples and the trigger it held. The channels of
+   * one circuit mean nothing in another: loading a project, an example or a
+   * new starter calls this (velxio/velxio-prod#119). The panel's own settings
+   * (open, time/div, trigger mode and edge) stay.
+   */
+  resetChannels: () => void;
   removeChannel: (id: string) => void;
   /** Push one sample; drops the oldest if the buffer is full */
   pushSample: (channelId: string, timeMs: number, state: boolean) => void;
@@ -280,6 +316,12 @@ function resolveTriggerChannelId(
     return triggerChannelId;
   }
   return channels[0]?.id ?? null;
+}
+
+/** The label an analog channel takes from its net: the net's name, and GND
+ *  for ground (net "0", which the solver never lists as a node). */
+export function analogNetLabel(netName: string): string {
+  return netName === '0' ? 'GND' : netName;
 }
 
 /** Vertical divisions on the scope screen (Oscilloscope.tsx draws the same 8). */
@@ -363,12 +405,26 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
     }));
   },
 
-  addNetChannel: (netName: string, label: string) => {
+  addNetChannel: (netName: string, label: string, probe?: { componentId: string; pinName: string }) => {
     const { channels } = get();
-    const existing = channels.find((c) => c.kind === 'analog' && c.netName === netName);
-    if (existing) return existing.id;
+    const existing = channels.find(
+      (c): c is OscAnalogChannel => c.kind === 'analog' && c.netName === netName && !c.lost,
+    );
+    if (existing) {
+      // The same node probed again: one trace. Remember the pin if the
+      // channel had none, so it follows the node from now on.
+      if (probe && !existing.probe) {
+        set((s) => ({
+          channels: s.channels.map((c) => (c.id === existing.id ? { ...existing, probe } : c)),
+        }));
+      }
+      return existing.id;
+    }
 
-    const id = `osc-net-${netName}`;
+    // A channel keeps its id when its net is renumbered (followProbes), so
+    // `osc-net-<net>` may already be taken by a channel now on another net.
+    let id = `osc-net-${netName}`;
+    for (let k = 2; channels.some((c) => c.id === id); k++) id = `osc-net-${netName}-${k}`;
     const color = CHANNEL_COLORS[channels.length % CHANNEL_COLORS.length];
     set((s) => ({
       channels: [
@@ -381,12 +437,46 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
           color,
           voltsPerDiv: 1,
           yOffsetV: 0,
+          ...(probe ? { probe } : {}),
         },
       ],
       samples: { ...s.samples, [id]: [] },
     }));
     return id;
   },
+
+  followProbes: (pinNetMap) => {
+    const s = get();
+    let changed = false;
+    let samples = s.samples;
+    const channels = s.channels.map((c) => {
+      if (c.kind !== 'analog' || !c.probe) return c;
+      const net = pinNetMap.get(`${c.probe.componentId}:${c.probe.pinName}`);
+      if (net === undefined) {
+        if (c.lost) return c;
+        changed = true;
+        samples = { ...samples, [c.id]: [] };
+        return { ...c, lost: true };
+      }
+      if (net === c.netName && !c.lost) return c;
+      changed = true;
+      // A label that was the net's own name follows it; one the caller chose
+      // stays.
+      const label = c.label === analogNetLabel(c.netName) ? analogNetLabel(net) : c.label;
+      if (net !== c.netName) samples = { ...samples, [c.id]: [] };
+      return { ...c, netName: net, label, lost: false };
+    });
+    if (changed) set({ channels, samples });
+  },
+
+  resetChannels: () =>
+    set((s) => ({
+      channels: [],
+      samples: {},
+      triggerChannelId: null,
+      triggeredAtMs: null,
+      triggerStatus: s.triggerMode === 'auto' ? 'idle' : 'armed',
+    })),
 
   removeChannel: (id) => {
     set((s) => {

@@ -2928,6 +2928,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (get().running) stopSimulation();
       const oldIds = get().boards.map((b) => b.id);
       oldIds.forEach((id) => removeBoard(id));
+      // The scope's channels name nets and pins of the circuit going away; in
+      // the one coming in, "n0" is another point (velxio/velxio-prod#119).
+      useOscilloscopeStore.getState().resetChannels();
 
       // Recreate boards with their saved ids so wire endpoints (which embed
       // the literal board id) keep matching.

@@ -263,7 +263,8 @@
       "clear": "Limpar",
       "noChannels": "Nenhum canal adicionado.",
       "noChannelsHint": "Clique em \"+ Adicionar Canal\" para monitorar um pino.",
-      "removeChannel": "Remover {{label}}"
+      "removeChannel": "Remover {{label}}",
+      "probeLost": "O ponto medido não está mais no circuito"
     },
     "componentProps": {
       "close": "Fechar",

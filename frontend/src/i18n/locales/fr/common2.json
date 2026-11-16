@@ -263,7 +263,8 @@
       "clear": "Effacer",
       "noChannels": "Aucun canal ajouté.",
       "noChannelsHint": "Cliquez sur \"+ Ajouter un canal\" pour surveiller une broche.",
-      "removeChannel": "Supprimer {{label}}"
+      "removeChannel": "Supprimer {{label}}",
+      "probeLost": "Le point mesuré n'est plus dans le circuit"
     },
     "componentProps": {
       "close": "Fermer",

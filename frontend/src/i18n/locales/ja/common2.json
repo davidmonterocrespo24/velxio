@@ -263,7 +263,8 @@
       "clear": "クリア",
       "noChannels": "チャンネルが追加されていません。",
       "noChannelsHint": "\"+ チャンネル追加\" をクリックしてピンを監視します。",
-      "removeChannel": "{{label}} を削除"
+      "removeChannel": "{{label}} を削除",
+      "probeLost": "測定点は回路にもうありません"
     },
     "componentProps": {
       "close": "閉じる",

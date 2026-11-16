@@ -263,7 +263,8 @@
       "clear": "清除",
       "noChannels": "未添加通道。",
       "noChannelsHint": "点击“+ 添加通道”以监视引脚。",
-      "removeChannel": "移除 {{label}}"
+      "removeChannel": "移除 {{label}}",
+      "probeLost": "探测点已不在电路中"
     },
     "componentProps": {
       "close": "关闭",

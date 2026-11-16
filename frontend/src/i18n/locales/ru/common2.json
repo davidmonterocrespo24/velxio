@@ -263,7 +263,8 @@
       "clear": "Очистить",
       "noChannels": "Каналы не добавлены.",
       "noChannelsHint": "Нажмите «+ Добавить канал», чтобы отслеживать пин.",
-      "removeChannel": "Удалить {{label}}"
+      "removeChannel": "Удалить {{label}}",
+      "probeLost": "Измеряемой точки больше нет в схеме"
     },
     "componentProps": {
       "close": "Закрыть",

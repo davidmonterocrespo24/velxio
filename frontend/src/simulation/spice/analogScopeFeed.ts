@@ -51,10 +51,11 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 function refreshWatchedNets(): void {
   const { channels, open, running } = useOscilloscopeStore.getState();
-  // A closed or paused scope should not hold the solver in transient mode.
+  // A closed or paused scope should not hold the solver in transient mode,
+  // and neither should a channel whose probed pin left the circuit.
   const wanted =
     open && running
-      ? channels.flatMap((c) => (c.kind === 'analog' ? [c.netName] : []))
+      ? channels.flatMap((c) => (c.kind === 'analog' && !c.lost ? [c.netName] : []))
       : [];
   const changed =
     wanted.length !== watchedNets.length || wanted.some((n, i) => n !== watchedNets[i]);
@@ -77,16 +78,21 @@ function refreshWatchedNets(): void {
  *  service's `scopeWaveforms`: the last capture the deck produced, which stays
  *  published across the pin edges solved after it as operating points, so the
  *  trace does not blank between two recaptures. A store written without one
- *  (a test, a direct caller) is read through its `timeWaveforms`. */
+ *  (a test, a direct caller) is read through its `timeWaveforms`.
+ *
+ *  Net names are positional and an edit can renumber them, so each probed
+ *  channel is first pointed at the net its pin is on in this solve's
+ *  pinNetMap (followProbes); an empty map is no solve yet and moves nothing. */
 function publishCapture(): void {
-  const { scopeWaveforms, timeWaveforms: current } = useElectricalStore.getState();
+  const { scopeWaveforms, timeWaveforms: current, pinNetMap } = useElectricalStore.getState();
+  if (pinNetMap.size > 0) useOscilloscopeStore.getState().followProbes(pinNetMap);
   const timeWaveforms = scopeWaveforms ?? current;
   if (!timeWaveforms || timeWaveforms.time.length === 0) return;
   const { channels, pushAnalogBlock } = useOscilloscopeStore.getState();
   // SPICE works in seconds; every existing scope reader is in milliseconds.
   const timesMs = timeWaveforms.time.map((t) => t * 1000);
   for (const ch of channels) {
-    if (ch.kind !== 'analog') continue;
+    if (ch.kind !== 'analog' || ch.lost) continue;
     const volts = timeWaveforms.nodes.get(ch.netName);
     if (volts && volts.length > 0) {
       pushAnalogBlock(ch.id, timesMs, volts);

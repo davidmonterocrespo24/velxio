@@ -263,7 +263,8 @@
       "clear": "Cancella",
       "noChannels": "Nessun canale aggiunto.",
       "noChannelsHint": "Clicca \"+ Aggiungi canale\" per monitorare un pin.",
-      "removeChannel": "Rimuovi {{label}}"
+      "removeChannel": "Rimuovi {{label}}",
+      "probeLost": "Il punto misurato non è più nel circuito"
     },
     "componentProps": {
       "close": "Chiudi",

@@ -272,7 +272,8 @@
       "clear": "Clear",
       "noChannels": "No channels added.",
       "noChannelsHint": "Click \"+ Add Channel\" to monitor a pin.",
-      "removeChannel": "Remove {{label}}"
+      "removeChannel": "Remove {{label}}",
+      "probeLost": "The probed point is no longer in the circuit"
     },
     "componentProps": {
       "close": "Close",

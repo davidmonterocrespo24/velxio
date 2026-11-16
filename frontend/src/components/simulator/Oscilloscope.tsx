@@ -668,6 +668,14 @@ export const Oscilloscope: React.FC = () => {
    *  channel, a net marker for an analog one. */
   const channelSource = (c: OscChannel): string =>
     c.kind === 'digital' ? boardShortName(c.boardId) : 'net';
+  /** Its tooltip: the board, or the net and the part pin it was probed at
+   *  (which the channel follows when an edit renumbers the nets). */
+  const channelSourceTitle = (c: OscChannel): string =>
+    c.kind === 'digital'
+      ? c.boardId
+      : c.probe
+        ? `net ${c.netName} · ${c.probe.componentId}:${c.probe.pinName}`
+        : `net ${c.netName}`;
 
   // Short display name for a board id — strip leading "arduino-", "raspberry-pi-", etc.
   const boardShortName = (boardId: string) => {
@@ -819,15 +827,23 @@ export const Oscilloscope: React.FC = () => {
         <>
           <div className="osc-waveforms">
             {channels.map((ch) => (
-              <div key={ch.id} className="osc-channel-row">
+              <div
+                key={ch.id}
+                className={`osc-channel-row${ch.kind === 'analog' && ch.lost ? ' osc-channel-lost' : ''}`}
+              >
                 <div className="osc-channel-label">
-                  <span
-                    className="osc-channel-board"
-                    title={ch.kind === 'digital' ? ch.boardId : `net ${ch.netName}`}
-                  >
+                  <span className="osc-channel-board" title={channelSourceTitle(ch)}>
                     {channelSource(ch)}
                   </span>
-                  <span className="osc-channel-name" style={{ color: ch.color }}>
+                  <span
+                    className="osc-channel-name"
+                    style={{ color: ch.color }}
+                    title={
+                      ch.kind === 'analog' && ch.lost
+                        ? t('editor.oscilloscope.probeLost')
+                        : undefined
+                    }
+                  >
                     {ch.label}
                   </span>
                   <button

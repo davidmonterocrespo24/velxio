@@ -246,6 +246,12 @@
   font-weight: 700;
 }
 
+/* The probed pin left the circuit: the row stays, blank, until it is back. */
+.osc-channel-lost .osc-channel-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
 .osc-channel-remove {
   background: transparent;
   border: none;

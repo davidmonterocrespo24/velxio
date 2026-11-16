@@ -263,7 +263,8 @@
       "clear": "Löschen",
       "noChannels": "Keine Kanäle hinzugefügt.",
       "noChannelsHint": "Klicken Sie auf „+ Kanal hinzufügen“, um einen Pin zu überwachen.",
-      "removeChannel": "{{label}} entfernen"
+      "removeChannel": "{{label}} entfernen",
+      "probeLost": "Der gemessene Punkt ist nicht mehr in der Schaltung"
     },
     "componentProps": {
       "close": "Schließen",

@@ -30,6 +30,7 @@ import {
 import { useSimulatorStore, DEFAULT_BOARD_POSITION } from '../../store/useSimulatorStore';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { getLocaleFromPath, localizedPath } from '../../i18n/path';
 import { loadExample } from '../../utils/loadExample';
 import type { ExampleProject } from '../../data/examples';
@@ -114,6 +115,9 @@ export function clearWorkspaceForStarter(): void {
   sim.boards.map((b) => b.id).forEach((id) => sim.removeBoard(id));
   sim.setComponents([]);
   sim.setWires([]);
+  // An empty canvas has nothing for the old scope channels to watch
+  // (velxio/velxio-prod#119).
+  useOscilloscopeStore.getState().resetChannels();
   const editor = useEditorStore.getState();
   Object.keys(editor.fileGroups).forEach((g) => editor.deleteFileGroup(g));
   editor.setActiveGroup('');

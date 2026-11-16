@@ -30,6 +30,7 @@ import { boardPinToNumber } from '../utils/boardPinMapping';
 import { boardPinGroupFor } from './spice/boardPinGroups';
 import { traceDetailed, type TraceState } from './PinTrace';
 import { ADC_PIN_MAP } from './spice/connectAnalogInputsToMcu';
+import { analogNetLabel } from '../store/useOscilloscopeStore';
 
 /** The ground net is a constant, and never appears in nodeVoltages. */
 export const GROUND_NET = '0';
@@ -51,6 +52,10 @@ export type ProbeTarget =
       /** SPICE net name from the PUBLISHED pinNetMap. */
       netName: string;
       label: string;
+      /** The wire end the net was found at. Net names are positional and an
+       *  edit renumbers them; the scope channel follows this pin instead
+       *  (useOscilloscopeStore.followProbes, velxio/velxio-prod#119). */
+      probe?: { componentId: string; pinName: string };
     };
 
 export interface ProbeContext {
@@ -172,7 +177,8 @@ export function resolveProbe(wire: Wire, ctx: ProbeContext): ProbeTarget | null 
         netName: net,
         // Ground has no nodeVoltages entry; the reader treats net '0' as a
         // constant 0 V rather than "no data".
-        label: net === GROUND_NET ? 'GND' : net,
+        label: analogNetLabel(net),
+        probe: { componentId: e.componentId, pinName: e.pinName },
       };
     }
   }
