@@ -2953,12 +2953,17 @@ class ESPIDFCompiler:
             props[key.strip().lower()] = value.strip()
         return props
 
-    # What an archive's file name and an ldflags token may hold to be written
-    # into the generated CMakeLists. Both come from the library's own files;
-    # a quote, a parenthesis or a `$` would end or expand the CMake argument
-    # they sit in, so anything else is dropped with a warning.
+    # What an archive's file name may hold to be written into the generated
+    # CMakeLists, and the ldflags tokens that are kept. Both come from the
+    # library's own files; a quote, a parenthesis or a `$` would end or
+    # expand the CMake argument they sit in. An ldflags token must name a
+    # library (-l<name>) or group archives: any other option makes the build
+    # read or run what it names (a response file, -wrapper, -specs=, a linker
+    # script, another search folder). Anything else is dropped with a warning.
     _PRECOMPILED_SAFE_NAME = re.compile(r'[A-Za-z0-9_.+-]+')
-    _PRECOMPILED_SAFE_FLAG = re.compile(r'[A-Za-z0-9_.,=+:/-]+')
+    _PRECOMPILED_SAFE_FLAG = re.compile(
+        r'-l[A-Za-z0-9_.+-]+|-Wl,--(?:no-)?whole-archive|-Wl,--start-group|-Wl,--end-group'
+    )
 
     def _precompiled_link(
         self, lib_root: Path, has_src_layout: bool, idf_target: str | None,

@@ -324,6 +324,33 @@ class TestLdflagsThatReadFiles(PrecompiledBase):
         self.assertEqual([f for f in flags if '@' in f], [], self.cmake_text())
 
 
+class TestLdflagsNameLibrariesOnly(PrecompiledBase):
+    """A precompiled library's ldflags keep what names libraries (-l<name>)
+    and the archive grouping switches; every other option makes the build run
+    or read what it names: -wrapper runs a program around the linker, -specs=
+    rewrites the driver's own command lines, -T reads a linker script, -B and
+    -L send the driver and the linker to other folders, and -Xlinker hands
+    the next argument to the linker whatever it is (security,
+    velxio/velxio-prod#223)."""
+
+    PROPS = (
+        'name=MixedCore\nversion=1.0.0\nprecompiled=true\n'
+        'ldflags=-lmixedcore -Wl,--whole-archive -lm -Wl,--no-whole-archive '
+        '-Wl,--start-group -lstdc++ -Wl,--end-group '
+        '-wrapper /srv/example/run,x -specs=../x.h -Wl,-T,/srv/example/x.ld '
+        '-B/srv/example -L/srv/example -Xlinker -Map=/srv/example/out x\n'
+        'architectures=*\n'
+    )
+
+    def test_only_libraries_and_grouping_switches_reach_the_link_line(self):
+        self.resolve(['MixedCore.h'], 'esp32')
+        flags = [i for kw, items in self.linked_items() if kw == 'INTERFACE' for i in items]
+        self.assertEqual(flags, [
+            '-lmixedcore', '-Wl,--whole-archive', '-lm', '-Wl,--no-whole-archive',
+            '-Wl,--start-group', '-lstdc++', '-Wl,--end-group',
+        ], self.cmake_text())
+
+
 class TestNotPrecompiled(PrecompiledBase):
     """An archive alone means nothing: arduino-cli needs precompiled= to link it."""
 
