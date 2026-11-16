@@ -21,6 +21,18 @@ export interface CompilationLog {
   target?: CompileTarget;
 }
 
+/** The target of the console's "Circuit check" group: the pre-run findings
+ *  and the runtime faults (EditorToolbar). They share the compile log and its
+ *  'error' type, and they are not the compiler's. */
+export const CIRCUIT_CHECK_TARGET_ID = 'circuit-check';
+
+/** The error lines a compile wrote: every error line but the Circuit check's
+ *  (velxio/velxio-prod#222). A short or a burnt LED on a build that compiled
+ *  is not a compile to diagnose. */
+export function compileErrorCount(logs: CompilationLog[]): number {
+  return logs.filter((l) => l.type === 'error' && l.target?.id !== CIRCUIT_CHECK_TARGET_ID).length;
+}
+
 /** Build-system chatter with no signal for the user: CMake configure status,
  *  git-metadata probes inside the build container (the tree is a synthesized
  *  project, never a git repo — those "fatal:" lines are expected), IDF
