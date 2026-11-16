@@ -34,6 +34,12 @@ export interface BoardPinGroup {
    * `aux` rail above `vcc`) is an input by that alone and needs no entry.
    */
   powerInputs?: Record<string, PowerInputRange>;
+  /**
+   * Pins that load their net to ground inside the chip, pin name -> ohms: an
+   * ADC's external reference input (an ATmega's AREF, 32 kOhm). The netlist
+   * stamps the load on a wired pin; the pin is not a supply pin.
+   */
+  pinLoads?: Record<string, number>;
 }
 
 /** The supply voltages a power input runs from, V (datasheet operating range). */
@@ -73,24 +79,33 @@ const STM32_GROUP: BoardPinGroup = {
 export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
   default: { vcc: 5, gnd: ['GND', 'GND.1', 'GND.2'], vcc_pins: ['5V', 'VCC'] },
 
-  // AREF stays on the main 5 V rail — it is VCC-referenced by default.
+  // AREF is the ADC's external reference input, not a supply pin: with
+  // analogReference(EXTERNAL) the ADC converts against the voltage wired
+  // there (connectAnalogInputsToMcu), and the pin loads its net with the
+  // reference's 32 kOhm input resistance (ATmega328P datasheet Table 29-15;
+  // Arduino's analogReference: "an internal 32K resistor on the AREF pin").
+  // It used to sit on the 5 V rail, which pinned a divider or a reference
+  // wired there to the ideal 5 V source (velxio/velxio-prod#154).
   'arduino-uno': {
     vcc: 5,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
-    vcc_pins: ['5V', 'VCC', 'AREF'],
+    vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3.3V'] },
+    pinLoads: { AREF: 32_000 },
   },
   'arduino-nano': {
     vcc: 5,
     gnd: ['GND.1', 'GND.2', 'GND'],
-    vcc_pins: ['5V', 'VCC', 'AREF'],
+    vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3V3'] },
+    pinLoads: { AREF: 32_000 },
   },
   'arduino-mega': {
     vcc: 5,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND.4', 'GND'],
-    vcc_pins: ['5V', 'VCC', 'AREF'],
+    vcc_pins: ['5V', 'VCC'],
     aux: { volts: 3.3, pins: ['3.3V'] },
+    pinLoads: { AREF: 32_000 },
   },
   // A bare chip: VCC is its only supply pin, and the ATtiny85 runs from
   // 2.7 V to 5.5 V (datasheet, operating voltage). Velxio runs it at 5 V.

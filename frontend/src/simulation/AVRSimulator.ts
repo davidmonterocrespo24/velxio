@@ -868,6 +868,24 @@ const MEGA_USART3: USARTConfig = {
   UDR: 0x136,
 };
 
+/**
+ * The ATmega2560's ADC multiplexer (datasheet Table 26-4): MUX5 in ADCSRB
+ * selects ADC8-15 (MUX5:0 = 1000xx, avr8js folds MUX5 in as channel 0x20+),
+ * 0x1E is the 1.1 V bandgap and 0x1F GND. The 328P's table it reused had a
+ * 4-bit mask, which dropped MUX5: analogRead(A8..A15) read A0..A7.
+ * Differential inputs are not modelled (they read 0 V).
+ */
+const ATMEGA2560_ADC_CHANNELS: ADCMuxConfiguration = {
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => [i, { type: ADCMuxInputType.SingleEnded, channel: i }]),
+  ),
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => [0x20 + i, { type: ADCMuxInputType.SingleEnded, channel: 8 + i }]),
+  ),
+  0x1e: { type: ADCMuxInputType.Constant, voltage: 1.1 },
+  0x1f: { type: ADCMuxInputType.Constant, voltage: 0 },
+};
+
 const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
   // The compare-output pads and the third channel of Timer1 are the Mega's,
   // not the 328P's: without them a sketch that sets OCR1A drives no pin (#356).
@@ -913,7 +931,22 @@ const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
   ],
   spi: { ...spiConfig, spiInterrupt: 0x30 },
   twi: { ...twiConfig, twiInterrupt: 0x4e },
-  adc: { ...adcConfig, adcInterrupt: 0x3a },
+  // The 2560's references (Table 26-3): REFS 10 is the internal 1.1 V and
+  // 11 the internal 2.56 V. With the 328P's table INTERNAL1V1 converted
+  // against 5 V and INTERNAL2V56 against 1.1 V (velxio/velxio-prod#154).
+  adc: {
+    ...adcConfig,
+    adcInterrupt: 0x3a,
+    numChannels: 16,
+    muxInputMask: 0x3f,
+    muxChannels: ATMEGA2560_ADC_CHANNELS,
+    adcReferences: [
+      ADCReference.AREF,
+      ADCReference.AVCC,
+      ADCReference.Internal1V1,
+      ADCReference.Internal2V56,
+    ],
+  },
   eeprom: { ...eepromConfig, eepromReadyInterrupt: 0x3c },
 };
 

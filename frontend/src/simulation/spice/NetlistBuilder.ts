@@ -354,6 +354,18 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
   }
 
+  // A pin that loads its net inside the chip (BoardForSpice.pinLoads): an
+  // ATmega's AREF, the 32 kOhm input of its ADC reference. Only where a wire
+  // lands on it; a rail is held by its own source.
+  for (const board of boards) {
+    for (const [pinName, ohms] of Object.entries(board.pinLoads ?? {})) {
+      const net = netLookup(board.id, pinName);
+      if (!net || isRailNet(net) || !(ohms > 0)) continue;
+      cards.push(`R_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}_load ${net} 0 ${ohms}`);
+      sourcedNets.add(net);
+    }
+  }
+
   // ── 6. Vcc rail source (if any pin referenced it, or a card uses it) ─────
   // A card can name the rail without any wired pin on it: an internal
   // pull-up, or an LM358 whose V+ pin is unwired (its macro-model takes
