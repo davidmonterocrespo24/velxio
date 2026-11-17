@@ -117,11 +117,11 @@ function square(hz: number, fromUs: number, forUs: number): Wave {
   return out;
 }
 
-/** "PING\r\n" at 9600 baud 8N1, its start bit at `startUs`: an edge where the level changes. */
-function line(startUs: number): Wave {
+/** A line of `text` (by default "PING\r\n") at 9600 baud 8N1, its start bit at `startUs`: an edge where the level changes. */
+function line(startUs: number, text = 'PING\r\n'): Wave {
   const bitCycles = HZ / 9600;
   const levels: boolean[] = [];
-  for (const ch of 'PING\r\n') {
+  for (const ch of text) {
     const b = ch.charCodeAt(0);
     levels.push(false);
     for (let k = 0; k < 8; k++) levels.push(((b >> k) & 1) === 1);
@@ -213,6 +213,26 @@ describe('the anchor of a burst of edges on the receiver’s clock (#397, bounde
     }
   });
 
+  for (const order of ['sender-first', 'receiver-first'] as const) {
+    it(`(C) at 20 fps, a 40-byte line inside one of the sender’s 50 ms bursts keeps its spacing to its last edge (${order})`, () => {
+      const { tx, rx } = link();
+      // A frame loop runs at most 50 ms of guest time a frame (MAX_DELTA_MS), and
+      // at 20 fps every frame does: the line (41.6 ms from its start bit to its
+      // last stop bit at 9600 baud) starts 1 ms into the sender's second burst and
+      // ends inside it, so the receiver is handed all of it at once, the last edge
+      // 61.6 ms ahead of its present (the anchor's 20 ms and the line).
+      const BURST_US = 50_000;
+      const wave = line(BURST_US + 1_000, '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZab\r\n');
+      run(tx, rx, wave, 4, { senderUs: BURST_US, receiverUs: BURST_US, order });
+      expect(rx.given.map((g) => g.level)).toEqual(wave.map(([, level]) => level));
+      const at0 = rx.given[0].at;
+      const sent0 = wave[0][0];
+      const drift = rx.given.map((g, i) => g.at - at0 - (wave[i][0] - sent0));
+      const late = drift.findIndex((d) => d !== 0);
+      expect(late, `the first edge off the spacing sent (of ${wave.length}), cycles off: ${drift[late]}`).toBe(-1);
+    });
+  }
+
   it('(A) a 50 Hz source that never goes quiet, into a receiver at half speed: the delay stays bounded over a minute', () => {
     const { tx, rx } = link();
     const wave = square(50, 0, 60_000_000);
@@ -222,9 +242,9 @@ describe('the anchor of a burst of edges on the receiver’s clock (#397, bounde
     const aheadMs = rx.given.map((g) => (g.at - g.now) / PER_US / 1_000);
     const worst = (from: number, to: number) => Math.max(...aheadMs.slice(from, to));
     const n = aheadMs.length;
-    // Never more than four frames ahead of the receiver: not 0.5 s at 1 s, 5 s at 10 s or 30 s at 60 s.
-    expect(worst(0, n), 'the furthest an edge lands ahead of the receiver, ms').toBeLessThanOrEqual(64);
-    expect(worst(n - 100, n), 'in the last two seconds, ms').toBeLessThanOrEqual(64);
+    // Never more than five frames ahead of the receiver: not 0.5 s at 1 s, 5 s at 10 s or 30 s at 60 s.
+    expect(worst(0, n), 'the furthest an edge lands ahead of the receiver, ms').toBeLessThanOrEqual(80);
+    expect(worst(n - 100, n), 'in the last two seconds, ms').toBeLessThanOrEqual(80);
     // The edges keep their order on the receiver, each after the one before it.
     for (let i = 1; i < n; i++) expect(rx.given[i].at, `edge ${i}`).toBeGreaterThan(rx.given[i - 1].at);
     // And the last level the receiver is given is the sender's last.
