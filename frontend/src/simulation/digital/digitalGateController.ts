@@ -68,6 +68,9 @@ export function mountDigitalGateEngine(): () => void {
       .map((c) => `${c.id}=${generatorSettings(c)}`)
       .join(',');
 
+  // What each LED was last painted with: a clock repaints every frame, and
+  // an LED whose brightness did not move is left alone.
+  const painted = new Map<string, number>();
   const paint = () => {
     if (!net?.ok) return;
     for (const id of net.ledIds) {
@@ -75,6 +78,8 @@ export function mountDigitalGateEngine(): () => void {
       if (!el) continue;
       // Under a clock an LED is as bright as the share of the frame it was lit.
       const brightness = net.hasClocks ? net.ledDuty(id) : net.readLed(id);
+      if (net.hasClocks && painted.get(id) === brightness && el.brightness === brightness) continue;
+      painted.set(id, brightness);
       el.value = brightness > 0;
       el.brightness = brightness;
     }
@@ -114,6 +119,7 @@ export function mountDigitalGateEngine(): () => void {
     resetBusNets();
     const built = buildDigitalNetwork(st.components as never[], st.wires as never[], new PinManager());
     net = built.ok ? built : null;
+    painted.clear();
     schedulePaint();
     startClocks();
   };
