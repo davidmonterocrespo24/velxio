@@ -6,7 +6,7 @@
  * source from t = 0 and published that, whatever the circuit's own time
  * constant: a 490 Hz square wave (the Uno's PWM rate) into 10 kΩ / 10 µF
  * (τ = 100 ms) ran 8.16 ms, 0.08 τ, so the capacitor read 0.195 V and the
- * voltmeter DC 0.151 V where the real filter sits at 2.5 V with about 27 mV
+ * voltmeter DC 0.151 V where the real filter sits at 2.5 V with about 25 mV
  * of ripple. Every recapture started again from 0 V.
  *
  * Now the deck runs the circuit for about seven of its largest time
@@ -235,8 +235,14 @@ describe('which decks settle, and for how long', () => {
     expect(galleryCard('an-bjt-common-emitter').split(/\s+/)).toHaveLength(3);
   });
 
-  it('a rectifier settles: its reservoir capacitor builds up over many cycles', () => {
-    // 100 µF on a 1 kΩ load: τ = 100 ms, seven of them in whole 20 ms periods.
+  it("a rectifier runs seven of its reservoir's discharge time constants first, more than it needs", () => {
+    // The estimate takes the 100 µF reservoir's discharge through its 1 kΩ
+    // load, τ = 100 ms: seven of them in whole 20 ms periods. The reservoir
+    // tops up through the diode every cycle, so the circuit is settled within
+    // its first cycles: at a fine step it reads 8.766 V from t = 0 and after
+    // 1.4 s alike, and the start-up only costs time. The 9.146 V this deck
+    // read at first was the step's error, not an unsettled start
+    // (transient-window-diode-step.test.ts).
     const [, , stop, start] = galleryCard('an-smoothed-rectifier').split(/\s+/);
     expect(Number(start)).toBeCloseTo(0.7, 6);
     expect(Number(stop) - Number(start)).toBeCloseTo(0.08, 6);

@@ -15,8 +15,15 @@
  *  - A square wave (PULSE) starts at its low level, so the operating point at
  *    t = 0 charges every capacitor for that level, while the circuit runs
  *    about the wave's mean: a filter starts at 0 V and climbs to 2.5 V.
- *  - A diode rectifies: a reservoir capacitor, a clamp or a voltage doubler
- *    builds its DC level up over many cycles.
+ *  - A diode rectifies, and the capacitors it charges start empty. A
+ *    reservoir or a clamp's capacitor fills through the diode in the first
+ *    cycles and tops up every cycle after, so it is settled almost at once;
+ *    a voltage doubler's output fills through its pump capacitor a little
+ *    each cycle, over many. The estimate below takes a capacitor's discharge
+ *    time constant through its load, which overstates what a rectifier needs:
+ *    that costs time, not accuracy. (The smoothed rectifier's first settled
+ *    reading, 9.146 V for 8.766 V, was the step's error, not the start-up's:
+ *    DIODE_STEP_DIVISOR.)
  *  - A sine starts at its offset, which is its mean: a linear circuit's
  *    operating point at t = 0 is already its steady-state DC, and what is
  *    left to settle is a ripple-sized transient. Such decks are not run any
