@@ -44,6 +44,7 @@ stderr        : debug logs (never part of the JSON protocol)
 import base64
 import ctypes
 import json
+import math
 import os
 import queue
 import re
@@ -3366,8 +3367,20 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                         _unlock_iothread()
 
         elif c == 'set_adc':
-            raw_v = int(int(cmd['millivolts']) * 4095 / 3300)
-            ch = int(cmd['channel'])
+            # The tab sends the solved pad voltage with its fraction (a pot
+            # at 512 of 1023 is 1651.6 mV). Cutting it to whole millivolts
+            # first skipped a 12-bit step (0.806 mV) every few millivolts,
+            # so 795 of the 4096 codes never came out (velxio/velxio-prod#171).
+            # A value that is no number is dropped: an exception here would
+            # end the command loop and with it the run.
+            try:
+                mv = float(cmd['millivolts'])
+                ch = int(cmd['channel'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not math.isfinite(mv):
+                continue
+            raw_v = int(mv * 4095 / 3300)
             clamped = max(0, min(4095, raw_v))
             lib.qemu_picsimlab_set_apin(ch, clamped)
 

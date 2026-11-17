@@ -720,8 +720,12 @@ export class Esp32BridgeShim {
   setAdcVoltage(pin: number, voltage: number): boolean {
     const channel = this.adcChannelForPin(pin);
     if (channel < 0) return false;
-    const millivolts = Math.round(voltage * 1000);
-    this.bridge.setAdc(channel, millivolts);
+    // The exact pad voltage, fraction and all: a 12-bit step over 3.3 V is
+    // 0.806 mV, so rounding to whole millivolts here skipped 795 of the 4096
+    // codes before any engine saw the value, and the in-browser engine
+    // converts fractional millivolts at the attenuation the sketch set
+    // (velxio/velxio-prod#171).
+    this.bridge.setAdc(channel, voltage * 1000);
     return true;
   }
 
