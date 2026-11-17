@@ -47,6 +47,17 @@ const STEP_RESPONSE_STEP_S = 1e-4;
 // through a 10 kΩ pull-up is a reasonable default).
 const DEFAULT_R_OHMS = 10e3;
 
+// A circuit with an inductor and a capacitor can resonate, and ngspice's
+// trapezoidal rule shifts frequencies like the bilinear transform: at a
+// step of T/20 a series RLC with f0 = 5033 Hz (10 Ω, 1 mH, 1 µF) resonated
+// at about 4991 Hz, and a sweep of the generator peaked at 4965-4995 Hz
+// (velxio/velxio-prod#121). At T/100 the shift is 0.03 % (f0 θ/tan θ with
+// θ = π/100). The step stays at least MIN_TRAN_STOP_S / RESONANT_MAX_STEPS,
+// so a fast source's shortest window holds no more than that many steps, and
+// never coarser than SAMPLES_PER_PERIOD.
+const RESONANT_SAMPLES_PER_PERIOD = 100;
+const RESONANT_MAX_STEPS = 5000;
+
 // Build the meta-id sets dynamically by combining the canonical IDs with
 // every PASSIVE_PRESETS alias that maps to the same base — so adding a new
 // preset (e.g. resistor-470) doesn't require touching this file.
@@ -69,6 +80,22 @@ const RESISTOR_META = new Set([
   'analog-resistor',
   ...presetsOf('resistor'),
 ]);
+
+/**
+ * The step of a transient driven by periodic sources whose fastest is at
+ * `maxFreq`: SAMPLES_PER_PERIOD to its period, or RESONANT_SAMPLES_PER_PERIOD
+ * when the circuit holds an inductor and a capacitor and can resonate (see
+ * RESONANT_SAMPLES_PER_PERIOD).
+ */
+function periodicStepS(components: StoreSnapshot['components'], maxFreq: number): number {
+  const plain = 1 / (maxFreq * SAMPLES_PER_PERIOD);
+  const resonant =
+    components.some((c) => INDUCTOR_META.has(c.metadataId)) &&
+    components.some((c) => CAPACITOR_META.has(c.metadataId));
+  if (!resonant) return plain;
+  const fine = 1 / (maxFreq * RESONANT_SAMPLES_PER_PERIOD);
+  return Math.min(plain, Math.max(fine, MIN_TRAN_STOP_S / RESONANT_MAX_STEPS));
+}
 
 /** True if any board has at least one actively-driven pin (digital or PWM). */
 function hasDrivenPin(boards: StoreSnapshot['boards']): boolean {
@@ -131,7 +158,7 @@ function pickDynamicAnalysis(
   if (frequencies.length > 0) {
     const maxFreq = Math.max(...frequencies);
     const minFreq = Math.min(...frequencies);
-    const stepS = 1 / (maxFreq * SAMPLES_PER_PERIOD);
+    const stepS = periodicStepS(components, maxFreq);
     const rawStop = PERIODS_TO_SETTLE / minFreq;
     const stopS = Math.min(MAX_TRAN_STOP_S, Math.max(MIN_TRAN_STOP_S, rawStop));
     return {
