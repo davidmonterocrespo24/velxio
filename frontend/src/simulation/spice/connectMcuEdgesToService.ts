@@ -36,33 +36,7 @@ import { useElectricalStore } from '../../store/useElectricalStore';
 import { boardPinGroupFor } from './boardPinGroups';
 import { pinNameToArduinoPin } from './collectPinStates';
 import type { CircuitSimulationService } from './CircuitSimulationService';
-
-/**
- * The board's own clock in milliseconds, or null when the engine keeps
- * none the service can read. Same two doors as parts/partUtils'
- * `guestMillis` (not imported: that module pulls an engine in). Read on
- * every edge, so it stays two property lookups and a division.
- */
-function guestMsOf(sim: unknown): number | null {
-  const s = sim as {
-    getGuestMicros?: () => number;
-    getCurrentCycles?: () => number;
-    getClockHz?: () => number;
-  } | undefined;
-  if (!s) return null;
-  if (typeof s.getGuestMicros === 'function') {
-    const us = s.getGuestMicros();
-    return Number.isFinite(us) && us >= 0 ? us / 1000 : null;
-  }
-  if (typeof s.getCurrentCycles === 'function' && typeof s.getClockHz === 'function') {
-    const cycles = s.getCurrentCycles();
-    const hz = s.getClockHz();
-    return Number.isFinite(cycles) && cycles >= 0 && Number.isFinite(hz) && hz > 0
-      ? (cycles / hz) * 1000
-      : null;
-  }
-  return null;
-}
+import { guestMsOf } from './guestClock';
 
 /**
  * Wire MCU pin transitions to the service.  Returns an unsubscribe
@@ -201,6 +175,9 @@ export function connectMcuEdgesToService(service: CircuitSimulationService): () 
       // Fade-LED example, well within this budget).
       let pwmTickPending = false;
       const unsubPwm = pm.onPwmChange(pin, () => {
+        // The new duty starts now on the board's clock, not when the
+        // rebuild gets to it (a reactive circuit steps from here).
+        service.notePadChange(boardId, guestMsOf(sim));
         if (pwmTickPending) return;
         pwmTickPending = true;
         setTimeout(() => {

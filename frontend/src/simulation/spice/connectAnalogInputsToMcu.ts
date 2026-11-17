@@ -19,6 +19,16 @@
  *   • AC (.tran), ESP32: push the entire waveform to the QEMU MMIO
  *     via `setAdcWaveform` — QEMU does its own interpolation.
  *
+ * A one-shot capture (TimeWaveforms.oneShot: a step response the service ran
+ * from the state the circuit was in at a pad edge) is what the circuit does
+ * once, from that edge on. The AVR/RP2040 hooks read it at the time since the
+ * edge, on the board's own clock when the edge was that board's, and hold its
+ * last sample past its end; replayed modulo its length it was a sawtooth. The
+ * ESP32 push would loop it the same way, so on the boards whose ADC voltages
+ * the bridge sets (the ESP32 family) a one-shot capture is fed as a scalar
+ * that follows the curve, every ONE_SHOT_FEED_MS, until it ends
+ * (velxio/velxio-prod#153).
+ *
  * A part that models its OWN analog output (a pulse sensor's PPG waveform, a
  * sensor module with no SPICE model that writes its channel directly) owns
  * that pin, exactly as on the digital side — see `partPinOwnership`. All three
@@ -42,6 +52,28 @@ import type { BoardKind } from '../../types/board';
 import { interpolateAt } from './waveformStats';
 import { boardPinToNumber } from '../../utils/boardPinMapping';
 import { getProBoard } from '../../lib/proBoardRegistry';
+import { guestMsOf } from './guestClock';
+import type { TimeWaveforms } from './types';
+
+/** How often a one-shot capture is fed to an ADC this module does not hook. */
+const ONE_SHOT_FEED_MS = 10;
+
+/**
+ * Seconds since a one-shot capture began, for `boardId`: on the board's own
+ * clock when the capture began at an edge of that board and the engine keeps
+ * a clock, on the wall clock otherwise. Never negative (a board reset puts
+ * its clock behind the edge; the capture's first sample is then the answer).
+ */
+export function oneShotElapsedS(
+  oneShot: NonNullable<TimeWaveforms['oneShot']>,
+  boardId: string,
+  sim: unknown,
+): number {
+  const began = oneShot.guestMs?.[boardId];
+  const guest = began !== undefined ? guestMsOf(sim) : null;
+  const ms = guest !== null && began !== undefined ? guest - began : performance.now() - oneShot.wallMs;
+  return Math.max(0, ms / 1000);
+}
 
 // Which Arduino-style pin name maps to which ADC channel, per board.
 function adcRange(
@@ -271,16 +303,69 @@ export function connectAnalogInputsToMcu(): () => void {
     }
   }
 
-  function sampleWaveformAtNow(net: string): number | undefined {
+  /** The capture's value on `net` now, as `boardId` reads it: at the time
+   *  since a one-shot capture began, or replayed modulo a repeating one. */
+  function sampleWaveformAtNow(net: string, boardId: string, sim: unknown): number | undefined {
     const { timeWaveforms } = useElectricalStore.getState();
     if (!timeWaveforms) return undefined;
     const samples = timeWaveforms.nodes.get(net);
     if (!samples) return undefined;
     const times = timeWaveforms.time;
+    if (timeWaveforms.oneShot) {
+      return interpolateAt(times, samples, oneShotElapsedS(timeWaveforms.oneShot, boardId, sim));
+    }
     const periodS = times[times.length - 1];
     if (!(periodS > 0)) return undefined;
     const t = ((performance.now() - replayStartMs) / 1000) % periodS;
     return interpolateAt(times, samples, t);
+  }
+
+  /**
+   * Feed a one-shot capture to every ADC this module does not hook (an
+   * engine whose ADC voltages the bridge sets: the ESP32 family's), as a
+   * scalar that follows the curve, until every board is past its end. The
+   * hooked AVR/RP2040 ADCs sample it at each conversion instead.
+   */
+  let oneShotTimer: ReturnType<typeof setInterval> | null = null;
+  function feedOneShot(): void {
+    const { timeWaveforms, pinNetMap, sourcedNets } = useElectricalStore.getState();
+    const shot = timeWaveforms?.oneShot;
+    let pending = false;
+    if (timeWaveforms && shot) {
+      const times = timeWaveforms.time;
+      const endS = times[times.length - 1] ?? 0;
+      for (const board of useSimulatorStore.getState().boards) {
+        const adcPins = adcPinsFor(board.boardKind);
+        if (!adcPins) continue;
+        const sim = getBoardSimulator(board.id);
+        if (!sim) continue;
+        // Only an engine the bridge sets ADC voltages on (setAdcVoltage: the
+        // ESP32 family's bridges). The AVR and RP2040 ADCs sample the
+        // capture at each conversion (installAdcReadHooks).
+        if (typeof (sim as unknown as { setAdcVoltage?: unknown }).setAdcVoltage !== 'function') continue;
+        const t = oneShotElapsedS(shot, board.id, sim);
+        if (t < endS) pending = true;
+        const vMax = board.boardKind.startsWith('esp32') ? 3.3 : 5.0;
+        for (const { pinName, channel } of adcPins) {
+          const net = pinNetMap.get(`${board.id}:${pinName}`);
+          if (!net) continue;
+          if (sourcedNets.size > 0 && !sourcedNets.has(net)) continue;
+          const samples = timeWaveforms.nodes.get(net);
+          if (!samples || samples.length === 0) continue;
+          const v = interpolateAt(times, samples, t);
+          if (!Number.isFinite(v)) continue;
+          const gpioPin = gpioForBoardPin(board.boardKind, pinName, channel);
+          if (gpioPin < 0 || isPartOwnedPin(board.id, gpioPin)) continue;
+          setAdcVoltage(sim, gpioPin, Math.max(0, Math.min(vMax, v)));
+        }
+      }
+    }
+    if (!pending && oneShotTimer !== null) {
+      clearInterval(oneShotTimer);
+      oneShotTimer = null;
+    } else if (pending && oneShotTimer === null) {
+      oneShotTimer = setInterval(feedOneShot, ONE_SHOT_FEED_MS);
+    }
   }
 
   function pushEsp32Waveforms() {
@@ -299,7 +384,9 @@ export function connectAnalogInputsToMcu(): () => void {
       const boardId = board.id;
       const seen = new Set<number>();
 
-      if (timeWaveforms && timeWaveforms.time.length > 1) {
+      // A one-shot capture is fed as a scalar (feedOneShot): pushed, the
+      // engine would loop it.
+      if (timeWaveforms && timeWaveforms.time.length > 1 && !timeWaveforms.oneShot) {
         const period = timeWaveforms.time[timeWaveforms.time.length - 1];
         if (period > 0) {
           const periodNs = Math.round(period * 1e9);
@@ -387,7 +474,7 @@ export function connectAnalogInputsToMcu(): () => void {
         self.onADCRead = function (channel: number) {
           if (channelToNet.size === 0) refreshChannelMap();
           const net = channelToNet.get(channel);
-          const v = net ? sampleWaveformAtNow(net) : undefined;
+          const v = net ? sampleWaveformAtNow(net, boardId, sim) : undefined;
           if (v != null) {
             const clamped = Math.max(0, Math.min(3.3, v));
             self.channelValues[channel] = Math.round((clamped / 3.3) * 4095);
@@ -424,7 +511,7 @@ export function connectAnalogInputsToMcu(): () => void {
             // SingleEnded
             const ch = input.channel ?? 0;
             const net = channelToNet.get(ch);
-            const waveV = net ? sampleWaveformAtNow(net) : undefined;
+            const waveV = net ? sampleWaveformAtNow(net, boardId, sim) : undefined;
             voltage = waveV ?? self.channelValues[ch] ?? 0;
             break;
           }
@@ -434,9 +521,9 @@ export function connectAnalogInputsToMcu(): () => void {
             const neg = input.negativeChannel ?? 0;
             const gain = input.gain ?? 1;
             const vPos =
-              sampleWaveformAtNow(channelToNet.get(pos) ?? '') ?? self.channelValues[pos] ?? 0;
+              sampleWaveformAtNow(channelToNet.get(pos) ?? '', boardId, sim) ?? self.channelValues[pos] ?? 0;
             const vNeg =
-              sampleWaveformAtNow(channelToNet.get(neg) ?? '') ?? self.channelValues[neg] ?? 0;
+              sampleWaveformAtNow(channelToNet.get(neg) ?? '', boardId, sim) ?? self.channelValues[neg] ?? 0;
             voltage = gain * (vPos - vNeg);
             break;
           }
@@ -456,11 +543,13 @@ export function connectAnalogInputsToMcu(): () => void {
   const unsubResult = useElectricalStore.subscribe((state, prev) => {
     if (state.nodeVoltages !== prev.nodeVoltages || state.timeWaveforms !== prev.timeWaveforms) {
       injectVoltagesIntoADC();
-      if (state.timeWaveforms && !replayEpochLatched) {
+      if (state.timeWaveforms && !state.timeWaveforms.oneShot && !replayEpochLatched) {
         replayStartMs = performance.now();
         replayEpochLatched = true;
       }
       installAdcReadHooks();
+      // After the hooks: a board they now cover samples the capture itself.
+      feedOneShot();
     }
   });
 
@@ -480,5 +569,7 @@ export function connectAnalogInputsToMcu(): () => void {
   return () => {
     unsubResult();
     unsubBoards();
+    if (oneShotTimer !== null) clearInterval(oneShotTimer);
+    oneShotTimer = null;
   };
 }

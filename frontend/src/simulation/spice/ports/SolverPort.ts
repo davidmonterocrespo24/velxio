@@ -21,8 +21,29 @@
  */
 export type SolveAnalysis =
   | { kind: 'op' }
-  | { kind: 'tran'; step: string; stop: string }
+  | {
+      kind: 'tran';
+      step: string;
+      stop: string;
+      /**
+       * Start from `ic` instead of the operating point (ngspice `uic`): each
+       * listed capacitor at its voltage, each inductor at its current
+       * (`alter <device> ic=<value>` before the run), every other element
+       * from rest. What a circuit does from a state it is in, rather than
+       * from the one it would settle to (velxio/velxio-prod#153).
+       */
+      uic?: boolean;
+      ic?: ReadonlyArray<{ device: string; value: number }>;
+    }
   | { kind: 'ac'; sweep: 'dec' | 'oct' | 'lin'; points: number; fstart: number; fstop: number };
+
+/** The `alter` commands that set a transient's initial conditions. */
+export function initialConditionCommands(analysis: SolveAnalysis): string[] {
+  if (analysis.kind !== 'tran' || !analysis.uic || !analysis.ic) return [];
+  return analysis.ic
+    .filter((c) => Number.isFinite(c.value))
+    .map((c) => `alter ${c.device.toLowerCase()} ic=${c.value}`);
+}
 
 /**
  * One vector — a named time / frequency series.  For `.op` the array

@@ -33,6 +33,7 @@ import type { TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
 import { transientShortfall } from './transientShortfall';
+import type { SolveAnalysis, SolveResult } from './ports/SolverPort';
 
 /** What the service needs from the simulator store. */
 export interface SimulatorStorePort {
@@ -230,6 +231,112 @@ function deckShapeOf(netlist: string, padNames: ReadonlySet<string>): string {
     .join('\n');
 }
 
+/**
+ * A capacitor or an inductor of the loaded deck (top level, not inside a
+ * subcircuit): what carries a circuit's state from one pad state to the next.
+ */
+interface ReactiveDevice {
+  /** Card name as the deck writes it (`C_c1`, `L_l1`). */
+  name: string;
+  kind: 'C' | 'L';
+  /** A capacitor's two nodes ('0' is ground). */
+  a?: string;
+  b?: string;
+}
+
+/** The top-level C and L cards of a netlist. */
+export function reactiveDevicesOf(netlist: string): ReactiveDevice[] {
+  const out: ReactiveDevice[] = [];
+  let depth = 0;
+  for (const raw of netlist.split('\n')) {
+    const line = raw.trim();
+    const lower = line.toLowerCase();
+    if (lower.startsWith('.subckt')) depth++;
+    else if (lower.startsWith('.ends')) depth = Math.max(0, depth - 1);
+    if (depth > 0 || line.length === 0) continue;
+    const kind = line[0]!.toUpperCase();
+    if (kind !== 'C' && kind !== 'L') continue;
+    const t = line.split(/\s+/);
+    if (t.length < 4) continue;
+    out.push(kind === 'C' ? { name: t[0]!, kind, a: t[1]!, b: t[2]! } : { name: t[0]!, kind });
+  }
+  return out;
+}
+
+/** The vectors that give a reactive device's state: a capacitor's node
+ *  voltages, an inductor's current. */
+function reactiveVectors(devices: readonly ReactiveDevice[]): string[] {
+  const out = new Set<string>();
+  for (const d of devices) {
+    if (d.kind === 'C') {
+      if (d.a && d.a !== '0') out.add(`v(${d.a})`);
+      if (d.b && d.b !== '0') out.add(`v(${d.b})`);
+    } else {
+      out.add(`i(${d.name.toLowerCase()})`);
+    }
+  }
+  return [...out];
+}
+
+/** Linear interpolation of `vs` on `ts` at `t`, held at both ends. */
+function sampleAt(ts: ArrayLike<number>, vs: ArrayLike<number>, t: number): number {
+  const n = Math.min(ts.length, vs.length);
+  if (n === 0) return NaN;
+  if (t <= ts[0]!) return vs[0]!;
+  if (t >= ts[n - 1]!) return vs[n - 1]!;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ts[mid]! <= t) lo = mid;
+    else hi = mid;
+  }
+  const t0 = ts[lo]!;
+  const t1 = ts[hi]!;
+  return t1 > t0 ? vs[lo]! + ((vs[hi]! - vs[lo]!) * (t - t0)) / (t1 - t0) : vs[hi]!;
+}
+
+/**
+ * The state of every reactive device in a result: its last sample, or the
+ * sample at `t` seconds when it is a capture and `t` is given.
+ */
+function reactiveStateOf(
+  result: SolveResult, devices: readonly ReactiveDevice[], t: number | null,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const valueOf = (name: string): number | undefined => {
+    const v = result.vectors.get(name);
+    if (!v || v.real.length === 0) return undefined;
+    if (t === null || result.timeAxis.length !== v.real.length) return v.real[v.real.length - 1];
+    return sampleAt(result.timeAxis, v.real, t);
+  };
+  for (const d of devices) {
+    if (d.kind === 'C') {
+      const va = d.a === '0' ? 0 : valueOf(`v(${d.a})`);
+      const vb = d.b === '0' ? 0 : valueOf(`v(${d.b})`);
+      if (va !== undefined && vb !== undefined && Number.isFinite(va - vb)) out.set(d.name, va - vb);
+    } else {
+      const i = valueOf(`i(${d.name.toLowerCase()})`);
+      if (i !== undefined && Number.isFinite(i)) out.set(d.name, i);
+    }
+  }
+  return out;
+}
+
+/** Two states of a device the eye and an ADC cannot tell apart. */
+function sameReactiveState(kind: 'C' | 'L', x: number, y: number): boolean {
+  const floor = kind === 'C' ? 1e-3 : 1e-6;
+  return Math.abs(x - y) <= floor + 1e-3 * Math.max(Math.abs(x), Math.abs(y));
+}
+
+/** When a published state began: the wall clock, and the clock of the board
+ *  whose pad edge began it when that board keeps one. */
+interface Onset {
+  wallMs: number;
+  board?: string;
+  guestMs?: number | null;
+}
+
 export class CircuitSimulationService {
   /**
    * The last REAL transient capture published, kept for the oscilloscope
@@ -274,7 +381,48 @@ export class CircuitSimulationService {
     /** Period of the slowest periodic source of a .tran window (TimeWaveforms.period). */
     period?: number;
     sourcedNets: Set<string>;
+    /** The deck's capacitors and inductors (reactiveDevicesOf). */
+    reactive: ReactiveDevice[];
+    /** How long a step of this deck takes to settle, when the deck is a
+     *  step response (AnalysisMode.settleS); undefined otherwise. */
+    settleS?: number;
   } | null = null;
+
+  // ── Steps: a reactive circuit carries its state across pad edges ─────
+  //
+  // A deck with a capacitor or an inductor and a driven pad, and no source
+  // that moves by itself, is solved as an operating point at each pad state:
+  // the right answer once the circuit has settled, and the wrong one while a
+  // capacitor is still charging. Through an RC of a second that was the
+  // whole story: capacitor-charge-curve printed 5.000 V from its first line
+  // (velxio/velxio-prod#153). So a new pad state is checked against the state
+  // the circuit is in when the pads change: the capacitor voltages and the
+  // inductor currents of what was published, read at that moment. When they
+  // already sit where the new operating point has them (a Blink with a
+  // decoupling capacitor), the operating point is the answer. When not, the
+  // service runs the step: a transient from those values (`uic`, each one an
+  // initial condition), long enough to settle, published as a one-shot
+  // capture whose t = 0 is the edge (TimeWaveforms.oneShot) and read by the
+  // ADC hooks at the time since. The next edge starts from wherever that
+  // curve has got to. Edges faster than a publish window keep the operating
+  // points of the window.
+
+  /** The last pad edge seen: what began the state the pads hold. */
+  private lastEdge: Onset | null = null;
+  /** The edge that asked for the rebuild under way, if one did. */
+  private healEdge: Onset | null = null;
+  /** The step published last, by pad state: a window that publishes that
+   *  state again publishes the step, not its operating point. */
+  private step: { key: string; vec: StateVectors } | null = null;
+  /** What the last publish described (its result, and when a step: when it
+   *  began), for the state a later pad state starts from. */
+  private current: { result: SolveResult; oneShot?: TimeWaveforms['oneShot'] } | null = null;
+  /** Bounds of a step's capture, in seconds. */
+  private static readonly STEP_MIN_S = 5e-3;
+  private static readonly STEP_MAX_S = 30;
+  /** Output points of a step's capture: ngspice steps finer where the
+   *  circuit moves fast, so this only sets how coarse the settled tail is. */
+  private static readonly STEP_POINTS = 2000;
 
   // ── The pads: the MCU-driven V-sources of the loaded deck ────────────
   //
@@ -378,6 +526,9 @@ export class CircuitSimulationService {
   rebuildCount = 0;
   edgeCount = 0;
   stateSolveCount = 0;
+  /** Steps run from a carried state (see `step`), and how long the last took. */
+  stepSolveCount = 0;
+  lastStepMs = 0;
   cacheHitCount = 0;
   windowCount = 0;
   lastRebuildAt = 0;
@@ -413,6 +564,10 @@ export class CircuitSimulationService {
     this.pwmPads = [];
     this.healRequests.clear();
     this.recentLevels.clear();
+    this.step = null;
+    this.current = null;
+    this.lastEdge = null;
+    this.healEdge = null;
   }
 
   /** What `__spiceDebug()` shows of the edge path: where the edges stand
@@ -430,6 +585,9 @@ export class CircuitSimulationService {
       pendingEdges: this.timeline?.pending() ?? null,
       currentLevels: this.timeline?.current() ?? null,
       cacheSize: this.cache.size,
+      step: this.step ? { key: this.step.key, oneShot: this.step.vec.timeWaveforms?.oneShot } : null,
+      stepSolveCount: this.stepSolveCount,
+      lastStepMs: Math.round(this.lastStepMs),
       lastSolve: (() => {
         const r = this.scheduler.getLastResult();
         return r ? { solveMs: Math.round(r.solveMs), vectors: r.vectors.size, timing: r.timing } : null;
@@ -521,15 +679,19 @@ export class CircuitSimulationService {
     const volts = state ? vcc : 0;
     const at = nowMs();
     this.recentLevels.set(key, { volts, at });
+    this.lastEdge = { wallMs: at, board: boardId, guestMs };
     const index = this.padIndex.get(key);
     if (index === undefined || !this.timeline) {
       if (!this.loadedContext) {
+        // The rebuild this asks for starts the new state at this edge.
+        this.healEdge ??= this.lastEdge;
         void this.tick();
         return;
       }
       const asked = this.healRequests.get(key);
       if (asked !== undefined && at - asked < CircuitSimulationService.HEAL_RETRY_MS) return;
       this.healRequests.set(key, at);
+      this.healEdge ??= this.lastEdge;
       this.note({ heal: key, tickQueued: this.tickQueued, busy: this.busy });
       void this.tick();
       return;
@@ -549,6 +711,16 @@ export class CircuitSimulationService {
     }
   }
 
+  /**
+   * A pad changed in a way that rebuilds the deck rather than moving along
+   * the timeline (a new PWM duty): the state the rebuild solves began here,
+   * at `guestMs` of `boardId`'s own clock when it keeps one. A step the
+   * rebuild runs starts its curve at this moment (see `step`).
+   */
+  notePadChange(boardId: string, guestMs: number | null): void {
+    this.healEdge = { wallMs: nowMs(), board: boardId, guestMs };
+  }
+
   /** Answer the pads' current state now, outside any window. */
   private async publishInstant(): Promise<void> {
     if (this.stopped || !this.timeline || !this.loadedContext) return;
@@ -562,7 +734,133 @@ export class CircuitSimulationService {
     const vec = await this.vectorsFor(levels, key);
     if (!vec) return;
     this.adopt(vec);
-    this.publish(vec, undefined);
+    // A new state of the pads starts where the circuit is (see `step`).
+    if (this.step?.key !== key) {
+      const onset = this.lastEdge ?? { wallMs: nowMs() };
+      const step = await this.stepFrom(levels, vec, onset, this.stateAt(onset));
+      if (step) this.step = { key, vec: step };
+    }
+    this.publish(vec, undefined, false, key);
+  }
+
+  /**
+   * The state the circuit is in at `when`, by what was published last: each
+   * capacitor's voltage and each inductor's current, read on a step's curve
+   * at the time since it began (by the edge's board clock when the step
+   * began at an edge of that board, else by the wall clock), or the
+   * operating point's values. Null before anything was published.
+   */
+  private stateAt(when: Onset): Map<string, number> | null {
+    const cur = this.current;
+    const ctx = this.loadedContext;
+    if (!cur || !ctx) return null;
+    let t: number | null = null;
+    if (cur.oneShot) {
+      const began = when.board !== undefined ? cur.oneShot.guestMs?.[when.board] : undefined;
+      const ms =
+        began !== undefined && when.guestMs !== null && when.guestMs !== undefined
+          ? when.guestMs - began
+          : when.wallMs - cur.oneShot.wallMs;
+      t = Math.max(0, ms / 1000);
+    }
+    return reactiveStateOf(cur.result, ctx.reactive, t);
+  }
+
+  /**
+   * The step the circuit takes into the pad state `levels` from `from`
+   * (stateAt at its onset), when it has one: null when the deck is not a
+   * step response, when nothing was published before (the state is taken as
+   * settled, as it always was), or when every capacitor and inductor already
+   * sits where the state's operating point `op` has it. Otherwise a transient
+   * from `from`, sized from the deck's settle time, as a one-shot capture
+   * whose t = 0 is `onset`. Not cached: it depends on where the circuit was.
+   */
+  private async stepFrom(
+    levels: number[], op: StateVectors, onset: Onset, from: Map<string, number> | null,
+  ): Promise<StateVectors | null> {
+    const ic = this.stepStart(op, from);
+    return ic ? this.runStep(levels, ic, onset) : null;
+  }
+
+  /**
+   * The initial conditions of the step into a state whose operating point is
+   * `op`, from `from`: null when there is no step to run (see stepFrom).
+   */
+  private stepStart(
+    op: StateVectors, from: Map<string, number> | null,
+  ): Array<{ device: string; value: number }> | null {
+    const ctx = this.loadedContext;
+    if (!ctx || ctx.settleS === undefined || ctx.reactive.length === 0 || !from) return null;
+    if (!this.scheduler.solvePadState) return null;
+    const goal = reactiveStateOf(op.result, ctx.reactive, null);
+    const ic: Array<{ device: string; value: number }> = [];
+    let moves = false;
+    for (const d of ctx.reactive) {
+      const target = goal.get(d.name);
+      const start = from.get(d.name) ?? target;
+      if (start === undefined) continue;
+      ic.push({ device: d.name, value: start });
+      if (target === undefined || !sameReactiveState(d.kind, start, target)) moves = true;
+    }
+    return moves ? ic : null;
+  }
+
+  /** Run the step into `levels` from `ic`, as a one-shot capture from `onset`. */
+  private async runStep(
+    levels: number[], ic: Array<{ device: string; value: number }>, onset: Onset,
+  ): Promise<StateVectors | null> {
+    const ctx = this.loadedContext;
+    if (!ctx || ctx.settleS === undefined || !this.scheduler.solvePadState) return null;
+    // Twice the settle time (ten time constants): past its end a capture
+    // holds its last sample, and at five that sample is still 0.7 % short.
+    const stop = Math.min(
+      CircuitSimulationService.STEP_MAX_S,
+      Math.max(CircuitSimulationService.STEP_MIN_S, 2 * ctx.settleS),
+    );
+    const analysis: SolveAnalysis = {
+      kind: 'tran',
+      step: (stop / CircuitSimulationService.STEP_POINTS).toExponential(3),
+      stop: stop.toExponential(3),
+      uic: true,
+      ic,
+    };
+    const started = nowMs();
+    try {
+      // A cached operating point left the engine at other levels.
+      const changes = this.changesTo(levels);
+      this.solverLevels = levels.slice();
+      await this.scheduler.solvePadState(changes, analysis);
+    } catch (err) {
+      this.solverLevels = null;
+      // eslint-disable-next-line no-console
+      console.warn('[circuit-sim] step solve failed:', err);
+      return null;
+    }
+    const result = this.scheduler.getLastResult();
+    if (!result || result.timeAxis.length < 2) return null;
+    const vec = this.extract(result, ctx);
+    if (!vec.timeWaveforms) return null;
+    vec.timeWaveforms.oneShot = {
+      wallMs: onset.wallMs,
+      ...(onset.board !== undefined && onset.guestMs !== null && onset.guestMs !== undefined
+        ? { guestMs: { [onset.board]: onset.guestMs } }
+        : {}),
+    };
+    this.stepSolveCount++;
+    this.lastStepMs = nowMs() - started;
+    this.note({ step: ic.length, stopS: stop, ms: Math.round(this.lastStepMs) });
+    return vec;
+  }
+
+  /** The pad sources to alter to bring the engine to `levels`. */
+  private changesTo(levels: readonly number[]): Array<{ source: string; volts: number }> {
+    const changes: Array<{ source: string; volts: number }> = [];
+    for (let i = 0; i < this.padSources.length; i++) {
+      if (this.solverLevels === null || this.solverLevels[i] !== levels[i]) {
+        changes.push({ source: this.padSources[i]!, volts: levels[i]! });
+      }
+    }
+    return changes;
   }
 
   private closeWindow(): void {
@@ -648,7 +946,7 @@ export class CircuitSimulationService {
     // A latest state whose PWM pads sit at their mean is the snapshot the
     // level readers expect, not a state the circuit is ever in: its capture
     // is not published as the circuit's (the window is the circuit).
-    this.publish(latest.vec, window, latestSplit);
+    this.publish(latest.vec, window, latestSplit, latestState.key);
     return true;
   }
 
@@ -706,12 +1004,7 @@ export class CircuitSimulationService {
       this.cache.set(key, hit);
       return hit;
     }
-    const changes: Array<{ source: string; volts: number }> = [];
-    for (let i = 0; i < this.padSources.length; i++) {
-      if (this.solverLevels === null || this.solverLevels[i] !== levels[i]) {
-        changes.push({ source: this.padSources[i]!, volts: levels[i]! });
-      }
-    }
+    const changes = this.changesTo(levels);
     const started = nowMs();
     let alterMs = 0;
     let resolveMs = 0;
@@ -884,18 +1177,38 @@ export class CircuitSimulationService {
       collected: Object.fromEntries(snap.boards.map((b) => [b.id, Object.keys(b.pinStates as object).length])),
       sources: voltageSources.length,
     });
+    // Where the circuit is when the new deck takes over: the pad edge that
+    // asked for the rebuild began the new state, or now. Read off the old
+    // deck, by device name, so an edit to a charging RC carries its charge.
+    const onset: Onset = this.healEdge ?? { wallMs: this.rebuildStartedAt };
+    this.healEdge = null;
+    const carried = this.stateAt(onset);
+    const reactive = reactiveDevicesOf(netlist);
 
     // Ask the scheduler for every net voltage + every V-source branch
-    // current so instruments (ammeters, LED brightness) have data.
+    // current so instruments (ammeters, LED brightness) have data, and the
+    // state of every capacitor and inductor (see `step`).
     const extraVectors: string[] = [];
     for (const net of nets) extraVectors.push(`v(${net})`);
     for (const vs of voltageSources) extraVectors.push(`i(${vs.toLowerCase()})`);
+    const asked = new Set(extraVectors);
+    for (const v of reactiveVectors(reactive)) if (!asked.has(v)) extraVectors.push(v);
     this.scheduler.setExtraVectorsOfInterest?.(extraVectors);
 
     const loadStart = nowMs();
     await this.scheduler.loadCircuit(netlist, pinNetMap);
     const loadMs = nowMs() - loadStart;
-    if (input.analysis.kind === 'tran') {
+    // A step-response deck the circuit enters from a known state is solved
+    // as an operating point first: when the circuit already sits there, the
+    // deck's own transient follows below as it always did; when it does not,
+    // the step replaces it (see `step`).
+    const stepDeck =
+      input.analysis.kind === 'tran' &&
+      !input.analysis.timeVarying &&
+      input.analysis.settleS !== undefined &&
+      reactive.length > 0 &&
+      carried !== null;
+    if (input.analysis.kind === 'tran' && !stepDeck) {
       await this.scheduler.resolveTran(input.analysis.step, input.analysis.stop);
     } else {
       await this.scheduler.resolveDc();
@@ -919,7 +1232,10 @@ export class CircuitSimulationService {
       analysisKind: input.analysis.kind,
       period: input.analysis.kind === 'tran' ? input.analysis.period : undefined,
       sourcedNets,
+      reactive,
+      settleS: input.analysis.kind === 'tran' && !input.analysis.timeVarying ? input.analysis.settleS : undefined,
     };
+    this.step = null;
     this.padStateAnalysis =
       input.analysis.kind === 'tran' && input.analysis.timeVarying
         ? { kind: 'tran', step: input.analysis.step, stop: input.analysis.stop }
@@ -932,11 +1248,25 @@ export class CircuitSimulationService {
       staticPads,
       sameShape,
     );
-    const result = this.scheduler.getLastResult();
+    let result = this.scheduler.getLastResult();
     if (!result) return;
-    const vec = this.extract(result, this.loadedContext);
+    let vec = this.extract(result, this.loadedContext);
     const levels = (this.solverLevels ?? []).slice();
     const key = stateKey(levels);
+    if (stepDeck && input.analysis.kind === 'tran') {
+      // The deck's own transient starts from its operating point; a circuit
+      // that was elsewhere when it took this state steps from there.
+      const ic = this.pwmSplit(levels) ? null : this.stepStart(vec, carried);
+      const step = ic ? await this.runStep(levels, ic, onset) : null;
+      if (step) {
+        this.step = { key, vec: step };
+      } else {
+        await this.scheduler.resolveTran(input.analysis.step, input.analysis.stop);
+        result = this.scheduler.getLastResult();
+        if (!result) return;
+        vec = this.extract(result, this.loadedContext);
+      }
+    }
     this.remember(key, vec);
     if (this.pwmSplit(levels)) {
       // The deck holds its static PWM pads at their mean; publish what the
@@ -945,7 +1275,7 @@ export class CircuitSimulationService {
       await this.publishStates([{ key, levels, ms }], { key, levels, ms: 0 }, ms);
       return;
     }
-    this.publish(vec, undefined);
+    this.publish(vec, undefined, false, key);
   }
 
   /** Every net voltage and V-source branch current of a result. */
@@ -988,9 +1318,14 @@ export class CircuitSimulationService {
    *  closes when there is one. `synthetic`: the state is a PWM pad's mean,
    *  which the circuit is never in (see pwmPads), so its capture is not the
    *  circuit's. */
-  private publish(vec: StateVectors, window: SolveWindow | undefined, synthetic = false): void {
+  private publish(vec: StateVectors, window: SolveWindow | undefined, synthetic = false, key?: string): void {
     const ctx = this.loadedContext;
     if (!ctx) return;
+    // The pad state a step was run into publishes the step: its curve is
+    // what the circuit does from the edge on. Any other state ends it.
+    if (key !== undefined && !synthetic && this.step?.key === key) vec = this.step.vec;
+    else this.step = null;
+    this.current = { result: vec.result, oneShot: vec.timeWaveforms?.oneShot };
     // The capture published is this state's own or none (see
     // ElectricalSnapshot.timeWaveforms); the scope keeps the latest one.
     const timeWaveforms = ctx.analysisKind === 'tran' && !synthetic ? vec.timeWaveforms : undefined;

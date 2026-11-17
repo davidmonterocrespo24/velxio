@@ -24,12 +24,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type {
-  SolverPort,
-  SolveAnalysis,
-  SolveResult,
-  SolveOptions,
-  SolveVector,
+import {
+  initialConditionCommands,
+  type SolverPort,
+  type SolveAnalysis,
+  type SolveResult,
+  type SolveOptions,
+  type SolveVector,
 } from '../ports/SolverPort';
 export type { SolveVector } from '../ports/SolverPort';
 import {
@@ -233,10 +234,11 @@ export class NgSpiceNodeAdapter implements SolverPort {
     const cmd = (() => {
       switch (analysis.kind) {
         case 'op': return 'op';
-        case 'tran': return `tran ${analysis.step} ${analysis.stop}`;
+        case 'tran': return `tran ${analysis.step} ${analysis.stop}${analysis.uic ? ' uic' : ''}`;
         case 'ac': return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;
       }
     })();
+    for (const ic of initialConditionCommands(analysis)) this.api.command(ic);
     const rc = this.api.command(cmd);
     if (rc !== 0) throw new Error(`ngspice command '${cmd}' returned ${rc}`);
 
