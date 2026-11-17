@@ -31,12 +31,7 @@ import type {
   SwitchMemoryCell,
   NodeMemoryCell,
 } from './types';
-import {
-  largestTimeConstant,
-  settledStepS,
-  settleSeconds,
-  startsAwayFromSteadyState,
-} from './settleTime';
+import { settledStepS, startUpSeconds } from './settleTime';
 
 /** True for any self-driven supply net: ground, the main rail, or an aux rail. */
 function isRailNet(net: string): boolean {
@@ -566,15 +561,15 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
 
   // A transient that asked to settle runs the circuit's start-up first,
   // computed but not stored (TSTART), sized from the deck's own cards, when
-  // its operating point at t = 0 is not its steady state (settleTime.ts).
+  // the meters would read that start-up in the window (settleTime.ts).
   let resolved: AnalysisMode = analysis;
-  if (analysis.kind === 'tran' && analysis.settle && startsAwayFromSteadyState(cards)) {
+  if (analysis.kind === 'tran' && analysis.settle) {
     const stepS = parseValueWithUnits(analysis.step);
     // The start-up's budget counts plain steps, however fine a resonant
     // deck integrates (budgetStep, velxio/velxio-prod#121).
     const budgetStepS = analysis.budgetStep ? parseValueWithUnits(analysis.budgetStep) : stepS;
     const windowS = parseValueWithUnits(analysis.stop);
-    const startS = settleSeconds(largestTimeConstant(cards), budgetStepS, analysis.period);
+    const startS = startUpSeconds(cards, budgetStepS, windowS, analysis.period);
     if (startS > 0 && windowS > 0) {
       // A diode's conduction pulses want a finer step than the window's.
       const runStepS = settledStepS(cards, stepS, budgetStepS);

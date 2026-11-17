@@ -230,7 +230,10 @@ describe('which decks settle, and for how long', () => {
 
   it('a sine-driven amplifier starts at its steady-state DC: no start-up is run for its coupling capacitors', () => {
     // 10 µF through a 1 MΩ / 470 kΩ gate divider is 3.2 s, but a sine starts
-    // at its offset, so the operating point at t = 0 is the circuit's DC.
+    // at its offset, so the operating point at t = 0 is the circuit's DC, and
+    // what is left is a ripple-sized part of the signal that seven of those
+    // time constants would take far more than the start-up's budget to run
+    // off (transient-window-sine-settled.test.ts, velxio/velxio-prod#120).
     expect(galleryCard('an-mosfet-common-source').split(/\s+/)).toHaveLength(3);
     expect(galleryCard('an-bjt-common-emitter').split(/\s+/)).toHaveLength(3);
   });

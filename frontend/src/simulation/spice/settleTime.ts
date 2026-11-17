@@ -11,7 +11,7 @@
  * the circuit for that long without storing it, and stores only the window
  * after it (manual 11.3.10).
  *
- * When there is a start-up to skip (startsAwayFromSteadyState):
+ * When there is a start-up to skip (startUpSeconds):
  *  - A square wave (PULSE) starts at its low level, so the operating point at
  *    t = 0 charges every capacitor for that level, while the circuit runs
  *    about the wave's mean: a filter starts at 0 V and climbs to 2.5 V.
@@ -25,10 +25,19 @@
  *    reading, 9.146 V for 8.766 V, was the step's error, not the start-up's:
  *    DIODE_STEP_DIVISOR.)
  *  - A sine starts at its offset, which is its mean: a linear circuit's
- *    operating point at t = 0 is already its steady-state DC, and what is
- *    left to settle is a ripple-sized transient. Such decks are not run any
- *    longer than before, so an amplifier's coupling capacitors (seconds
- *    through a megohm bias network) cost nothing.
+ *    operating point at t = 0 is already its steady-state DC. What it lacks
+ *    is each capacitor's share of the AC (each inductor's), and that
+ *    difference decays with the circuit's time constant. The meters read the
+ *    second half of the window, so a filter slower than that was read in its
+ *    start-up: 1 kHz into 10 kΩ / 1 µF (τ = 10 ms) read pk 26.88 mV, DC
+ *    10.59 mV and RMS 15.40 mV across C, for 15.91 mV peak, no DC and
+ *    11.25 mV RMS (velxio/velxio-prod#120). Such a deck runs SETTLE_TAUS of
+ *    its time constant when they reach past the first half of the window and
+ *    fit MAX_SETTLE_STEPS. A longer one is left alone: for a coupling
+ *    capacitor (an amplifier's, seconds through a megohm bias network) the
+ *    difference is a ripple-sized part of the signal it passes, and a
+ *    first-order filter that slow (ωτ above 449 at a twentieth of a period)
+ *    passes less than 1/449 of its source.
  *
  * The time constant is estimated from the deck's own cards, which know the
  * real nets (breadboard strips, rails, ground) and the sources, the way the
@@ -128,6 +137,26 @@ export function startsAwayFromSteadyState(cards: readonly string[]): boolean {
   return parseCards(cards).some(
     (c) => (c.kind === 'V' && /\bpulse\s*\(/i.test(c.line)) || c.kind === 'D',
   );
+}
+
+/**
+ * The start-up a transient runs before the window it stores, in seconds (0
+ * for none), for a deck whose cards are `cards`, whose window is `windowS`
+ * long at a step of `stepS`, and whose slowest source has the period
+ * `periodS`. See the module comment.
+ */
+export function startUpSeconds(
+  cards: readonly string[],
+  stepS: number,
+  windowS: number,
+  periodS: number | undefined,
+): number {
+  const tau = largestTimeConstant(cards);
+  if (startsAwayFromSteadyState(cards)) return settleSeconds(tau, stepS, periodS);
+  // Driven by sines alone: over before the meters read, or too slow to matter.
+  if (!(tau > 0) || SETTLE_TAUS * tau <= windowS / 2) return 0;
+  if (SETTLE_TAUS * tau > MAX_SETTLE_STEPS * stepS) return 0;
+  return settleSeconds(tau, stepS, periodS);
 }
 
 /**
