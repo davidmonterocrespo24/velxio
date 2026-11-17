@@ -424,6 +424,9 @@ interface NodeInfo {
   /** A custom-chip pin (or a registered chip-like pad) on the node, if any —
    *  rule 5's per-endpoint fallback. */
   chipPin: { id: string; pin: string } | null;
+  /** Every driven pad met, in the order met; the whole node's only when
+   *  collected with `collectAll` (otherwise collection may stop early). */
+  drivenAll: TraceResult[];
 }
 
 function collectNode(
@@ -433,14 +436,22 @@ function collectNode(
   seen: Map<string, number>,
   depth: number,
   preferBoard: string | undefined,
+  collectAll = false,
 ): NodeInfo {
   const pins: NodeInfo['pins'] = [];
   const boardHits: TraceResult[] = [];
+  const drivenAll: TraceResult[] = [];
   // A driven pad of the preferred board ends collection at once; one of any
   // other board is kept and only wins if the preferred board never shows up.
+  // `collectAll` walks the whole node whatever it meets.
   let drivenHit: TraceResult | null = null;
   let chipPin: NodeInfo['chipPin'] = null;
   const takeDriven = (hit: TraceResult): boolean => {
+    drivenAll.push(hit);
+    if (collectAll) {
+      drivenHit ??= hit;
+      return false;
+    }
     if (preferBoard === undefined || hit.boardId === preferBoard) {
       drivenHit = hit;
       return true;
@@ -481,7 +492,7 @@ function collectNode(
         ...(isBoardPin(socket.pin) ? {} : { railName: cur.pinName }),
       };
       if (isBoardPin(socket.pin)) {
-        if (takeDriven(hit)) return { pins, boardHits, drivenHit, chipPin };
+        if (takeDriven(hit)) return { pins, boardHits, drivenHit, chipPin, drivenAll };
       } else {
         boardHits.push(hit);
       }
@@ -531,7 +542,7 @@ function collectNode(
           // A driven pad ends the search for this node — and, on a big shared
           // rail, ends a walk of every leg hanging off it.
           if (isBoardPin(pin)) {
-            if (takeDriven(hit)) return { pins, boardHits, drivenHit, chipPin };
+            if (takeDriven(hit)) return { pins, boardHits, drivenHit, chipPin, drivenAll };
           } else {
             boardHits.push(hit);
           }
@@ -547,7 +558,71 @@ function collectNode(
       }
     }
   }
-  return { pins, boardHits, drivenHit, chipPin };
+  return { pins, boardHits, drivenHit, chipPin, drivenAll };
+}
+
+/** Capacitors among the passives: they block a DC level (see conductsDc). */
+const CAPACITOR_BASE = new Set(['capacitor', 'capacitor-electrolytic', 'analog-capacitor']);
+
+/**
+ * A two-pin part a logic level passes through at DC: a resistor or an
+ * inductor. Not a capacitor, which blocks it, and not a transistor's C-B pair,
+ * which PASSIVE_PIN_PAIRS lists for another purpose.
+ */
+function conductsDc(metadataId: string): boolean {
+  if (!PASSIVE_PIN_PAIRS[metadataId] || isActiveDevice(metadataId)) return false;
+  return !CAPACITOR_BASE.has(PRESET_TO_BASE[metadataId] ?? metadataId);
+}
+
+/**
+ * Every board GPIO pad a logic level on (componentId, pinName) reaches at DC:
+ * the pads on its node, and on the nodes past each resistor or inductor on
+ * the way, never past a capacitor or an active part, and never out of a node
+ * a supply or ground pad sits on (a pull-up or a divider's low leg ends
+ * there). Up to MAX_HOPS parts deep.
+ *
+ * The walk above answers ONE pad per question, the nearest, which is right for
+ * "which pin drives this part" and wrong for "which boards share this wire":
+ * a 10k/20k divider from an Uno's 5 V TX into an ESP32's 3.3 V RX, the
+ * textbook level shifter, answered the Uno's pad from the Uno's side of the
+ * 10k and never crossed it, so the bus fabric linked nothing
+ * (velxio/velxio-prod#189).
+ */
+export function boardPadsAcrossResistors(
+  state: TraceState,
+  componentId: string,
+  pinName: string,
+): Array<{ boardId: string; pin: number }> {
+  const out: Array<{ boardId: string; pin: number }> = [];
+  const have = new Set<string>();
+  const visited = new Set<string>();
+  const seen = new Map<string, number>();
+  let frontier = [{ componentId, pinName }];
+  for (let depth = 0; depth <= MAX_HOPS && frontier.length > 0; depth++) {
+    const next: Array<{ componentId: string; pinName: string }> = [];
+    for (const start of frontier) {
+      if (visited.has(pinKey(start.componentId, start.pinName))) continue;
+      const node = collectNode(state, start.componentId, start.pinName, seen, depth, undefined, true);
+      for (const p of node.pins) visited.add(pinKey(p.componentId, p.pinName));
+      for (const hit of node.drivenAll) {
+        if (!hit.boardId || !isBoardPin(hit.arduinoPin)) continue;
+        const k = `${hit.boardId}\u0000${hit.arduinoPin}`;
+        if (have.has(k)) continue;
+        have.add(k);
+        out.push({ boardId: hit.boardId, pin: hit.arduinoPin });
+      }
+      // A supply or ground node: the level stops here.
+      if (node.boardHits.length > 0) continue;
+      for (const p of node.pins) {
+        if (!p.comp || !conductsDc(p.comp.metadataId)) continue;
+        const pair = PASSIVE_PIN_PAIRS[p.comp.metadataId]!;
+        const far = p.pinName === pair[0] ? pair[1] : p.pinName === pair[1] ? pair[0] : null;
+        if (far !== null && !visited.has(pinKey(p.comp.id, far))) next.push({ componentId: p.comp.id, pinName: far });
+      }
+    }
+    frontier = next;
+  }
+  return out;
 }
 
 /**
