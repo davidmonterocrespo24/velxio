@@ -23,18 +23,27 @@ export type ProbeKind = 'voltmeter' | 'ammeter' | 'multimeter';
 /**
  * Time-domain statistics computed from a `.tran` waveform.
  * Present only when the probed net has AC content.
+ *
+ * The meter shows the RMS of the whole signal, DC included, over its swing
+ * (peak to peak) and its DC, under the legend "AC+DC" (meterLegend). The
+ * swing is the AC part on its own: on an amplifier's collector (4.83 V of
+ * bias under a 0.615 V sine) the old "pk" was the largest |v|, 5.44 V, and
+ * the screen had no figure a gain could be worked out from, while its "AC V"
+ * legend promised a bench meter's AC-coupled reading (velxio/velxio-prod#125).
  */
 export interface ProbeAcStats {
-  /** Root-mean-square (what a real RMS meter reads for AC). */
+  /** Root-mean-square of the whole signal, AC and DC together. */
   rms: number;
   /** DC component (mean). */
   dc: number;
-  /** Peak absolute value. */
+  /** Largest magnitude, measured from 0 V (or 0 A). */
   peak: number;
+  /** Peak to peak: the largest minus the smallest value, which a DC offset does not change. */
+  peakToPeak: number;
   /** Pre-formatted "RMS X.XX V" / "RMS X.XX mA" line. */
   rmsDisplay: string;
-  /** Pre-formatted "pk X.XX V" line. */
-  peakDisplay: string;
+  /** Pre-formatted "pp X.XX V" line. */
+  peakToPeakDisplay: string;
   /** Pre-formatted "DC X.XX V" line. */
   dcDisplay: string;
 }
@@ -152,35 +161,43 @@ function steadyStats(tw: TimeWaveforms, samples: readonly number[]): SpanStats |
 function buildAcStatsV(stats: SpanStats): ProbeAcStats {
   const r = stats.rms;
   const dc = stats.mean;
-  const pk = stats.peak;
-  const rmsFmt = formatV(r);
-  const dcFmt = formatV(dc);
-  const pkFmt = formatV(pk);
+  const pp = stats.max - stats.min;
   return {
     rms: r,
     dc,
-    peak: pk,
-    rmsDisplay: `RMS ${rmsFmt.display}`,
-    peakDisplay: `pk ${pkFmt.display}`,
-    dcDisplay: `DC ${dcFmt.display}`,
+    peak: stats.peak,
+    peakToPeak: pp,
+    rmsDisplay: `RMS ${formatV(r).display}`,
+    peakToPeakDisplay: `pp ${formatV(pp).display}`,
+    dcDisplay: `DC ${formatV(dc).display}`,
   };
 }
 
 function buildAcStatsI(stats: SpanStats): ProbeAcStats {
   const r = stats.rms;
   const dc = stats.mean;
-  const pk = stats.peak;
-  const rmsFmt = formatI(r);
-  const dcFmt = formatI(dc);
-  const pkFmt = formatI(pk);
+  const pp = stats.max - stats.min;
   return {
     rms: r,
     dc,
-    peak: pk,
-    rmsDisplay: `RMS ${rmsFmt.display}`,
-    peakDisplay: `pk ${pkFmt.display}`,
-    dcDisplay: `DC ${dcFmt.display}`,
+    peak: stats.peak,
+    peakToPeak: pp,
+    rmsDisplay: `RMS ${formatI(r).display}`,
+    peakToPeakDisplay: `pp ${formatI(pp).display}`,
+    dcDisplay: `DC ${formatI(dc).display}`,
   };
+}
+
+/**
+ * The legend in a meter's corner: what its main figure is. A DC reading, or
+ * with AC content the RMS of the whole signal, AC and DC together, as a
+ * true-RMS meter reads in its AC+DC mode. A bench meter's AC mode would block
+ * the DC, and the old "AC V" over an AC+DC figure read 4.85 V where such a
+ * meter reads 0.435 V (velxio/velxio-prod#125).
+ */
+export function meterLegend(reading: ProbeReading): string {
+  const unit = reading.kind === 'ammeter' ? 'A' : 'V';
+  return reading.ac ? `AC+DC ${unit}` : `DC ${unit}`;
 }
 
 /** Shown when the solver rejected the circuit (ngspice error in the store). */

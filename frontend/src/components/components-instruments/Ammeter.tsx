@@ -5,14 +5,15 @@
  * emits a `V_<id>_sense 0` voltage source plus a tiny shunt; ngspice
  * reports the branch current for that source, and we read it back here.
  *
- * Like a real bench DMM, the display switches to RMS/peak/DC when the
- * current has AC content (detected via `.tran` `timeWaveforms`).
+ * Like a real bench DMM, the display switches to RMS/peak-to-peak/DC when the
+ * current has AC content (detected via `.tran` `timeWaveforms`): the RMS of
+ * the whole current, AC and DC together (meterLegend).
  */
 import { useMemo } from 'react';
 import { InstrumentFace, INSTRUMENT_WIDTH } from './InstrumentFace';
 import { InstrumentScreen } from './InstrumentScreen';
 import { useElectricalStore, type SolveWindowState } from '../../store/useElectricalStore';
-import { readAmmeter, averageOverWindow } from '../../simulation/spice/probes';
+import { readAmmeter, averageOverWindow, meterLegend } from '../../simulation/spice/probes';
 
 /** Instrument tint. Amber for volts, cyan for amps: the same pairing the
  *  canvas legend and the picker thumbnails use. */
@@ -58,7 +59,7 @@ export function Ammeter({ id }: AmmeterProps) {
       <InstrumentFace
         height={height}
         accent={ACCENT}
-        legend={reading.ac ? 'AC A' : 'DC A'}
+        legend={meterLegend(reading)}
         stale={reading.stale}
         terminals={[
           { label: '+', y: 30, side: 'left', polarity: 'plus' },

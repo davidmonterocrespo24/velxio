@@ -1,6 +1,7 @@
 /**
  * The readout inside an InstrumentFace: one big line for DC, or RMS over a
- * peak/DC sub-line when the probed signal has AC content (bench-DMM layout).
+ * peak-to-peak/DC sub-line when the probed signal has AC content (bench-DMM
+ * layout; the swing replaced the peak from 0, velxio/velxio-prod#125).
  */
 import type { ProbeReading } from '../../simulation/spice/probes';
 import { INSTRUMENT_WIDTH } from './InstrumentFace';
@@ -17,7 +18,7 @@ const GLYPH_RATIO = 0.62;
  * legends on one line would touch.
  */
 const MONO_ADVANCE = 0.6;
-/** Where the peak legend starts and the DC legend ends. */
+/** Where the peak-to-peak legend starts and the DC legend ends. */
 const SUB_LEFT = 11;
 const SUB_RIGHT = INSTRUMENT_WIDTH - 11;
 /** The smallest sub-line text, and the gap the two legends keep between them. */
@@ -53,19 +54,19 @@ export function InstrumentScreen({ reading, accent }: { reading: ProbeReading; a
       </text>
     );
   }
-  // The peak and DC legends share one line from opposite edges, so they are
-  // sized against their COMBINED length plus a gap, not individually.
-  const { peakDisplay, dcDisplay } = reading.ac;
-  const subLen = [...peakDisplay].length + [...dcDisplay].length;
+  // The peak-to-peak and DC legends share one line from opposite edges, so
+  // they are sized against their COMBINED length plus a gap, not individually.
+  const { peakToPeakDisplay, dcDisplay } = reading.ac;
+  const subLen = [...peakToPeakDisplay].length + [...dcDisplay].length;
   let sub = Math.max(SUB_MIN_FONT, Math.min(7.5, (SCREEN_TEXT_WIDTH - 10) / (GLYPH_RATIO * subLen)));
   // At the size floor one line holds 24 glyphs. A three-digit negative DC
-  // beside a three-digit peak is 25 ("pk 414.29 mV", "DC -485.57 µV" on
+  // beside a three-digit swing is 25 ("pp 828.58 mV", "DC -485.57 µV" on
   // an-diode-clipper), and the two legends were drawn over each other
   // (velxio/velxio-prod#129). Those go on two lines, each still at its own
-  // edge: the peak under the RMS on the left, the DC below it on the right.
+  // edge: the swing under the RMS on the left, the DC below it on the right.
   const oneLine = subLen * MONO_ADVANCE * sub + SUB_MIN_GAP <= SUB_RIGHT - SUB_LEFT;
   if (!oneLine) {
-    const longest = Math.max([...peakDisplay].length, [...dcDisplay].length);
+    const longest = Math.max([...peakToPeakDisplay].length, [...dcDisplay].length);
     sub = Math.max(SUB_MIN_FONT, Math.min(7.5, (SUB_RIGHT - SUB_LEFT - 2) / (GLYPH_RATIO * longest)));
   }
   return (
@@ -82,7 +83,7 @@ export function InstrumentScreen({ reading, accent }: { reading: ProbeReading; a
         {reading.ac.rmsDisplay}
       </text>
       <text x={SUB_LEFT} y={oneLine ? 58 : 55} fontFamily={MONO} fontSize={sub} fill={digits} opacity={0.75}>
-        {peakDisplay}
+        {peakToPeakDisplay}
       </text>
       <text
         x={SUB_RIGHT}

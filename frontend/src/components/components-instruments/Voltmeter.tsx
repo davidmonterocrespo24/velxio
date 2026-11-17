@@ -3,15 +3,16 @@
  *
  * For DC nets the display is a single scalar (e.g. "3.300 V"). For nets
  * with AC content (reflected in `.tran` `timeWaveforms`) the display shows
- * RMS prominently with peak and DC underneath — the convention of real
- * bench DMMs in AC-V mode.
+ * the RMS of the whole signal prominently, AC and DC together as a true-RMS
+ * meter reads in its AC+DC mode, with the peak-to-peak swing and the DC
+ * underneath (meterLegend, velxio/velxio-prod#125).
  */
 import { useMemo } from 'react';
 import { InstrumentFace, INSTRUMENT_WIDTH } from './InstrumentFace';
 import { InstrumentScreen } from './InstrumentScreen';
 import { useElectricalStore, type SolveWindowState } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import { buildPinNetLookup, readVoltmeter, averageOverWindow } from '../../simulation/spice/probes';
+import { buildPinNetLookup, readVoltmeter, averageOverWindow, meterLegend } from '../../simulation/spice/probes';
 import { boardPinGroupFor } from '../../simulation/spice/boardPinGroups';
 
 /** Instrument tint. Amber for volts, cyan for amps: the same pairing the
@@ -90,7 +91,7 @@ export function Voltmeter({ id }: VoltmeterProps) {
       <InstrumentFace
         height={height}
         accent={ACCENT}
-        legend={reading.ac ? 'AC V' : 'DC V'}
+        legend={meterLegend(reading)}
         stale={reading.stale}
         terminals={[
           { label: '+', y: 18, side: 'left', polarity: 'plus' },

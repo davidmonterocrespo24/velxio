@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 /**
- * A meter's AC readout keeps its peak and DC legends apart for the longest
+ * A meter's AC readout keeps its swing and DC legends apart for the longest
  * values the meters print (velxio/velxio-prod#129 follow-up).
  *
- * The sub-line puts "pk ..." at the left edge and "DC ..." at the right, at a
- * size worked out from their combined length but never under 6 px. With the
- * microvolt band, an-diode-clipper's "DC -485.57 µV" is 13 characters where
+ * The sub-line puts "pp ..." (peak to peak, velxio/velxio-prod#125; it was
+ * the peak "pk") at the left edge and "DC ..." at the right, at a size worked
+ * out from their combined length but never under 6 px. With the microvolt
+ * band, an-diode-clipper's "DC -485.57 µV" is 13 characters where
  * "DC -50.19 mV" was 12, and at the 6 px floor the V of "pk 414.29 mV" was
- * drawn over the D of "DC". The same happens to any negative DC from -100 to
- * -999.99 of a unit beside a three-digit peak, in volts or amperes: 25
- * characters do not fit in the 88 px between the two anchors at 6 px.
+ * drawn over the D of "DC" ("pp 828.58 mV" now). The same happens to any
+ * negative DC from -100 to -999.99 of a unit beside a three-digit swing, in
+ * volts or amperes: 25 characters do not fit in the 88 px between the two
+ * anchors at 6 px.
  *
  * Text is measured with a monospace advance of 0.6 em, which is what the
  * fonts the screen asks for draw (SF Mono, Menlo, DejaVu Sans Mono and
@@ -28,11 +30,11 @@ const ADVANCE_EM = 0.6;
 const SCREEN = { left: 7, right: INSTRUMENT_WIDTH - 7, top: 19, bottom: 78 - 7 };
 
 /**
- * A waveform whose time-weighted peak is `pk` and mean `dc` (|dc| < pk):
- * a straight line from -pk to 2dc + pk over the span the meter reads.
+ * A waveform whose swing over the span the meter reads is `pp` and whose
+ * time-weighted mean is `dc`: a straight line from dc - pp/2 to dc + pp/2.
  */
-function waveform(net: string, pk: number, dc: number, branch = false): TimeWaveforms {
-  const samples = [0, -pk, 2 * dc + pk];
+function waveform(net: string, pp: number, dc: number, branch = false): TimeWaveforms {
+  const samples = [0, dc - pp / 2, dc + pp / 2];
   return {
     time: [0, 0.5, 1],
     nodes: new Map(branch ? [] : [[net, samples]]),
@@ -43,20 +45,20 @@ function waveform(net: string, pk: number, dc: number, branch = false): TimeWave
 const solve = (nodeVoltages: Record<string, number>, branchCurrents: Record<string, number> = {}) =>
   ({ nodeVoltages, branchCurrents, converged: true, error: null, analysisMode: 'tran' }) as unknown as ElectricalSolveResult;
 
-function voltmeter(pk: number, dc: number): ProbeReading {
+function voltmeter(pp: number, dc: number): ProbeReading {
   return readVoltmeter(
     { id: 'vm', metadataId: 'instr-voltmeter', properties: {} },
     (_c, pin) => (pin === 'V+' ? 'n1' : '0'),
     solve({ n1: dc }),
-    waveform('n1', pk, dc),
+    waveform('n1', pp, dc),
   );
 }
 
-function ammeter(pk: number, dc: number): ProbeReading {
+function ammeter(pp: number, dc: number): ProbeReading {
   return readAmmeter(
     { id: 'am', metadataId: 'instr-ammeter', properties: {} },
     solve({}, { v_am_sense: dc }),
-    waveform('v_am_sense', pk, dc, true),
+    waveform('v_am_sense', pp, dc, true),
   );
 }
 
@@ -89,7 +91,7 @@ function expectLegible(reading: ProbeReading) {
   const boxes = layout(reading);
   const names = boxes.map((b) => b.text).join(' | ');
   expect(boxes.map((b) => b.text).sort(), names).toEqual(
-    [reading.ac!.rmsDisplay, reading.ac!.peakDisplay, reading.ac!.dcDisplay].sort(),
+    [reading.ac!.rmsDisplay, reading.ac!.peakToPeakDisplay, reading.ac!.dcDisplay].sort(),
   );
   for (const b of boxes) {
     expect(b.size, `${b.text} font size`).toBeGreaterThanOrEqual(6);
@@ -108,31 +110,31 @@ function expectLegible(reading: ProbeReading) {
 }
 
 describe('the AC readout of a meter', () => {
-  it("an-diode-clipper's voltmeter: pk 414.29 mV and DC -485.57 µV no longer overlap", () => {
-    const reading = voltmeter(0.41429, -485.57e-6);
-    expect(reading.ac!.peakDisplay).toBe('pk 414.29 mV');
+  it("an-diode-clipper's voltmeter: pp 828.58 mV and DC -485.57 µV do not overlap", () => {
+    const reading = voltmeter(0.82858, -485.57e-6);
+    expect(reading.ac!.peakToPeakDisplay).toBe('pp 828.58 mV');
     expect(reading.ac!.dcDisplay).toBe('DC -485.57 µV');
     expectLegible(reading);
   });
 
   // The longest legend of every band the formatters print: a three-digit
-  // peak beside a three-digit negative DC, in each pair of bands
-  // ("pk 999.99 mV" and "DC -899.98 mV" are 12 + 13 characters). A meter
+  // swing beside a three-digit negative DC, in each pair of bands
+  // ("pp 999.99 mV" and "DC -899.98 mV" are 12 + 13 characters). A meter
   // shows the AC readout only for a swing above 0.1 mV or 0.1 mA (probes.ts
-  // AC_EPSILON), so a nanoampere peak never gets one.
-  const VOLTS = { peaks: [999.999, 0.99999, 999.99e-6], dcs: [899.998, 0.89998, 899.98e-6] };
-  const AMPS = { peaks: [999.999, 0.99999, 999.99e-6], dcs: [899.998, 0.89998, 899.98e-6] };
+  // AC_EPSILON), so a nanoampere swing never gets one.
+  const VOLTS = { swings: [999.999, 0.99999, 999.99e-6], dcs: [899.998, 0.89998, 899.98e-6] };
+  const AMPS = { swings: [999.999, 0.99999, 999.99e-6], dcs: [899.998, 0.89998, 899.98e-6] };
   for (const [name, read, bands] of [
     ['voltmeter', voltmeter, VOLTS],
     ['ammeter', ammeter, AMPS],
   ] as const) {
-    it(`the ${name}: every band of peak beside every band of negative DC`, () => {
+    it(`the ${name}: every band of swing beside every band of negative DC`, () => {
       let longest = 0;
-      for (const pk of bands.peaks) {
+      for (const pp of bands.swings) {
         for (const dc of bands.dcs) {
-          if (dc >= pk) continue;
-          const reading = read(pk, -dc);
-          longest = Math.max(longest, [...reading.ac!.peakDisplay, ...reading.ac!.dcDisplay].length);
+          if (dc >= pp) continue;
+          const reading = read(pp, -dc);
+          longest = Math.max(longest, [...reading.ac!.peakToPeakDisplay, ...reading.ac!.dcDisplay].length);
           expectLegible(reading);
         }
       }
@@ -145,13 +147,14 @@ describe('the AC readout of a meter', () => {
   });
 
   it('a sub-line that already fitted keeps its single-line layout', () => {
-    // The default 1 kHz, 1 V generator on 1 kΩ: 24 characters.
-    const reading = voltmeter(0.99613, -20.42e-6);
-    expect(`${reading.ac!.peakDisplay}${reading.ac!.dcDisplay}`).toHaveLength(24);
+    // A swing just under 1 V beside a two-digit negative microvolt DC: 24
+    // characters, the most one line holds at the size floor.
+    const reading = voltmeter(0.99999, -20.42e-6);
+    expect(`${reading.ac!.peakToPeakDisplay}${reading.ac!.dcDisplay}`).toHaveLength(24);
     const boxes = layout(reading);
-    const pk = boxes.find((b) => b.text === reading.ac!.peakDisplay)!;
+    const pp = boxes.find((b) => b.text === reading.ac!.peakToPeakDisplay)!;
     const dc = boxes.find((b) => b.text === reading.ac!.dcDisplay)!;
-    expect(pk.y1).toBe(dc.y1);
+    expect(pp.y1).toBe(dc.y1);
     expectLegible(reading);
   });
 });
