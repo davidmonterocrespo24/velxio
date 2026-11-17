@@ -327,6 +327,9 @@ export function connectAnalogInputsToMcu(): () => void {
    * hooked AVR/RP2040 ADCs sample it at each conversion instead.
    */
   let oneShotTimer: ReturnType<typeof setInterval> | null = null;
+  /** The volts each pad was last fed, so a settled tail sends nothing (a
+   *  bridge engine may sit behind a WebSocket). Keyed `${boardId}:${gpio}`. */
+  const oneShotFed = new Map<string, number>();
   function feedOneShot(): void {
     const { timeWaveforms, pinNetMap, sourcedNets } = useElectricalStore.getState();
     const shot = timeWaveforms?.oneShot;
@@ -356,7 +359,13 @@ export function connectAnalogInputsToMcu(): () => void {
           if (!Number.isFinite(v)) continue;
           const gpioPin = gpioForBoardPin(board.boardKind, pinName, channel);
           if (gpioPin < 0 || isPartOwnedPin(board.id, gpioPin)) continue;
-          setAdcVoltage(sim, gpioPin, Math.max(0, Math.min(vMax, v)));
+          const volts = Math.max(0, Math.min(vMax, v));
+          const key = `${board.id}:${gpioPin}`;
+          const last = oneShotFed.get(key);
+          // Half an LSB of a 12-bit ADC on 3.3 V.
+          if (last !== undefined && Math.abs(last - volts) < 4e-4) continue;
+          oneShotFed.set(key, volts);
+          setAdcVoltage(sim, gpioPin, volts);
         }
       }
     }
@@ -542,6 +551,8 @@ export function connectAnalogInputsToMcu(): () => void {
   // Re-inject + re-hook on every solve result.
   const unsubResult = useElectricalStore.subscribe((state, prev) => {
     if (state.nodeVoltages !== prev.nodeVoltages || state.timeWaveforms !== prev.timeWaveforms) {
+      // The scalar injection below sets every pad again.
+      oneShotFed.clear();
       injectVoltagesIntoADC();
       if (state.timeWaveforms && !state.timeWaveforms.oneShot && !replayEpochLatched) {
         replayStartMs = performance.now();
