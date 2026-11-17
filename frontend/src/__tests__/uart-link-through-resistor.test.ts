@@ -118,13 +118,16 @@ describe('resolveAll walks a UART net across resistors', () => {
 
 class Port implements UartControllerPort {
   readonly bus = 'uart' as const;
+  readonly unit: number;
+  readonly name: string;
+  private readonly route: UartRouting | 'static';
   handler: ((byte: number) => void) | null = null;
   rx: number[] = [];
-  constructor(
-    readonly unit: number,
-    readonly name: string,
-    private readonly route: UartRouting | 'static' = 'static',
-  ) {}
+  constructor(unit: number, name: string, route: UartRouting | 'static' = 'static') {
+    this.unit = unit;
+    this.name = name;
+    this.route = route;
+  }
   setTxHandler(h: ((byte: number) => void) | null): void {
     this.handler = h;
   }
