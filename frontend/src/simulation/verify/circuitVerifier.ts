@@ -34,6 +34,7 @@ import { formatQuantity } from '../spice/valueParser';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { RGB_LED_CHANNELS, rgbLedSenseKey, rgbLedSenseSource } from '../rgbLed';
+import { gpioOverVoltages } from './gpioOverVoltage';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -1178,6 +1179,35 @@ export async function verifyCircuit(
         break; // one over-voltage warning per part is enough
       }
     }
+  }
+
+  // ── 5 V on an ESP32 pin (velxio/velxio-prod#175) ──────────────────────
+  // The solve above forces every wired GPIO to the board's 3.3 V, so it cannot
+  // show what the circuit puts on one: gpioOverVoltage reads the wiring, and a
+  // solve of its own with no pad driven. Non-blocking, like the other
+  // over-voltage warnings; a failure there never takes the check down.
+  try {
+    const overs = await gpioOverVoltages(input, sourceInfo, async (deck) => {
+      const cooked = await runSpice(deck);
+      const voltagesOf: Record<string, number> = {};
+      for (const name of cooked.variableNames) {
+        if (!name.startsWith('v(')) continue;
+        const v = cooked.dcValue(name);
+        if (Number.isFinite(v)) voltagesOf[name.slice(2, -1)] = v;
+      }
+      return voltagesOf;
+    });
+    for (const o of overs) {
+      warnings.push({
+        severity: 'warning',
+        code: 'over-voltage',
+        componentId: o.boardId,
+        message: o.message,
+        metric: o.volts,
+      });
+    }
+  } catch {
+    /* the rest of the check stands */
   }
 
   // ── Rule 6: electrolytic capacitor over-voltage / reverse polarity ─────

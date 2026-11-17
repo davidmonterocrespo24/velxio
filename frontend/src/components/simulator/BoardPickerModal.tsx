@@ -21,7 +21,7 @@ const BOARD_DESCRIPTIONS: Record<BoardKind, string> = {
   'raspberry-pi-3': 'ARM64 Cortex-A53 quad-core, Linux/Python (QEMU)',
   'raspberry-pi-4': 'ARM64 Cortex-A72 quad-core, Linux/Python (QEMU)',
   'raspberry-pi-5': 'ARM64 Cortex-A76 quad-core + RP1 I/O, Linux/Python (QEMU)',
-  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 38 GPIO (QEMU)',
+  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 34 GPIO (QEMU)',
   'esp32-s3': 'Xtensa LX7 dual-core, WiFi+BT, AI accel (QEMU)',
   'esp32-c3': 'RISC-V single-core, WiFi+BLE, 22 GPIO (QEMU)',
   'stm32-bluepill': 'STM32F103C8 Cortex-M3, 64KB flash, 37 GPIO (QEMU)',

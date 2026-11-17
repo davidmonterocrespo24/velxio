@@ -107,6 +107,18 @@ describe('getBoardLogicFamily', () => {
     const f = getBoardLogicFamily('made-up-board-9000');
     expect(f.vcc).toBe(5);
   });
+
+  it('a 3.3 V board the table does not name takes the 3.3 V family, not the AVR one (velxio/velxio-prod#175)', () => {
+    // The LOLIN32 Lite is a classic ESP32 at 3.3 V; it used to get AVR_HC
+    // (VIH 3.0 V of a 5 V rail).
+    expect(getBoardLogicFamily('wemos-lolin32-lite').vcc).toBe(3.3);
+    expect(getBoardLogicFamily('wemos-lolin32-lite').name).toBe('LVCMOS33');
+    // ...and every 3.3 V board of the pin-group table with it.
+    for (const kind of ['aitewinrobot-esp32c3-supermini', 'raspberry-pi-pico']) {
+      expect(getBoardLogicFamily(kind).vcc, kind).toBe(3.3);
+    }
+    expect(getBoardLogicFamily('arduino-nano').vcc).toBe(5);
+  });
 });
 
 describe('getLogicFamilyById', () => {
