@@ -133,6 +133,10 @@ export function spanStats(
   let total = 0;
   let min = Infinity;
   let max = -Infinity;
+  // The samples the extremes are (-1 for an end of the span interpolated
+  // between two samples).
+  let minAt = -1;
+  let maxAt = -1;
   for (let i = 0; i < n - 1; i++) {
     const t0 = time[i]!;
     const t1 = time[i + 1]!;
@@ -142,10 +146,22 @@ export function spanStats(
     const xa = a === t0 ? x[i]! : at(i, a);
     const xb = b === t1 ? x[i + 1]! : at(i, b);
     if (!Number.isFinite(xa) || !Number.isFinite(xb)) return null;
-    if (xa < min) min = xa;
-    if (xb < min) min = xb;
-    if (xa > max) max = xa;
-    if (xb > max) max = xb;
+    if (xa < min) {
+      min = xa;
+      minAt = a === t0 ? i : -1;
+    }
+    if (xb < min) {
+      min = xb;
+      minAt = b === t1 ? i + 1 : -1;
+    }
+    if (xa > max) {
+      max = xa;
+      maxAt = a === t0 ? i : -1;
+    }
+    if (xb > max) {
+      max = xb;
+      maxAt = b === t1 ? i + 1 : -1;
+    }
     const dt = b - a;
     if (!(dt > 0)) continue;
     total += dt;
@@ -156,6 +172,9 @@ export function spanStats(
     sumAbs += xa * xb >= 0 ? ((ma + mb) / 2) * dt : ((xa * xa + xb * xb) / (2 * (ma + mb))) * dt;
   }
   if (!(total > 0)) return null;
+  const inSpan = (i: number) => time[i]! >= span.from && time[i]! <= span.to;
+  max = Math.max(max, crestBetweenSamples(time, x, maxAt, 1, inSpan) ?? max);
+  min = Math.min(min, crestBetweenSamples(time, x, minAt, -1, inSpan) ?? min);
   return {
     mean: sum / total,
     rms: Math.sqrt(Math.max(0, sumSq / total)),
@@ -164,6 +183,59 @@ export function spanStats(
     min,
     max,
   };
+}
+
+/**
+ * The crest of a smooth waveform between its samples: the vertex of the
+ * parabola through the largest sample `i` (the smallest for `sign` -1) and
+ * the samples on either side.
+ *
+ * A crest falls anywhere between two samples, and at a twentieth of a period
+ * the largest sample of a sine is up to 1 - cos(π/20) = 1.2 % under it: the
+ * book's 1 kΩ / 160 nF high-pass at 5 kHz read 975.15 mV for 980.78 mV, a
+ * swing peak to peak twice that short (velxio/velxio-prod#120, #125). The
+ * parabola puts a sine's crest within 0.03 % at that step.
+ *
+ * Only a crest the parabola describes moves: a strict extreme whose
+ * neighbours on both sides bend the same way and about as much. A corner
+ * (a clipped top, a square wave's edge, the peak of a capacitor charging and
+ * then discharging, a spike) bends at one sample only, and a plateau has no
+ * strict extreme, so their largest sample stands. Returns null when the
+ * sample stands.
+ */
+export function crestBetweenSamples(
+  time: readonly number[],
+  x: readonly number[],
+  i: number,
+  sign: 1 | -1,
+  inSpan: (index: number) => boolean,
+): number | null {
+  if (i < 2 || i > Math.min(time.length, x.length) - 3) return null;
+  for (let k = i - 2; k <= i + 2; k++) if (!inSpan(k)) return null;
+  const t = (k: number) => time[k]!;
+  const v = (k: number) => sign * x[k]!;
+  if (!(v(i) > v(i - 1) && v(i) > v(i + 1))) return null;
+  // Twice the leading coefficient of the parabola through k-1, k, k+1.
+  const bend = (k: number): number => {
+    const h0 = t(k) - t(k - 1);
+    const h1 = t(k + 1) - t(k);
+    if (!(h0 > 0 && h1 > 0)) return NaN;
+    return (2 * ((v(k + 1) - v(k)) / h1 - (v(k) - v(k - 1)) / h0)) / (h0 + h1);
+  };
+  const here = bend(i);
+  const before = bend(i - 1);
+  const after = bend(i + 1);
+  if (!(here < 0 && before < 0 && after < 0)) return null;
+  if (before / here < 0.5 || before / here > 2 || after / here < 0.5 || after / here > 2) return null;
+  // The vertex of p(t) = v(i-1) + s (t - t(i-1)) + here/2 (t - t(i-1)) (t - t(i)).
+  const s = (v(i) - v(i - 1)) / (t(i) - t(i - 1));
+  const tv = (t(i - 1) + t(i)) / 2 - s / here;
+  if (!(tv > t(i - 1) && tv < t(i + 1))) return null;
+  const crest = v(i - 1) + s * (tv - t(i - 1)) + (here / 2) * (tv - t(i - 1)) * (tv - t(i));
+  // A parabola's vertex lies within an eighth of the larger drop beside it
+  // on an even step; anything beyond twice that is not a crest it describes.
+  if (!(crest >= v(i)) || crest - v(i) > (v(i) - Math.min(v(i - 1), v(i + 1))) / 4) return null;
+  return sign * crest;
 }
 
 /**
