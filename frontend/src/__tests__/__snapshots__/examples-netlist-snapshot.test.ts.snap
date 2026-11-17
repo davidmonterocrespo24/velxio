@@ -9,11 +9,9 @@ D_aqi-pmled aqi-pmled_sense_mid 0 LED_RED
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
-R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
 R_autopull_n5 n5 0 100Meg
 R_autopull_n6 n6 0 100Meg
-R_autopull_n7 n7 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
 .end"
@@ -27,8 +25,6 @@ R_night-ldr_pull vcc_rail n1 10000
 R_night-r1 n0 n2 220
 V_night-led1_sense n2 night-led1_sense_mid DC 0
 D_night-led1 night-led1_sense_mid 0 LED_YELLOW
-R_autopull_n0 n0 0 100Meg
-R_autopull_n2 n2 0 100Meg
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .op
 .end"
@@ -156,8 +152,6 @@ R_dim-pot1_bot n1 0 5004.88758553
 R_dim-r1 n0 n2 220
 V_dim-led1_sense n2 dim-led1_sense_mid DC 0
 D_dim-led1 dim-led1_sense_mid 0 LED_YELLOW
-R_autopull_n0 n0 0 100Meg
-R_autopull_n2 n2 0 100Meg
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .op
 .end"
@@ -276,12 +270,6 @@ D_dsm-led2 dsm-led2_sense_mid 0 LED_ORANGE
 R_dsm-r3 n0 n8 220
 V_dsm-led3_sense n8 dsm-led3_sense_mid DC 0
 D_dsm-led3 dsm-led3_sense_mid 0 LED_BLUE
-R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
-R_autopull_n2 n2 0 100Meg
-R_autopull_n6 n6 0 100Meg
-R_autopull_n7 n7 0 100Meg
-R_autopull_n8 n8 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .model LED_ORANGE D(Is=1e-21 N=1.75)
 .model LED_BLUE D(Is=1e-28 N=2.0)
@@ -430,10 +418,6 @@ R_autopull_n6 n6 0 100Meg
 R_autopull_n7 n7 0 100Meg
 R_autopull_n8 n8 0 100Meg
 R_autopull_n9 n9 0 100Meg
-R_autopull_n10 n10 0 100Meg
-R_autopull_n11 n11 0 100Meg
-R_autopull_n12 n12 0 100Meg
-R_autopull_n13 n13 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
@@ -475,9 +459,7 @@ V_VCC_RAIL vcc_rail 0 DC 5
 R_ppir-r1 n0 n2 220
 V_ppir-led1_sense n2 ppir-led1_sense_mid DC 0
 D_ppir-led1 ppir-led1_sense_mid 0 LED_RED
-R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
-R_autopull_n2 n2 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .op
 .end"
@@ -580,14 +562,6 @@ R_home-r0 n2 n5 220
 V_home-led0_sense n5 home-led0_sense_mid DC 0
 D_home-led0 home-led0_sense_mid 0 LED_YELLOW
 R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
-R_autopull_n2 n2 0 100Meg
-R_autopull_n3 n3 0 100Meg
-R_autopull_n4 n4 0 100Meg
-R_autopull_n5 n5 0 100Meg
-R_autopull_n6 n6 0 100Meg
-R_autopull_n7 n7 0 100Meg
-R_autopull_n8 n8 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_BLUE D(Is=1e-28 N=2.0)
@@ -645,13 +619,7 @@ D_tled-led2 tled-led2_sense_mid 0 LED_YELLOW
 R_tled-r3 n2 n6 220
 V_tled-led3_sense n6 tled-led3_sense_mid DC 0
 D_tled-led3 tled-led3_sense_mid 0 LED_RED
-R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
-R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
-R_autopull_n4 n4 0 100Meg
-R_autopull_n5 n5 0 100Meg
-R_autopull_n6 n6 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .model LED_RED D(Is=1e-20 N=1.7)
@@ -668,11 +636,7 @@ D_usd-led1 usd-led1_sense_mid 0 LED_GREEN
 R_usd-r2 n1 n4 220
 V_usd-led2_sense n4 usd-led2_sense_mid DC 0
 D_usd-led2 usd-led2_sense_mid 0 LED_RED
-R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
-R_autopull_n3 n3 0 100Meg
-R_autopull_n4 n4 0 100Meg
 R_autopull_n5 n5 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_RED D(Is=1e-20 N=1.7)
@@ -779,8 +743,6 @@ D_d3 n1 n2 D1N4007
 D_d4 n1 0 D1N4007
 R_r1 n0 n1 2200
 R_vm_vmR n0 n1 10Meg
-R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
 * voltmeter probe: read v(n0) - v(n1)
 .tran 1.000e-3 8.000e-2
@@ -796,7 +758,6 @@ Q_q2 n0 n2 0 Q2N2222
 R_rload n3 n1 4700
 V_am_sense n1 amm_am_mid DC 0
 R_am_shunt amm_am_mid n0 1m
-R_autopull_n0 n0 0 100Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
 * ammeter probe: read i(v_am_sense)
 .op
@@ -812,7 +773,6 @@ Q_q1 n2 n1 n0 Q2N2222
 Q_q2 n2 n0 0 Q2N2222
 R_rl n4 n2 220
 R_vm_vmR n2 0 10Meg
-R_autopull_n0 n0 0 100Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
 * voltmeter probe: read v(n2) - v(0)
 .op
@@ -1418,7 +1378,6 @@ D_d2 n0 n1 D1N4007
 C_c2 n1 0 0.0001 IC=0
 R_rl n1 0 10000
 R_vm_vmR n1 0 10Meg
-R_autopull_n0 n0 0 100Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
 * voltmeter probe: read v(n1) - v(0)
 .tran 1.000e-3 8.000e-2
@@ -1784,11 +1743,7 @@ R_rl n1 n6 220
 V_motor_sense n6 motor_sense_mid DC 0
 D_motor motor_sense_mid n3 LED_GREEN
 R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
-R_autopull_n3 n3 0 100Meg
-R_autopull_n4 n4 0 100Meg
-R_autopull_n6 n6 0 100Meg
 .model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .op
@@ -1863,10 +1818,6 @@ R_g2_load n2 0 1Meg
 R_rl n1 n3 220
 V_qled_sense n3 qled_sense_mid DC 0
 D_qled qled_sense_mid n6 LED_GREEN
-R_autopull_n0 n0 0 100Meg
-R_autopull_n4 n4 0 100Meg
-R_autopull_n5 n5 0 100Meg
-R_autopull_n6 n6 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .op
 .end"
@@ -2372,11 +2323,8 @@ R_u1_load n6 0 1Meg
 R_rl n6 n4 220
 V_led1_sense n4 led1_sense_mid DC 0
 D_led1 led1_sense_mid n5 LED_YELLOW
-R_autopull_n0 n0 0 100Meg
-R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
-R_autopull_n5 n5 0 100Meg
 .model LED_YELLOW D(Is=1e-21 N=1.8)
 .op
 .end"
@@ -3747,17 +3695,9 @@ D_cnt_led2 cnt_led2_sense_mid 0 LED_BLUE
 R_cnt_lr3 n7 n11 220
 V_cnt_led3_sense n11 cnt_led3_sense_mid DC 0
 D_cnt_led3 cnt_led3_sense_mid 0 LED_YELLOW
-R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
-R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
-R_autopull_n5 n5 0 100Meg
 R_autopull_n6 n6 0 100Meg
-R_autopull_n7 n7 0 100Meg
-R_autopull_n8 n8 0 100Meg
-R_autopull_n9 n9 0 100Meg
-R_autopull_n10 n10 0 100Meg
-R_autopull_n11 n11 0 100Meg
 .model LED_RED D(Is=1e-20 N=1.7)
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .model LED_BLUE D(Is=1e-28 N=2.0)
