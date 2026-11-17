@@ -29,8 +29,8 @@ type Link = [string, string, string, string];
 function input(components: Part[], links: Link[]) {
   const wires = links.map(([a, pa, b, pb], i) => ({
     id: `w${i}`,
-    start: { componentId: a, pinName: pa },
-    end: { componentId: b, pinName: pb },
+    start: { componentId: a, pinName: pa, x: 0, y: 0 },
+    end: { componentId: b, pinName: pb, x: 0, y: 0 },
     color: '#666',
     waypoints: [],
   }));
@@ -182,7 +182,13 @@ describe('the LM358 model (#134)', () => {
     const components = ex.components
       .filter((c) => !c.type.includes('arduino'))
       .map((c) => ({ id: c.id, metadataId: c.type.replace(/^(wokwi|velxio)-/, ''), properties: c.properties ?? {} }));
-    const wires = ex.wires.map((w) => ({ id: w.id, start: w.start, end: w.end, color: '#666', waypoints: [] }));
+    const wires = ex.wires.map((w) => ({
+      id: w.id,
+      start: { componentId: w.start.componentId, pinName: w.start.pinName, x: 0, y: 0 },
+      end: { componentId: w.end.componentId, pinName: w.end.pinName, x: 0, y: 0 },
+      color: '#666',
+      waypoints: [],
+    }));
     const i = buildInputFromStore({
       components,
       wires,

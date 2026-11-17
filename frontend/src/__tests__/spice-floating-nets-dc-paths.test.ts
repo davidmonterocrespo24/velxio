@@ -30,8 +30,8 @@ type Link = [string, string, string, string];
 function circuit(components: Part[], links: Link[]) {
   const wires = links.map(([a, pa, b, pb], i) => ({
     id: `w${i}`,
-    start: { componentId: a, pinName: pa },
-    end: { componentId: b, pinName: pb },
+    start: { componentId: a, pinName: pa, x: 0, y: 0 },
+    end: { componentId: b, pinName: pb, x: 0, y: 0 },
     color: '#666',
     waypoints: [],
   }));

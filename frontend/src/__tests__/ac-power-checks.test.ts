@@ -32,8 +32,8 @@ function sourceIntoLoad(source: Part, load: Part, extra: Part[] = [], extraLinks
   ];
   const wires = links.map(([a, pa, b, pb], i) => ({
     id: `w${i}`,
-    start: { componentId: a, pinName: pa },
-    end: { componentId: b, pinName: pb },
+    start: { componentId: a, pinName: pa, x: 0, y: 0 },
+    end: { componentId: b, pinName: pb, x: 0, y: 0 },
     color: '#666',
     waypoints: [],
   }));
