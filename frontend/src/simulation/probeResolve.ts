@@ -10,11 +10,13 @@
  * So resolution is ordered, best source first:
  *
  *   1. A wire endpoint sitting ON a board pin that maps to a GPIO number.
- *   2. A wire that reaches a GPIO through passives (a series resistor into an
+ *   2. A wire that reaches a GPIO through resistors (a series resistor into an
  *      LED still shows the driving pin's square wave). PinTrace already knows
  *      how to walk that and, importantly, tells us when the hop crossed an
  *      ACTIVE device — past a transistor the pin's logic level no longer
- *      describes this wire, so we stop trusting it.
+ *      describes this wire, so we stop trusting it — or a capacitor or an
+ *      inductor, on the path or on a node of it: such a node is the pin's
+ *      level filtered (an RC low-pass is the PWM's mean), not its edges.
  *   3. Otherwise the SPICE net, read as a voltage.
  *
  * Net names come from the pinNetMap the solver PUBLISHES, never from a local
@@ -145,6 +147,10 @@ export function resolveProbe(wire: Wire, ctx: ProbeContext): ProbeTarget | null 
     // longer describes this wire; fall through to the analog path, which
     // reports what the solver actually computed here.
     if (traced.crossedActiveDevice) continue;
+    // The same past a capacitor or an inductor, or on any node one of them
+    // holds before the pin's own: an RC filter's output is the PWM's DC
+    // level with a little ripple, not pin 9's pulses (velxio/velxio-prod#142).
+    if (traced.crossedReactive) continue;
     // arduinoPin is -1 for a supply/GND pad and null when nothing was
     // reached; only a real GPIO carries a level worth plotting.
     if (traced.arduinoPin === null || traced.arduinoPin < 0) continue;

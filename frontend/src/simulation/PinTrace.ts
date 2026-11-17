@@ -88,6 +88,31 @@ for (const [preset, base] of Object.entries(PRESET_TO_BASE)) {
   PASSIVE_PIN_PAIRS[preset] = PASSIVE_PIN_PAIRS_BASE[base];
 }
 
+/**
+ * The passives above that store energy: a capacitor holds its voltage and an
+ * inductor its current, so a node one of them sits on, or the far side of
+ * one, does not follow a pin's edges the way a resistor's far side does.
+ */
+const REACTIVE_BASE = new Set([
+  'capacitor',
+  'capacitor-electrolytic',
+  'inductor',
+  'analog-capacitor',
+  'analog-inductor',
+]);
+
+/** True for a capacitor or an inductor, preset variants included. */
+export function isReactivePassive(metadataId: string | undefined): boolean {
+  if (!metadataId) return false;
+  return REACTIVE_BASE.has(PRESET_TO_BASE[metadataId] ?? metadataId);
+}
+
+/** A result's path flags; crossedReactive only when set, so the results of
+ *  every walk that meets no capacitor keep their shape. */
+function flags(active: boolean, reactive: boolean): Pick<TraceResult, 'crossedActiveDevice' | 'crossedReactive'> {
+  return reactive ? { crossedActiveDevice: active, crossedReactive: true } : { crossedActiveDevice: active };
+}
+
 export type TraceState = ReturnType<typeof useSimulatorStore.getState>;
 
 export interface TraceResult {
@@ -95,6 +120,13 @@ export interface TraceResult {
   arduinoPin: number | null;
   /** True iff the trace passed through a BJT/MOSFET/op-amp/diode. */
   crossedActiveDevice: boolean;
+  /**
+   * True when the walk to the pin crossed a capacitor or an inductor, or left
+   * a node one of them sits on (the start node included): what arrives here
+   * is the pin's level filtered, not its edges. The pin's own node does not
+   * count, since the pin drives it. Absent means false.
+   */
+  crossedReactive?: boolean;
   /** Id of the board the pin belongs to, when one was reached. */
   boardId?: string;
   /** For a supply / GND pad (arduinoPin -1): the pad's name ('GND', '3V3'...),
@@ -317,23 +349,27 @@ function walk(
   seen: Map<string, number>,
   isRoot: boolean,
   preferBoard: string | undefined,
+  reactiveSeen = false,
 ): TraceResult {
   const selfKey = pinKey(fromId, fromPin);
   const seenAt = seen.get(selfKey);
   if (seenAt !== undefined && seenAt <= depth) {
-    return { arduinoPin: null, crossedActiveDevice: activeSeen };
+    return { arduinoPin: null, ...flags(activeSeen, reactiveSeen) };
   }
-  if (depth > MAX_HOPS) return { arduinoPin: null, crossedActiveDevice: activeSeen };
+  if (depth > MAX_HOPS) return { arduinoPin: null, ...flags(activeSeen, reactiveSeen) };
 
   const node = collectNode(state, fromId, fromPin, seen, depth, preferBoard);
 
   // ── Rules 1 and 2: the pads on this node ─────────────────────────────────
-  if (node.drivenHit) return { ...node.drivenHit, crossedActiveDevice: activeSeen };
+  if (node.drivenHit) return { ...node.drivenHit, ...flags(activeSeen, reactiveSeen) };
   if (node.boardHits.length) {
-    return { ...node.boardHits[0], crossedActiveDevice: activeSeen };
+    return { ...node.boardHits[0], ...flags(activeSeen, reactiveSeen) };
   }
 
   // ── Rules 3 and 4: across the passives sitting on this node ──────────────
+  // A capacitor or an inductor on this node holds it: whatever is found past
+  // a hop from here reaches this node filtered (crossedReactive).
+  const nodeReactive = reactiveSeen || node.pins.some((p) => isReactivePassive(p.comp?.metadataId));
   let crossedRail: TraceResult | null = null;
   let chipHit: TraceResult | null = null;
   for (const p of node.pins) {
@@ -341,7 +377,8 @@ function walk(
     if (!pair || !p.comp) continue;
     const farPin = p.pinName === pair[0] ? pair[1] : pair[0];
     const nowActive = activeSeen || isActiveDevice(p.comp.metadataId);
-    const across = walk(state, p.comp.id, farPin, depth + 1, nowActive, seen, false, preferBoard);
+    const nowReactive = nodeReactive || isReactivePassive(p.comp.metadataId);
+    const across = walk(state, p.comp.id, farPin, depth + 1, nowActive, seen, false, preferBoard, nowReactive);
     if (isBoardPin(across.arduinoPin)) return across;
     if (across.arduinoPin === RAIL) crossedRail ??= across;
     else if (across.arduinoPin !== null) chipHit ??= across;
@@ -360,19 +397,19 @@ function walk(
   // neighbour's key is exactly how the two chips stopped sharing one key.
   if (isRoot) {
     const netKey = resolveChipNetKey(state, fromId, fromPin);
-    if (netKey !== null) return { arduinoPin: netKey, crossedActiveDevice: activeSeen };
+    if (netKey !== null) return { arduinoPin: netKey, ...flags(activeSeen, reactiveSeen) };
   }
   if (node.chipPin) {
     return {
       arduinoPin: syntheticChipPin(node.chipPin.id, node.chipPin.pin),
-      crossedActiveDevice: activeSeen,
+      ...flags(activeSeen, reactiveSeen),
     };
   }
   if (chipHit) return chipHit;
   if (isRoot && isChipPinSource(componentById(state.components, fromId)?.metadataId, fromPin)) {
-    return { arduinoPin: syntheticChipPin(fromId, fromPin), crossedActiveDevice: activeSeen };
+    return { arduinoPin: syntheticChipPin(fromId, fromPin), ...flags(activeSeen, reactiveSeen) };
   }
-  return { arduinoPin: null, crossedActiveDevice: activeSeen };
+  return { arduinoPin: null, ...flags(activeSeen, reactiveSeen) };
 }
 
 /** Every pin joined to (fromId, fromPin) without crossing a component. */
