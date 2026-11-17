@@ -389,14 +389,18 @@ export const LINK_ANCHOR_AHEAD_S = 0.02;
 
 /**
  * The furthest an edge lands ahead of the receiver's clock, in seconds of it:
- * the anchor and a frame of the sender's burst, with room for a slow frame. A
- * sender that makes more guest time than the receiver runs (a receiver below
- * real time, on a link never quiet for LINK_REANCHOR_S) pushed every edge
- * further out, without bound (#74). Past it the edges keep their order on the
- * receiver, not their spacing: one placed nearer would land before edges it
- * still holds and leave it at the wrong level.
+ * the anchor and the longest burst a board runs in one frame (50 ms: the frame
+ * loops cap a frame there, MAX_DELTA_MS, and at 20 fps every frame is that
+ * long), and a margin. A sender that makes more guest time than the receiver
+ * runs (a receiver below real time, on a link never quiet for LINK_REANCHOR_S)
+ * pushed every edge further out, without bound (#74). Past it the edges keep
+ * their order on the receiver, not their spacing: one placed nearer would land
+ * before edges it still holds and leave it at the wrong level. Below the
+ * anchor and a 50 ms burst it squeezed the end of a long line sent in one
+ * frame at 20 fps: 40 bytes at 9600 baud arrived whole a third as often as
+ * with #397's anchor alone.
  */
-export const LINK_MAX_AHEAD_S = 0.05;
+export const LINK_MAX_AHEAD_S = 0.075;
 
 /**
  * The quiet a new burst keeps after the last one when the receiver has not

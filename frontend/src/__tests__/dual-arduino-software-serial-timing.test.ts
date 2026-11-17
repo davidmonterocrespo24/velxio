@@ -237,3 +237,68 @@ describe('SoftwareSerial between two Unos, a line across the end of the transmit
     expect(String.fromCharCode(...bytes), rxOut.slice(-400)).toBe('PING\r\nPING\r\n');
   });
 });
+
+/**
+ * #74's bounded anchor kept every edge within 50 ms of the receiver: the
+ * anchor (20 ms) and 30 ms of a burst. A frame loop runs up to 50 ms of guest
+ * time a frame (MAX_DELTA_MS) and at 20 fps every frame does, so the end of a
+ * line longer than 30 ms that went out in one frame was squeezed against the
+ * bound: 40 bytes at 9600 baud arrived whole a third as often as with #397's
+ * anchor alone. Here tx40.ino's first line (40 bytes, 41.6 ms) starts 1 ms into
+ * a 50 ms burst of the transmitter and ends inside it.
+ */
+describe('SoftwareSerial between two Unos at 20 fps, a 40-byte line inside one burst (#74)', () => {
+  const LINE40 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZab\r\n';
+  const BURST = 16_000_000 * 0.05;
+
+  it('the line arrives whole, its last bytes too', () => {
+    // Where the first line starts: the first fall of D11 after mySerial.begin() set it high.
+    const pm = new PinManager();
+    const alone = new AVRSimulator(pm, 'uno');
+    alone.loadHex(fixture('tx40.hex'));
+    let t1 = -1;
+    let high = false;
+    pm.onPinChange(11, (_p: number, level: boolean) => {
+      if (!level && high && t1 < 0) t1 = alone.getCurrentCycles();
+      if (level) high = true;
+    });
+    while (t1 < 0 && alone.getCurrentCycles() < 16_000_000) alone.step();
+    expect(t1, 'the transmitter sent a line').toBeGreaterThan(0);
+
+    resetInterconnect();
+    const pms = { tx: new PinManager(), rx: new PinManager() };
+    const sims: Record<string, AVRSimulator> = {
+      tx: new AVRSimulator(pms.tx, 'uno'),
+      rx: new AVRSimulator(pms.rx, 'uno'),
+    };
+    setInterconnectRuntime({
+      getBoardSimulator: (id) => sims[id],
+      getBoardPinManager: (id) => pms[id as 'tx' | 'rx'],
+      getBoardBridge: () => undefined,
+      getEsp32Bridge: () => undefined,
+      getStm32Bridge: () => undefined,
+    });
+    bindBoard('tx', 'arduino-uno');
+    bindBoard('rx', 'arduino-uno');
+    sims.tx.loadHex(fixture('tx40.hex'));
+    sims.rx.loadHex(fixture('rx.hex'));
+    updateWires([wire('w1', ['tx', '11'], ['rx', '10']), wire('w2', ['tx', 'GND'], ['rx', 'GND'])]);
+    let rxOut = '';
+    sims.rx.onSerialData = (ch: string) => {
+      rxOut += ch;
+    };
+    // 50 ms bursts, one ending 1 ms before the line, then 50 ms bursts until
+    // the receiver has printed the line (a byte prints in 23 ms at 9600 baud).
+    const ends: number[] = [];
+    for (let end = BURST; end < t1 - 16_000; end += BURST) ends.push(end);
+    ends.push(t1 - 16_000);
+    for (let end = t1 - 16_000 + BURST; end < t1 + 1_200 * 16_000; end += BURST) ends.push(end);
+    for (const end of ends) {
+      for (const sim of [sims.tx, sims.rx]) {
+        while (sim.getCurrentCycles() < end) sim.step();
+      }
+    }
+    const bytes = [...rxOut.matchAll(/Byte: (\d+) \| HEX/g)].map((m) => Number(m[1]));
+    expect(String.fromCharCode(...bytes), rxOut.slice(-300)).toBe(LINE40);
+  });
+});
