@@ -29,7 +29,12 @@ import type {
   BoardForSpice,
   WireForSpice,
 } from './types';
-import { largestTimeConstant, settleSeconds, startsAwayFromSteadyState } from './settleTime';
+import {
+  largestTimeConstant,
+  settledStepS,
+  settleSeconds,
+  startsAwayFromSteadyState,
+} from './settleTime';
 
 /** True for any self-driven supply net: ground, the main rail, or an aux rail. */
 function isRailNet(net: string): boolean {
@@ -152,8 +157,9 @@ export interface BuildNetlistResult {
   staticPads: Set<string>;
   /**
    * The analysis the netlist's card runs: the input's, with a transient that
-   * asked to `settle` given its start-up (`start`, TSTART) and the end of the
-   * run (`stop`). The solve must run this one, not the input's.
+   * asked to `settle` given its start-up (`start`, TSTART), the end of the
+   * run (`stop`) and, when the deck holds a diode, a finer `step`
+   * (settledStepS). The solve must run this one, not the input's.
    */
   analysis: AnalysisMode;
 }
@@ -500,8 +506,11 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     const windowS = parseValueWithUnits(analysis.stop);
     const startS = settleSeconds(largestTimeConstant(cards), stepS, analysis.period);
     if (startS > 0 && windowS > 0) {
+      // A diode's conduction pulses want a finer step than the window's.
+      const runStepS = settledStepS(cards, stepS);
       resolved = {
         ...analysis,
+        ...(runStepS !== stepS ? { step: runStepS.toExponential(3) } : {}),
         start: startS.toExponential(6),
         stop: (startS + windowS).toExponential(6),
       };

@@ -54,8 +54,30 @@ export const SETTLE_TAUS = 7;
  * holds every step of a transient to its TSTEP, stored or not). About 0.2-0.3 s
  * of engine time for a small circuit; a time constant that would need more
  * is cut there, and the window then holds what remains of its approach.
+ * A deck that holds a diode runs at a DIODE_STEP_DIVISOR-th of the window's
+ * step (settledStepS) over the same start-up, so it takes up to that many
+ * times as many steps.
  */
 export const MAX_SETTLE_STEPS = 10_000;
+
+/**
+ * How much finer than the window's step a deck that settles and holds a diode
+ * runs.
+ *
+ * A diode conducts in short pulses around the source's peaks: a 50 Hz
+ * rectifier's reservoir recharges for about 2 ms of each 20 ms period. The
+ * window's step, a twentieth of a period, is also ngspice's largest step
+ * (TMAX defaults to TSTEP), and ngspice did not shorten it through those
+ * pulses (801 time points for the rectifier's 0.78 s): each pulse was two or
+ * three points, every cycle left the capacitor a little off, and the
+ * start-up's tens of cycles settled it there. The gallery's
+ * smoothed rectifier read 9.146 V for 8.766 V (+4.3 %), its clamper +2.5 %,
+ * a doubler on a 1 kΩ load +2.9 %. At half the step the gallery's three
+ * settled diode decks and twelve variants (other loads, capacitors, diodes,
+ * 50 Hz to 1 kHz, a square wave) read within 0.5 % of a run at a fiftieth of
+ * it, for twice the steps; a quarter of the step buys 0.03 % for four times.
+ */
+export const DIODE_STEP_DIVISOR = 2;
 
 /** See the module comment: a resistance this large is not a settling path. */
 export const PROBE_OHMS = 10e6;
@@ -94,6 +116,16 @@ export function startsAwayFromSteadyState(cards: readonly string[]): boolean {
   return parseCards(cards).some(
     (c) => (c.kind === 'V' && /\bpulse\s*\(/i.test(c.line)) || c.kind === 'D',
   );
+}
+
+/**
+ * The step a deck that settles runs at: the window's, or a
+ * DIODE_STEP_DIVISOR-th of it when the deck holds a diode (a D card: a
+ * rectifier, an LED, a board pin's clamp). The start-up is sized in window
+ * steps all the same (settleSeconds).
+ */
+export function settledStepS(cards: readonly string[], windowStepS: number): number {
+  return parseCards(cards).some((c) => c.kind === 'D') ? windowStepS / DIODE_STEP_DIVISOR : windowStepS;
 }
 
 /** Nets joined by voltage-defined elements and by the element kinds that act

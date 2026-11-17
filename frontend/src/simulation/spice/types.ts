@@ -97,7 +97,8 @@ export type AnalysisMode =
        * first for about seven of its largest time constants (settleTime.ts),
        * and `stop` is then the length of the stored window. In the analysis a
        * built netlist returns, `stop` is the end of the run and `start` the
-       * start of the window (velxio/velxio-prod#143).
+       * start of the window, and a deck that holds a diode has a finer `step`
+       * (settledStepS; velxio/velxio-prod#143).
        */
       settle?: boolean;
       /**
