@@ -53,7 +53,7 @@ describe('every field reads through it (#118)', () => {
     expect(out.join('\n')).not.toMatch(/NaN/);
     expect(out[0]).toBe('V_x s 0 SIN(0.5 3 1000)');
     const square = cards('signal-generator', { waveform: 'square', frequency: '2kHz', amplitude: 1 }, { SIG: 's', GND: '0' });
-    expect(square[0]).toContain('PULSE(-1 1 0 1n 1n 0.00025 0.0005)');
+    expect(square[0]).toContain('PULSE(-1 1 0 1n 1n 0.000249999 0.0005)');
   });
 
   it('a field that is not a value never reaches the netlist as NaN', () => {

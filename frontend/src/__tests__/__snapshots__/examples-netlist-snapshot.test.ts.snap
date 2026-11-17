@@ -759,7 +759,7 @@ R_vm_vmR n0 0 10Meg
 exports[`netlist snapshot — analog (30 examples) > an-bjt-switch 1`] = `
 "* Velxio circuit
 V_vcc n3 0 DC 9
-V_src n2 0 PULSE(0 4 0 1n 1n 0.005 0.01)
+V_src n2 0 PULSE(0 4 0 1n 1n 0.004999999 0.01)
 R_rb n2 n0 4700
 R_rl n3 n1 1000
 Q_q1 n1 n0 0 Q2N2222
@@ -877,7 +877,7 @@ R_vm_vmR n1 0 10Meg
 exports[`netlist snapshot — analog (30 examples) > an-mosfet-pmos-highside 1`] = `
 "* Velxio circuit
 V_vcc n3 0 DC 12
-V_ctrl n0 0 PULSE(0 12 0 1n 1n 0.1 0.2)
+V_ctrl n0 0 PULSE(0 12 0 1n 1n 0.099999999 0.2)
 R_rg n0 n2 1000
 M_m1 n1 n2 n3 MIRF9540
 R_rl n1 0 220
@@ -891,7 +891,7 @@ R_vm_vmR n1 0 10Meg
 exports[`netlist snapshot — analog (30 examples) > an-mosfet-switch 1`] = `
 "* Velxio circuit
 V_vcc n3 0 DC 12
-V_src n2 0 PULSE(0 4 0 1n 1n 0.005 0.01)
+V_src n2 0 PULSE(0 4 0 1n 1n 0.004999999 0.01)
 R_rg n2 n0 100
 R_rl n3 n1 470
 M_m1 n1 n0 0 M2N7000
@@ -1021,7 +1021,7 @@ RL3 22 28 100K
 exports[`netlist snapshot — analog (30 examples) > an-opamp-integrator 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
-V_src n2 0 PULSE(1.5 3.5 0 1n 1n 0.0025 0.005)
+V_src n2 0 PULSE(1.5 3.5 0 1n 1n 0.002499999 0.005)
 R_rin n2 n1 10000
 C_cf n1 n0 1e-7 IC=0
 X_u1 n3 n1 vcc_rail 0 n0 LM358
