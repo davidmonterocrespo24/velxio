@@ -416,5 +416,45 @@ class TestCmakeUnsafeNames(PrecompiledBase):
         self.assertIn('impl one (basic).cpp', self.cmake_text())
 
 
+
+class TestNotAnArchive(PrecompiledBase):
+    """velxio/velxio-prod#223, review round 2 (defense in depth): the build links
+    every archive of the chip's folder, and the linker reads whatever file sits
+    there. A text file named like an archive is read as a linker script (its
+    INPUT and INCLUDE commands read the files they name), a thin archive names
+    its members by path, and a symbolic link is copied as the file it points to.
+    Each fails the build closed, naming the archive, instead of being linked.
+    The hosted product refuses such a library before the build (its compile
+    guard); this guards a self-host. Waits for review before release."""
+
+    def archive_path(self) -> Path:
+        return self.lib / 'src' / 'esp32' / 'libmixedcore.a'
+
+    def assert_refused(self) -> None:
+        with self.assertRaises(espidf_mod.PrecompiledLibraryError) as cm:
+            self.resolve(['MixedCore.h'], 'esp32')
+        self.assertIn('src/esp32/libmixedcore.a', str(cm.exception))
+        self.assertIn('not a static library archive', str(cm.exception))
+
+    def test_a_text_file_named_like_an_archive_fails_the_build(self):
+        self.archive_path().write_text('INPUT(/srv/example/notes.txt)\n', encoding='utf-8')
+        self.assert_refused()
+
+    def test_a_thin_archive_fails_the_build(self):
+        self.archive_path().write_bytes(b'!<thin>\n/srv/example/notes.txt\n')
+        self.assert_refused()
+
+    def test_a_symbolic_link_fails_the_build(self):
+        target = self.tmp / 'elsewhere.a'
+        target.write_bytes(b'!<arch>\n')
+        self.archive_path().unlink()
+        self.archive_path().symlink_to(target)
+        self.assert_refused()
+
+    def test_a_real_archive_still_links(self):
+        self.resolve(['MixedCore.h'], 'esp32')
+        self.assertEqual([p.name for _, p in self.prebuilt()], ['libmixedcore.a'])
+
+
 if __name__ == '__main__':
     unittest.main()

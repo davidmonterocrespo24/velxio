@@ -389,7 +389,7 @@ def _sanitise_lib_dirname(name: str) -> str:
 # self-host that has no such guard. _sanitise_lib_dirname already folds the
 # per-library prefix, and _PRECOMPILED_SAFE_NAME the archive names; this
 # covers the library's own file and folder names in between.
-_CMAKE_UNSAFE_NAME = re.compile('[\x00-\x1f\x7f";$\\\\\u0085  ]')
+_CMAKE_UNSAFE_NAME = re.compile(r'[\x00-\x1f\x7f";$\\\u0085\u2028\u2029]')
 
 
 def _cmake_unsafe_name_part(rel_path: Path) -> str | None:
@@ -1027,6 +1027,21 @@ def _elf32_facts(obj: bytes) -> tuple[list[bytes], list[str]] | None:
         return comments, runtime
     except struct.error:
         return None
+
+
+def _is_real_archive(path: Path) -> bool:
+    """`path` is a regular file holding an ar archive (velxio/velxio-prod#223).
+    The build copies a precompiled library's archives (following a symbolic
+    link to the file it names) and the linker reads whatever is there: a text
+    file as a linker script, whose INPUT and INCLUDE commands read the files
+    they name, and a thin archive (`!<thin>`) as the paths it lists."""
+    if path.is_symlink():
+        return False
+    try:
+        with open(path, 'rb') as fh:
+            return fh.read(8) == b'!<arch>\n'
+    except OSError:
+        return False
 
 
 def _archive_facts(path: Path) -> _ArchiveFacts | None:
@@ -3052,6 +3067,26 @@ class ESPIDFCompiler:
                     f'written into the build files; skipped'
                 )
                 continue
+            if not _is_real_archive(entry):
+                label = ' '.join(p for p in (name, props.get('version', '')) if p)
+                rel = entry.relative_to(lib_root).as_posix()
+                summary = (
+                    f'{label} cannot be used on {idf_target}: its precompiled archive {rel} '
+                    f'is not a static library archive'
+                )
+                details = '\n'.join([
+                    summary + '.',
+                    '',
+                    f'Library: {label} (precompiled={mode})',
+                    f'Archive: {rel}',
+                    'Why: the build links every archive of this folder, and the linker reads '
+                    'whatever file is there. This one is a symbolic link, a thin archive or '
+                    'not an archive at all (a text file is read as a linker script).',
+                    'What to do: use a release of the library that ships real .a archives '
+                    '(made by ar), or one that builds from its sources.',
+                ])
+                logger.warning(f'[espidf] {summary}')
+                raise PrecompiledLibraryError(summary, details)
             archives.append(entry)
 
         for archive in archives:
