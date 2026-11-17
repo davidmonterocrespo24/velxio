@@ -19,6 +19,29 @@
  *   50 V-   (negative supply — wired to 0 in velxio emissions)
  *   28 OUT
  *
+ * Two local changes to National's text, both to TI's datasheet (SLOS068,
+ * LM358: input bias current -20 nA typ; output swing from the negative rail
+ * 5 mV typ, 20 mV max at VS = 5 V, RL <= 10 kOhm; velxio/velxio-prod#134):
+ *   - R1 and R2 were 500K: 1 MOhm between the inputs, which pulled a
+ *     10k/10k reference in a comparator 12 mV off 2.5 V, about 100 times
+ *     what the bias current does. They make node 3 the inputs' midpoint,
+ *     which G4 senses for the common-mode term without loading it, so
+ *     they can be larger: 50MEG each, 100 MOhm, takes 25 nA at 2.5 V
+ *     across the inputs, about the bias current, and the reference stays
+ *     within 0.6 mV. Not more: an input nothing else holds (a filter's
+ *     capacitor before its pin drives it) is held by them against IOS's
+ *     5 nA, and at 1 GOhm that pushed it 4 V above a 5 V supply.
+ *   - D2 and V3 clamp the second stage, and so the output, above V-. With
+ *     V3 at .635 and D2 an ordinary diode (D2 dropping 0.655 V at the
+ *     stage's full drive) the output saturated 19 mV BELOW V-, and a
+ *     follower of 0 V sat at 21 mV, where the drive and D2's drop are
+ *     smaller. D2 now has a model of its own with a sharper knee (N=0.25)
+ *     and V3 is .169: the output saturates 5 mV above V- (into 10 kOhm or
+ *     open), the datasheet's typical, and a follower of 0 V reads 17 mV,
+ *     inside its 20 mV maximum. D1 and D3-D6 keep National's model.
+ * Neither change moves a stage in its linear range: a follower of 2.5 V
+ * reads the same 2.502 V.
+ *
  * Used by componentToSpice.ts:opamp-lm358 to replace the prior
  * behavioural B-source clamp with a real macro-model. Provides true
  * slew limiting, GBW roll-off, and saturation curves so AC analyses
@@ -26,8 +49,8 @@
  */
 export const LM358_SUBCKT = `.SUBCKT LM358 1 2 99 50 28
 IOS 2 1 5N
-R1 1 3 500K
-R2 3 2 500K
+R1 1 3 50MEG
+R2 3 2 50MEG
 I1 99 4 100U
 R3 5 50 517
 R4 6 50 517
@@ -40,8 +63,8 @@ R8 99 49 60K
 R9 49 50 60K
 V2 99 8 1.63
 D1 9 8 DX_LM358
-D2 10 9 DX_LM358
-V3 10 50 .635
+D2 10 9 DX2_LM358
+V3 10 50 .169
 EH 99 98 99 49 1
 G1 98 9 POLY(1) 5 6 0 9.8772E-4 0 .3459
 R5 98 9 101.2433MEG
@@ -67,5 +90,6 @@ D3 15 20 DX_LM358
 L3 22 28 500P
 RL3 22 28 100K
 .MODEL DX_LM358 D(IS=1E-15)
+.MODEL DX2_LM358 D(IS=1E-15 N=0.25)
 .MODEL QX_LM358 PNP(BF=1.111E3)
 .ENDS LM358`;

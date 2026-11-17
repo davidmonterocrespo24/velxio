@@ -12,8 +12,9 @@
  *     resistors.
  *   - **Resistor overpower**: I²·R > rated power (1/4 W default). Catches
  *     load resistors that would burn out in the real world.
- *   - **Disconnected indicator**: an LED that's fully wired but carries
- *     zero current — usually means the user forgot a switch / power tie.
+ *   - **Starved or backwards LED**: an LED that conducts forward but far
+ *     too little to light (megaohms in series), or one wired backwards. An
+ *     LED the circuit simply holds off is not a fault and is not reported.
  *
  * Results are split into `errors` (severe enough to block the user with a
  * confirm dialog) and `warnings` (non-blocking — the simulation can proceed).
@@ -53,6 +54,7 @@ export type WarningCode =
   | 'shorted-component'
   | 'resistor-overpower'
   | 'led-no-current'
+  | 'led-reverse-biased'
   | 'unsupported-sensor'
   | 'unpowered-net'
   | 'no-return-path'
@@ -91,6 +93,14 @@ export interface VerifierConfig {
   /** Below this the LED is "wired but dark" — surface a hint. */
   ledMinAmps: number;
   /**
+   * Below this forward current an LED is simply off, as the circuit asks:
+   * junction leakage behind a comparator's low output or an off transistor
+   * (picoamperes), or an open contact's 1 GOhm (a few nA at the voltages
+   * circuits use). Between this and ledMinAmps it conducts but is starved by
+   * a resistance of megaohms in series (velxio/velxio-prod#134).
+   */
+  ledOffAmps: number;
+  /**
    * `${boardId}:${pinName}` of the board sources the PRE-FLIGHT invented
    * (every wired GPIO assumed HIGH). Only set by verifyCircuitFromStore; the
    * live solver never synthesizes. Used to word a conflict honestly.
@@ -104,7 +114,17 @@ export const DEFAULT_CONFIG: VerifierConfig = {
   ledMaxAmps: 0.02,
   resistorMaxWatts: 0.25,
   ledMinAmps: 1e-6,
+  ledOffAmps: 1e-7,
 };
+
+/**
+ * An LED backwards by more than this is reported as wired backwards: past
+ * any leakage a forward circuit leaves across a dark LED (an LM358's low
+ * output sits a few millivolts from ground).
+ */
+const LED_REVERSE_HINT_VOLTS = 0.5;
+/** The reverse voltage most LEDs are rated to withstand (5 mm LED datasheets: VR = 5 V). */
+const LED_REVERSE_RATED_VOLTS = 5;
 
 // ── What joins a supply pin to ground (power-short) ──────────────────────
 
@@ -1042,7 +1062,8 @@ export async function verifyCircuit(
       });
       continue;
     }
-    const i = Math.abs(branchCurrents[`v_${led.id}_sense`] ?? 0);
+    const forward = branchCurrents[`v_${led.id}_sense`] ?? 0;
+    const i = Math.abs(forward);
     if (i > config.ledMaxAmps) {
       errors.push({
         severity: 'error',
@@ -1057,16 +1078,48 @@ export async function verifyCircuit(
             : `LED ${led.id} is carrying ${formatAmps(i)} — above the 20 mA absolute maximum. Add or increase the series resistor.`,
         metric: i,
       });
-    } else if (i > 0 && i < config.ledMinAmps) {
-      warnings.push({
-        severity: 'warning',
-        code: 'led-no-current',
-        componentId: led.id,
-        message: `LED ${led.id} appears wired but is carrying almost no current (${formatAmps(
-          i,
-        )}). It will not light visibly.`,
-        metric: i,
-      });
+    } else if (i < config.ledMinAmps) {
+      // Too little to see, for one of three reasons (velxio/velxio-prod#134).
+      // An LED held off on purpose (a comparator's low output, an off
+      // transistor, an active-low LED whose pin the check drives HIGH, an
+      // open switch or relay contact) conducts leakage only, picoamperes to
+      // a few nanoamperes: that is the circuit working, and a warning there
+      // read as a wiring fault. One wired backwards conducts leakage too, but
+      // its cathode sits above its anode. One starved by megaohms in series
+      // conducts forward, a tenth of a microampere and up.
+      const pinV = (pin: string): number | undefined => {
+        const net = pinNetMap.get(`${led.id}:${pin}`);
+        if (net === undefined) return undefined;
+        const v = net === '0' ? 0 : solve.nodeVoltages[net];
+        return Number.isFinite(v) ? v : undefined;
+      };
+      const anode = pinV('A');
+      const cathode = pinV('C');
+      const bias = anode !== undefined && cathode !== undefined ? anode - cathode : undefined;
+      if (bias !== undefined && bias < -LED_REVERSE_HINT_VOLTS) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-reverse-biased',
+          componentId: led.id,
+          message:
+            `LED ${led.id} is reverse-biased by ${formatVolts(-bias)}: its cathode (C) is above its anode (A), ` +
+            `so it stays dark. If it should light, it is wired backwards; swap its pins.` +
+            (-bias > LED_REVERSE_RATED_VOLTS
+              ? ` That is also more than the ${LED_REVERSE_RATED_VOLTS} V most LEDs withstand backwards.`
+              : ''),
+          metric: bias,
+        });
+      } else if (forward >= config.ledOffAmps) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-no-current',
+          componentId: led.id,
+          message:
+            `LED ${led.id} carries only ${formatAmps(i)}: far too little to light visibly. Something in series ` +
+            `with it limits the current; check the value of its series resistor.`,
+          metric: i,
+        });
+      }
     }
   }
 
@@ -1341,6 +1394,7 @@ function formatAmps(a: number): string {
   if (a >= 1) return `${a.toFixed(2)} A`;
   if (a >= 1e-3) return `${(a * 1e3).toFixed(1)} mA`;
   if (a >= 1e-6) return `${(a * 1e6).toFixed(1)} µA`;
+  if (a >= 1e-9) return `${(a * 1e9).toFixed(1)} nA`;
   return `${a.toExponential(2)} A`;
 }
 
