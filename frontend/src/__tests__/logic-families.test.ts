@@ -118,6 +118,8 @@ describe('getBoardLogicFamily', () => {
       expect(getBoardLogicFamily(kind).vcc, kind).toBe(3.3);
     }
     expect(getBoardLogicFamily('arduino-nano').vcc).toBe(5);
+    // A Raspberry Pi takes 5 V in; its GPIO header is 3.3 V logic, as for the Pi 3.
+    expect(getBoardLogicFamily('raspberry-pi-4').vcc).toBe(3.3);
   });
 });
 
