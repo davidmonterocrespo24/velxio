@@ -142,9 +142,10 @@ describe('floating nets: what is not a DC path keeps its pull-down (#99)', () =>
 
   it('an op-amp input wired to nothing but a capacitor', async () => {
     // An ideal op-amp senses its inputs and conducts nothing into them: a
-    // net reached only through IN+ and a capacitor has no DC level. Pulled
-    // down it solves (OUT at 0 V); taken for a DC path, ngspice met a
-    // singular matrix.
+    // net reached only through IN+ and a capacitor has no DC level of its
+    // own, so it is the one that takes the pull-down (OUT at 0 V). The old
+    // walk joined the input to the output instead and pulled the supply's
+    // net; ngspice solved that deck to the same 0 V.
     const c = circuit(
       [supply('ps1', 5), part('u1', 'opamp-ideal'), part('c1', 'capacitor', { value: '1u' }),
         part('rf', 'resistor', { value: '10k' }), part('rl', 'resistor', { value: '10k' })],
