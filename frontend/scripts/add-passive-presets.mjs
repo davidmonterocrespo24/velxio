@@ -133,15 +133,28 @@ const valueProp = (defaultValue) => ({
   name: 'value', type: 'string', defaultValue, control: 'text',
 });
 
-function makeEntry({ id, tagName, name, thumbnail, defaultValue, tags }) {
+// A resistor's power rating, in watts: what the circuit check and the
+// burnout model compare its dissipation with (resistorRating.ts). The same
+// select sits on the custom resistor's keyed override (velxio/velxio-prod#104).
+const powerProp = {
+  name: 'power',
+  type: 'string',
+  defaultValue: '0.25',
+  control: 'select',
+  options: ['0.125', '0.25', '0.5', '1', '2', '5'],
+  description: 'Power rating (W)',
+};
+
+function makeEntry({ id, tagName, name, thumbnail, defaultValue, tags, extraProps = [] }) {
+  const extraDefaults = Object.fromEntries(extraProps.map((p) => [p.name, p.defaultValue]));
   return {
     id,
     tagName,
     name,
     category: 'passive',
     thumbnail,
-    properties: [valueProp(defaultValue)],
-    defaultValues: { value: defaultValue },
+    properties: [valueProp(defaultValue), ...extraProps],
+    defaultValues: { value: defaultValue, ...extraDefaults },
     pinCount: 0,
     tags,
   };
@@ -171,6 +184,7 @@ for (const [id, label, value, ohms] of RESISTORS) {
     id, tagName: 'wokwi-resistor', name: `Resistor ${label}`,
     thumbnail: resistorThumb(ohms, label), defaultValue: value,
     tags: ['resistor', 'preset', label.toLowerCase().replace(/\s+/g, '')],
+    extraProps: [powerProp],
   }));
 }
 for (const [id, label, value] of CAPS_CERAMIC) {
@@ -222,6 +236,9 @@ const renames = [
 for (const { id, name, thumbnail } of renames) {
   overrides[id] = { ...(overrides[id] ?? {}), name, thumbnail };
 }
+// The custom resistor is a wokwi element: its power select is a property patch.
+overrides.resistor.properties = { ...(overrides.resistor.properties ?? {}), power: powerProp };
+overrides.resistor.defaultValues = { ...(overrides.resistor.defaultValues ?? {}), power: powerProp.defaultValue };
 
 writeFileSync(OVERRIDES_PATH, JSON.stringify(overrides, null, 2) + '\n');
 

@@ -21,13 +21,13 @@
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { parseValueWithUnits } from '../spice/valueParser';
+import { formatRating, isRatedResistor, resistorPowerRating } from './resistorRating';
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 /** Sustained over-limit time before destruction (the "thermal" delay), ms. */
 const BURN_DELAY_MS = 700;
 /** At or above this × the limit, destruction is instant (catastrophic). */
 const CATASTROPHIC_RATIO = 3;
-const RESISTOR_DEFAULT_W = 0.25;
 /** Burn a resistor only past 2x its rating (verifier already warns at 1x). */
 const RESISTOR_BURN_SAFETY = 2;
 const CAP_DEFAULT_V = 25;
@@ -38,8 +38,9 @@ interface ComponentLike {
   properties?: Record<string, unknown>;
 }
 
+/** The resistors the circuit check rates too (resistorRating). */
 export function isBurnoutResistor(metadataId: string): boolean {
-  return metadataId === 'resistor' || metadataId === 'resistor-us' || metadataId.startsWith('resistor-');
+  return isRatedResistor(metadataId);
 }
 export function isBurnoutElectrolyticCap(metadataId: string): boolean {
   return metadataId === 'capacitor-electrolytic' || metadataId.startsWith('cap-elec');
@@ -75,14 +76,17 @@ export function componentStress(
     const R = parseValueWithUnits(comp.properties?.value, 1000);
     if (!Number.isFinite(R) || R <= 0) return null;
     const power = (v1 - v2) ** 2 / R;
-    const rated =
-      typeof comp.properties?.power === 'number' ? (comp.properties.power as number) : RESISTOR_DEFAULT_W;
+    // The part's power property, as the inspector stores it ("0.5") or a
+    // project holds it (0.5); 1/4 W when it says nothing (#104).
+    const rated = resistorPowerRating(comp.properties);
     // 2x safety factor: the pre-flight verifier already WARNS (non-blocking) at
     // 1x — teaching circuits often over-drive a resistor on purpose — so we
     // only physically burn it at genuine overload (>2x rated sustained).
     return {
       ratio: power / (RESISTOR_BURN_SAFETY * rated),
-      message: `Resistor ${comp.id} overheated — dissipating ${power.toFixed(2)} W, above its ${rated} W rating. It burned out. Use a higher-wattage resistor or a larger value.`,
+      message:
+        `Resistor ${comp.id} overheated — dissipating ${power.toFixed(2)} W, above its ${formatRating(rated)} ` +
+        `rating. It burned out. Pick a higher power rating for it in its properties, or a larger value.`,
     };
   }
 

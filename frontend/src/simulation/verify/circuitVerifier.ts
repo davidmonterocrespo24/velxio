@@ -33,6 +33,7 @@ import { readValueField, unreadableValues } from '../spice/valueFields';
 import { formatQuantity } from '../spice/valueParser';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
+import { isRatedResistor, resistorPowerRating } from '../parts/resistorRating';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -1054,7 +1055,10 @@ export async function verifyCircuit(
   // Resistors don't have a built-in sense source, so we recover their
   // current from the voltage drop across their two terminals and the
   // resistance value. Pin → net resolution piggy-backs on the netlist
-  // text via a quick scan of the emitted R_<id> card.
+  // text via a quick scan of the emitted R_<id> card. Every resistor part
+  // is checked, the picker's presets too, against its power property as
+  // the inspector stores it (text) or a project holds it (a number); 1/4 W
+  // when it has none (#104).
   const resistorPattern = /^R_(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/gm;
   let m: RegExpExecArray | null;
   while ((m = resistorPattern.exec(netlist)) !== null) {
@@ -1062,16 +1066,13 @@ export async function verifyCircuit(
     // Skip the sense / internal helpers (e.g. R_<comp>_sense).
     if (id.endsWith('_sense') || id.endsWith('_load') || id.endsWith('_esr')) continue;
     const comp = input.components.find((c) => c.id === id);
-    if (!comp || comp.metadataId !== 'resistor') continue;
+    if (!comp || !isRatedResistor(comp.metadataId)) continue;
     const R = parseResistance(valStr);
     if (!Number.isFinite(R) || R <= 0) continue;
     const v1 = solve.nodeVoltages[n1] ?? 0;
     const v2 = solve.nodeVoltages[n2] ?? 0;
     const power = Math.pow(v1 - v2, 2) / R;
-    const rating =
-      typeof comp.properties.power === 'number'
-        ? (comp.properties.power as number)
-        : config.resistorMaxWatts;
+    const rating = resistorPowerRating(comp.properties, config.resistorMaxWatts);
     if (power > rating) {
       // Severity 'warning' (not 'error'): SPICE doesn't physically burn the
       // part out, and many teaching-circuit examples deliberately use a
@@ -1084,7 +1085,7 @@ export async function verifyCircuit(
         componentId: id,
         message: `Resistor ${id} (${formatResistance(R)}) is dissipating ${formatPower(
           power,
-        )} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher-power part or larger resistance.`,
+        )} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher power rating in its properties, or a larger resistance.`,
         metric: power,
       });
     }

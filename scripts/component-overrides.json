@@ -1240,10 +1240,26 @@
           "type": "string",
           "defaultValue": "220",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "220"
+        "value": "220",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1264,10 +1280,26 @@
           "type": "string",
           "defaultValue": "330",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "330"
+        "value": "330",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1288,10 +1320,26 @@
           "type": "string",
           "defaultValue": "470",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "470"
+        "value": "470",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1312,10 +1360,26 @@
           "type": "string",
           "defaultValue": "1000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "1000"
+        "value": "1000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1336,10 +1400,26 @@
           "type": "string",
           "defaultValue": "2200",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "2200"
+        "value": "2200",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1360,10 +1440,26 @@
           "type": "string",
           "defaultValue": "4700",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "4700"
+        "value": "4700",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1384,10 +1480,26 @@
           "type": "string",
           "defaultValue": "10000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "10000"
+        "value": "10000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1408,10 +1520,26 @@
           "type": "string",
           "defaultValue": "22000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "22000"
+        "value": "22000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1432,10 +1560,26 @@
           "type": "string",
           "defaultValue": "47000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "47000"
+        "value": "47000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1456,10 +1600,26 @@
           "type": "string",
           "defaultValue": "100000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "100000"
+        "value": "100000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -1480,10 +1640,26 @@
           "type": "string",
           "defaultValue": "1000000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "1000000"
+        "value": "1000000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -2671,7 +2847,27 @@
   },
   "resistor": {
     "name": "Resistor (custom)",
-    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u03a9</text></svg>"
+    "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" fill=\"#1a2332\" rx=\"4\"/>\n    <rect x=\"6\" y=\"29\" width=\"52\" height=\"3\" fill=\"#aaa\"/>\n    <rect x=\"14\" y=\"22\" width=\"36\" height=\"17\" rx=\"3\" fill=\"#d5b597\" stroke=\"#a37b4f\" stroke-width=\"0.6\"/>\n    <rect x=\"20\" y=\"22\" width=\"3\" height=\"17\" fill=\"#8F4814\"/>\n    <rect x=\"26\" y=\"22\" width=\"3\" height=\"17\" fill=\"#000\"/>\n    <rect x=\"32\" y=\"22\" width=\"3\" height=\"17\" fill=\"#FB0000\"/>\n    <rect x=\"42\" y=\"22\" width=\"3\" height=\"17\" fill=\"#F1D863\"/>\n    <text x=\"32\" y=\"56\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#e5e7eb\" font-weight=\"bold\">?\u03a9</text></svg>",
+    "properties": {
+      "power": {
+        "name": "power",
+        "type": "string",
+        "defaultValue": "0.25",
+        "control": "select",
+        "options": [
+          "0.125",
+          "0.25",
+          "0.5",
+          "1",
+          "2",
+          "5"
+        ],
+        "description": "Power rating (W)"
+      }
+    },
+    "defaultValues": {
+      "power": "0.25"
+    }
   },
   "capacitor": {
     "name": "Cap. ceramic (custom)",
