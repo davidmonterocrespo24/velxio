@@ -601,8 +601,9 @@ export class CircuitSimulationService {
    * the HIGH and LOW states its static PWM pads went through (pwmSplit). The
    * longest-held states are solved: every one the cache already holds, and
    * at most MAX_STATE_SOLVES_PER_WINDOW that it does not, which is the bound
-   * on solver duty; the latest is always solved. False when the latest could
-   * not be (nothing was published).
+   * on solver duty; the latest is always solved, and so is every state its
+   * PWM pads split it into. False when the latest could not be (nothing was
+   * published).
    */
   private async publishStates(
     states: ReadonlyArray<WindowState>,
@@ -610,16 +611,23 @@ export class CircuitSimulationService {
     windowMs: number,
   ): Promise<boolean> {
     const ranked = this.splitStates(states.filter((s) => s.ms > 0)).sort((a, b) => b.ms - a.ms);
+    const split = this.pwmSplit(latestState.levels);
+    // The split of the state the pads hold is one picture: k static PWM pads
+    // at distinct duties make k + 1 states, and a window that left one out
+    // renormalised the rest, so four LEDs at 20/40/60/80 % glowed at
+    // 25/50/75/100 %, and an LED HIGH only in a dropped state stayed dark,
+    // for as long as nothing else published (velxio/velxio-prod#233).
+    const always = new Set(split ? split.map((s) => stateKey(s.levels)) : []);
     const chosen: WindowState[] = [];
     let solves = CircuitSimulationService.MAX_STATE_SOLVES_PER_WINDOW;
     for (const s of ranked) {
-      if (this.cache.has(s.key)) chosen.push(s);
+      if (this.cache.has(s.key) || always.has(s.key)) chosen.push(s);
       else if (solves > 0) {
         chosen.push(s);
         solves--;
       }
     }
-    const latestSplit = this.pwmSplit(latestState.levels) !== null;
+    const latestSplit = split !== null;
     if (!chosen.some((s) => s.key === latestState.key)) {
       // A split latest state's time is its split states' (counted above).
       chosen.push(latestSplit ? { ...latestState, ms: 0 } : latestState);
