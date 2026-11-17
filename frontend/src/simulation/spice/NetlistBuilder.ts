@@ -19,7 +19,7 @@
  */
 import { UnionFind } from './unionFind';
 import { parseValueWithUnits } from './valueParser';
-import { componentToSpice } from './componentToSpice';
+import { componentToSpice, OPEN_CONTACT_OHMS } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
 import type { BuildNetlistInput, ComponentForSpice, BoardForSpice, WireForSpice } from './types';
@@ -836,17 +836,28 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
  * Does a graph walk starting from node "0" and "vcc_rail" (both have a
  * hard-wired source in every circuit that references them), traversing only
  * DC-conducting cards:
- *   - resistor (R...)
+ *   - resistor (R...), below OPEN_CONTACT_OHMS
  *   - voltage source (V...)           — V-source is a DC short for connectivity
  *   - current source (I...)
  *   - inductor (L... — treated as DC short)
- *   - switch (S...)
+ *   - switch (S...): its control pair only
  *   - behavioral source (B...)         — also connects output to ground via its KCL stamp
  *   - MNA-controlled source (E..., G..., F..., H...)
  *   - subckt instance (X...)           — optimistic: assume any X instance exposes DC paths
  *
  * Capacitors (C...) are intentionally NOT conductive in this walk — they are
  * OPEN at DC, so a net connected only via a C to another node is still floating.
+ *
+ * Neither is a contact that may be open: a resistor of OPEN_CONTACT_OHMS or
+ * more (a button not pressed, a slide switch's other leg) or a relay's contact
+ * (an S card's switch pair, open or closed as the solve decides). An input
+ * that reaches nothing else floats on the bench, and here it gets the
+ * pull-down every floating input gets: through the 1 GOhm alone a gate input
+ * or an MCU pin wired to an open switch on 5 V sat at 5 V and read HIGH, a
+ * voltmeter's 10 MOhm pulled it to 49.5 mV, and the digital gate engine,
+ * where an open throw is Hi-Z, read the same input LOW
+ * (velxio/velxio-prod#192). A closed contact beside the pull-down outweighs
+ * it by ten orders of magnitude.
  *
  * An older version of this function used a "touched-by-R" heuristic: a net
  * was marked safe if ANY resistor terminal referenced it. That was wrong for
@@ -879,17 +890,27 @@ function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set
   // Cards that define a DC path between their listed nets. Capacitor ('C')
   // is deliberately excluded.
   const DC_PREFIXES = 'RLVISBEGFHX';
+  const isNet = (t: string | undefined): t is string => t !== undefined && (nets.has(t) || t === '0' || t === 'vcc_rail');
 
   for (const line of cards) {
     const prefix = line[0];
     if (DC_PREFIXES.indexOf(prefix) < 0) continue;
     const tokens = line.split(/\s+/);
+    // An open contact: as open as a capacitor at DC (see above).
+    if (prefix === 'R' && tokens.length === 4 && parseValueWithUnits(tokens[3], 0) >= OPEN_CONTACT_OHMS) continue;
+    // A voltage-controlled switch (a relay's contact): its contact pair may
+    // be open, so only its control pair is joined, as it always was (a
+    // relay's control is its coil, which conducts).
+    if (prefix === 'S') {
+      if (isNet(tokens[3]) && isNet(tokens[4])) link(tokens[3], tokens[4]);
+      continue;
+    }
     // tokens[0] is the element name (e.g. "R_r1", "V_VCC_RAIL"). The nets
     // appear next; stop at the first token that isn't a valid net name.
     const pinNets: string[] = [];
     for (let i = 1; i < tokens.length; i++) {
       const t = tokens[i];
-      if (!nets.has(t) && t !== '0' && t !== 'vcc_rail') break;
+      if (!isNet(t)) break;
       pinNets.push(t);
     }
     // Connect every pair of pins — handles both 2-terminal and N-terminal.

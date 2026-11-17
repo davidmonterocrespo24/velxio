@@ -230,8 +230,10 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-esp32-oled-smart-ui-
 V_VCC_RAIL vcc_rail 0 DC 5
 R_eyes-btn-next_sw n0 vcc_rail 1000000000
 R_eyes-btn-sel_sw n3 vcc_rail 1000000000
+R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
+R_autopull_n3 n3 0 100Meg
 .op
 .end"
 `;
@@ -330,6 +332,8 @@ D_irr-rly_fly 0 n0 D1N4148
 R_irr-rlamp n3 n2 220
 V_irr-lamp_sense n2 irr-lamp_sense_mid DC 0
 D_irr-lamp irr-lamp_sense_mid 0 LED_BLUE
+R_autopull_n2 n2 0 100Meg
+R_autopull_n3 n3 0 100Meg
 .model RELAY_SW SW(Vt=1.98 Vh=0.495 Ron=0.05 Roff=1G)
 .model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)
 .model LED_BLUE D(Is=1e-28 N=2.0)
