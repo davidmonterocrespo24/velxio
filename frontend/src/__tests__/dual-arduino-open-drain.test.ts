@@ -51,7 +51,7 @@ interface Uno {
 function run(hexes: string[], pairs: Array<[number, number]>, seconds: number): { unos: Uno[]; quiet: number[] } {
   resetInterconnect();
   const pms = hexes.map(() => new PinManager());
-  const unos: Uno[] = hexes.map((hex, i) => ({ sim: new AVRSimulator(pms[i], 'uno'), changes: 0 }));
+  const unos: Uno[] = pms.map((pm) => ({ sim: new AVRSimulator(pm, 'uno'), changes: 0 }));
   const ids = hexes.map((_, i) => `uno${i}`);
   setInterconnectRuntime({
     getBoardSimulator: (id) => unos[ids.indexOf(id)]?.sim,
