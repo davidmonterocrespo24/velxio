@@ -198,6 +198,18 @@ describe('the Run check sees each colour (velxio/velxio-prod#174)', () => {
     const result = await check(true);
     expect(result.errors.filter((e) => e.componentId === 'rgb1')).toEqual([]);
   });
+
+  it("a common anode on the board's 3V3 is not called dark: the check's HIGH pins are what turn it off", { timeout: 30_000 }, async () => {
+    const components: Comp[] = [{ id: 'rgb1', metadataId: 'rgb-led', properties: {} }];
+    const wires: Wire[] = [w('wc', ['rgb1', 'COM'], ['board', '3V3'])];
+    for (const [pad, pin] of [['25', 'R'], ['26', 'G'], ['27', 'B']] as const) {
+      components.push({ id: `r${pin}`, metadataId: 'resistor', properties: { value: '220' } });
+      wires.push(w(`w${pin}1`, ['board', pad], [`r${pin}`, '1']), w(`w${pin}2`, [`r${pin}`, '2'], ['rgb1', pin]));
+    }
+    const { snap, synthesizedPins } = buildPreflightSnapshot({ components, wires, boards: [{ id: 'board', boardKind: 'esp32' }] });
+    const result = await verifyCircuit(buildInputFromStore(snap), { synthesizedPins });
+    expect([...result.errors, ...result.warnings].filter((x) => x.componentId === 'rgb1')).toEqual([]);
+  });
 });
 
 // ── The part: brightness from the solved currents, on the element's 0-1 scale ──

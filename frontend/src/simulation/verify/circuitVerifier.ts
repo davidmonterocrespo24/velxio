@@ -33,7 +33,7 @@ import { readValueField, unreadableValues } from '../spice/valueFields';
 import { formatQuantity } from '../spice/valueParser';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
-import { RGB_LED_CHANNELS, rgbLedSenseKey } from '../rgbLed';
+import { RGB_LED_CHANNELS, rgbLedSenseKey, rgbLedSenseSource } from '../rgbLed';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -1054,6 +1054,13 @@ export async function verifyCircuit(
   // the same rules, per colour (velxio/velxio-prod#174). A colour whose pin is
   // not wired has no source and is skipped.
   for (const rgb of input.components.filter((c) => c.metadataId === 'rgb-led')) {
+    // A common anode (COM on the supply) lights a colour when its pin goes
+    // LOW, and this check drives every wired pin HIGH: its colours are dark
+    // here by construction, so "carrying almost no current" says nothing.
+    const comNet = pinNetMap.get(`${rgb.id}:COM`);
+    const commonAnode =
+      comNet !== undefined &&
+      RGB_LED_CHANNELS.some((c) => netlist.includes(`\n${rgbLedSenseSource(rgb.id, c.pin)} ${comNet} `));
     for (const ch of RGB_LED_CHANNELS) {
       const key = rgbLedSenseKey(rgb.id, ch.pin);
       const what = `RGB LED ${rgb.id}'s ${ch.colour} channel`;
@@ -1080,7 +1087,7 @@ export async function verifyCircuit(
               : `${what} is carrying ${formatAmps(i)} — above its 20 mA absolute maximum. Add or increase its series resistor.`,
           metric: i,
         });
-      } else if (i > 0 && i < config.ledMinAmps) {
+      } else if (!commonAnode && i > 0 && i < config.ledMinAmps) {
         warnings.push({
           severity: 'warning',
           code: 'led-no-current',
