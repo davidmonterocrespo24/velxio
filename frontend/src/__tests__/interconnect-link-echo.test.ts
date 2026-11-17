@@ -45,13 +45,16 @@ class Board {
   readonly reports: Array<[number, boolean]> = [];
   private readonly queue: Array<{ at: number; level: boolean }> = [];
   private readonly writes: Array<{ at: number; level: boolean }> = [];
+  readonly id: string;
+  /** The cycles of one instruction, between which a scheduled level lands. */
+  readonly step: number;
+  /** Where the instructions end: this past a multiple of `step`. */
+  readonly phase: number;
 
-  /** `step`: the cycles of one instruction, between which a scheduled level lands; `phase`: where the steps end, past a multiple of it. */
-  constructor(
-    readonly id: string,
-    readonly step = 4,
-    readonly phase = 0,
-  ) {
+  constructor(id: string, step = 4, phase = 0) {
+    this.id = id;
+    this.step = step;
+    this.phase = phase;
     // Pulled up, before any wire is in.
     this.pm.triggerPinChange(PIN, true, 'external');
     this.pm.onPinChange(PIN, (_p: number, level: boolean) => this.reports.push([this.cycles, level]));
