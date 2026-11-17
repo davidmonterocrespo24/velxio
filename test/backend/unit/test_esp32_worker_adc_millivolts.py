@@ -65,3 +65,47 @@ def test_a_value_that_is_no_number_leaves_the_worker_running(worker):
     worker.send({'cmd': 'set_adc', 'channel': 3, 'millivolts': 100})
     worker.sync()
     assert [c[2] for c in apin_calls(worker)] == [124]
+
+
+# ── The hop before the worker: the websocket route ──────────────────────────
+
+def test_the_route_hands_the_worker_the_millivolts_with_their_fraction(monkeypatch):
+    """`esp32_adc_set` from the tab reaches the lib manager unrounded. The
+    route cut it with int() first, so the worker's own fix never saw a
+    fraction."""
+    pytest.importorskip('fastapi')
+    import json
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import simulation
+
+    calls: list[tuple[int, float]] = []
+    monkeypatch.setattr(simulation.esp_lib_manager, 'is_available', lambda: True)
+    monkeypatch.setattr(simulation.esp_lib_manager, 'set_adc',
+                        lambda _cid, ch, mv: calls.append((ch, mv)))
+    monkeypatch.setattr(simulation.esp_lib_manager, 'get_status', lambda _cid: {'ok': True})
+    app = FastAPI()
+    app.include_router(simulation.router)
+    with TestClient(app) as client:
+        with client.websocket_connect('/ws/adc-fraction') as ws:
+            for mv in (3300 * 512 / 1023, 100):
+                ws.send_text(json.dumps({'type': 'esp32_adc_set',
+                                         'data': {'channel': 6, 'millivolts': mv}}))
+            # The status reply comes after every message above was handled.
+            ws.send_text(json.dumps({'type': 'esp32_status', 'data': {}}))
+            assert json.loads(ws.receive_text())['type'] == 'esp32_status'
+    assert calls == [(6, pytest.approx(1651.6129, abs=1e-4)), (6, 100.0)]
+
+
+def test_a_millivolt_value_that_is_no_number_is_dropped_not_raised():
+    """The route's reading of the value. int() on one it refuses (a NaN the
+    tab sent as null) raised inside the session's loop, and the route ends
+    the whole session, worker and all, on any exception there."""
+    from app.services.esp32_lib_manager import adc_millivolts
+
+    assert adc_millivolts(1651.6129) == pytest.approx(1651.6129)
+    assert adc_millivolts('1650') == 1650.0
+    for bad in (None, 'x', float('nan'), float('inf'), [], {}):
+        assert adc_millivolts(bad) is None
