@@ -81,7 +81,8 @@ interface PwmPinDef {
   ocrAddr: number;
   pin: number;
   label: string;
-  /** TCCRnA data address and COMnx mask; absent where the layout differs (ATtiny85). */
+  /** Data address of the register holding the channel's COMnx bits (TCCRnA;
+   *  TCCR1 / GTCCR on the ATtiny85) and their mask. Absent: always connected. */
   comAddr?: number;
   comMask?: number;
 }
@@ -176,11 +177,16 @@ const MEGA_PIN_TO_PORT = (() => {
 //         and EECR (0x5C), so analogWrite() duty was never read and PWM
 //         examples (e.g. attiny85-pwm-fade) showed no fade.
 // Timer1: OC1A→PB1, OC1B→PB4 (ATtinyTimer1 OCR regs from attinyTimer1Config)
-const PWM_PINS_TINY85 = [
-  { ocrAddr: 0x49, pin: 0, label: 'OCR0A' }, // Timer0A → PB0
-  { ocrAddr: 0x48, pin: 1, label: 'OCR0B' }, // Timer0B → PB1
-  { ocrAddr: 0x4e, pin: 1, label: 'OCR1A' }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
-  { ocrAddr: 0x4b, pin: 4, label: 'OCR1B' }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
+// COM bits: Timer0's COM0A/COM0B in TCCR0A (0x4A), Timer1's COM1A in TCCR1
+// (0x50) and COM1B in GTCCR (0x4C). ATTinyCore's analogWrite(pin, 0/255) is
+// digitalWrite after turnOffPWM, which clears those bits and leaves OCR as it
+// was, as on the Uno; without them the last duty stuck (velxio/velxio-prod#141).
+// They also decide which of PB1's two channels (OC0B, OC1A) drives it.
+const PWM_PINS_TINY85: PwmPinDef[] = [
+  { ocrAddr: 0x49, pin: 0, label: 'OCR0A', comAddr: 0x4a, comMask: 0xc0 }, // Timer0A → PB0
+  { ocrAddr: 0x48, pin: 1, label: 'OCR0B', comAddr: 0x4a, comMask: 0x30 }, // Timer0B → PB1
+  { ocrAddr: 0x4e, pin: 1, label: 'OCR1A', comAddr: 0x50, comMask: 0x30 }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
+  { ocrAddr: 0x4b, pin: 4, label: 'OCR1B', comAddr: 0x4c, comMask: 0x30 }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
 ];
 
 /**
