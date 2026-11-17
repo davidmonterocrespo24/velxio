@@ -24,15 +24,16 @@
  * slew limiting, GBW roll-off, and saturation curves so AC analyses
  * (Bode plots, oscillator startup) produce textbook results.
  *
- * Local change to National's text: F6 was `F6 50 99 POLY(1) V6 0 1`. The
- * 300U constant pulled 300 uA out of V- and pushed it INTO V+, which against
- * I2's 75 uA left the part drawing a NEGATIVE supply current below about
- * 10 V (-46 uA at 5 V): it fed its own supply (velxio/velxio-prod#190). With
- * the constant removed the model draws 254 uA at 5 V and 462 uA at 30 V with
- * no load, National's LM358-N typical per amplifier (0.5 / 1 mA per package of
- * two), which is what the NOTE "simulated supply current is 1/2 of total
- * device current" in the original file aims at. The I(V6) term is kept: it
- * moves the output's sinking current from V+ to V-.
+ * Local change to National's text: F6 was `F6 50 99 POLY(1) V6 300U 1` and
+ * is now `F6 50 99 POLY(1) V6 0 1`. The 300U constant pulled 300 uA out of
+ * V- and pushed it INTO V+, which against I2's 75 uA left the part drawing a
+ * NEGATIVE supply current below about 10 V (-46 uA at 5 V): it fed its own
+ * supply (velxio/velxio-prod#190). With the constant removed the model draws
+ * 254 uA at 5 V and 462 uA at 30 V with no load, National's LM358-N typical
+ * per amplifier (0.5 / 1 mA per package of two), which is what the NOTE
+ * "simulated supply current is 1/2 of total device current" in the original
+ * file aims at. The I(V6) term is kept: it moves the output's sinking current
+ * from V+ to V-.
  */
 export const LM358_SUBCKT = `.SUBCKT LM358 1 2 99 50 28
 IOS 2 1 5N
