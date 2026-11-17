@@ -39,6 +39,7 @@ import { getBoardLogicFamily } from '../simulation/LogicFamilies';
 import { getSensorControlForComponent } from '../simulation/sensorControlConfig';
 import { mountReseatPolicy } from '../utils/mountReseatPolicy';
 import { tagOwnsPointer } from '../utils/partOwnsPointer';
+import { elementValueOf } from '../simulation/spice/valueFields';
 
 // Side-effect imports: register every web component we'll create at runtime.
 // `@wokwi/elements` covers the upstream catalog; `../velxio-elements` adds
@@ -213,7 +214,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
             coerced = value === 'true' || value === '1';
           }
         }
-        (elementRef.current as any)[key] = coerced;
+        // A number field the drawing shows (a resistor's colour bands) goes to
+        // the element as the number the simulation uses, not as the text
+        // (velxio/velxio-prod#230); the change check below stays on the text.
+        (elementRef.current as any)[key] = elementValueOf(metadata.id, key, coerced);
         if (appliedPropsRef.current[key] !== coerced) {
           appliedPropsRef.current[key] = coerced;
           changed = true;
@@ -469,7 +473,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         // imageData string must never replace the element's live ImageData
         // (it crashes wokwi-elements' firstUpdated on mount).
         if (key === 'imageData' && !(value instanceof ImageData)) return;
-        (element as any)[key] = value;
+        (element as any)[key] = elementValueOf(metadata.id, key, value);
       } catch (error) {
         console.warn(`Failed to set initial property ${key}:`, error);
       }
