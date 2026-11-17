@@ -1497,12 +1497,6 @@ _STATIC_IP = '192.168.4.15'
 _GATEWAY_IP = '192.168.4.2'
 _NETMASK = '255.255.255.0'
 
-# SSID the QEMU WiFi AP broadcasts.
-# Must match one of the access_point_info entries in esp32_wifi_ap.c
-# (the lcgamboa QEMU fork). "Espressif" is on channel 5 in that array.
-_QEMU_WIFI_SSID = 'Espressif'
-_QEMU_WIFI_CHANNEL = 5
-
 # The virtual networks every engine beacons (the QEMU fork's access_point_info
 # and the js engines' ACCESS_POINTS), with their channels. A sketch that names
 # one of these keeps it: the station then joins THAT network and WiFi.SSID()
@@ -1518,6 +1512,16 @@ _VIRTUAL_WIFI_NETWORKS: dict[str, int] = {
 }
 _WIFI_SSID_ALIASES: dict[str, str] = {'Wokwi-GUEST': 'Velxio-GUEST'}
 
+# The network an unknown SSID becomes: the simulator's own guest network, the
+# first one every radio beacons (the QEMU fork's esp32_wifi_ap.c and the js
+# engines' DEFAULT_ACCESS_POINTS) and the one every text names: the IoT
+# gateway's help, the gallery, the docs, and the MicroPython shim, which
+# redirects an unknown SSID to EMULATED_WIFI_SSIDS[0] (frontend types/board.ts).
+# It used to be "Espressif" on channel 5, so a C++ sketch written for a home
+# network joined a network nothing told the user about (velxio/velxio-prod#177).
+_QEMU_WIFI_SSID = 'Velxio-GUEST'
+_QEMU_WIFI_CHANNEL = _VIRTUAL_WIFI_NETWORKS[_QEMU_WIFI_SSID]
+
 
 def _virtual_ssid(ssid: str) -> tuple[str, int]:
     """The (SSID, channel) a sketch's SSID literal becomes in the simulator."""
@@ -1525,6 +1529,26 @@ def _virtual_ssid(ssid: str) -> tuple[str, int]:
     if ssid in _VIRTUAL_WIFI_NETWORKS:
         return ssid, _VIRTUAL_WIFI_NETWORKS[ssid]
     return _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL
+
+
+def _replacing_virtual_ssid(ssid: str, replaced: list[str] | None) -> tuple[str, int]:
+    """_virtual_ssid, recording in `replaced` an SSID no radio beacons (one the
+    default network takes the place of). An alias is not a replacement."""
+    virtual = _virtual_ssid(ssid)
+    if replaced is not None and _WIFI_SSID_ALIASES.get(ssid, ssid) not in _VIRTUAL_WIFI_NETWORKS:
+        replaced.append(ssid)
+    return virtual
+
+
+def _wifi_rewrite_notes(replaced: list[str]) -> list[str]:
+    """The compile-log lines for the SSIDs a build replaced, one per SSID.
+    Worded like the MicroPython shim's serial note, so a C++ build and a
+    MicroPython script tell the user the same thing."""
+    return [
+        f'[velxio] SSID "{ssid}" is not part of the emulated network; this build '
+        f'connects to "{_QEMU_WIFI_SSID}" instead (open, no password)\n'
+        for ssid in dict.fromkeys(replaced)
+    ]
 
 
 def _matching_paren(code: str, open_idx: int) -> int:
@@ -2393,19 +2417,20 @@ class ESPIDFCompiler:
         """Pure ESP-IDF mode: does the project use the esp_wifi stack?"""
         return bool(re.search(r'#include\s*[<"]esp_wifi\.h[">]|esp_wifi_init\s*\(', code))
 
-    def _normalize_wifi_for_qemu_idf(self, code: str) -> str:
+    def _normalize_wifi_for_qemu_idf(self, code: str, replaced: list[str] | None = None) -> str:
         """
         Pure ESP-IDF variant of _normalize_wifi_for_qemu. IDF projects set
         credentials via `#define WIFI_SSID "..."` or wifi_config_t designated
         initializers (`.ssid = "..."`, `.password = "..."`). Rewrite the
-        common literal forms so the firmware associates with the open AP the
-        QEMU fork broadcasts (_QEMU_WIFI_SSID); anything more dynamic
-        (strcpy into the struct at runtime) is left alone and simply won't
-        connect.
+        common literal forms so the firmware associates with an open network
+        the radios broadcast (_QEMU_WIFI_SSID for an unknown one); anything
+        more dynamic (strcpy into the struct at runtime) is left alone and
+        simply won't connect. `replaced` collects the SSIDs that were
+        swapped for the default network.
         """
         code = re.sub(
             r'(#define\s+\w*SSID\w*\s+)"([^"]*)"',
-            lambda m: f'{m.group(1)}"{_virtual_ssid(m.group(2))[0]}"',
+            lambda m: f'{m.group(1)}"{_replacing_virtual_ssid(m.group(2), replaced)[0]}"',
             code,
             flags=re.IGNORECASE,
         )
@@ -2417,7 +2442,7 @@ class ESPIDFCompiler:
         )
         code = re.sub(
             r'(\.ssid\s*=\s*)"([^"]*)"',
-            lambda m: f'{m.group(1)}"{_virtual_ssid(m.group(2))[0]}"',
+            lambda m: f'{m.group(1)}"{_replacing_virtual_ssid(m.group(2), replaced)[0]}"',
             code,
         )
         code = re.sub(r'(\.password\s*=\s*)"[^"]*"', r'\1""', code)
@@ -2430,7 +2455,7 @@ class ESPIDFCompiler:
             code
         ))
 
-    def _normalize_wifi_for_qemu(self, code: str) -> str:
+    def _normalize_wifi_for_qemu(self, code: str, replaced: list[str] | None = None) -> str:
         """
         Normalize WiFi SSID/password/channel in Arduino sketches for QEMU.
 
@@ -2442,7 +2467,8 @@ class ESPIDFCompiler:
           - Password → "" (open auth)
           - Channel → the network's channel when the SSID is known here
         The user's editor still shows their original code; only the compiled
-        binary is modified.
+        binary is modified. `replaced` collects the SSIDs that were swapped
+        for the default network, for the compile log.
         """
         if not self._detect_wifi_usage(code):
             return code
@@ -2456,7 +2482,7 @@ class ESPIDFCompiler:
         ssid_of_name: dict[str, str] = {}
 
         def _ssid_literal(m: re.Match) -> str:
-            ssid, _ = _virtual_ssid(m.group(3))
+            ssid, _ = _replacing_virtual_ssid(m.group(3), replaced)
             ssid_of_name[m.group(2)] = ssid
             return f'{m.group(1)}"{ssid}"'
         code = re.sub(
@@ -2489,7 +2515,7 @@ class ESPIDFCompiler:
             # gets no hint: the station finds the channel by scanning, as on
             # real hardware.
             if ssid_arg.startswith('"') and ssid_arg.endswith('"'):
-                ssid, channel = _virtual_ssid(ssid_arg[1:-1])
+                ssid, channel = _replacing_virtual_ssid(ssid_arg[1:-1], replaced)
                 return f'WiFi.begin("{ssid}", "", {channel})'
             ssid = ssid_of_name.get(ssid_arg)
             if ssid is not None:
@@ -6519,10 +6545,14 @@ class ESPIDFCompiler:
             main_content = files[0]['content']
             entry_file = files[0]
 
-        # ── QEMU WiFi compatibility ──────────────────────────────────────
-        # QEMU's WiFi AP broadcasts "Velxio-GUEST" on channel 6.
-        # We normalize ANY user SSID → "Velxio-GUEST", enforce channel 6,
-        # and use open auth (empty password) so the connection always works.
+        # ── The networks the simulated radios broadcast ──────────────────
+        # Every radio (the QEMU fork and the in-browser engines) beacons the
+        # open networks in _VIRTUAL_WIFI_NETWORKS. A sketch that names one of
+        # them keeps it; any other SSID becomes _QEMU_WIFI_SSID (Velxio-GUEST,
+        # channel 6), the password is dropped (the networks are open), and the
+        # compile log names every SSID that was swapped. A project with its own
+        # access point parts (custom_wifi_ssids) defines its own airspace:
+        # nothing is rewritten then.
         # Detect WiFi BEFORE normalization so the flag reflects the original sketch.
         # header -> display name of the library the resolver merged for it.
         # Declared at function scope: the success return reads it for EVERY
@@ -6531,6 +6561,8 @@ class ESPIDFCompiler:
         # UnboundLocalError at the result step (2026-08-05 regression).
         merged_libs_report: dict[str, str] = {}
         _all_text = '\n'.join(f.get('content', '') for f in files)
+        # The SSIDs the normalizers swapped for the default network.
+        wifi_replaced: list[str] = []
         if pure_idf:
             has_wifi = self._detect_idf_wifi_usage(_all_text)
         else:
@@ -6546,7 +6578,7 @@ class ESPIDFCompiler:
             # string literals in place, and the SSID that matters is the one
             # WiFi.begin() is called with.
             if not custom_wifi_ssids:
-                main_content = self._normalize_wifi_for_qemu(main_content)
+                main_content = self._normalize_wifi_for_qemu(main_content, wifi_replaced)
 
         # Arduino-as-component only when compile() decided so: the core must
         # support the target (esp32c6 needs an arduino-esp32 3.x core the
@@ -6576,7 +6608,7 @@ class ESPIDFCompiler:
                 content = f.get('content', '')
                 if has_wifi:
                     if not custom_wifi_ssids:
-                        content = self._normalize_wifi_for_qemu_idf(content)
+                        content = self._normalize_wifi_for_qemu_idf(content, wifi_replaced)
                 (main_dir / name).write_text(content, encoding='utf-8')
                 wrote_any = True
             if not wrote_any:
@@ -6850,6 +6882,18 @@ class ESPIDFCompiler:
                 except OSError:
                     pass
                 logger.info('[espidf] source set changed; cmake will re-glob main/')
+
+        # Name every SSID the build swapped for the default network in the
+        # compile log, which the user reads; the MicroPython shim says the same
+        # on the serial monitor. Without it the rewrite reached the backend log
+        # only (velxio/velxio-prod#177).
+        for note in _wifi_rewrite_notes(wifi_replaced):
+            logger.info(f'[espidf] {note.strip()}')
+            if progress_callback is not None:
+                try:
+                    progress_callback(note)
+                except Exception:
+                    pass
 
         # Last step before cmake/ninja see the tree: every recreated input
         # whose content changed gets an mtime ninja cannot ignore, and a copy

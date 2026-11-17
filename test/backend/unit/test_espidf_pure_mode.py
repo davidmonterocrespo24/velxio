@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / 'backend'))
 
-from app.services.espidf_compiler import ESPIDFCompiler, _QEMU_WIFI_SSID
+from app.services.espidf_compiler import ESPIDFCompiler, _QEMU_WIFI_CHANNEL, _QEMU_WIFI_SSID
 from app.api.routes import compile as compile_module
 
 
@@ -132,7 +132,7 @@ class WifiNormalizationArduinoTests(unittest.TestCase):
 
     def test_home_network_literal_becomes_the_default_network(self):
         out = self.norm('#include <WiFi.h>\nvoid setup(){ WiFi.begin("MyHomeNet", "hunter2"); }')
-        self.assertIn('WiFi.begin("Espressif", "", 5)', out)
+        self.assertIn(f'WiFi.begin("{_QEMU_WIFI_SSID}", "", {_QEMU_WIFI_CHANNEL})', out)
 
     def test_virtual_network_literal_is_kept_with_its_channel(self):
         out = self.norm('#include <WiFi.h>\nvoid setup(){ WiFi.begin("MasseyWifi", "pw"); }')
@@ -154,8 +154,8 @@ class WifiNormalizationArduinoTests(unittest.TestCase):
         code = ('#include <WiFi.h>\n#define WIFI_SSID "MyHomeNet"\n#define WIFI_PASS "x"\n'
                 'void setup(){ WiFi.begin(WIFI_SSID, WIFI_PASS); }')
         out = self.norm(code)
-        self.assertIn('#define WIFI_SSID "Espressif"', out)
-        self.assertIn('WiFi.begin(WIFI_SSID, "", 5)', out)
+        self.assertIn(f'#define WIFI_SSID "{_QEMU_WIFI_SSID}"', out)
+        self.assertIn(f'WiFi.begin(WIFI_SSID, "", {_QEMU_WIFI_CHANNEL})', out)
 
     def test_nested_call_in_the_ssid_argument_survives(self):
         code = '#include <WiFi.h>\nString net = "Velxio-GUEST";\nvoid setup(){ WiFi.begin(net.c_str(), "pw"); }'
@@ -169,7 +169,7 @@ class WifiNormalizationArduinoTests(unittest.TestCase):
     def test_parenthesis_inside_a_string_argument_does_not_end_the_call(self):
         code = '#include <WiFi.h>\nvoid setup(){ WiFi.begin("Cafe (2G)", "pw"); Serial.println("after"); }'
         out = self.norm(code)
-        self.assertIn('WiFi.begin("Espressif", "", 5); Serial.println("after");', out)
+        self.assertIn(f'WiFi.begin("{_QEMU_WIFI_SSID}", "", {_QEMU_WIFI_CHANNEL}); Serial.println("after");', out)
 
 
 
