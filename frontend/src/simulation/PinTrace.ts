@@ -22,6 +22,7 @@ import { isBoardComponent, boardPinToNumber } from '../utils/boardPinMapping';
 import { isBoardSeated } from '../utils/socketSnap';
 import { isActiveDevice } from './PinResolver';
 import { breadboardGroupKey } from '../utils/breadboardNets';
+import { isJunction } from '../utils/junction';
 import { syntheticChipPin, SYNTHETIC_CHIP_PIN_BASE } from './customChips/syntheticPins';
 import { resolveChipNetKey } from './customChips/chipNets';
 import { isChipLikePad } from './customChips/chipLikePads';
@@ -575,11 +576,24 @@ function conductsDc(metadataId: string): boolean {
 }
 
 /**
+ * A part pin a level passes by without anything else holding it: wiring (a
+ * breadboard hole, a junction) or a two-terminal passive.
+ */
+function isPassThroughPin(p: NodeInfo['pins'][number]): boolean {
+  const comp = p.comp;
+  if (!comp) return false;
+  if (isJunction(comp.metadataId) || breadboardGroupKey(comp.metadataId, p.pinName) !== null) return true;
+  return PASSIVE_PIN_PAIRS[comp.metadataId] !== undefined && !isActiveDevice(comp.metadataId);
+}
+
+/**
  * Every board GPIO pad a logic level on (componentId, pinName) reaches at DC:
  * the pads on its node, and on the nodes past each resistor or inductor on
- * the way, never past a capacitor or an active part, and never out of a node
- * a supply or ground pad sits on (a pull-up or a divider's low leg ends
- * there). Up to MAX_HOPS parts deep.
+ * the way, never past a capacitor or an active part. The walk leaves only a
+ * node of wiring, passives and GPIO pads: not one a supply or ground pad sits
+ * on (a pull-up or a divider's low leg ends there), nor one any other part
+ * holds (a battery's terminal, a chip's pin), so two lines pulled up to one
+ * supply are not one line. Up to MAX_HOPS parts deep.
  *
  * The walk above answers ONE pad per question, the nearest, which is right for
  * "which pin drives this part" and wrong for "which boards share this wire":
@@ -611,8 +625,9 @@ export function boardPadsAcrossResistors(
         have.add(k);
         out.push({ boardId: hit.boardId, pin: hit.arduinoPin });
       }
-      // A supply or ground node: the level stops here.
-      if (node.boardHits.length > 0) continue;
+      // A supply or ground node, or one another part holds: the level is
+      // that node's, and stops here.
+      if (node.boardHits.length > 0 || !node.pins.every(isPassThroughPin)) continue;
       for (const p of node.pins) {
         if (!p.comp || !conductsDc(p.comp.metadataId)) continue;
         const pair = PASSIVE_PIN_PAIRS[p.comp.metadataId]!;

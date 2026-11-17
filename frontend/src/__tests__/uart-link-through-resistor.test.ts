@@ -104,6 +104,28 @@ describe('resolveAll walks a UART net across resistors', () => {
     expect(boardsOf(r.resolveAll!({ kind: 'board', boardId: 'uno', pin: 1 }))).toEqual(['uno:1']);
   });
 
+  it('stops at a supply part: two lines pulled up to one battery are not one line', () => {
+    // Uno TX and ESP32 GPIO16, each with a 4.7k pull-up to a 3 V coin cell's
+    // + (a breadboard supply rail no board pad sits on).
+    const st = {
+      boards: [board('uno', 'arduino-uno'), board('esp', 'esp32')],
+      components: [
+        part('r1', 'resistor', '4.7k'),
+        part('r2', 'resistor', '4.7k'),
+        { id: 'bat', metadataId: 'battery-coin-cell', x: 0, y: 0, properties: {} },
+      ],
+      wires: [
+        w('a', ['uno', '1'], ['r1', '1']),
+        w('b', ['r1', '2'], ['bat', '+']),
+        w('c', ['esp', '16'], ['r2', '1']),
+        w('d', ['r2', '2'], ['bat', '+']),
+        w('e', ['bat', '−'], ['uno', 'GND.1']),
+      ],
+    };
+    const r = createStoreNetResolver(() => st as never);
+    expect(boardsOf(r.resolveAll!({ kind: 'board', boardId: 'uno', pin: 1 }))).toEqual(['uno:1']);
+  });
+
   it('stops at ground: a third board hanging off the divider\'s ground leg is not on the net', () => {
     const st = bench('divider');
     st.boards.push(board('mega', 'arduino-mega'));
