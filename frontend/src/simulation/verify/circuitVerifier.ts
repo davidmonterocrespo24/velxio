@@ -31,6 +31,7 @@ import { breadboardGroupKey, hasInternalNets, isBreadboard } from '../../utils/b
 import type { BuildNetlistInput, ElectricalSolveResult } from '../spice/types';
 import { readValueField, unreadableValues } from '../spice/valueFields';
 import { formatQuantity } from '../spice/valueParser';
+import { readSpan, spanStats, subtract } from '../spice/waveformStats';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { isRatedResistor, resistorPowerRating } from '../parts/resistorRating';
@@ -942,6 +943,16 @@ export async function verifyCircuit(
 
   const branchCurrents = solve.branchCurrents;
 
+  // ── What a moving source does over its window ─────────────────────────
+  // The checks below read an operating point: the circuit at t = 0, where a
+  // sine with no offset is 0 V and a square wave sits at its low level. A
+  // 12 V-peak sine across 100 ohm, 0.72 W on average and 2.9x a 1/4 W
+  // rating, passed as 0 W, and an AC supply's current limit was never met
+  // (velxio/velxio-prod#117). A circuit whose source moves on its own is
+  // also solved over the transient window the live simulation runs, and the
+  // source, resistor and capacitor checks take what it does there.
+  const moving = await transientReadings(input);
+
   // ── Rule 1: short circuit / power source overload ──────────────────────
   // Every voltage source (battery / signal-generator / power-supply) emits
   // a branch current `i(v_<id>)`. SPICE convention: V-source's current is
@@ -982,15 +993,21 @@ export async function verifyCircuit(
       });
       continue;
     }
-    const i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
     const isPsu = src.metadataId === 'power-supply';
+    let i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
+    // Over the window of a moving source: a supply's limiter acts on the
+    // current at each instant, so the peak meets it; a short circuit is what
+    // flows, its RMS.
+    const wave = moving?.sourceAmps.get(src.id);
+    const fromWave = wave !== undefined && (isPsu ? wave.peak : wave.rms) > i;
+    if (fromWave) i = isPsu ? wave.peak : wave.rms;
     // The limit the netlist was built with (valueFields): "500m" is 0.5 A,
     // and never under the floor the model applies.
     const threshold = isPsu
       ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
     if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
-      const onRail = isPsu
+      const onRail = isPsu && !fromWave
         ? supplyOnRailWarning(src, threshold, branchCurrents[`v_${src.id}`] ?? 0, rails, pinNetMap, input)
         : null;
       if (onRail) {
@@ -1002,8 +1019,10 @@ export async function verifyCircuit(
         code: isPsu ? 'source-overload' : 'short-circuit',
         componentId: src.id,
         message: isPsu
-          ? `Power supply ${src.id} is at its ${formatAmps(threshold)} current limit: the load asks for more, so the supply holds ${formatAmps(i)} and lets its voltage drop (constant current). Raise the currentLimit or add more series resistance to the load.`
-          : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
+          ? fromWave
+            ? `Power supply ${src.id} reaches its ${formatAmps(threshold)} current limit at the peaks of its waveform: the load asks for more, so the supply holds the current there and its output is clipped (constant current). Raise the currentLimit or add more series resistance to the load.`
+            : `Power supply ${src.id} is at its ${formatAmps(threshold)} current limit: the load asks for more, so the supply holds ${formatAmps(i)} and lets its voltage drop (constant current). Raise the currentLimit or add more series resistance to the load.`
+          : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)}${fromWave ? ' RMS' : ''} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
         metric: i,
       });
     }
@@ -1071,7 +1090,11 @@ export async function verifyCircuit(
     if (!Number.isFinite(R) || R <= 0) continue;
     const v1 = solve.nodeVoltages[n1] ?? 0;
     const v2 = solve.nodeVoltages[n2] ?? 0;
-    const power = Math.pow(v1 - v2, 2) / R;
+    // A moving source: the mean power over its window, what heats the part.
+    const atOp = Math.pow(v1 - v2, 2) / R;
+    const onAverage = moving?.resistorWatts.get(id);
+    const averaged = onAverage !== undefined && onAverage > atOp;
+    const power = averaged ? onAverage : atOp;
     const rating = resistorPowerRating(comp.properties, config.resistorMaxWatts);
     if (power > rating) {
       // Severity 'warning' (not 'error'): SPICE doesn't physically burn the
@@ -1085,7 +1108,7 @@ export async function verifyCircuit(
         componentId: id,
         message: `Resistor ${id} (${formatResistance(R)}) is dissipating ${formatPower(
           power,
-        )} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher power rating in its properties, or a larger resistance.`,
+        )}${averaged ? ' on average' : ''} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher power rating in its properties, or a larger resistance.`,
         metric: power,
       });
     }
@@ -1146,27 +1169,31 @@ export async function verifyCircuit(
     if (vPos === undefined || vNeg === undefined || !Number.isFinite(vPos) || !Number.isFinite(vNeg)) {
       continue; // a terminal net is floating / unsolved
     }
-    const v = vPos - vNeg;
+    // A moving source: the highest and the lowest voltage over its window.
+    const wave = moving?.capVolts.get(c.id);
+    const highest = Math.max(vPos - vNeg, wave?.max ?? -Infinity);
+    const lowest = Math.min(vPos - vNeg, wave?.min ?? Infinity);
+    const peakNote = wave && (wave.max > vPos - vNeg || wave.min < vPos - vNeg) ? ' at its peak' : '';
     const rating = parseVolts(c.properties.voltage) ?? 25;
-    if (v > rating) {
+    if (highest > rating) {
       warnings.push({
         severity: 'warning',
         code: 'over-voltage',
         componentId: c.id,
-        message: `Electrolytic capacitor ${c.id} has ${formatVolts(v)} across it — above its ${formatVolts(
+        message: `Electrolytic capacitor ${c.id} has ${formatVolts(highest)} across it${peakNote} — above its ${formatVolts(
           rating,
         )} rating. A real capacitor would vent or burst; use a higher-voltage part.`,
-        metric: v,
+        metric: highest,
       });
-    } else if (v < -0.5) {
+    } else if (lowest < -0.5) {
       warnings.push({
         severity: 'warning',
         code: 'reverse-polarity',
         componentId: c.id,
         message: `Electrolytic capacitor ${c.id} is reverse-biased (${formatVolts(
-          Math.abs(v),
-        )} backwards). Polarized capacitors are destroyed when connected backwards — swap its + and - terminals.`,
-        metric: v,
+          Math.abs(lowest),
+        )} backwards${peakNote}). Polarized capacitors are destroyed when connected backwards — swap its + and - terminals.`,
+        metric: lowest,
       });
     }
   }
@@ -1177,6 +1204,81 @@ export async function verifyCircuit(
     componentsChecked: input.components.length,
     solve,
   };
+}
+
+/** What a circuit with a moving source does over its window (transientReadings). */
+interface TransientReadings {
+  /** Rated resistor id -> time-weighted mean of (V1 - V2)^2 / R, W. */
+  resistorWatts: Map<string, number>;
+  /** Battery, generator or supply id -> its current's RMS and peak, A. */
+  sourceAmps: Map<string, { rms: number; peak: number }>;
+  /** Electrolytic capacitor id -> lowest and highest V(+) - V(-), V. */
+  capVolts: Map<string, { min: number; max: number }>;
+}
+
+/**
+ * What a circuit whose source moves on its own (a generator's sine or
+ * square, a supply in AC mode: the transient storeAdapter picks with
+ * `timeVarying`) does over that window, on the span the meters read
+ * (readSpan: whole periods after the start-up), weighted by time
+ * (spanStats): each rated resistor's mean power, each source's RMS and peak
+ * current, each electrolytic capacitor's voltage range. Null for any other
+ * circuit, and when the transient cannot be built or solved: the
+ * operating-point checks still run.
+ */
+async function transientReadings(input: BuildNetlistInput): Promise<TransientReadings | null> {
+  const analysis = input.analysis;
+  if (analysis.kind !== 'tran' || !analysis.timeVarying) return null;
+  let built: ReturnType<typeof buildNetlist>;
+  let cooked: Awaited<ReturnType<typeof runSpice>>;
+  try {
+    built = buildNetlist(input);
+    cooked = await runSpice(built.netlist);
+  } catch {
+    return null;
+  }
+  const read = (name: string): number[] | null => {
+    try {
+      const v = cooked.vec(name);
+      return v.length > 0 && v.every((x) => typeof x === 'number') ? (v as number[]) : null;
+    } catch {
+      return null;
+    }
+  };
+  const time = read('time');
+  if (!time || time.length < 2) return null;
+  const span = readSpan(time, analysis.period);
+  if (!span) return null;
+  const node = (net: string | undefined): number[] | null =>
+    net === undefined ? null : net === '0' ? new Array<number>(time.length).fill(0) : read(`v(${net})`);
+  const across = (a: string | undefined, b: string | undefined) => {
+    const va = node(a);
+    const vb = node(b);
+    return va && vb ? spanStats(time, subtract(va, vb), span) : null;
+  };
+  const out: TransientReadings = { resistorWatts: new Map(), sourceAmps: new Map(), capVolts: new Map() };
+  // The resistors as Rule 3 finds them, from their cards.
+  for (const m of built.netlist.matchAll(/^R_(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/gm)) {
+    const [, id, n1, n2, valStr] = m;
+    const comp = input.components.find((c) => c.id === id);
+    if (!comp || !isRatedResistor(comp.metadataId)) continue;
+    const R = parseResistance(valStr!);
+    if (!(R > 0)) continue;
+    const st = across(n1, n2);
+    if (st) out.resistorWatts.set(id!, (st.rms * st.rms) / R);
+  }
+  for (const c of input.components) {
+    if (/^(battery|signal-generator|power-supply)/.test(c.metadataId)) {
+      const samples = read(`i(v_${c.id})`);
+      const st = samples ? spanStats(time, samples, span) : null;
+      if (st) out.sourceAmps.set(c.id, { rms: st.rms, peak: st.peak });
+    } else if (isElectrolyticCap(c.metadataId)) {
+      const pin = (p: string) => built.pinNetMap.get(`${c.id}:${p}`);
+      const st = across(pin('+'), pin('−') ?? pin('-'));
+      if (st) out.capVolts.set(c.id, { min: st.min, max: st.max });
+    }
+  }
+  return out;
 }
 
 /** Nominal positive-output voltage + positive pin names of a power source. */
