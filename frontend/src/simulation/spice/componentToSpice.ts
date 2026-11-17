@@ -754,7 +754,7 @@ const MAPPERS: Record<string, Mapper> = {
   // is high for half its period there: PW = T/2 - (TR + TF)/2. PW = T/2 kept
   // it high for T/2 + 1 ns, and two generators whose edges should meet (1 kHz
   // falling as 2 kHz rises) overlapped by 1 ns: an AND gate fed by them put
-  // out a 1.2 ns spike every half millisecond (velxio/velxio-prod#149). The
+  // out a 1.2 ns spike at 0.5, 1.5, 2.5 ... ms (velxio/velxio-prod#149). The
   // edges stay 1 ns up to 250 MHz and take a quarter of the period above.
   'signal-generator': (comp, netLookup) => {
     const sig = netLookup('SIG') ?? netLookup('+');

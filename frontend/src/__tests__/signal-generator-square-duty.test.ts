@@ -8,7 +8,7 @@
  * kept every square wave high for T/2 + 1 ns. Two generators whose edges
  * should meet (the falling edge of 1 kHz and the rising edge of 2 kHz)
  * overlapped by 1 ns, and an AND gate fed by them put out a 1.2 ns spike at
- * every half millisecond on the ngspice path (scope traces, meters).
+ * 0.5, 1.5, 2.5 ... ms on the ngspice path (scope traces, meters).
  *
  * Runs the app's netlist builder and ngspice (the Node adapter).
  */
