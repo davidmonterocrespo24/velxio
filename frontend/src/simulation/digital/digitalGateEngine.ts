@@ -12,7 +12,11 @@
  * does not (00-problem-analysis.md).
  *
  * Digital abstraction of the analog scaffolding the examples use:
- *   - signal-generator SIG = STRONG 1 (the 5 V rail); its GND pin = node 0.
+ *   - signal-generator SIG = its waveform against the gates' 2.5 V threshold
+ *     (see generatorWave): a DC generator on 5 V (the examples' convention) is
+ *     the 5 V rail, STRONG 1, and one on 0 V is ground; a square or sine that
+ *     crosses 2.5 V is a clock the network steps through in time (advance).
+ *     Its GND pin = node 0.
  *   - a resistor with one end on GND  = PULL 0 on the other net (pull-down).
  *   - a resistor with one end on rail = PULL 1 on the other net (pull-up).
  *   - a resistor between two signal nets = pass-through (the nets merge).
@@ -29,6 +33,7 @@ import { PinManager } from '../PinManager';
 import { setBusDrive } from '../customChips/busNets';
 import { Strength, type Drive } from '../customChips/busLogic';
 import { isJunction } from '../../utils/junction';
+import { parseValueWithUnits } from '../spice/valueParser';
 
 const STRONG = (v: 0 | 1): Drive => ({ value: v, strength: Strength.STRONG });
 const PULL = (v: 0 | 1): Drive => ({ value: v, strength: Strength.PULL });
@@ -98,6 +103,80 @@ const isSwitch = (t: string) => t === 'slide-switch';
 const isLed = (t: string) => t === 'led';
 const isResistor = (t: string) => t === 'resistor';
 const isPower = (t: string) => t === 'signal-generator';
+
+// ── Signal generators ───────────────────────────────────────────────────────
+
+/**
+ * The input threshold of the gates on a board-less deck: the SPICE gate
+ * models switch at vcc / 2 (componentToSpice, logic gates), and a board-less
+ * deck runs at 5 V.
+ */
+export const LOGIC_THRESHOLD_V = 2.5;
+
+/**
+ * What a signal generator's SIG is to the gates: a constant level, or a level
+ * that changes at known instants. `edges` lists the changes of one period, at
+ * times in (0, period], each with the level it leaves; the level at t = 0 is
+ * `initial`.
+ */
+export type GeneratorWave =
+  | { kind: 'constant'; level: 0 | 1 }
+  | {
+      kind: 'periodic';
+      initial: 0 | 1;
+      period: number;
+      edges: ReadonlyArray<{ t: number; level: 0 | 1 }>;
+    };
+
+/**
+ * A generator's waveform against LOGIC_THRESHOLD_V, read the way the SPICE
+ * mapper reads it (componentToSpice, 'signal-generator': the same defaults,
+ * values with units). A square is PULSE(offset - amplitude, offset +
+ * amplitude) HIGH for the first half of each period; a sine is SIN(offset,
+ * amplitude, frequency). Treating every generator as the 5 V rail meant a
+ * counter clocked by a 1 Hz square never counted and a 0 V generator was a
+ * logic 1 (velxio/velxio-prod#146).
+ */
+export function generatorWave(properties: Record<string, unknown> | undefined): GeneratorWave {
+  const props = properties ?? {};
+  const waveform = String(props.waveform ?? 'sine').toLowerCase();
+  const freq = parseValueWithUnits(props.frequency, 1000);
+  const amp = parseValueWithUnits(props.amplitude, 1);
+  const off = parseValueWithUnits(props.offset, 0);
+  const at = (v: number): 0 | 1 => (v >= LOGIC_THRESHOLD_V ? 1 : 0);
+  if (waveform === 'dc' || !Number.isFinite(amp) || amp === 0) return { kind: 'constant', level: at(off) };
+  if (!(freq > 0) || !Number.isFinite(freq)) {
+    // No period: the level the source starts at, as a transient would see it.
+    return { kind: 'constant', level: waveform === 'square' ? at(off + amp) : at(off) };
+  }
+  const period = 1 / freq;
+  if (waveform === 'square') {
+    const hi = at(off + amp);
+    const lo = at(off - amp);
+    if (hi === lo) return { kind: 'constant', level: hi };
+    return { kind: 'periodic', initial: hi, period, edges: [{ t: period / 2, level: lo }, { t: period, level: hi }] };
+  }
+  // Sine: off + amp * sin(wt) crosses the threshold where sin(wt) = x.
+  const x = (LOGIC_THRESHOLD_V - off) / amp;
+  if (x >= 1 || x <= -1) {
+    // Never crosses (a tangent touch is no crossing): the level of its offset.
+    return { kind: 'constant', level: at(off) };
+  }
+  const w = 2 * Math.PI * freq;
+  const a = Math.asin(x);
+  const tOf = (theta: number): number => {
+    const t = ((theta % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / w;
+    return t > 0 ? t : period;
+  };
+  // At a the value is rising through the threshold when amp > 0; at pi - a
+  // it falls (and the other way round for a negative amplitude).
+  const up: 0 | 1 = amp > 0 ? 1 : 0;
+  const edges = [
+    { t: tOf(a), level: up },
+    { t: tOf(Math.PI - a), level: (1 - up) as 0 | 1 },
+  ].sort((p, q) => p.t - q.t);
+  return { kind: 'periodic', initial: at(off), period, edges };
+}
 
 /** Components this engine understands. Anything else => analog => bail.
  *  A junction is pure connectivity (union-find handles the shared pin), so it
@@ -182,7 +261,25 @@ export interface DigitalNetwork {
   setSwitch(switchId: string, value: 0 | 1): void;
   /** All LED ids in the network. */
   ledIds: string[];
+  /** True when a generator's level changes in time (a square or a sine that
+   *  crosses the threshold): the network then needs `advance` to run. */
+  hasClocks: boolean;
+  /** The network's own time, in seconds since it was built. */
+  now(): number;
+  /**
+   * Run the clocks to `toSec`: every generator edge up to then, in time order,
+   * each settled before the next. At most `maxEdges` edges per call; past
+   * that the network stops at the last edge it applied (its time runs slower
+   * than asked, and no edge is skipped). Returns the time reached.
+   */
+  advance(toSec: number, maxEdges?: number): number;
+  /** The share of the last `advance` an LED's anode spent HIGH (its
+   *  brightness under a clock); its level when no time has passed. */
+  ledDuty(ledId: string): number;
 }
+
+/** Edges `advance` applies per call unless told otherwise. */
+export const MAX_EDGES_PER_ADVANCE = 1000;
 
 /**
  * Build the digital network. Returns `{ ok:false }` (and drives nothing) if any
@@ -197,6 +294,7 @@ export function buildDigitalNetwork(
   const noop: DigitalNetwork = {
     ok: false, pinManager: pm,
     netOf: () => undefined, readNet: () => 0, readLed: () => 0, setSwitch: () => {}, ledIds: [],
+    hasClocks: false, now: () => 0, advance: () => 0, ledDuty: () => 0,
   };
   if (components.some((c) => !isDigitalPrimitive(kindOf(c)))) return noop;
 
@@ -206,14 +304,18 @@ export function buildDigitalNetwork(
 
   const pinNet = (compId: string, pin: string) => uf.find(epKey(compId, pin));
 
+  // Each generator's waveform (generatorWave). A constant one is a rail: its
+  // SIG is the 5 V rail at 1 and ground at 0; one whose level moves is a
+  // signal net like any gate output.
+  const waves = new Map<string, GeneratorWave>();
+  for (const c of components) if (isPower(kindOf(c))) waves.set(c.id, generatorWave(c.properties));
+
   // Identify the GND and rail roots from the signal-generator(s).
   const findRailGnd = (gnd: Set<string>, rail: Set<string>) => {
     gnd.clear(); rail.clear();
-    for (const c of components) {
-      if (isPower(kindOf(c))) {
-        gnd.add(pinNet(c.id, 'GND'));
-        rail.add(pinNet(c.id, 'SIG'));
-      }
+    for (const [id, wave] of waves) {
+      gnd.add(pinNet(id, 'GND'));
+      if (wave.kind === 'constant') (wave.level === 1 ? rail : gnd).add(pinNet(id, 'SIG'));
     }
   };
   const gndRoots = new Set<string>();
@@ -246,11 +348,11 @@ export function buildDigitalNetwork(
   };
 
   // ── Static drivers: rail, gnd, pull resistors ──────────────────────────────
-  for (const c of components) {
-    if (isPower(kindOf(c))) {
-      setBusDrive(pm, netKey(c.id, 'SIG'), `${c.id}::SIG`, STRONG(1)); // 5 V rail
-      setBusDrive(pm, netKey(c.id, 'GND'), `${c.id}::GND`, STRONG(0)); // node 0
-    }
+  // A generator's SIG starts at its level at t = 0; a clock's later edges come
+  // from `advance`.
+  for (const [id, wave] of waves) {
+    setBusDrive(pm, netKey(id, 'SIG'), `${id}::SIG`, STRONG(wave.kind === 'constant' ? wave.level : wave.initial));
+    setBusDrive(pm, netKey(id, 'GND'), `${id}::GND`, STRONG(0)); // node 0
   }
   for (const c of components) {
     if (!isResistor(kindOf(c))) continue;
@@ -329,6 +431,74 @@ export function buildDigitalNetwork(
 
   const ledIds = components.filter((c) => isLed(kindOf(c))).map((c) => c.id);
 
+  // ── Time: the clocks and what the LEDs saw of them ─────────────────────────
+  // Edge k of a clock with n edges per period is at floor(k / n) periods plus
+  // the k % n-th edge time: integer indices, so no edge drifts or repeats
+  // however long the network runs.
+  let now = 0;
+  const clocks: Array<{ id: string; net: number; wave: Extract<GeneratorWave, { kind: 'periodic' }>; next: number }> = [];
+  for (const [id, wave] of waves) {
+    if (wave.kind === 'periodic') clocks.push({ id, net: netKey(id, 'SIG'), wave, next: 0 });
+  }
+  const edgeTime = (ck: (typeof clocks)[number]): number => {
+    const n = ck.wave.edges.length;
+    return Math.floor(ck.next / n) * ck.wave.period + ck.wave.edges[ck.next % n]!.t;
+  };
+  // Per LED: its anode level, since when, and the HIGH time of the window
+  // the current `advance` is filling.
+  const leds = new Map<string, { level: boolean; since: number; high: number; duty: number }>();
+  let windowStart = 0;
+  for (const id of ledIds) {
+    const net = netKey(id, 'A');
+    const st = { level: pm.getPinState(net), since: 0, high: 0, duty: pm.getPinState(net) ? 1 : 0 };
+    leds.set(id, st);
+    pm.onPinChange(net, (_p, level) => {
+      if (level === st.level) return;
+      if (st.level) st.high += now - st.since;
+      st.level = level;
+      st.since = now;
+    });
+  }
+
+  const advance = (toSec: number, maxEdges = MAX_EDGES_PER_ADVANCE): number => {
+    windowStart = now;
+    for (const st of leds.values()) {
+      st.high = 0;
+      st.since = now;
+    }
+    let applied = 0;
+    let target = toSec;
+    while (clocks.length > 0) {
+      let first: (typeof clocks)[number] | null = null;
+      let t = Infinity;
+      for (const ck of clocks) {
+        const te = edgeTime(ck);
+        if (te < t) {
+          t = te;
+          first = ck;
+        }
+      }
+      if (!first || t > target) break;
+      if (applied >= maxEdges) {
+        target = now; // out of budget: stop at the last edge applied
+        break;
+      }
+      now = t;
+      const edge = first.wave.edges[first.next % first.wave.edges.length]!;
+      first.next++;
+      setBusDrive(pm, first.net, `${first.id}::SIG`, STRONG(edge.level));
+      applied++;
+    }
+    if (target > now) now = target;
+    const span = now - windowStart;
+    for (const st of leds.values()) {
+      if (st.level) st.high += now - st.since;
+      st.since = now;
+      st.duty = span > 0 ? st.high / span : st.level ? 1 : 0;
+    }
+    return now;
+  };
+
   return {
     ok: true,
     pinManager: pm,
@@ -341,6 +511,10 @@ export function buildDigitalNetwork(
       if (c) driveSwitch(c);
     },
     ledIds,
+    hasClocks: clocks.length > 0,
+    now: () => now,
+    advance,
+    ledDuty: (ledId) => leds.get(ledId)?.duty ?? 0,
   };
 }
 

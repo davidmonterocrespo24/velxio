@@ -20,7 +20,14 @@ import { buildDigitalNetwork, type DigitalComponent, type DigitalWire } from '..
 beforeEach(() => resetBusNets());
 
 const W = (a: string, ap: string, b: string, bp: string): DigitalWire => ({ start: { componentId: a, pinName: ap }, end: { componentId: b, pinName: bp } });
-const src: DigitalComponent = { id: 'src', metadataId: 'signal-generator' };
+// The 5 V rail, set the way the gallery's digital examples set it: a generator
+// is the waveform it is set to (#146), and one with no settings is the
+// catalogue's default 1 kHz, 1 V sine, which never reaches the gates' 2.5 V.
+const src: DigitalComponent = {
+  id: 'src',
+  metadataId: 'signal-generator',
+  properties: { waveform: 'dc', offset: 5, amplitude: 0, frequency: 1 },
+};
 const sw = (id: string, v: 0 | 1 = 0): DigitalComponent => ({ id, metadataId: 'slide-switch', properties: { value: v } });
 
 describe('digital-gate-engine Phase 5 — flip-flops', () => {
