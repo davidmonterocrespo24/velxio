@@ -47,6 +47,9 @@ export interface SimulatorStorePort {
     /** Components destroyed at runtime (P4) — excluded from the netlist so a
      *  burnt part actually goes open. Optional for non-store ports. */
     burntComponents?: Set<string>;
+    /** Bumped by every bulk replacement of the canvas (useSimulatorStore's
+     *  hydrationSeq): another circuit loaded. Optional for non-store ports. */
+    hydrationSeq?: number;
   };
   subscribe(listener: (state: unknown, prev: unknown) => void): () => void;
 }
@@ -378,6 +381,16 @@ export class CircuitSimulationService {
    */
   private nodeMemory = new Map<string, number>();
   private nodeMemoryCells: NodeMemoryCell[] = [];
+  /**
+   * The store's hydrationSeq the memory belongs to. A new one means the
+   * canvas was replaced wholesale (a project, an example, an import, a new
+   * project from the starter picker): that circuit powers up anew, every
+   * relay released and every latch in its power-up state, even where its
+   * parts carry the ids of the one before, as a reopened gallery example
+   * does. Read with the components the deck is built from, so a solve of
+   * the old circuit that ends after the load cannot teach it back.
+   */
+  private memoryHydrationSeq: number | undefined = undefined;
   /**
    * A pad-state solve starts the switches where the loaded deck does, so one
    * that ends elsewhere (a pin pulled a relay in) asks for a rebuild that
@@ -946,6 +959,11 @@ export class CircuitSimulationService {
     this.lastRebuildAt = Date.now();
     this.rebuildStartedAt = nowMs();
     const state = this.simStore.getState();
+    if (state.hydrationSeq !== this.memoryHydrationSeq) {
+      this.memoryHydrationSeq = state.hydrationSeq;
+      this.switchMemory = new Map();
+      this.nodeMemory = new Map();
+    }
     // P4: a runtime-destroyed part is excluded from the netlist so it actually
     // goes open — its current stops and anything it fed loses power (cascading
     // failure), the way real hardware behaves once a component burns out.

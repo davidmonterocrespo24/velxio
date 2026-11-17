@@ -1765,7 +1765,9 @@ interface SimulatorState {
    * project load, example load, .vlx/wokwi import, clear). Lets observers
    * that diff `components`/`wires` between updates (overlay telemetry)
    * tell hydration apart from a user deliberately adding one part: bulk
-   * loads are not usage signal.
+   * loads are not usage signal. The circuit service reads it too: the
+   * circuit a bulk load brings powers up anew, its relays released and its
+   * latches in their power-up state (velxio/velxio-prod#109, #147).
    */
   hydrationSeq: number;
 

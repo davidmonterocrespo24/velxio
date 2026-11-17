@@ -19,7 +19,8 @@ pin can source.
   again below **45%** (2.25 V). In between they stay where they were, from
   one solve to the next: a relay fed through its own NO contact (a seal-in,
   with START across that contact) holds after START is released, until STOP
-  breaks the coil circuit. A 3.3 V pin on a 5 V coil never reaches 3.75 V, so
+  breaks the coil circuit. Opening a project or an example starts every relay
+  released, as at power-up. A 3.3 V pin on a 5 V coil never reaches 3.75 V, so
   it never pulls in: use a 3.3 V coil, or feed the coil from 5 V through a
   transistor.
 - The contacts follow the coil **current**: when the drive is cut they hold
