@@ -378,6 +378,29 @@ def _sanitise_lib_dirname(name: str) -> str:
     return safe or 'lib'
 
 
+# A library file or folder name is written into SRCS "..." / INCLUDE_DIRS
+# "..." of the generated user_libs_all CMakeLists unescaped (see
+# _resolve_library_components), so a character CMake reads as syntax there
+# escapes the quoted argument: a double quote closes it, '$' expands
+# (${...}/$ENV{...}), ';' is CMake's list separator, a backslash is an escape,
+# and a control character or a Unicode line/paragraph separator breaks the
+# line (velxio/velxio-prod#223). The hosted product refuses such a library
+# before the build (its compile guard); this fails the build closed on a
+# self-host that has no such guard. _sanitise_lib_dirname already folds the
+# per-library prefix, and _PRECOMPILED_SAFE_NAME the archive names; this
+# covers the library's own file and folder names in between.
+_CMAKE_UNSAFE_NAME = re.compile('[\x00-\x1f\x7f";$\\\\\u0085  ]')
+
+
+def _cmake_unsafe_name_part(rel_path: Path) -> str | None:
+    """The first component of a library-relative path whose name CMake would
+    read as syntax if written into a quoted argument, or None."""
+    for part in rel_path.parts:
+        if _CMAKE_UNSAFE_NAME.search(part):
+            return part
+    return None
+
+
 def _idf_version_signature() -> str:
     """Snapshot of the ESP-IDF + arduino-esp32 toolchain version. Used to
     invalidate persistent build dirs after an upstream submodule bump (the
@@ -3763,6 +3786,27 @@ class ESPIDFCompiler:
                     rel_path = f.relative_to(lib_root)
                     if not _should_include(rel_path):
                         continue
+                    # velxio/velxio-prod#223 (defense in depth): this name and
+                    # its folders are written into SRCS "..." / INCLUDE_DIRS
+                    # "..." of the generated CMakeLists unescaped. Fail the
+                    # build closed before a '"', '$', ';', backslash or control
+                    # character becomes CMake syntax. The hosted product refuses
+                    # such a library earlier; this protects a self-host.
+                    _unsafe = _cmake_unsafe_name_part(rel_path)
+                    if _unsafe is not None:
+                        summary = (
+                            f'"{lib_dir_name}" cannot be built: the file name '
+                            f'{_unsafe!r} contains a character the build system reads as code'
+                        )
+                        raise PrecompiledLibraryError(summary, '\n'.join([
+                            summary + '.',
+                            '',
+                            f'Library: {lib_dir_name}',
+                            f'File: {rel_path.as_posix()}',
+                            'A library file or folder name may use letters, digits, spaces, '
+                            'dots, dashes, underscores and parentheses — not a quote, a '
+                            'backslash, a dollar sign, a semicolon or a control character.',
+                        ]))
                     # Track file by its COMPONENT-relative path: it preserves
                     # structure, and in legacy mode it is also the cross-library
                     # dedup key.

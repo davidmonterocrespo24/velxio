@@ -369,5 +369,52 @@ class TestNotPrecompiled(PrecompiledBase):
         self.assertNotIn('target_link_directories', text)
 
 
+class TestCmakeUnsafeNames(PrecompiledBase):
+    """velxio/velxio-prod#223 (defense in depth): a library file or folder name
+    is written into SRCS "..." / INCLUDE_DIRS "..." of the generated
+    user_libs_all CMakeLists unescaped. A character CMake reads as syntax there
+    fails the build closed rather than becoming code. Reproduced with cmake
+    3.31.6 (the image's version) on a CMakeLists built the generator's way:
+    a ';' in a SRCS entry injected EMBED_TXTFILES reading an absolute path, and
+    '$ENV{...}' expanded. The hosted product refuses such a library before the
+    build; this guards a self-host. Waits for review before release."""
+
+    PROPS = 'name=Namer\nversion=1.0.0\narchitectures=*\n'
+
+    def _lib_with_source(self, name: str) -> None:
+        shutil.rmtree(self.lib, ignore_errors=True)
+        write(self.lib / 'library.properties', self.PROPS)
+        write(self.lib / 'src' / 'Namer.h', '#pragma once\nint namer(void);\n')
+        write(self.lib / 'src' / name, '#include "Namer.h"\nint namer(void){return 0;}\n')
+
+    def test_a_semicolon_in_a_source_name_fails_the_build(self):
+        self._lib_with_source('a;EMBED_TXTFILES;srv.cpp')
+        with self.assertRaises(espidf_mod.PrecompiledLibraryError) as cm:
+            self.resolve(['Namer.h'], 'esp32')
+        self.assertIn('a;EMBED_TXTFILES;srv.cpp', str(cm.exception))
+
+    def test_a_quote_and_a_dollar_in_a_source_name_fail_the_build(self):
+        for name in ('b" "c.cpp', 'd$ENV{HOME}.cpp'):
+            self._lib_with_source(name)
+            with self.assertRaises(espidf_mod.PrecompiledLibraryError):
+                self.resolve(['Namer.h'], 'esp32')
+
+    def test_a_semicolon_in_a_folder_name_fails_the_build(self):
+        shutil.rmtree(self.lib, ignore_errors=True)
+        write(self.lib / 'library.properties', self.PROPS)
+        write(self.lib / 'src' / 'Namer.h', '#pragma once\nint namer(void);\n')
+        write(self.lib / 'src' / 'a;EMBED_TXTFILES;srv' / 'impl.cpp',
+              'int namer(void){return 0;}\n')
+        with self.assertRaises(espidf_mod.PrecompiledLibraryError):
+            self.resolve(['Namer.h'], 'esp32')
+
+    def test_spaces_and_parentheses_are_allowed(self):
+        # examples/docs folders use them on staging; nothing in use is refused.
+        self._lib_with_source('impl one (basic).cpp')
+        names, _ = self.resolve(['Namer.h'], 'esp32')
+        self.assertEqual(names, ['user_libs_all'])
+        self.assertIn('impl one (basic).cpp', self.cmake_text())
+
+
 if __name__ == '__main__':
     unittest.main()
