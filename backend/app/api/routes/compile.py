@@ -553,14 +553,35 @@ def _purge_expired_jobs() -> None:
                 JOB_BY_KEY.pop(key, None)
 
 
+# A character a build reads as syntax in a file or folder name
+# (velxio/velxio-prod#223). arduino-cli puts each sketch source into a
+# recipe's quoted "{source_file}": a double quote closes it, and a {property}
+# reference in the name is expanded before the recipe is split (the
+# pre-quoted {includes} brings double quotes back in), so either turns the
+# rest of the name into compiler arguments. The ESP-IDF build globs the
+# sketch's sources into a CMake list, where ';' separates elements; '$' and a
+# backslash are CMake syntax as well (the same characters the generator
+# refuses in a library's names, _CMAKE_UNSAFE_NAME). A control character or a
+# Unicode line/paragraph separator breaks a line of a recipe or a log. The
+# hosted product's compile guard refuses this same set before the route
+# runs; on a self-host this is the check.
+_FILE_NAME_SYNTAX = re.compile(r'[\x00-\x1f\x7f"\\$;{}\u0085\u2028\u2029]')
+
+
 def _checked_file_name(value: str) -> str:
-    """Refuse a client file name that could point outside a build dir.
+    """Refuse a client file name that could point outside a build dir, or that
+    a build would read as syntax.
 
     Folder prefixes ('src/helper.cpp') are fine; each lane lays them out its
     own way. A NUL, an absolute path or a '..' component is refused here, once,
     instead of trusting every compiler lane to re-check it: the ESP-IDF
     Arduino-mode writer and the SPIFFS writer did not (2026-09-15), and the
     backend runs as root next to build dirs every user shares.
+
+    So is a character in _FILE_NAME_SYNTAX, for every lane alike. A single
+    quote, spaces, parentheses, brackets, '&', '@' and '+' are plain
+    characters to both builds and stay allowed. The message shows the name
+    with repr(), so no raw line break reaches the editor or a log.
     """
     if '\x00' in value:
         raise ValueError('file names cannot contain a NUL byte')
@@ -568,6 +589,14 @@ def _checked_file_name(value: str) -> str:
         raise ValueError(f'absolute file names are not allowed: {value!r}')
     if '..' in value.replace('\\', '/').split('/'):
         raise ValueError(f"'..' is not allowed in file names: {value!r}")
+    found = _FILE_NAME_SYNTAX.search(value)
+    if found:
+        raise ValueError(
+            f'file names cannot contain {found.group()!r}, which a build reads as '
+            'syntax (a double quote, a backslash, $, ;, a curly brace, a line '
+            f'break or another control character): {value!r}. Rename the file '
+            'using letters, digits, spaces, dots, dashes and underscores.'
+        )
     return value
 
 
