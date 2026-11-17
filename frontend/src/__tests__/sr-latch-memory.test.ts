@@ -194,6 +194,68 @@ describe('the analog NAND latch keeps its state (velxio/velxio-prod#147)', () =>
     await new Promise((r) => setTimeout(r, 600));
     expect(q(), 'forgot SET when the pin went back HIGH').toBeGreaterThan(4.5);
   });
+
+  it('pin pulses SET and then RESET in quick succession: the RESET shows at once', { timeout: 60_000 }, async () => {
+    // Each flip rebuilds the deck with the latch where the flip left it. The
+    // rebuild for RESET used to wait until 250 ms after the one for SET, and
+    // the solves in between came from the deck seeded with SET: once RESET was
+    // released Q read high again until that rebuild ran.
+    __setSchedulerSolverFactoryForTests(() => new NgSpiceNodeAdapter());
+    let sBar = 5;
+    let rBar = 5;
+    const pins = (): Record<string, PinSourceState> => ({
+      '2': { type: 'digital', v: sBar },
+      '3': { type: 'digital', v: rBar },
+    });
+    const components: Comp[] = [
+      { id: 'g1', metadataId: 'logic-gate-nand', properties: {} },
+      { id: 'g2', metadataId: 'logic-gate-nand', properties: {} },
+      { id: 'd1', metadataId: 'diode-1n4148', properties: {} },
+      { id: 'rq', metadataId: 'resistor', properties: { value: '10000' } },
+    ];
+    const wires = [
+      w('w1', ['arduino-uno', '2'], ['g1', 'A']),
+      w('w2', ['arduino-uno', '3'], ['g2', 'A']),
+      w('w3', ['g1', 'Y'], ['g2', 'B']),
+      w('w4', ['g2', 'Y'], ['g1', 'B']),
+      w('w5', ['g1', 'Y'], ['d1', 'A']),
+      w('w6', ['d1', 'C'], ['rq', '1']),
+      w('w7', ['rq', '2'], ['arduino-uno', 'GND']),
+    ];
+    const published: ElectricalSnapshot[] = [];
+    const service = new CircuitSimulationService(
+      {
+        getState: () => ({ components, wires, boards: [{ id: 'arduino-uno', boardKind: 'arduino-uno', running: true }] }),
+        subscribe: () => () => {},
+      },
+      { publish: (s) => published.push(s) },
+      getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
+      { collectBoardPinStates: () => pins() },
+    );
+    services.push(service);
+    const qOf = (s: ElectricalSnapshot) => s.nodeVoltages[s.pinNetMap.get('g1:Y')!] ?? NaN;
+    const q = () => qOf(published[published.length - 1]!);
+    await service.tick();
+    expect(q()).toBeLessThan(0.1);
+
+    sBar = 0;
+    await service.handleMcuEdge('arduino-uno', '2', false, 5, null);
+    await vi.waitFor(() => expect(q()).toBeGreaterThan(4.5), { timeout: 5000, interval: 2 });
+    sBar = 5;
+    await service.handleMcuEdge('arduino-uno', '2', true, 5, null);
+    rBar = 0;
+    await service.handleMcuEdge('arduino-uno', '3', false, 5, null);
+    await vi.waitFor(() => expect(q()).toBeLessThan(0.5), { timeout: 5000, interval: 2 });
+    const from = published.length;
+    rBar = 5;
+    await service.handleMcuEdge('arduino-uno', '3', true, 5, null);
+    await new Promise((r) => setTimeout(r, 100));
+    const after = published.slice(from).map(qOf);
+    expect(after.length, 'nothing was published after RESET was released').toBeGreaterThan(0);
+    expect(after.filter((v) => v > 2.5), 'published the SET state again after RESET was released').toEqual([]);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(q(), 'the latch ended in the SET state').toBeLessThan(0.5);
+  });
 });
 
 describe('the digital engine\'s slide switch is a two-way contact (velxio/velxio-prod#147)', () => {

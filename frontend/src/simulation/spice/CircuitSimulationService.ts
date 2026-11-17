@@ -394,12 +394,24 @@ export class CircuitSimulationService {
   /**
    * A pad-state solve starts the switches where the loaded deck does, so one
    * that ends elsewhere (a pin pulled a relay in) asks for a rebuild that
-   * starts them there, at most once per MEMORY_REBUILD_MS: a relay whose own
-   * contact cuts its coil changes state on every solve.
+   * starts them there. Those rebuilds run at once while there is credit for
+   * them: MEMORY_REBUILD_BURST of it, one more every MEMORY_REBUILD_MS. A
+   * circuit whose memory moves on every solve (a relay whose own contact
+   * cuts its coil can) is held to one rebuild per MEMORY_REBUILD_MS once the
+   * burst is spent. A latch set and then reset by two pin pulses rebuilds
+   * for each: with one rebuild per 250 ms and no burst, the solves after
+   * RESET came from the deck seeded with SET and showed Q high again until
+   * the next rebuild was due. Faster than the credit comes back (more than
+   * about four changes a second, sustained), solves still run on a deck
+   * seeded with an older state, and what they show is not learnt (see
+   * memoryStale): a pulse that ends before the rebuild is lost.
    */
   private memoryRebuildAt = -Infinity;
+  /** The rebuild credit left at memoryRebuildAt (see memoryRebuildCredit). */
+  private memoryRebuildTokens = 0;
   private memoryRebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly MEMORY_REBUILD_MS = 250;
+  private static readonly MEMORY_REBUILD_BURST = 4;
   /**
    * Set from a pad-state solve that moved the memory until the rebuild it
    * asked for runs. Pad-state solves in between come from a deck that starts
@@ -874,14 +886,25 @@ export class CircuitSimulationService {
     if (this.memoryRebuildTimer !== null) return;
     const go = () => {
       this.memoryRebuildTimer = null;
-      this.memoryRebuildAt = nowMs();
+      const now = nowMs();
+      this.memoryRebuildTokens = this.memoryRebuildCredit(now) - 1;
+      this.memoryRebuildAt = now;
       this.note({ memoryRebuild: [...this.switchMemory, ...this.nodeMemory] });
       // Queued now, it runs before any window that closes after this solve.
       void this.tick();
     };
-    const wait = this.memoryRebuildAt + CircuitSimulationService.MEMORY_REBUILD_MS - nowMs();
-    if (wait <= 0) go();
-    else this.memoryRebuildTimer = setTimeout(go, wait);
+    const credit = this.memoryRebuildCredit(nowMs());
+    if (credit >= 1) go();
+    else this.memoryRebuildTimer = setTimeout(go, (1 - credit) * CircuitSimulationService.MEMORY_REBUILD_MS);
+  }
+
+  /** Memory rebuilds that may run at once at `now`: the credit left at the
+   *  last one plus one per MEMORY_REBUILD_MS since, up to the burst. */
+  private memoryRebuildCredit(now: number): number {
+    return Math.min(
+      CircuitSimulationService.MEMORY_REBUILD_BURST,
+      this.memoryRebuildTokens + (now - this.memoryRebuildAt) / CircuitSimulationService.MEMORY_REBUILD_MS,
+    );
   }
 
   private levelsRecord(levels: readonly number[]): Record<string, number> {
