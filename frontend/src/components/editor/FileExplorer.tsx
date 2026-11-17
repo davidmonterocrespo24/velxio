@@ -5,6 +5,7 @@ import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
 import type { AutoSaveState } from '../../hooks/useAutoSaveProject';
 import type { WorkspaceFile } from '../../store/useEditorStore';
 import { useSimulatorStore, keepWireShapes } from '../../store/useSimulatorStore';
+import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { installChipFileSync, ensureChipWasm, flushChipFileSync } from '../../services/chipFiles';
 import { getChipActions, getChipActionsVersion, subscribeChipActions } from '../../lib/chipActions';
 import { fileIconFor, getFileIconsVersion, subscribeFileIcons } from '../../lib/fileIcons';
@@ -500,6 +501,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
         const { setComponents, setWires, setBoardType, setBoardPosition, stopSimulation } =
           useSimulatorStore.getState();
         stopSimulation();
+        // As in the toolbar's importer: the old circuit's scope channels would
+        // follow the new one's same-named pins (velxio/velxio-prod#119).
+        useOscilloscopeStore.getState().resetChannels();
         // Same rule as the toolbar's importer: an unknown board kind is left
         // alone, not coerced into an Uno (#268).
         // Same as the toolbar's importer: put the board on the canvas (an
