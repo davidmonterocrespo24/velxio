@@ -3351,12 +3351,25 @@
           "type": "string",
           "defaultValue": 0,
           "control": "text"
+        },
+        {
+          "name": "common",
+          "type": "string",
+          "defaultValue": "auto",
+          "control": "select",
+          "options": [
+            "auto",
+            "cathode",
+            "anode"
+          ],
+          "description": "Which end of the three LEDs COM is. auto reads the wiring: COM on a supply rail is a common anode, anywhere else (ground) a common cathode."
         }
       ],
       "defaultValues": {
         "ledRed": 0,
         "ledGreen": 0,
-        "ledBlue": 0
+        "ledBlue": 0,
+        "common": "auto"
       },
       "pinCount": 0,
       "tags": [

@@ -15,6 +15,7 @@ the worker's registered callbacks the way the C side does:
   GPIO output    picsimlab_write_pin(slot, level), slot = gpio + 1 on ESP32
   I2C            picsimlab_i2c_event(bus, addr, op | data << 8) -> ack / data
   GPIO matrix    qemu_picsimlab_get_internals(2) -> the pads' OUT_SEL words
+  LEDC duty      qemu_picsimlab_get_internals(6) -> 16 float percentages
 
 The test sends one JSON op per line on a control pipe (BB_CTL_IN) and reads
 one JSON reply per op (BB_CTL_OUT). Symbols the real library may lack
@@ -64,6 +65,10 @@ class FakeLibQemu:
         # pad. None until a test routes a signal (op 'matrix'): until then the
         # worker reads what an older libqemu gives it, a null pointer.
         self._out_sel = None
+        # The LEDC channels' duty in percent, as esp32_ledc.c keeps it as
+        # floats (QEMU_INTERNAL index 6). None until a test sets one (op
+        # 'ledc'): until then the worker's LEDC poll reads a null pointer.
+        self._ledc_duty = None
         self.qemu_picsimlab_get_internals = _Fn(self._internals)
         self.qemu_picsimlab_set_pin = _Fn(lambda slot, v: self._record('set_pin', slot, v))
         self.qemu_picsimlab_set_apin = _Fn(lambda ch, v: self._record('set_apin', ch, v))
@@ -107,6 +112,8 @@ class FakeLibQemu:
     def _internals(self, idx: int) -> int:
         if idx == 2 and self._out_sel is not None:
             return ctypes.addressof(self._out_sel)
+        if idx == 6 and self._ledc_duty is not None:
+            return ctypes.addressof(self._ledc_duty)
         return 0
 
     # ── the guest ───────────────────────────────────────────────────────────
@@ -176,6 +183,14 @@ class FakeLibQemu:
                 self._out_sel = (ctypes.c_uint32 * 64)(*([256] * 64))
             for gpio, sig in op['out_sel'].items():
                 self._out_sel[int(gpio)] = int(sig)
+            return {}
+        if kind == 'ledc':
+            # An LEDC channel's duty as the fork computes it, a float percent
+            # (esp32_ledc.c divides by 2^N - 1, so full on reads 100.39 at
+            # 8 bits). The worker's 100 ms poll reads it from here.
+            if self._ledc_duty is None:
+                self._ledc_duty = (ctypes.c_float * 16)()
+            self._ledc_duty[int(op['channel'])] = float(op['duty'])
             return {}
         if kind == 'clock':
             # QEMU_CLOCK_VIRTUAL reaches `ns`, as -icount or the host's time

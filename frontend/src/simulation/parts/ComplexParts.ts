@@ -8,74 +8,177 @@ import { RP2040Simulator } from '../RP2040Simulator';
 import { getADC, setAdcVoltage, emitPropertyChange, elementNumber, analogRailVolts } from './partUtils';
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
 import { LOG_SLIDER_STEPS, logSliderToValue } from '../sensorControlConfig';
+import { RGB_LED_CHANNELS, rgbLedCommon, rgbLedSenseKey } from '../rgbLed';
+import { reportLedBurnout, reportLedFault, solvedLedBranch } from './ledBranch';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// ─── RGB LED (PWM-aware) ─────────────────────────────────────────────────────
+// ─── RGB LED ─────────────────────────────────────────────────────────────────
 
 /**
- * RGB LED implementation — supports both digital and PWM (analogWrite) output.
- * Falls back to digital mode if no PWM is detected.
+ * RGB LED: three LED dies joined at COM (velxio/velxio-prod#174). Each colour
+ * glows from the current the circuit gives its die, read from the die's own
+ * 0 V sense source (the 'rgb-led' card in componentToSpice) exactly as a
+ * single LED reads its own (ledBranch.ts): a PWM pin shows as its duty, a
+ * colour with no series resistor burns out, and the resistors and the COM
+ * wiring decide what lights. wokwi-rgb-led's ledRed / ledGreen / ledBlue are
+ * 0-1 brightnesses (it draws rgb(ledRed * 255, ...)); this part used to write
+ * 0-255 into them, so any duty above zero drew full brightness.
+ *
+ * Before the first solve lands, a colour follows its pin's level (its duty for
+ * a PWM pin) while COM is wired: lit on HIGH, or on LOW for `common: 'anode'`
+ * (a pin trace reads a ground and a supply pin alike, so only the solve tells
+ * an 'auto' COM on a supply apart).
  */
+const RGB_HOLD_MS = 500;
+
 PartSimulationRegistry.register('rgb-led', {
-  attachEvents: (element, avrSimulator, getArduinoPinHelper, _componentId, getPinResolver) => {
-    const pinManager = (avrSimulator as any).pinManager;
+  attachEvents: (element, simulator, getArduinoPinHelper, componentId, getPinResolver) => {
+    const pinManager = (simulator as any).pinManager;
     if (!pinManager) return () => {};
 
     const el = element as any;
     const unsubscribers: (() => void)[] = [];
     const useResolver = typeof getPinResolver === 'function';
+    const properties = () =>
+      useSimulatorStore.getState().components.find((c) => c.id === componentId)?.properties;
 
-    // Digital path: prefer PinResolver so each channel works when driven
-    // through an active device (e.g. a P-MOSFET high-side switch).
-    type Channel = { pinName: 'R' | 'G' | 'B'; prop: 'ledRed' | 'ledGreen' | 'ledBlue' };
-    const channels: Channel[] = [
-      { pinName: 'R', prop: 'ledRed' },
-      { pinName: 'G', prop: 'ledGreen' },
-      { pinName: 'B', prop: 'ledBlue' },
-    ];
+    // The pin side, for the moments before a solve: each colour's level
+    // (null while its pin is not wired) and what COM sits on.
+    const level: Array<number | null> = RGB_LED_CHANNELS.map(() => null);
+    let comState: 'LOW' | 'HIGH' | null = null;
+    // The last solved brightness of each colour, held through the gaps
+    // between solves as a single LED holds its own.
+    const lastSolved = RGB_LED_CHANNELS.map(() => 0);
+    const lastSolvedTs = RGB_LED_CHANNELS.map(() => 0);
+    // Latches once a colour is destroyed by overcurrent; a fresh Run re-arms it.
+    let burnt = false;
 
-    // Track Arduino pin numbers for the PWM hook below — analogWrite()
-    // override still needs the integer pin number because PinResolver
-    // doesn't (yet) expose PWM duty.
-    const pwmPins: Array<{ pin: number; prop: Channel['prop'] }> = [];
+    const write = (values: number[]) => {
+      RGB_LED_CHANNELS.forEach((ch, i) => {
+        el[ch.prop] = values[i] ?? 0;
+      });
+    };
 
-    for (const { pinName, prop } of channels) {
+    const fallback = (i: number): number => {
+      const v = level[i];
+      if (v === null || v === undefined || comState === null) return 0;
+      const common = rgbLedCommon(properties());
+      const anode = common === 'anode' || (common === 'auto' && comState === 'HIGH');
+      if (anode) return comState === 'HIGH' ? 1 - v : 0;
+      return comState === 'LOW' ? v : 0;
+    };
+
+    const update = () => {
+      if (burnt) {
+        write([0, 0, 0]);
+        return;
+      }
+      const out = RGB_LED_CHANNELS.map(() => 0);
+      const now = Date.now();
+      for (let i = 0; i < RGB_LED_CHANNELS.length; i++) {
+        const ch = RGB_LED_CHANNELS[i]!;
+        const reading = solvedLedBranch(rgbLedSenseKey(componentId, ch.pin));
+        if (reading.kind === 'unstable') {
+          burnt = true;
+          write([0, 0, 0]);
+          reportLedFault(
+            componentId,
+            'led-burnout',
+            `RGB LED's ${ch.colour} channel destroyed — the circuit has no stable solution ` +
+              `(the solver returned an undefined current). This almost always means that ` +
+              `colour has no series resistor. Add a resistor in series with its pin.`,
+          );
+          return;
+        }
+        if (reading.kind === 'over') {
+          burnt = true;
+          write([0, 0, 0]);
+          reportLedBurnout(componentId, reading.current, `RGB LED's ${ch.colour} channel`);
+          return;
+        }
+        if (reading.kind === 'lit') {
+          out[i] = reading.brightness;
+          lastSolved[i] = reading.brightness;
+          lastSolvedTs[i] = now;
+          continue;
+        }
+        if (lastSolvedTs[i]! > 0 && now - lastSolvedTs[i]! < RGB_HOLD_MS) {
+          out[i] = lastSolved[i]!;
+          continue;
+        }
+        out[i] = fallback(i);
+      }
+      write(out);
+    };
+
+    // COM: ground (LOW) or a supply (HIGH), read the way an LED reads its cathode.
+    if (useResolver) {
+      const com = getPinResolver!('COM');
+      if (com) {
+        const read = (state: string) => (state === 'LOW' ? 'LOW' : state === 'HIGH' ? 'HIGH' : null);
+        comState = read(com.getCurrentState());
+        unsubscribers.push(
+          com.onChange((state) => {
+            comState = read(state);
+            update();
+          }),
+        );
+      }
+    } else if (getArduinoPinHelper('COM') === -1) {
+      comState = 'LOW'; // wired to a ground or rail pin: taken as ground, as before
+    }
+
+    RGB_LED_CHANNELS.forEach((ch, i) => {
       if (useResolver) {
-        const resolver = getPinResolver!(pinName);
+        const resolver = getPinResolver!(ch.pin);
         if (resolver) {
-          el[prop] = resolver.getCurrentState() === 'HIGH' ? 255 : 0;
+          const state = resolver.getCurrentState();
+          level[i] = state === 'HIGH' ? 1 : state === 'LOW' ? 0 : null;
           unsubscribers.push(
-            resolver.onChange((state) => {
-              el[prop] = state === 'HIGH' ? 255 : 0;
+            resolver.onChange((st) => {
+              level[i] = st === 'HIGH' ? 1 : st === 'LOW' ? 0 : null;
+              update();
             }),
           );
         }
       } else {
-        const pin = getArduinoPinHelper(pinName);
-        if (pin !== null) {
+        const pin = getArduinoPinHelper(ch.pin);
+        if (pin !== null && pin >= 0) {
+          level[i] = 0;
           unsubscribers.push(
             pinManager.onPinChange(pin, (_: number, state: boolean) => {
-              el[prop] = state ? 255 : 0;
+              level[i] = state ? 1 : 0;
+              update();
             }),
           );
         }
       }
-      // PWM hook still uses the raw pin number — duty cycle handling
-      // doesn't live in PinResolver yet.
-      const rawPin = getArduinoPinHelper(pinName);
-      if (rawPin !== null) pwmPins.push({ pin: rawPin, prop });
-    }
+      // A PWM pin's duty, for the moments before a solve (the solve itself
+      // weighs the pin's HIGH and LOW states by the duty).
+      const rawPin = getArduinoPinHelper(ch.pin);
+      if (rawPin !== null && rawPin >= 0) {
+        unsubscribers.push(
+          pinManager.onPwmChange(rawPin, (_: number, dc: number) => {
+            level[i] = Math.max(0, Math.min(1, dc));
+            update();
+          }),
+        );
+      }
+    });
 
-    // PWM override — analogWrite() value supersedes digital state.
-    for (const { pin, prop } of pwmPins) {
-      unsubscribers.push(
-        pinManager.onPwmChange(pin, (_: number, dc: number) => {
-          el[prop] = Math.round(dc * 255);
-        }),
-      );
-    }
+    unsubscribers.push(
+      useElectricalStore.subscribe((state, prev) => {
+        if (
+          state.branchCurrents !== prev.branchCurrents ||
+          state.timeWaveforms !== prev.timeWaveforms ||
+          state.window !== prev.window
+        )
+          update();
+      }),
+    );
 
+    update();
     return () => unsubscribers.forEach((u) => u());
   },
 });

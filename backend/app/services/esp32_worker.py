@@ -1803,6 +1803,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                     duty_ptr = lib.qemu_picsimlab_get_internals(6)  # LEDC_CHANNEL_DUTY
                     if duty_ptr:
                         exact = float((ctypes.c_float * 16).from_address(duty_ptr)[ledc_ch])
+                        # Full on reads 100.39 % at 8 bits (the fork's
+                        # 2^N - 1 divisor, velxio/velxio-prod#174): that is
+                        # 100 %, not a value to discard.
+                        if 100.0 < exact < 101.0:
+                            exact = 100.0
                         if 0.0 <= exact <= 100.0:
                             intensity = round(exact, 2)
                 except Exception:
@@ -3297,7 +3302,13 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                         continue
                     _last_duty[ch] = duty_pct
                     if duty_pct > 0:
-                        rounded = round(duty_pct, 2)
+                        # esp32_ledc.c divides the duty by 2^N - 1 where the
+                        # chip divides by 2^N, so full on (ledcWrite of the top
+                        # value, which arduino-esp32 writes as 2^N) reads
+                        # 100.39 % at 8 bits, and the circuit stamped 3.313 V
+                        # on a 3.3 V pin (velxio/velxio-prod#174). No duty is
+                        # above 100 %.
+                        rounded = round(min(duty_pct, 100.0), 2)
                         _emit({'type': 'ledc_duty',
                                'channel': ch,
                                'duty_pct': rounded})

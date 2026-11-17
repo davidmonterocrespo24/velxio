@@ -523,6 +523,12 @@ R_autopull_n0 n0 0 100Meg
 exports[`netlist snapshot — 100-days (49 examples) > 100d-rgb-color-mixer-using-potentiometers-esp32-plus-micropython 1`] = `
 "* Velxio circuit
 V_VCC_RAIL vcc_rail 0 DC 5
+V_rgb-led_r_sense n6 rgb-led_r_mid DC 0
+D_rgb-led_r rgb-led_r_mid 0 LED_RGB_RED
+V_rgb-led_g_sense n7 rgb-led_g_mid DC 0
+D_rgb-led_g rgb-led_g_mid 0 LED_RGB_GREEN
+V_rgb-led_b_sense n8 rgb-led_b_mid DC 0
+D_rgb-led_b rgb-led_b_mid 0 LED_RGB_BLUE
 R_rgb-r0 n0 n6 220
 R_rgb-r1 n1 n7 220
 R_rgb-r2 n2 n8 220
@@ -538,6 +544,9 @@ R_autopull_n2 n2 0 100Meg
 R_autopull_n6 n6 0 100Meg
 R_autopull_n7 n7 0 100Meg
 R_autopull_n8 n8 0 100Meg
+.model LED_RGB_RED D(Is=3.5e-22 N=1.7)
+.model LED_RGB_GREEN D(Is=1e-28 N=2.043)
+.model LED_RGB_BLUE D(Is=1e-28 N=2.043)
 .op
 .end"
 `;
@@ -1568,6 +1577,12 @@ R_pot2_bot n1 0 1
 
 exports[`netlist snapshot — circuits (41 examples) > esp32-pwm-led-rgb 1`] = `
 "* Velxio circuit
+V_rgb_r_sense n6 rgb_r_mid DC 0
+D_rgb_r rgb_r_mid n5 LED_RGB_RED
+V_rgb_g_sense n4 rgb_g_mid DC 0
+D_rgb_g rgb_g_mid n5 LED_RGB_GREEN
+V_rgb_b_sense n3 rgb_b_mid DC 0
+D_rgb_b rgb_b_mid n5 LED_RGB_BLUE
 R_rr n0 n6 220
 R_rg n1 n4 220
 R_rb n2 n3 220
@@ -1578,6 +1593,9 @@ R_autopull_n3 n3 0 100Meg
 R_autopull_n4 n4 0 100Meg
 R_autopull_n5 n5 0 100Meg
 R_autopull_n6 n6 0 100Meg
+.model LED_RGB_RED D(Is=3.5e-22 N=1.7)
+.model LED_RGB_GREEN D(Is=1e-28 N=2.043)
+.model LED_RGB_BLUE D(Is=1e-28 N=2.043)
 .op
 .end"
 `;

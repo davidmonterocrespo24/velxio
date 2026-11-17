@@ -33,6 +33,7 @@ import { readValueField, unreadableValues } from '../spice/valueFields';
 import { formatQuantity } from '../spice/valueParser';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
+import { RGB_LED_CHANNELS, rgbLedSenseKey } from '../rgbLed';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -1047,6 +1048,47 @@ export async function verifyCircuit(
         )}). It will not light visibly.`,
         metric: i,
       });
+    }
+  }
+  // An RGB LED is three dies, one sense source each (`V_<id>_r_sense` ...):
+  // the same rules, per colour (velxio/velxio-prod#174). A colour whose pin is
+  // not wired has no source and is skipped.
+  for (const rgb of input.components.filter((c) => c.metadataId === 'rgb-led')) {
+    for (const ch of RGB_LED_CHANNELS) {
+      const key = rgbLedSenseKey(rgb.id, ch.pin);
+      const what = `RGB LED ${rgb.id}'s ${ch.colour} channel`;
+      if (nonFiniteBranches.has(key)) {
+        errors.push({
+          severity: 'error',
+          code: 'unstable-solve',
+          componentId: rgb.id,
+          message: `${what} could not be solved — its forward current has no stable value. This almost always means that colour is wired with no series resistor. Add a series resistor to its pin.`,
+        });
+        continue;
+      }
+      const raw = branchCurrents[key];
+      if (raw === undefined) continue;
+      const i = Math.abs(raw);
+      if (i > config.ledMaxAmps) {
+        errors.push({
+          severity: 'error',
+          code: 'led-overcurrent',
+          componentId: rgb.id,
+          message:
+            i > LED_UNLIMITED_AMPS
+              ? `${what} has nothing limiting its current (no series resistor) — a real LED would burn out at once. Add a series resistor to its pin.`
+              : `${what} is carrying ${formatAmps(i)} — above its 20 mA absolute maximum. Add or increase its series resistor.`,
+          metric: i,
+        });
+      } else if (i > 0 && i < config.ledMinAmps) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-no-current',
+          componentId: rgb.id,
+          message: `${what} appears wired but is carrying almost no current (${formatAmps(i)}). It will not light visibly.`,
+          metric: i,
+        });
+      }
     }
   }
 

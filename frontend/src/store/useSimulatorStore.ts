@@ -992,7 +992,11 @@ export function applyPinPwm(pm: PinManager, pin: number, dutyPct: number, freqHz
   // back with getPwmFreq to play the sketch's actual note, and a servo to turn
   // the duty into a real pulse width.
   if (freqHz && freqHz > 0) pm.setPwmFreq(pin, freqHz);
-  pm.updatePwm(pin, dutyPct / 100);
+  // A duty is 0..100 %. QEMU's LEDC divides by 2^N - 1 where the chip divides by
+  // 2^N, so arduino-esp32's full-on write (ledcWrite(pin, 255) at 8 bits, which
+  // it sends as 256) reported 100.39 % and the circuit saw 3.313 V on a 3.3 V
+  // pin (velxio/velxio-prod#174). No engine can drive a pad above 100 %.
+  pm.updatePwm(pin, Math.min(100, Math.max(0, dutyPct)) / 100);
   // An LEDC channel at duty 0 holds its pad LOW. The pad's GPIO latch is not
   // what drives it while the GPIO matrix routes the LEDC signal there, and it
   // can be HIGH for reasons that have nothing to do with the PWM (the solver's

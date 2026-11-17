@@ -2833,5 +2833,24 @@
       "rl10": 15,
       "gamma": 0.6
     }
+  },
+  "rgb-led": {
+    "properties": {
+      "common": {
+        "name": "common",
+        "type": "string",
+        "defaultValue": "auto",
+        "control": "select",
+        "options": [
+          "auto",
+          "cathode",
+          "anode"
+        ],
+        "description": "Which end of the three LEDs COM is. auto reads the wiring: COM on a supply rail is a common anode, anywhere else (ground) a common cathode."
+      }
+    },
+    "defaultValues": {
+      "common": "auto"
+    }
   }
 }
