@@ -75,6 +75,15 @@ describe('5 V on an ESP32 pin (velxio/velxio-prod#175)', () => {
     expect(found[0]!.message).toMatch(/drives HIGH/);
   });
 
+  it("a Raspberry Pi's pin is 3.3 V logic, though the Pi takes 5 V in: no warning", { timeout: 30_000 }, async () => {
+    const quiet = await overVoltage(
+      [],
+      [w('w1', ['pi', 'GPIO14'], ['esp', '16']), w('w2', ['pi', 'GND'], ['esp', 'GND'])],
+      [{ id: 'esp', boardKind: 'esp32' }, { id: 'pi', boardKind: 'raspberry-pi-4' }],
+    );
+    expect(quiet).toEqual([]);
+  });
+
   it('a pot across VIN reads as over-voltage only where its wiper passes 3.6 V', { timeout: 30_000 }, async () => {
     const pot = (value: number) =>
       overVoltage(

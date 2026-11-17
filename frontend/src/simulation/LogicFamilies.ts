@@ -30,6 +30,7 @@
  */
 
 import { boardPinGroupFor } from './spice/boardPinGroups';
+import { isPiBoardKind } from '../types/board';
 
 /**
  * 74HC14 Schmitt-trigger thresholds as fractions of VCC. TI SN74HC14
@@ -234,10 +235,13 @@ const BOARD_FAMILY: Record<string, LogicFamilyId> = {
  * overlay board's declared power) is LVCMOS33, anything else AVR_HC (5V
  * Arduino), the conservative default. Without that a 3.3 V board missing
  * from the table (the LOLIN32 Lite, velxio/velxio-prod#175) got the 5 V
- * AVR thresholds.
+ * AVR thresholds. A Raspberry Pi takes 5 V in but its GPIO header is 3.3 V
+ * logic, as the table already says for the Pi 3.
  */
 export function getBoardLogicFamily(boardKind: string): LogicFamily {
-  const id = BOARD_FAMILY[boardKind] ?? (boardPinGroupFor(boardKind).vcc <= 3.3 ? 'LVCMOS33' : 'AVR_HC');
+  const id =
+    BOARD_FAMILY[boardKind] ??
+    (isPiBoardKind(boardKind) || boardPinGroupFor(boardKind).vcc <= 3.3 ? 'LVCMOS33' : 'AVR_HC');
   return FAMILIES[id];
 }
 

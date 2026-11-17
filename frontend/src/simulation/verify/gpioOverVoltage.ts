@@ -29,6 +29,7 @@ import { UnionFind } from '../spice/unionFind';
 import { breadboardGroupKey, hasInternalNets } from '../../utils/breadboardNets';
 import { esp32ChipOf } from '../../types/boardOptions';
 import { isInputOnlyPad } from '../../utils/boardPinMapping';
+import { getBoardLogicFamily } from '../LogicFamilies';
 import type { BoardKind } from '../../types/board';
 
 type Board = BuildNetlistInput['boards'][number];
@@ -146,9 +147,12 @@ export async function gpioOverVoltages(
       } else if (board.auxVolts !== undefined && board.auxPinNames?.includes(pin)) {
         addDrive(`${board.id}:${pin}`, { volts: board.auxVolts, what: `${pin} of ${board.id}`, link: false });
       } else if (gpioInputLimit(board) === null && isGpio(board, pin) && canDrive(board, pin)) {
+        // The level its pins drive, which is not always its supply: a
+        // Raspberry Pi takes 5 V in and drives 3.3 V.
+        const logic = board.boardKind ? getBoardLogicFamily(board.boardKind).vcc : board.vcc;
         addDrive(`${board.id}:${pin}`, {
-          volts: board.vcc,
-          what: `pin ${pin} of ${board.id}, a ${volts(board.vcc)} board`,
+          volts: logic,
+          what: `pin ${pin} of ${board.id}, a ${volts(logic)} board`,
           link: true,
         });
       }
