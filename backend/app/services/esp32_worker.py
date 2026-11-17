@@ -48,6 +48,7 @@ import math
 import os
 import queue
 import re
+import struct
 import sys
 import tempfile
 import threading
@@ -421,6 +422,53 @@ _WIFI_MACHINES = {'esp32-picsimlab'}
 # IDF driver actually uses (0x3ff73000 - DR_REG_DPORT_APB_BASE + APB_REG_BASE).
 # One page each, matching the region hw/misc/esp32_wifi.c maps.
 _WIFI_MAC_RANGES = ((0x3ff73000, 0x3ff74000), (0x60033000, 0x60034000))
+
+
+# The classic ESP32's factory MAC, the one the in-browser engine reports
+# (esp32js src/memory-map.ts seeds EFUSE_BLK0_RDATA1 = 0xc4000110 and RDATA2 =
+# 0x00b9240a): 24:0a:c4:00:01:10, under Espressif's 24:0a:c4 OUI. The fork's
+# eFuse device, given no drive, fills BLK0 with 0x00c40a24 / 0x00fe1001, which
+# ESP-IDF reads as 10:01:00:c4:0a:24: the same bytes in the other order, so
+# one sketch printed a different MAC (and built different MAC-derived topics
+# and client IDs) on each engine (velxio/velxio-prod#187).
+ESP32_FACTORY_MAC = bytes([0x24, 0x0A, 0xC4, 0x00, 0x01, 0x10])
+
+
+def esp32_mac_crc8(mac: bytes) -> int:
+    """The ROM's esp_rom_efuse_mac_address_crc8: CRC-8 over MAC[0..5],
+    polynomial 0x8C (0x31 reflected), init 0. Only the classic ESP32 keeps
+    it in eFuse, and ESP-IDF refuses a MAC whose CRC does not match."""
+    crc = 0
+    for byte in mac:
+        crc ^= byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x8C if crc & 1 else crc >> 1
+    return crc
+
+
+def esp32_efuse_image(mac: bytes = ESP32_FACTORY_MAC) -> bytes:
+    """The classic ESP32's eFuse as the fork's device reads it from its drive
+    (Esp32EfuseRegs: BLK0, 7 words, then BLK1-3, 8 words each, little
+    endian), blank but for the factory MAC: ESP-IDF's table puts MAC[0..5] at
+    BLK0 bits 72, 64, 56, 48, 40, 32 and the MAC's CRC at bit 80
+    (components/efuse/esp32/esp_efuse_table.csv). Blank is what the fork
+    holds without a drive, the MAC aside."""
+    words = [0] * (7 + 8 * 3)
+    words[1] = mac[5] | (mac[4] << 8) | (mac[3] << 16) | (mac[2] << 24)
+    words[2] = mac[1] | (mac[0] << 8) | (esp32_mac_crc8(mac) << 16)
+    return struct.pack(f'<{len(words)}I', *words)
+
+
+def efuse_drive_args(machine: str, path: str) -> list[bytes]:
+    """The QEMU arguments that hand `machine` the eFuse image at `path`, or
+    none: only the classic ESP32's device (nvram.esp32.efuse) is given one.
+    The S3 and C3 machines have eFuse devices of their own."""
+    if machine != 'esp32-picsimlab':
+        return []
+    return [
+        b'-drive', f'file={path},if=none,format=raw,id=efuse'.encode(),
+        b'-global', b'driver=nvram.esp32.efuse,property=drive,value=efuse',
+    ]
 
 
 def wifi_nic_arg(machine: str, wifi_enabled: bool,
@@ -886,6 +934,21 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             str(s.get('sensor_type', '')) in LINE_SENSOR_TYPES for s in initial_sensors):
         _log('line sensor on a MicroPython run that uses WiFi: -icount stays off '
              '(issue #260), so a pulse-timing driver will time out on it')
+
+    # ── eFuse: the classic ESP32's factory MAC ─────────────────────────────
+    # The same MAC the in-browser engine reports (velxio/velxio-prod#187). The
+    # device writes back what the guest burns, so the image is a file of this
+    # run's own, removed with the firmware at exit.
+    efuse_path: str | None = None
+    if efuse_drive_args(machine, ''):
+        try:
+            tmp_efuse = tempfile.NamedTemporaryFile(suffix='.efuse', delete=False)
+            tmp_efuse.write(esp32_efuse_image())
+            tmp_efuse.close()
+            efuse_path = tmp_efuse.name
+            args_list.extend(efuse_drive_args(machine, efuse_path))
+        except OSError as exc:
+            _log(f'eFuse image not written ({exc!r}): QEMU keeps its default MAC')
 
     # ── WiFi NIC (slirp user-mode networking) ──────────────────────────────
     # Always present on the classic ESP32, on the C3 only for a sketch that
@@ -3701,12 +3764,13 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 except Exception:
                     pass
             qemu_t.join(timeout=5.0)
-            # Clean up temp firmware file
-            if firmware_path:
-                try:
-                    os.unlink(firmware_path)
-                except OSError:
-                    pass
+            # Clean up temp firmware and eFuse files
+            for tmp_file in (firmware_path, efuse_path):
+                if tmp_file:
+                    try:
+                        os.unlink(tmp_file)
+                    except OSError:
+                        pass
             # Drain any queued events (crash/system notifications) before the
             # hard exit — the emit writer is a daemon thread and would lose
             # the tail otherwise. The sentinel ends its loop.

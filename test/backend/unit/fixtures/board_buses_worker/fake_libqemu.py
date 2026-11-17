@@ -58,7 +58,9 @@ class FakeLibQemu:
         self._calls_cv = threading.Condition()
 
         self.qemu_picsimlab_register_callbacks = _Fn(self._register)
-        self.qemu_init = _Fn(lambda _argc, _argv, _envp: 0)
+        # The command line the worker hands qemu_init (op 'argv').
+        self._argv: list[str] = []
+        self.qemu_init = _Fn(self._init)
         self.qemu_main_loop = _Fn(self._guest_loop)
         self.qemu_system_shutdown_request = _Fn(lambda _cause: self._shutdown.set())
         # The GPIO matrix's output selects (QEMU_INTERNAL index 2), one word per
@@ -100,6 +102,11 @@ class FakeLibQemu:
             self._bql_takes[name] = self._bql_takes.get(name, 0) + 1
 
     # ── what the worker calls into QEMU ─────────────────────────────────────
+    def _init(self, argc, argv, _envp) -> int:
+        self._argv = [argv[i].decode() if isinstance(argv[i], bytes) else str(argv[i])
+                      for i in range(int(argc))]
+        return 0
+
     def _register(self, ref) -> None:
         # ctypes.byref(struct) keeps the struct it points at in `_obj`.
         self._cbs = ref._obj
@@ -214,6 +221,8 @@ class FakeLibQemu:
                 ok = self._calls_cv.wait_for(lambda: want in self._calls,
                                              timeout=float(op.get('timeout', 5.0)))
             return {'ok': bool(ok)}
+        if kind == 'argv':
+            return {'argv': list(self._argv)}
         if kind == 'calls':
             with self._calls_cv:
                 return {'calls': list(self._calls)}
