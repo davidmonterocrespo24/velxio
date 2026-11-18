@@ -2,7 +2,7 @@ import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
-import { reportLedBurnout, reportLedFault, solvedLedBranch } from './ledBranch';
+import { LED_VISIBLE_BRIGHTNESS, reportLedBurnout, reportLedFault, solvedLedBranch } from './ledBranch';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -254,7 +254,7 @@ PartSimulationRegistry.register('led', {
         return;
       }
       if (Date.now() - lastSpiceTs < HOLD_MS && lastSpiceTs > 0 && Number.isFinite(lastSpiceBrightness)) {
-        el.value = lastSpiceBrightness > 1e-3;
+        el.value = lastSpiceBrightness > LED_VISIBLE_BRIGHTNESS;
         el.brightness = lastSpiceBrightness;
         return;
       }

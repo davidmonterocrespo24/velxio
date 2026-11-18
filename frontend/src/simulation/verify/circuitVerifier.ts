@@ -1540,7 +1540,10 @@ interface SourceCard {
  * nodes are merged and it is not itself a source. Without that, a regulator
  * (its B source on an internal node, then the sense to VOUT) wired into a
  * supply rail sat on a different node pair than the rail and the conflict
- * went unreported.
+ * went unreported. A behavioural source written as a current (`B... I = ...`,
+ * the light-sensor module's DO sink) holds no voltage, as NetlistBuilder
+ * reads it too: another source on its nodes is no conflict, and a board pin
+ * there is not taken.
  */
 function parseSourceCards(netlist: string): SourceCard[] {
   const raw: SourceCard[] = [];
@@ -1555,6 +1558,7 @@ function parseSourceCards(netlist: string): SourceCard[] {
     if (!line || line.startsWith('*') || line.startsWith('.')) continue;
     const m = /^([VB]\S*)\s+(\S+)\s+(\S+)/.exec(line);
     if (!m) continue;
+    if (/^B\S*\s+\S+\s+\S+\s+I\s*=/i.test(line)) continue;
     if (/^V\S*\s+\S+\s+\S+\s+DC\s+0\s*$/i.test(line)) {
       const x = find(m[2]!);
       const y = find(m[3]!);

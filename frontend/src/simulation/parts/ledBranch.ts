@@ -8,6 +8,7 @@ import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { readSpan, spanStats } from '../spice/waveformStats';
+import type { TimeWaveforms } from '../spice/types';
 
 // A real 5mm indicator LED survives ~20 mA (datasheet absolute max ~30 mA).
 // A sustained forward current well above that destroys it within moments —
@@ -25,6 +26,29 @@ import { readSpan, spanStats } from '../spice/waveformStats';
 // "Run Anyway" past that warning, or for faults that only appear mid-run.
 export const LED_RATED_MAX_A = 0.02;
 export const LED_BURNOUT_A = 0.1;
+/**
+ * The least brightness an LED is drawn lit at: a thousandth of full, 20 uA
+ * for a 20 mA LED. The element draws any lit LED at 30 % of its full glow or
+ * more, so a current far below that showed as that glow. A publish window and
+ * the hold after a solve already drew the LED dark below this; a single
+ * solve used 1 uA, so a night light leaking 1 uA into daylight showed the
+ * same faint glow as one at 2 mA (velxio/velxio-prod#226).
+ */
+export const LED_VISIBLE_BRIGHTNESS = 1e-3;
+
+/**
+ * What an LED's current is over a transient capture: its mean magnitude on
+ * the span a meter reads (whole periods, after settling), which is what the
+ * eye sees of a current that moves faster than it can follow; the last
+ * sample when there is no such span. Undefined without a capture of it.
+ */
+function captureCurrent(tw: TimeWaveforms | undefined, key: string): number | undefined {
+  const samples = tw?.branches.get(key);
+  if (!tw || !samples || samples.length === 0) return undefined;
+  const span = readSpan(tw.time, tw.period);
+  const stats = span ? spanStats(tw.time, samples, span) : null;
+  return stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
+}
 
 /** Surface a circuit fault for an LED — console + a UI event the toolbar shows. */
 export function reportLedFault(componentId: string, kind: string, message: string): void {
@@ -102,6 +126,15 @@ export function reportLedBurnout(componentId: string, current: number, what = 'L
  * LED bar lights every LED for exactly as long as its pin was high. The burnout
  * check uses the highest current of the window: a short overcurrent is still an
  * overcurrent.
+ *
+ * A state solved as a transient (a deck whose sources move by themselves, a
+ * generator on the canvas) carries its own capture, and its current is that
+ * capture's mean, as above; a window of such states is read state by state too,
+ * where the latest state's capture alone used to stand for the whole window.
+ * Beside a generator a PWM pad's HIGH and LOW states are each a transient, and
+ * the capture published for them is their mix: its mean current would brighten
+ * a die driven past its rating and hide from the burnout check the current of
+ * the HIGH state (velxio/velxio-prod#232).
  */
 export type LedBranchReading =
   | { kind: 'none' }
@@ -112,21 +145,16 @@ export type LedBranchReading =
 export function solvedLedBranch(iKey: string): LedBranchReading {
   const { branchCurrents, timeWaveforms, window } = useElectricalStore.getState();
   let raw = branchCurrents[iKey];
-  if (timeWaveforms) {
-    const samples = timeWaveforms.branches.get(iKey);
-    if (samples && samples.length > 0) {
-      const span = readSpan(timeWaveforms.time, timeWaveforms.period);
-      const stats = span ? spanStats(timeWaveforms.time, samples, span) : null;
-      raw = stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
-    }
-  }
+  const fromCapture = captureCurrent(timeWaveforms, iKey);
+  if (fromCapture !== undefined) raw = fromCapture;
   let windowBrightness: number | undefined;
-  if (!timeWaveforms && window && window.states.length > 1) {
+  const statesCaptured = !!window && window.states.every((st) => st.timeWaveforms);
+  if (window && window.states.length > 1 && (!timeWaveforms || statesCaptured)) {
     let seen = false;
     let mean = 0;
     let peak = 0;
     for (const st of window.states) {
-      const i = st.branchCurrents[iKey];
+      const i = captureCurrent(st.timeWaveforms, iKey) ?? st.branchCurrents[iKey];
       if (i === undefined) continue;
       if (!Number.isFinite(i)) {
         peak = i;
@@ -151,8 +179,6 @@ export function solvedLedBranch(iKey: string): LedBranchReading {
   if (!Number.isFinite(raw)) return { kind: 'unstable' };
   const current = Math.abs(raw);
   if (current > LED_BURNOUT_A) return { kind: 'over', current };
-  if (windowBrightness !== undefined) {
-    return { kind: 'lit', brightness: windowBrightness, on: windowBrightness > 1e-3 };
-  }
-  return { kind: 'lit', brightness: Math.min(1, current / LED_RATED_MAX_A), on: current > 1e-6 };
+  const brightness = windowBrightness ?? Math.min(1, current / LED_RATED_MAX_A);
+  return { kind: 'lit', brightness, on: brightness > LED_VISIBLE_BRIGHTNESS };
 }

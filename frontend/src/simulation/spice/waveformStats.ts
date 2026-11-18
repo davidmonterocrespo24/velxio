@@ -7,6 +7,7 @@
  *
  * Also houses the linear interpolator used by the per-read ADC hook.
  */
+import type { TimeWaveforms } from './types';
 
 /** Root-mean-square: sqrt(mean(x²)). For a pure sine, Vpk/√2. */
 export function rms(samples: readonly number[]): number {
@@ -236,6 +237,88 @@ export function crestBetweenSamples(
   // on an even step; anything beyond twice that is not a crest it describes.
   if (!(crest >= v(i)) || crest - v(i) > (v(i) - Math.min(v(i - 1), v(i + 1))) / 4) return null;
   return sign * crest;
+}
+
+/**
+ * The weighted mean, sample by sample, of several captures of one deck: what
+ * a reader that integrates over time sees of a circuit that alternates
+ * between those states faster than it reads them. A PWM pad on a static load
+ * is its HIGH and LOW states weighted by the duty (CircuitSimulationService),
+ * and with a generator on the canvas each of them is a transient of its own:
+ * the generator's net is the same wave in every one, so it comes out as
+ * itself, and a net the pad moves comes out at its mean over the period
+ * (velxio/velxio-prod#232).
+ *
+ * ngspice picks its own time points, so two captures need not share them:
+ * then the mix is on the union of their points, each capture read between its
+ * own samples by linear interpolation. Only the vectors every capture holds
+ * are mixed; the period is the first capture's (one deck, one period). A
+ * single capture, or a single one with weight, is returned as it is.
+ */
+export function mixCaptures(
+  parts: ReadonlyArray<{ capture: TimeWaveforms; weight: number }>,
+): TimeWaveforms | undefined {
+  const used = parts.filter((p) => p.weight > 0 && p.capture.time.length > 0);
+  if (used.length === 0) return undefined;
+  if (used.length === 1) return used[0]!.capture;
+  const total = used.reduce((acc, p) => acc + p.weight, 0);
+  const first = used[0]!.capture;
+  const shared = used.every(
+    (p) => p.capture.time.length === first.time.length && p.capture.time.every((t, i) => t === first.time[i]),
+  );
+  const time = shared ? first.time.slice() : unionOfTimes(used.map((p) => p.capture.time));
+  const mix = (pick: (tw: TimeWaveforms) => Map<string, number[]>): Map<string, number[]> => {
+    const out = new Map<string, number[]>();
+    for (const key of pick(first).keys()) {
+      if (!used.every((p) => pick(p.capture).has(key))) continue;
+      const acc = new Array<number>(time.length).fill(0);
+      for (const p of used) {
+        const samples = pick(p.capture).get(key)!;
+        const at = shared ? samples : resampleOnto(p.capture.time, samples, time);
+        const w = p.weight / total;
+        for (let i = 0; i < time.length; i++) acc[i] += w * at[i]!;
+      }
+      out.set(key, acc);
+    }
+    return out;
+  };
+  return {
+    time,
+    nodes: mix((tw) => tw.nodes),
+    branches: mix((tw) => tw.branches),
+    period: first.period,
+  };
+}
+
+/** Every time point of several monotonic axes, once each, in order. */
+function unionOfTimes(axes: ReadonlyArray<readonly number[]>): number[] {
+  const all: number[] = [];
+  for (const axis of axes) for (const t of axis) all.push(t);
+  all.sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const t of all) if (out.length === 0 || t !== out[out.length - 1]) out.push(t);
+  return out;
+}
+
+/** A waveform read at other time points, linearly between its own samples
+ *  and held at its ends (interpolateAt, walked once for a sorted axis). */
+function resampleOnto(time: readonly number[], x: readonly number[], onto: readonly number[]): number[] {
+  const n = Math.min(time.length, x.length);
+  const out = new Array<number>(onto.length);
+  let j = 0;
+  for (let i = 0; i < onto.length; i++) {
+    const t = onto[i]!;
+    while (j + 1 < n && time[j + 1]! <= t) j++;
+    if (n === 0) out[i] = NaN;
+    else if (t <= time[0]!) out[i] = x[0]!;
+    else if (j + 1 >= n) out[i] = x[n - 1]!;
+    else {
+      const t0 = time[j]!;
+      const t1 = time[j + 1]!;
+      out[i] = t1 === t0 ? x[j]! : x[j]! + ((x[j + 1]! - x[j]!) * (t - t0)) / (t1 - t0);
+    }
+  }
+  return out;
 }
 
 /**

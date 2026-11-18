@@ -1,6 +1,13 @@
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useElectricalStore } from '../../store/useElectricalStore';
-import { ldrModuleAoVolts, ldrModuleFixedOhms, ldrParams, ldrResistance } from '../spice/ldrModel';
+import {
+  ldrModuleAoVolts,
+  ldrModuleDoHigh,
+  ldrModuleDoThreshold,
+  ldrModuleFixedOhms,
+  ldrParams,
+  ldrResistance,
+} from '../spice/ldrModel';
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { attachSpiDevice } from '../buses';
 import type { AnySimulator, PartSimulationLogic } from './PartSimulationRegistry';
@@ -264,12 +271,20 @@ PartSimulationRegistry.register('slide-potentiometer', {
  * will give with the module on the board's own supply, from the same LDR
  * model (ldrModel.ts). Once a solve knows AO's net, the circuit owns AO, and
  * a light change only asks for the next solve.
+ *
+ * DO is the module's comparator (ldrModuleDoHigh): HIGH while AO is above
+ * `threshold` (2.5 V), in the dark, LOW in the light. Its LED (`ledDO`)
+ * lights when DO is LOW, as on the board and in Wokwi, whether DO is wired or
+ * not. A board that takes its inputs from the solve (spiceDrivenInputs) reads
+ * DO from the circuit, which models the comparator's open-collector output
+ * and the board's 10 kOhm pull-up (componentToSpice); any other gets the level
+ * from here. Before, nothing drove DO, and the LED copied the board pin's own
+ * level (velxio/velxio-prod#227).
  */
 PartSimulationRegistry.register('photoresistor-sensor', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const pinAO = getArduinoPinHelper('AO') ?? getArduinoPinHelper('A0');
     const pinDO = getArduinoPinHelper('DO') ?? getArduinoPinHelper('D0');
-    const pinManager = (avrSimulator as any).pinManager;
 
     const unsubscribers: (() => void)[] = [];
 
@@ -294,8 +309,59 @@ PartSimulationRegistry.register('photoresistor-sensor', {
     // The project's illumination (the canvas copies properties.lux onto the
     // element; the panel keeps it in step while running), 500 lux when it
     // sets none, as in the SPICE mapper.
-    const el = element as unknown as { lux?: unknown };
-    writeAo(elementNumber(el.lux, 500));
+    const el = element as unknown as { lux?: unknown; ledDO?: boolean };
+    let lux = elementNumber(el.lux, 500);
+    writeAo(lux);
+
+    // DO and its LED (see above). The comparator reads the divider's own
+    // level on the module's supply, as the netlist's does (componentToSpice):
+    // once a solve has landed, the supply is what it solved between VCC and
+    // GND (none with either leg unwired); before one, the board's rail.
+    const solvedVolts = (pin: string): number | undefined => {
+      const { pinNetMap, nodeVoltages } = useElectricalStore.getState();
+      const net = pinNetMap.get(`${componentId}:${pin}`);
+      if (net === undefined) return undefined;
+      if (net === '0') return 0;
+      const v = nodeVoltages[net];
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+    };
+    const pushesDo =
+      pinDO !== null &&
+      pinDO >= 0 &&
+      !(avrSimulator as { spiceDrivenInputs?: boolean }).spiceDrivenInputs;
+    let pushedDo: boolean | undefined;
+    const refreshDo = (luxNow?: number) => {
+      const props =
+        useSimulatorStore.getState().components.find((c) => c.id === componentId)?.properties ??
+        {};
+      const light = luxNow ?? elementNumber(props.lux, lux);
+      const solved = useElectricalStore.getState().pinNetMap.size > 0;
+      const gnd = solvedVolts('GND');
+      const vcc = solvedVolts('VCC');
+      const supply = !solved
+        ? analogRailVolts(avrSimulator)
+        : vcc !== undefined && gnd !== undefined
+          ? vcc - gnd
+          : 0;
+      const level = ldrModuleAoVolts(
+        supply,
+        ldrResistance(light, ldrParams(props)),
+        ldrModuleFixedOhms(props),
+      );
+      const powered = supply > 0.5;
+      const high = powered && ldrModuleDoHigh(level, ldrModuleDoThreshold(props));
+      el.ledDO = powered && !high;
+      if (pushesDo && pushedDo !== high) {
+        pushedDo = high;
+        avrSimulator.setPinState(pinDO!, high);
+      }
+    };
+    refreshDo(lux);
+    unsubscribers.push(
+      useElectricalStore.subscribe((state, prev) => {
+        if (state.nodeVoltages !== prev.nodeVoltages || state.pinNetMap !== prev.pinNetMap) refreshDo();
+      }),
+    );
 
     // Watch element's 'input' events in case the element supports it
     const onInput = () => {
@@ -305,29 +371,23 @@ PartSimulationRegistry.register('photoresistor-sensor', {
         // Sensors popover): an LDR's whole useful range lives in the low
         // decades, and the linear map crammed it into the first few percent
         // of travel. Mirror it to the store, which re-solves the circuit.
-        const lux = logSliderToValue((val / 1023) * LOG_SLIDER_STEPS, 0, 1000);
+        lux = logSliderToValue((val / 1023) * LOG_SLIDER_STEPS, 0, 1000);
         writeAo(lux);
+        refreshDo(lux);
         emitPropertyChange(componentId, 'lux', lux);
       }
     };
     element.addEventListener('input', onInput);
     unsubscribers.push(() => element.removeEventListener('input', onInput));
 
-    // DO (digital output) — if connected, update element's LED indicator
-    if (pinDO !== null && pinManager) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinDO, (_: number, state: boolean) => {
-          (element as any).ledDO = state;
-        }),
-      );
-    }
-
     // SensorControlPanel: lux 0–1000. The property change re-solves the
     // circuit, which writes AO.
     registerSensorUpdate(componentId, (values) => {
       if ('lux' in values) {
         el.lux = values.lux;
-        writeAo(values.lux as number);
+        lux = values.lux as number;
+        writeAo(lux);
+        refreshDo(lux);
         emitPropertyChange(componentId, 'lux', values.lux);
       }
     });

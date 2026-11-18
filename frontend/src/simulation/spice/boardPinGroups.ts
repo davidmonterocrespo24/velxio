@@ -49,6 +49,16 @@ export interface BoardPinGroup {
    * figures this table does not carry yet.
    */
   pinDrive?: PinDrive;
+  /**
+   * What a GPIO pad takes at most: the datasheet's absolute maximum for an
+   * I/O pin (VCC + 0.5 V on an ATmega or an ATtiny, IOVDD + 0.5 V on the
+   * RP2040), with the chip and the rule the circuit check's warning names
+   * when the circuit puts more on a GPIO (verify/gpioOverVoltage). An
+   * Espressif chip needs no entry (VDD + 0.3 V, from its family). Absent
+   * otherwise, nothing is checked: an STM32's 5 V-tolerant (FT) pads sit
+   * beside pads that are not, and telling them apart takes per-pin data.
+   */
+  gpioMax?: GpioPadMax;
 }
 
 /** A board's output pins as their datasheet gives them. */
@@ -84,6 +94,21 @@ const atmegaDrive = (chip: string): PinDrive => ({
   supplyMaxA: 0.2,
   chip,
 });
+
+/** A board's GPIO limit (BoardPinGroup.gpioMax). */
+export interface GpioPadMax {
+  /** Volts. */
+  volts: number;
+  /** The chip whose pads these are: "ATmega328P". */
+  chip: string;
+  /** How its datasheet gives the limit: "VCC + 0.5 V". */
+  rule: string;
+}
+
+/** An ATmega's or an ATtiny's pins: VCC + 0.5 V on a 5 V board. */
+const avrPads = (chip: string): GpioPadMax => ({ volts: 5.5, chip, rule: 'VCC + 0.5 V' });
+/** The RP2040's pins: IOVDD + 0.5 V with its IO on 3.3 V; none is 5 V tolerant. */
+const RP2040_PADS: GpioPadMax = { volts: 3.8, chip: 'RP2040', rule: 'IOVDD + 0.5 V' };
 
 /** The supply voltages a power input runs from, V (datasheet operating range). */
 export interface PowerInputRange {
@@ -129,6 +154,8 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
   // Arduino's analogReference: "an internal 32K resistor on the AREF pin").
   // It used to sit on the 5 V rail, which pinned a divider or a reference
   // wired there to the ideal 5 V source (velxio/velxio-prod#154).
+  // An ATmega's pins take VCC + 0.5 V at most (datasheet, absolute maximum
+  // ratings: "Voltage on any Pin except RESET").
   'arduino-uno': {
     vcc: 5,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
@@ -136,6 +163,7 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     aux: { volts: 3.3, pins: ['3.3V'] },
     pinLoads: { AREF: 32_000 },
     pinDrive: atmegaDrive('ATmega328P'),
+    gpioMax: avrPads('ATmega328P'),
   },
   'arduino-nano': {
     vcc: 5,
@@ -146,6 +174,7 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     aux: { volts: 3.3, pins: ['3.3V', '3V3'] },
     pinLoads: { AREF: 32_000 },
     pinDrive: atmegaDrive('ATmega328P'),
+    gpioMax: avrPads('ATmega328P'),
   },
   'arduino-mega': {
     vcc: 5,
@@ -154,10 +183,17 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     aux: { volts: 3.3, pins: ['3.3V'] },
     pinLoads: { AREF: 32_000 },
     pinDrive: atmegaDrive('ATmega2560'),
+    gpioMax: avrPads('ATmega2560'),
   },
   // A bare chip: VCC is its only supply pin, and the ATtiny85 runs from
   // 2.7 V to 5.5 V (datasheet, operating voltage). Velxio runs it at 5 V.
-  attiny85: { vcc: 5, gnd: ['GND'], vcc_pins: ['VCC'], powerInputs: { VCC: { min: 2.7, max: 5.5 } } },
+  attiny85: {
+    vcc: 5,
+    gnd: ['GND'],
+    vcc_pins: ['VCC'],
+    powerInputs: { VCC: { min: 2.7, max: 5.5 } },
+    gpioMax: avrPads('ATtiny85'),
+  },
 
   // STM32 family — 3.3 V logic. Bluepill silkscreens repeat bare GND/3V3.
   'stm32-bluepill': STM32_GROUP,
@@ -170,17 +206,21 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
   'stm32-netduino2': STM32_GROUP,
 
   // ADC_VREF is the ADC reference, the 3.3 V supply through a filter.
+  // The RP2040's pins take IOVDD + 0.5 V at most (datasheet, absolute
+  // maximum ratings): none is 5 V tolerant.
   'raspberry-pi-pico': {
     vcc: 3.3,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
     vcc_pins: ['3V3', 'ADC_VREF'],
     aux: { volts: 5, pins: ['VBUS', 'VSYS'] },
+    gpioMax: RP2040_PADS,
   },
   'pi-pico-w': {
     vcc: 3.3,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
     vcc_pins: ['3V3', 'ADC_VREF'],
     aux: { volts: 5, pins: ['VBUS', 'VSYS'] },
+    gpioMax: RP2040_PADS,
   },
   'raspberry-pi-3': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
   'raspberry-pi-4': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },

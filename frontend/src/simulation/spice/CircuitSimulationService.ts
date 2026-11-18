@@ -33,6 +33,7 @@ import type { NodeMemoryCell, SwitchMemoryCell, TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
 import { transientShortfall } from './transientShortfall';
+import { mixCaptures } from './waveformStats';
 
 /** What the service needs from the simulator store. */
 export interface SimulatorStorePort {
@@ -68,6 +69,9 @@ export interface SolveWindowState {
   levels: Record<string, number>;
   nodeVoltages: Record<string, number>;
   branchCurrents: Record<string, number>;
+  /** The state's own transient capture, when it was solved as one (a deck
+   *  whose sources move by themselves); its scalars are the last sample. */
+  timeWaveforms?: TimeWaveforms;
 }
 
 /** The circuit over the last publish window, time-weighted. Mirrors
@@ -98,6 +102,9 @@ export interface ElectricalSnapshot {
    * whose transient is only a step response or a scope window); the scalar
    * fields are then the whole truth. Every reader that prefers a capture over
    * the scalar values (the LED part, the ADC hooks, the meters) reads this.
+   * A state whose static PWM pads sit at their mean is never the circuit's:
+   * its capture is the mix of the captures of the HIGH and LOW states the
+   * pads go through, weighted by their shares of the period (mixCaptures).
    */
   timeWaveforms?: TimeWaveforms;
   /**
@@ -480,6 +487,7 @@ export class CircuitSimulationService {
     }
     this.timeline = null;
     this.cache.clear();
+    this.mixMemo = null;
     this.deckShape = null;
     this.pwmPads = [];
     this.healRequests.clear();
@@ -676,8 +684,9 @@ export class CircuitSimulationService {
    * the HIGH and LOW states its static PWM pads went through (pwmSplit). The
    * longest-held states are solved: every one the cache already holds, and
    * at most MAX_STATE_SOLVES_PER_WINDOW that it does not, which is the bound
-   * on solver duty; the latest is always solved. False when the latest could
-   * not be (nothing was published).
+   * on solver duty; the latest is always solved, and so is every state its
+   * PWM pads split it into. False when the latest could not be (nothing was
+   * published).
    */
   private async publishStates(
     states: ReadonlyArray<WindowState>,
@@ -685,19 +694,33 @@ export class CircuitSimulationService {
     windowMs: number,
   ): Promise<boolean> {
     const ranked = this.splitStates(states.filter((s) => s.ms > 0)).sort((a, b) => b.ms - a.ms);
+    const split = this.pwmSplit(latestState.levels);
+    // The split of the state the pads hold is one picture: k static PWM pads
+    // at distinct duties make k + 1 states, and a window that left one out
+    // renormalised the rest, so four LEDs at 20/40/60/80 % glowed at
+    // 25/50/75/100 %, and an LED HIGH only in a dropped state stayed dark,
+    // for as long as nothing else published (velxio/velxio-prod#233).
+    const always = new Set(split ? split.map((s) => stateKey(s.levels)) : []);
     const chosen: WindowState[] = [];
     let solves = CircuitSimulationService.MAX_STATE_SOLVES_PER_WINDOW;
     for (const s of ranked) {
-      if (this.cache.has(s.key)) chosen.push(s);
+      if (this.cache.has(s.key) || always.has(s.key)) chosen.push(s);
       else if (solves > 0) {
         chosen.push(s);
         solves--;
       }
     }
-    const latestSplit = this.pwmSplit(latestState.levels) !== null;
+    const latestSplit = split !== null;
     if (!chosen.some((s) => s.key === latestState.key)) {
       // A split latest state's time is its split states' (counted above).
       chosen.push(latestSplit ? { ...latestState, ms: 0 } : latestState);
+    }
+    // The capture of a split latest state is made of its split states', so
+    // each is solved even when this window did not reach it (it then has no
+    // time in the window).
+    for (const sub of split ?? []) {
+      const key = stateKey(sub.levels);
+      if (!chosen.some((s) => s.key === key)) chosen.push({ key, levels: sub.levels, ms: 0 });
     }
     const solved: Array<{ state: WindowState; vec: StateVectors }> = [];
     for (const state of chosen) {
@@ -718,13 +741,54 @@ export class CircuitSimulationService {
           levels: this.levelsRecord(s.state.levels),
           nodeVoltages: s.vec.nodeVoltages,
           branchCurrents: s.vec.branchCurrents,
+          ...(s.vec.timeWaveforms ? { timeWaveforms: s.vec.timeWaveforms } : {}),
         })),
     };
     // A latest state whose PWM pads sit at their mean is the snapshot the
-    // level readers expect, not a state the circuit is ever in: its capture
-    // is not published as the circuit's (the window is the circuit).
-    this.publish(latest.vec, window, latestSplit);
+    // level readers expect, not a state the circuit is ever in: its own
+    // capture is not the circuit's. What the circuit does over a capture
+    // window is its split states' captures, weighted by their shares of the
+    // PWM period: with a generator on the canvas, that is the generator's
+    // wave on its net, which the ADC replay, the meters and an LED on it read
+    // from the capture. Publishing none left them the last sample of the
+    // wave, a DC level (velxio/velxio-prod#232).
+    const capture = split ? this.splitCapture(split, solved) : undefined;
+    this.publish(latest.vec, window, latestSplit, capture);
     return true;
+  }
+
+  /** The last capture mixed for a split state, with what it was mixed from,
+   *  so publishing the same split again publishes the same object. */
+  private mixMemo: { parts: Array<{ capture: TimeWaveforms; weight: number }>; mixed: TimeWaveforms } | null = null;
+
+  /**
+   * The capture of a state whose static PWM pads sit at their mean: the
+   * captures of its split states mixed by their shares of the period
+   * (mixCaptures), or undefined when one of them has none (an operating
+   * point: the deck's sources do not move by themselves).
+   */
+  private splitCapture(
+    split: ReadonlyArray<{ levels: number[]; weight: number }>,
+    solved: ReadonlyArray<{ state: WindowState; vec: StateVectors }>,
+  ): TimeWaveforms | undefined {
+    const parts: Array<{ capture: TimeWaveforms; weight: number }> = [];
+    for (const sub of split) {
+      const key = stateKey(sub.levels);
+      const capture = solved.find((s) => s.state.key === key)?.vec.timeWaveforms;
+      if (!capture) return undefined;
+      parts.push({ capture, weight: sub.weight });
+    }
+    const memo = this.mixMemo;
+    if (
+      memo &&
+      memo.parts.length === parts.length &&
+      memo.parts.every((p, i) => p.capture === parts[i]!.capture && p.weight === parts[i]!.weight)
+    ) {
+      return memo.mixed;
+    }
+    const mixed = mixCaptures(parts);
+    this.mixMemo = mixed ? { parts, mixed } : null;
+    return mixed;
   }
 
   /**
@@ -956,7 +1020,10 @@ export class CircuitSimulationService {
     this.padIndex = index;
     this.pwmPads = pwm;
     this.solverLevels = levels.slice();
-    if (!samePads) this.cache.clear();
+    if (!samePads) {
+      this.cache.clear();
+      this.mixMemo = null;
+    }
     const now = nowMs();
     this.timeline = new PadTimeline(levels, now);
     for (const [key, i] of index) {
@@ -1160,15 +1227,23 @@ export class CircuitSimulationService {
 
   /** Publish one state as the instantaneous snapshot, with the window it
    *  closes when there is one. `synthetic`: the state is a PWM pad's mean,
-   *  which the circuit is never in (see pwmPads), so its capture is not the
-   *  circuit's. */
-  private publish(vec: StateVectors, window: SolveWindow | undefined, synthetic = false): void {
+   *  which the circuit is never in (see pwmPads), so its own capture is not
+   *  the circuit's: `splitCapture`, the mix of its split states' captures,
+   *  is published in its place when there is one. */
+  private publish(
+    vec: StateVectors,
+    window: SolveWindow | undefined,
+    synthetic = false,
+    splitCapture?: TimeWaveforms,
+  ): void {
     const ctx = this.loadedContext;
     if (!ctx) return;
     // The capture published is this state's own or none (see
     // ElectricalSnapshot.timeWaveforms); the scope keeps the latest one.
-    const timeWaveforms = ctx.analysisKind === 'tran' && !synthetic ? vec.timeWaveforms : undefined;
+    const own = synthetic ? splitCapture : vec.timeWaveforms;
+    const timeWaveforms = ctx.analysisKind === 'tran' ? own : undefined;
     if (ctx.analysisKind !== 'tran') this.lastTimeWaveforms = undefined;
+    else if (own) this.lastTimeWaveforms = own;
     else if (vec.timeWaveforms) this.lastTimeWaveforms = vec.timeWaveforms;
     this.electricalStore.publish({
       nodeVoltages: vec.nodeVoltages,
