@@ -145,7 +145,11 @@ describe('a pin that pulls a sealed relay in leaves it in (velxio/velxio-prod#10
       {
         components: [
           { id: 'd1', metadataId: 'diode-1n4148', properties: {} },
-          { id: 'k1', metadataId: 'relay', properties: { coil_voltage: 5 } },
+          // A sensitive 5 V coil (1 kΩ, 5 mA): since #140 an ATmega pin drives
+          // the circuit through its output impedance, and the default 70 Ω coil
+          // would ask it for about 60 mA, past its 40 mA absolute maximum, and
+          // never reach the pull-in voltage, as with a real pin.
+          { id: 'k1', metadataId: 'relay', properties: { coil_voltage: 5, coil_resistance: 1000 } },
         ],
         wires: [
           w('w1', ['arduino-uno', '9'], ['d1', 'A']),

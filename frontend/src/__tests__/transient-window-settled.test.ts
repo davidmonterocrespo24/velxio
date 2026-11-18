@@ -249,9 +249,14 @@ describe('which decks settle, and for how long', () => {
   });
 
   it('a voltmeter on an op-amp output does not make the feedback capacitor a 1 s time constant', () => {
-    // The integrator's square wave starts away from its mean, but the only
-    // resistance its 100 nF sees at the op-amp's output is the meter's 10 MΩ.
-    expect(galleryCard('an-opamp-integrator').split(/\s+/)).toHaveLength(3);
+    // The integrator's square wave starts away from its mean. Since #127 its
+    // 100 nF has a 22 k Rf across it (Rf * Cf = 2.2 ms), so it settles through
+    // a start-up of a few Rf * Cf; the meter's 10 MΩ on the op-amp output
+    // would have made it a 1 s time constant and a 7 s start-up.
+    const [, , stop, start] = galleryCard('an-opamp-integrator').split(/\s+/);
+    expect(Number(start)).toBeGreaterThan(0);
+    expect(Number(start)).toBeLessThan(0.05);
+    expect(Number(stop) - Number(start)).toBeCloseTo(0.02, 6);
   });
 
   it('a series RLC decays with L/R through its resistor, not through the meter across its capacitor', () => {
