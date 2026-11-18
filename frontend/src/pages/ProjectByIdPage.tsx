@@ -169,6 +169,9 @@ export function buildLoadPayload(project: RawProject) {
         x: b.x ?? 50,
         y: b.y ?? 50,
         rotation: b.rotation,
+        // A board plugged into a breadboard (utils/boardSeat.ts).
+        scale: b.scale,
+        seatedOn: b.seatedOn,
         running: false,
         compiledProgram: b.compiledProgram ?? null,
         serialOutput: '',

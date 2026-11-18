@@ -26,6 +26,7 @@
 import { UnionFind } from '../spice/unionFind';
 import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping';
 import { syntheticNetPin } from './syntheticPins';
+import { breadboardGroupKey } from '../../utils/breadboardNets';
 
 // Structural view of the slice of simulator state this module needs. The real
 // useSimulatorStore state is a superset, so it satisfies this shape directly —
@@ -147,6 +148,27 @@ function buildIndex(state: ChipNetState): ChipNetIndex {
   }
 
   const compById = new Map(state.components.map((c) => [c.id, c]));
+
+  // Holes of one breadboard strip (a 5-hole column, a whole rail) are one
+  // node, exactly as the SPICE netlist and the pin trace treat them. Without
+  // this a chip plugged into the strip of a board pin was on no board's net:
+  // only a wire straight to the board joined them, and a board plugged into
+  // the breadboard reaches its parts through strips alone.
+  const stripFirst = new Map<string, string>();
+  for (const wire of state.wires) {
+    for (const ep of [wire.start, wire.end]) {
+      const comp = compById.get(ep.componentId);
+      if (!comp) continue;
+      const group = breadboardGroupKey(comp.metadataId, ep.pinName);
+      if (group === null) continue;
+      const strip = `${ep.componentId}${SEP}${group}`;
+      const key = epKey(ep.componentId, ep.pinName);
+      const first = stripFirst.get(strip);
+      if (first === undefined) stripFirst.set(strip, key);
+      else uf.union(first, key);
+    }
+  }
+
   const boardById = new Map(state.boards.map((b) => [b.id, b]));
   const nets = new Map<string, NetInfo>();
 

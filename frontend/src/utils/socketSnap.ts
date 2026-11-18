@@ -63,8 +63,15 @@ export function snapBoardToSocket(
   if (!boardPins || boardPins.length === 0) return null;
   // A turned board does not seat: the socket match below compares its
   // unrotated pin layout. BoardOnCanvas tags the rotated board container.
-  const turned = boardEl?.closest('[data-board-rotation]')?.getAttribute('data-board-rotation');
+  const wrapper = boardEl?.closest('[data-board-rotation]');
+  const turned = wrapper?.getAttribute('data-board-rotation');
   if (turned && turned !== '0') return null;
+  // Nor does a board drawn at another scale (one seated on a breadboard is
+  // shown at the breadboard's real scale): its pads no longer sit on the
+  // socket's grid, and a breadboard-seated XIAO left near a Round Display
+  // must not read as plugged into it (PinTrace joins nets through a socket).
+  const scaled = wrapper?.getAttribute('data-board-scale');
+  if (scaled && Number(scaled) !== 1) return null;
 
   let best: { dx: number; dy: number; dist: number } | null = null;
   for (const c of components) {

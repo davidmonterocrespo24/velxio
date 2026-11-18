@@ -2,13 +2,21 @@
  * Board geometry on the canvas: footprint size, rotation, and the rotated
  * bounding box.
  *
- * A board keeps (x, y) as the top-left of its UNROTATED footprint and turns
- * about the footprint's centre, the same convention components use (their
- * wrapper rotates about `center center`). Every consumer that turns a board
- * pin into canvas coordinates rotates (x + pin.x, y + pin.y) about that
- * centre — see calculatePinPosition's pivotBox and PinOverlay's pivotBox.
+ * A board keeps (x, y) as the top-left of its UNROTATED, UNSCALED footprint
+ * and turns about the footprint's centre, the same convention components use
+ * (their wrapper rotates about `center center`). A board seated on a
+ * breadboard is also scaled (utils/boardSeat.ts), about that same centre:
+ *
+ *   pin on canvas = C + R(rotation) * scale * (pin - c0)
+ *   C = (x + w/2, y + h/2),  c0 = (w/2, h/2),  w/h = boardSize(kind)
+ *
+ * which is exactly what BoardOnCanvas's `rotate() scale()` does about its
+ * transform-origin C. Every consumer that turns a board pin into canvas
+ * coordinates goes through boardPinPosition (or calculatePinPosition with the
+ * same pivotBox + scale) and every footprint consumer through boardBox.
  */
 import { getProBoard } from '../lib/proBoardRegistry';
+import { calculatePinPosition } from './pinPositionCalculator';
 
 // Board visual dimensions (width × height) for the drag-overlay sizing.
 // ESP32 sizes match the wokwi-boards SVG rendered at 5 px/mm.
@@ -71,18 +79,59 @@ export function normalizeRotation(rotation: unknown): number {
   return ((r % 360) + 360) % 360;
 }
 
-/** Canvas-space bounding box of a (possibly rotated) board. */
+/**
+ * Drawing scale of a board: a finite positive number, 1 when unset or
+ * nonsense. Clamped to a sane band so a corrupt saved value can neither
+ * collapse a board to a dot nor blow it up over the canvas.
+ */
+export function normalizeScale(scale: unknown): number {
+  const s = Number(scale);
+  if (!Number.isFinite(s) || s <= 0) return 1;
+  return Math.min(2, Math.max(0.2, s));
+}
+
+/**
+ * Canvas-space bounding box of a (possibly rotated, possibly scaled) board.
+ *
+ * Rotation and scale both act about the centre of the UNSCALED, unrotated
+ * footprint, so that centre never moves: a board that shrinks to seat on a
+ * breadboard shrinks in place under the cursor.
+ */
 export function boardBox(board: {
   boardKind: string;
   x: number;
   y: number;
   rotation?: number;
+  scale?: number;
 }): { left: number; top: number; w: number; h: number } {
   const size = boardSize(board.boardKind);
+  const s = normalizeScale(board.scale);
   const quarter = normalizeRotation(board.rotation) % 180 !== 0;
-  const w = quarter ? size.h : size.w;
-  const h = quarter ? size.w : size.h;
+  const w = (quarter ? size.h : size.w) * s;
+  const h = (quarter ? size.w : size.h) * s;
   const cx = board.x + size.w / 2;
   const cy = board.y + size.h / 2;
   return { left: cx - w / 2, top: cy - h / 2, w, h };
+}
+
+/**
+ * Canvas position of one board pin, honouring the board's rotation and
+ * scale. The single entry point for board pins: every wire endpoint, seat
+ * and overlay that hand-assembled calculatePinPosition's arguments for a
+ * board goes through here, so a board can never be drawn at one scale and
+ * wired at another. Null when the element or the pin cannot be found.
+ */
+export function boardPinPosition(
+  board: { id: string; boardKind: string; x: number; y: number; rotation?: number; scale?: number },
+  pinName: string,
+): { x: number; y: number } | null {
+  return calculatePinPosition(
+    board.id,
+    pinName,
+    board.x,
+    board.y,
+    normalizeRotation(board.rotation),
+    boardSize(board.boardKind),
+    normalizeScale(board.scale),
+  );
 }

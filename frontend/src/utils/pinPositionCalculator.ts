@@ -38,6 +38,10 @@ export function calculatePinPosition(
    *  componentY). Boards pass their footprint: they have no
    *  DynamicComponent wrapper to measure. */
   pivotBox?: { w: number; h: number },
+  /** Uniform scale about the pivotBox centre (boards seated on a breadboard
+   *  are drawn at the breadboard's real scale). Only honoured together with
+   *  pivotBox; 1 leaves today's maths untouched. */
+  scale: number = 1,
 ): { x: number; y: number } | null {
   // Get the DOM element
   const element = document.getElementById(componentId);
@@ -136,12 +140,16 @@ export function calculatePinPosition(
   // with the component, surfacing as an obvious "wires disconnected
   // from the pin" once the user pressed R.
   const angle = ((rotation % 360) + 360) % 360;
-  if (angle !== 0 && pivotBox) {
+  const s = pivotBox && Number.isFinite(scale) && scale > 0 ? scale : 1;
+  if ((angle !== 0 || s !== 1) && pivotBox) {
+    // Board path: rotate AND scale about the footprint centre, the same
+    // transform BoardOnCanvas applies with `rotate() scale()` about that
+    // centre (see utils/boardGeometry.ts for the convention).
     const pivotX = componentX + pivotBox.w / 2;
     const pivotY = componentY + pivotBox.h / 2;
     const theta = (angle * Math.PI) / 180;
-    const dx = pinX - pivotX;
-    const dy = pinY - pivotY;
+    const dx = (pinX - pivotX) * s;
+    const dy = (pinY - pivotY) * s;
     pinX = pivotX + (dx * Math.cos(theta) - dy * Math.sin(theta));
     pinY = pivotY + (dx * Math.sin(theta) + dy * Math.cos(theta));
   } else if (angle !== 0) {
@@ -185,16 +193,19 @@ export function rotatePinLocal(
   wrapperBox: { w: number; h: number } | null,
   wrapperOffsetX: number,
   wrapperOffsetY: number,
+  /** Uniform scale about the same centre (boards on a breadboard). */
+  scale: number = 1,
 ): { x: number; y: number } {
   const angle = ((rotation % 360) + 360) % 360;
-  if (angle === 0 || !wrapperBox) return { x, y };
+  const s = wrapperBox && Number.isFinite(scale) && scale > 0 ? scale : 1;
+  if ((angle === 0 && s === 1) || !wrapperBox) return { x, y };
   const pivotX = -wrapperOffsetX + wrapperBox.w / 2;
   const pivotY = -wrapperOffsetY + wrapperBox.h / 2;
   const theta = (angle * Math.PI) / 180;
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
-  const dx = x - pivotX;
-  const dy = y - pivotY;
+  const dx = (x - pivotX) * s;
+  const dy = (y - pivotY) * s;
   return { x: pivotX + dx * cos - dy * sin, y: pivotY + dx * sin + dy * cos };
 }
 

@@ -125,6 +125,18 @@ export interface BoardInstance {
   /** Clockwise rotation in degrees (0 / 90 / 180 / 270) about the centre of
    *  the board's footprint; (x, y) stays the unrotated top-left. */
   rotation?: number;
+  /** Uniform drawing scale about the same centre as `rotation`; (x, y) stays
+   *  the top-left of the UNSCALED, unrotated footprint. Undefined means 1.
+   *  Only a board plugged into a breadboard has one: most boards are drawn
+   *  about 1.32x larger than the breadboard's 0.1 inch (9.6 px) grid, so a
+   *  seated board is shown at the grid's real scale (utils/boardSeat.ts). */
+  scale?: number;
+  /** Id of the breadboard component this board is plugged into, or undefined.
+   *  The seat itself is one `bb` wire per header pad (pad to hole), exactly as
+   *  for a seated part; this field is what says the board IS seated, because
+   *  neither `scale` (an Arduino Nano seats at scale 1) nor the presence of
+   *  board-ended `bb` wires (Wokwi imports create those) can tell. */
+  seatedOn?: string;
   running: boolean;
   // QEMU-Linux (Raspberry Pi 3/4/5/Zero/1/2) only. `running` flips true the
   // instant the user clicks Start (the WebSocket opens in ~1s), but the guest

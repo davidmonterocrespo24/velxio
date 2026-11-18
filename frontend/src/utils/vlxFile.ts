@@ -53,6 +53,12 @@ export interface VlxPayload {
     activeFileGroupId: string;
     languageMode?: string;
     serialBaudRate?: number;
+    /** Quarter turns; absent when unrotated. */
+    rotation?: number;
+    /** Breadboard component id the board is plugged into, and the drawing
+     *  scale that seat uses; both absent unless seated. */
+    seatedOn?: string;
+    scale?: number;
     sdFiles?: Array<{ name: string; contentB64: string }>;
     /** Declared library manifest (compile scope). Absent in old files. */
     libraries?: string[];
@@ -75,6 +81,16 @@ function serialisableBoard(b: BoardInstance) {
     y: b.y,
     // Only a turned board carries it, so unrotated projects save unchanged.
     ...(b.rotation ? { rotation: b.rotation } : {}),
+    // Only a board plugged into a breadboard carries these (its seat wires
+    // ride in wires_json), so every other project saves byte-identical and
+    // its autosave hash does not move. A scale without a seat (a drag
+    // preview caught mid-gesture) is never persisted.
+    ...(b.seatedOn
+      ? {
+          seatedOn: b.seatedOn,
+          ...(b.scale !== undefined && b.scale !== 1 ? { scale: b.scale } : {}),
+        }
+      : {}),
     activeFileGroupId: b.activeFileGroupId,
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,

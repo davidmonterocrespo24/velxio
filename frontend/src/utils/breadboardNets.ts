@@ -25,6 +25,16 @@
 
 const BREADBOARD_IDS = new Set(['breadboard', 'breadboard-mini']);
 
+/**
+ * True for a SEAT wire: the invisible zero-length wire that joins a pin
+ * plugged into a breadboard (a part's, or a board's) to the hole under it.
+ * Electrically real, so the netlist and every trace keep it; but it is not a
+ * wire the user drew, so counts, labels and "N wires" messages leave it out.
+ */
+export function isSeatWire(w: { bb?: boolean }): boolean {
+  return w.bb === true;
+}
+
 /** True when the metadataId is one of the breadboard parts. */
 export function isBreadboard(metadataId: string): boolean {
   return BREADBOARD_IDS.has(metadataId);
