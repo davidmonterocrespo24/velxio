@@ -148,7 +148,14 @@ class _PeekGuard:
         at = self.flag_at
         if at is None:
             return False
-        base = self.runtime.mem_address()
+        runtime = self.runtime
+        base = runtime.mem_address()
+        # The flag and the mark are two bytes of the chip's memory, read and
+        # written through its address: one the memory does not hold is no
+        # flag (watch_peeks refuses it; this keeps a host that sets flag_at
+        # by hand inside the memory as well).
+        if at < 0 or at + 2 > runtime._mem_size:
+            return False
         if not ctypes.c_uint8.from_address(base + at).value:
             return False
         ctypes.c_uint8.from_address(base + at + 1).value = 1
@@ -711,6 +718,9 @@ class WasmChipRuntime:
 
         # SPI state: one entry per vx_spi_attach (see _SpiHandle).
         self._spi_handles: list[_SpiHandle] = []
+        # Set once a buffer outside the chip's memory was refused, so the
+        # chip is told the first time and not on every arm.
+        self._spi_refused = False
 
         # Timer state — list of active timers
         # each: {cb_idx, user_data, period_ns, repeat, next_fire_ns, active}
@@ -985,8 +995,35 @@ class WasmChipRuntime:
         lo, hi = st.cache_lo, min(st.pos, len(cache))
         if hi > lo:
             view = self._mem_view()
+            # Only a buffer inside the chip's memory is ever armed
+            # (vx_spi_start); this keeps the write there whatever armed it.
+            if st.ptr + lo < 0 or st.ptr + hi > len(view):
+                return
             ctypes.memmove(ctypes.addressof(view) + st.ptr + lo,
                            bytes(cache[lo:hi]), hi - lo)
+
+    def _holds(self, ptr: int, length: int) -> bool:
+        """Whether the `length` bytes at `ptr` all lie in the chip's linear
+        memory. Asked of the engine, so it is right from inside a host call
+        too, where the cached view may be stale."""
+        return 0 <= ptr and 0 <= length and ptr + length <= self._memory.data_len(self._store)
+
+    def _refuse_spi_buffer(self, st: _SpiHandle | None = None) -> int:
+        """A buffer the chip's memory does not hold is not served: nothing is
+        armed (the line idles high, no on_done follows) and the chip's console
+        gets one line saying so, the first time. Returns the idle MISO byte.
+        The bytes of an SPI buffer are read and written through the memory's
+        address, so this is what keeps them inside it. (The tab's runtime
+        reads such bytes as 0xFF and drops the writes; velxio-chip.h has the
+        buffer in the chip's own memory, which every chip in the tree keeps.)"""
+        if st is not None:
+            st.clear()
+        if not self._spi_refused:
+            self._spi_refused = True
+            self._emit({"type": "chip_error", "where": "spi_start",
+                        "error": "vx_spi_start: the buffer is not inside the chip's "
+                                 "memory; nothing was armed"})
+        return 0xFF
 
     def _read_cstring(self, ptr: int) -> str:
         if ptr == 0:
@@ -1390,9 +1427,18 @@ class WasmChipRuntime:
         def vx_spi_start(handle: int, buf_ptr: int, count: int) -> None:
             if not (0 <= handle < len(self._spi_handles)):
                 return
+            st = self._spi_handles[handle]
+            count = max(0, int(count))
+            # The host serves the armed bytes straight from the chip's memory,
+            # so a buffer that memory does not hold is never armed. The
+            # memory only grows, so a buffer inside it now stays inside.
+            if count and not self._holds(buf_ptr, count):
+                st.arm(0, 0)
+                self._refuse_spi_buffer()
+                return
             # Called from inside wasm, so any copy was already written back.
             # An empty exchange arms nothing: no byte to shift, no completion.
-            self._spi_handles[handle].arm(buf_ptr, max(0, int(count)))
+            st.arm(buf_ptr, count)
 
         def vx_spi_stop(handle: int) -> None:
             if not (0 <= handle < len(self._spi_handles)):
@@ -1837,7 +1883,15 @@ class WasmChipRuntime:
         not be run ahead."""
         if self._peek_guard is None or _RAW_CALL is None:
             return False
-        self._peek_guard.flag_at = int(flag_at)
+        flag_at = int(flag_at)
+        # The flag and its mark are two bytes the guard reads and writes
+        # through the memory's address: outside the memory there is no flag,
+        # and the chip is not run ahead. The memory only grows, so an
+        # address inside it now stays inside.
+        self.mem_address()
+        if flag_at < 0 or flag_at + 2 > self._mem_size:
+            return False
+        self._peek_guard.flag_at = flag_at
         return True
 
     @_under_entry_lock
@@ -1849,6 +1903,8 @@ class WasmChipRuntime:
         the panel's thread pushes while the bus thread may be in the chip."""
         if _RAW_CALL is None:
             view = self._mem_view()
+            if ptr < 0 or ptr + len(data) > len(view):
+                raise IndexError("write outside the chip's memory")
             ctypes.memmove(ctypes.addressof(view) + ptr, data, len(data))
             return
         base = self.mem_address()
@@ -2168,6 +2224,11 @@ class WasmChipRuntime:
             return 0xFF
         if count - pos >= self._SPI_CACHE_MIN:
             view = self._mem_view()
+            # vx_spi_start arms only a buffer inside the chip's memory; the
+            # copy is read through the memory's address, so it is checked
+            # again here rather than trusted.
+            if st.ptr < 0 or st.ptr + count > len(view):
+                return self._refuse_spi_buffer(st)
             cache = st.cache = bytearray(
                 ctypes.string_at(ctypes.addressof(view) + st.ptr, count))
             st.cache_lo = pos
@@ -2181,6 +2242,8 @@ class WasmChipRuntime:
         if view is None:
             view = self._mem_view()
         off = st.ptr + pos
+        if off < 0 or off >= len(view):
+            return self._refuse_spi_buffer(st)
         miso_byte = view[off]          # the chip's pre-filled response
         view[off] = mosi & 0xFF        # what the master sent, for on_done
         pos += 1
