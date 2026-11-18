@@ -142,11 +142,11 @@ const EXPECTED_SERIAL_OUTPUT = [
   'I (432) wifi:wifi sta start',
   'I (500) wifi:new:Velxio-GUEST, old: , ASSOC',
   'I (800) wifi:connected with Velxio-GUEST, aid = 1, channel 6',
-  'I (1200) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0',
+  'I (1200) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2',
   'Conectando',
   '...',
   'Conectado!',
-  'IP: 192.168.4.2',
+  'IP: 192.168.4.15',
   'Servidor HTTP iniciado',
 ];
 
@@ -287,7 +287,7 @@ describe('WebServer sketch — WiFi connection lifecycle', () => {
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(statuses).toHaveLength(3);
@@ -295,7 +295,7 @@ describe('WebServer sketch — WiFi connection lifecycle', () => {
     expect(statuses[1].status).toBe('connected');
     expect(statuses[1].ssid).toBe('Velxio-GUEST');
     expect(statuses[2].status).toBe('got_ip');
-    expect(statuses[2].ip).toBe('192.168.4.2');
+    expect(statuses[2].ip).toBe('192.168.4.15');
   });
 
   it('assigns IP in 192.168.4.x range (QEMU slirp default)', () => {
@@ -304,7 +304,7 @@ describe('WebServer sketch — WiFi connection lifecycle', () => {
 
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(statuses[0].ip).toMatch(/^192\.168\.4\.\d+$/);
@@ -355,7 +355,7 @@ describe('WebServer sketch — serial output verification', () => {
 
   it('serial output contains IP address line', () => {
     const output = EXPECTED_SERIAL_OUTPUT.join('\n');
-    expect(output).toContain('IP: 192.168.4.2');
+    expect(output).toContain('IP: 192.168.4.15');
   });
 });
 
@@ -392,7 +392,7 @@ describe('WebServer sketch — HTTP server detection', () => {
   it('extracts ESP32 IP address from serial output', () => {
     const output = EXPECTED_SERIAL_OUTPUT.join('\n');
     const result = detectHttpServer(output);
-    expect(result.ip).toBe('192.168.4.2');
+    expect(result.ip).toBe('192.168.4.15');
   });
 
   it('does not detect server in non-server output', () => {
@@ -445,18 +445,18 @@ describe('WebServer sketch — QEMU NIC configuration', () => {
     const nicModel = machine.includes('c3') ? 'esp32c3_wifi' : 'esp32_wifi';
     let nicArg = `user,model=${nicModel},net=192.168.4.0/24`;
     if (hostfwdPort) {
-      nicArg += `,hostfwd=tcp::${hostfwdPort}-192.168.4.2:80`;
+      nicArg += `,hostfwd=tcp::${hostfwdPort}-192.168.4.15:80`;
     }
 
     expect(nicArg).toContain('model=esp32_wifi');
     expect(nicArg).toContain('net=192.168.4.0/24');
-    expect(nicArg).toContain('hostfwd=tcp::54321-192.168.4.2:80');
+    expect(nicArg).toContain('hostfwd=tcp::54321-192.168.4.15:80');
   });
 
   it('uses port 80 for hostfwd (WebServer default)', () => {
     const hostfwdPort = 12345;
-    const nicArg = `user,model=esp32_wifi,net=192.168.4.0/24,hostfwd=tcp::${hostfwdPort}-192.168.4.2:80`;
+    const nicArg = `user,model=esp32_wifi,net=192.168.4.0/24,hostfwd=tcp::${hostfwdPort}-192.168.4.15:80`;
     // ESP32 WebServer listens on port 80, hostfwd maps external port to internal 80
-    expect(nicArg).toMatch(/hostfwd=tcp::\d+-192\.168\.4\.2:80/);
+    expect(nicArg).toMatch(/hostfwd=tcp::\d+-192\.168\.4\.15:80/);
   });
 });

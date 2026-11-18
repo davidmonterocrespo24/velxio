@@ -51,10 +51,10 @@ void loop() {
 SIMULATED_SERIAL_OUTPUT = """I (432) wifi:wifi sta start
 I (500) wifi:new:Velxio-GUEST, old: , ASSOC
 I (800) wifi:connected with Velxio-GUEST, aid = 1, channel 6
-I (1200) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0
+I (1200) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2
 Conectando...
 Conectado!
-IP: 192.168.4.2
+IP: 192.168.4.15
 Servidor HTTP iniciado
 """
 
@@ -196,7 +196,7 @@ class TestSerialOutputParsing(unittest.TestCase):
         wifi_events, _ = parse_serial_text(SIMULATED_SERIAL_OUTPUT)
         got_ip = [e for e in wifi_events if e['status'] == 'got_ip']
         self.assertEqual(len(got_ip), 1)
-        self.assertEqual(got_ip[0]['ip'], '192.168.4.2')
+        self.assertEqual(got_ip[0]['ip'], '192.168.4.15')
 
     def test_ip_in_slirp_subnet(self):
         """QEMU slirp assigns IPs in 192.168.4.x range."""
@@ -235,7 +235,7 @@ class TestHttpServerDetection(unittest.TestCase):
 
     def test_extracts_ip_address(self):
         result = self.detect_http_server(SIMULATED_SERIAL_OUTPUT)
-        self.assertEqual(result['ip'], '192.168.4.2')
+        self.assertEqual(result['ip'], '192.168.4.15')
 
     def test_no_detection_for_blink_output(self):
         result = self.detect_http_server('Hello World!\nBlink LED\n')

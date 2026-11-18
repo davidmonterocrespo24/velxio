@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import re
+import urllib.parse
 
 import httpx
 from fastapi import APIRouter, Request, Response
@@ -147,6 +148,72 @@ _HEAD_RE = re.compile(rb'<head[^>]*>', re.IGNORECASE)
 _HTML_RE = re.compile(rb'<html[^>]*>', re.IGNORECASE)
 
 
+# ── Redirects a board sends ──────────────────────────────────────────────────
+# The shim above only runs once a page has loaded. A redirect is followed by
+# the browser before any script runs: "303 See Other" with "Location: /" after
+# a form POST, or arduino-esp32's own SimpleAuthentification example sending
+# "/login", resolved against velxio.dev's root and left the board for the
+# site's home page, inside the device panel's iframe on the in-browser
+# engines (velxio/velxio-prod#179). So the headers that carry a URL are
+# pointed under the prefix here, by the shim's rules.
+
+# The board's own addresses, as the shim's BOARD pattern: ESP32 via QEMU
+# slirp, the Pico W and the in-browser ESP32 engines via the virtual net.
+_BOARD_HOST_RE = re.compile(r'^(?:192\.168\.4\.\d{1,3}|10\.13\.37\.\d{1,3})$')
+_URL_SCHEME_RE = re.compile(r'^[a-z][a-z0-9+.-]*:', re.IGNORECASE)
+_REFRESH_URL_RE = re.compile(r'(;\s*url\s*=\s*)(["\']?)([^"\']*)\2\s*$', re.IGNORECASE)
+
+
+def board_url_under_prefix(value: str, prefix: str) -> str:
+    """A URL the board sent, pointed under the gateway prefix the way the
+    shim points the page's own requests: a path-absolute '/x', and an
+    absolute URL on a board address, become prefix + 'x'. A relative
+    reference already resolves under the prefix, a URL that carries it is
+    left alone, and another host's URL is the board's to send the browser to.
+    """
+    url = value.strip()
+    if not url:
+        return value
+    if url.startswith('//') or _URL_SCHEME_RE.match(url):
+        try:
+            parts = urllib.parse.urlsplit('http:' + url if url.startswith('//') else url)
+            host = parts.hostname
+        except ValueError:
+            return value
+        if parts.scheme.lower() not in ('http', 'https') or not host or not _BOARD_HOST_RE.match(host):
+            return value
+        out = prefix + parts.path.lstrip('/')
+        if parts.query:
+            out += '?' + parts.query
+        if parts.fragment:
+            out += '#' + parts.fragment
+        return out
+    if not url.startswith('/') or url.startswith(prefix):
+        return value
+    return prefix + url[1:]
+
+
+def _rewrite_url_headers(resp: Response, prefix: str) -> Response:
+    """Point the board response's URL headers (Location, Content-Location,
+    and Refresh's url=) under the prefix. Changed in place."""
+    for name in ('location', 'content-location'):
+        value = resp.headers.get(name)
+        if value is not None:
+            moved = board_url_under_prefix(value, prefix)
+            if moved != value:
+                resp.headers[name] = moved
+    refresh = resp.headers.get('refresh')
+    if refresh is not None:
+        m = _REFRESH_URL_RE.search(refresh)
+        if m:
+            moved = board_url_under_prefix(m.group(3), prefix)
+            if moved != m.group(3):
+                resp.headers['refresh'] = (
+                    refresh[: m.start()] + m.group(1) + m.group(2) + moved + m.group(2)
+                )
+    return resp
+
+
 # ── Saying "there is no server here" so the user can read it ────────────────
 # Two things ate every word of the old answer.
 #
@@ -241,6 +308,39 @@ def no_server_response(request: Request) -> Response:
     )
 
 
+def board_timeout_response(request: Request, seconds: float) -> Response:
+    """The board did not reply within `seconds`.
+
+    That says nothing about a server being there: a slow handler, a busy or
+    throttled simulation and a board that has not answered the connection yet
+    all end here. The page used to say "A web server is listening on this
+    board" on the QEMU lane, and the browser-side boards answered every
+    timeout with "No web server on this board" (velxio/velxio-prod#180).
+    Exported for the overlay's proxy, whose waits differ from this one's.
+    """
+    secs = f'{seconds:g}'
+    return _gateway_error(
+        request,
+        error='board_server_timeout',
+        title='The board did not answer in time',
+        html_body=(
+            f'<p>The board did not reply within {secs} seconds.</p>'
+            '<p>A simulated board runs slower than real silicon, so a handler '
+            'that blocks — a long <code>delay()</code>, a sensor read in the '
+            'request path — can overrun, and a simulation in a background tab '
+            'runs slower still. Keep the simulation tab in the foreground and '
+            'try again.</p>'
+        ),
+        message=(
+            f'The board did not reply within {secs} seconds. A handler that '
+            'blocks (a long delay(), a sensor read in the request path) can '
+            'overrun in the simulator, and a background tab runs slower '
+            'still: keep the simulation tab in the foreground and try again.'
+        ),
+        status_code=408,
+    )
+
+
 def _gateway_prefix(request: Request, path: str) -> str:
     """The '/api/gateway/<client_id>/' this request came through, taken from
     the request itself so it carries the browser's own encoding of the id."""
@@ -279,6 +379,12 @@ def _rewrite_html(resp: Response, prefix: str) -> Response:
         headers=headers,
         media_type=resp.media_type or ctype,
     )
+
+
+def _serve_under_prefix(resp: Response, prefix: str) -> Response:
+    """A board's response as the browser gets it under the gateway prefix:
+    its URL headers pointed under it, and the shim in an HTML page."""
+    return _rewrite_html(_rewrite_url_headers(resp, prefix), prefix)
 
 
 @router.api_route(
@@ -336,7 +442,7 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
         # ── ESP32: the server runs in QEMU, reachable via slirp hostfwd. ──
         inst = esp_lib_manager.get_instance(client_id)
         if inst and inst.wifi_enabled and inst.wifi_hostfwd_port != 0:
-            return _rewrite_html(
+            return _serve_under_prefix(
                 await _proxy_esp32(inst, path, request),
                 _gateway_prefix(request, path),
             )
@@ -348,7 +454,7 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
         if overlay_resp is not None:
             # Same treatment for the Pico W path: its lwIP server serves
             # root-relative pages through this very prefix too.
-            return _rewrite_html(overlay_resp, _gateway_prefix(request, path))
+            return _serve_under_prefix(overlay_resp, _gateway_prefix(request, path))
 
     # Wording matters here. The old text said "make sure your sketch connected
     # to WiFi", which reads as an accusation to the one sketch that most often
@@ -416,6 +522,10 @@ def board_request_headers(request: Request) -> dict[str, str]:
     }
 
 
+# How long the QEMU lane's proxy waits for the board's reply.
+_QEMU_REPLY_TIMEOUT_S = 10.0
+
+
 async def _proxy_esp32(inst, path: str, request: Request) -> Response:
     """Reverse-proxy to an ESP32 web server via QEMU slirp hostfwd."""
     target_url = f'http://127.0.0.1:{inst.wifi_hostfwd_port}/{path}'
@@ -423,35 +533,21 @@ async def _proxy_esp32(inst, path: str, request: Request) -> Response:
     headers = board_request_headers(request)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_QEMU_REPLY_TIMEOUT_S) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
                 content=body,
                 headers=headers,
             )
-    except httpx.ConnectError:
-        return no_server_response(request)
     except httpx.TimeoutException:
-        return _gateway_error(
-            request,
-            error='board_server_timeout',
-            title='The board did not answer in time',
-            html_body=(
-                '<p>A web server is listening on this board, but it did not '
-                'finish the reply within 10 seconds.</p>'
-                '<p>The emulated CPU runs slower than real silicon, so a '
-                'handler that blocks — a long <code>delay()</code>, a sensor '
-                'read in the request path — can overrun. Keep the simulation '
-                'tab in the foreground and try again.</p>'
-            ),
-            message=(
-                'The board\'s HTTP server did not answer within 10 seconds. '
-                'Keep the simulation tab in the foreground and avoid blocking '
-                'work inside the request handler.'
-            ),
-            status_code=408,
-        )
+        return board_timeout_response(request, _QEMU_REPLY_TIMEOUT_S)
+    except (httpx.NetworkError, httpx.RemoteProtocolError):
+        # slirp's host forward accepts the connection before it dials the
+        # board, so a board with nothing on port 80 shows up as a connection
+        # closed or reset without a reply (on the read, or on the write of a
+        # request body), not as a refused connect. It used to escape as a 500.
+        return no_server_response(request)
 
     # Forward response back to browser
     resp_headers = dict(resp.headers)

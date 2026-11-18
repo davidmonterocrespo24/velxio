@@ -9,7 +9,7 @@ Typical ESP-IDF WiFi log patterns:
   I (xxx) wifi:wifi sta start
   I (xxx) wifi:new:<SSID>, old:...
   I (xxx) wifi:connected with <SSID>, aid = ...
-  I (xxx) esp_netif_handlers: sta ip: 192.168.4.2, ...
+  I (xxx) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2
   I (xxx) wifi:state: run -> init (0)
 
 Typical BLE log patterns:
@@ -102,7 +102,11 @@ def parse_wifi_line(line: str, station_ip: str | None = None) -> WifiEvent | Non
         return WifiEvent(status='initializing')
 
     if _RE_WIFI_CONNECTING.search(line):
-        return WifiEvent(status='connected', ssid='Velxio-GUEST')
+        # The sketch's own "Connecting to WiFi" says it has started joining a
+        # network: not which one, nor that it got there. It used to report
+        # 'connected' to Velxio-GUEST, whatever the sketch joined
+        # (velxio/velxio-prod#178).
+        return WifiEvent(status='initializing')
 
     if _RE_WIFI_DISCONNECT.search(line):
         return WifiEvent(status='disconnected')
