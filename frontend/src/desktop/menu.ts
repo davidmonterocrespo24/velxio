@@ -28,6 +28,7 @@ import { MANUAL_CHECK_EVENT } from './UpdateAvailableToast';
 import { dlog } from './log';
 import { triggerDownloadVlx, importVlxFile } from '../utils/vlxFile';
 import { useSimulatorStore } from '../store/useSimulatorStore';
+import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProjectStore } from '../store/useProjectStore';
 import { useCompileLogsStore } from '../store/useCompileLogsStore';
@@ -208,6 +209,10 @@ function newProject(): void {
   // board still need to go.
   sim.setComponents([]);
   sim.setWires([]);
+  // And the scope's channels: on an empty canvas no net holds the pins they
+  // were probed at, so nothing else would ever clear them
+  // (velxio/velxio-prod#119).
+  useOscilloscopeStore.getState().resetChannels();
 
   // Reset the editor to the default Blink sketch. loadFiles takes
   // a {name, content}[] and rebuilds the file list, picking the

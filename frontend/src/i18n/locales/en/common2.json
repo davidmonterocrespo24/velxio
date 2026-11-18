@@ -272,7 +272,17 @@
       "clear": "Clear",
       "noChannels": "No channels added.",
       "noChannelsHint": "Click \"+ Add Channel\" to monitor a pin.",
-      "removeChannel": "Remove {{label}}"
+      "removeChannel": "Remove {{label}}",
+      "probeLost": "The probed point is no longer in the circuit",
+      "voltsDiv": "V/div:",
+      "vChannelTitle": "Analog channel the V/div, offset and coupling controls set",
+      "voltsDivTitle": "Volts per division. Auto fits each capture; a value fixes the scale.",
+      "auto": "Auto",
+      "offset": "Offset:",
+      "offsetTitle": "Volts at the centre of the row. A value typed here fixes the scale.",
+      "couplingTitle": "Coupling: DC shows the signal with its bias, AC takes the mean away to show a small ripple on a bias",
+      "triggerLevel": "Level:",
+      "triggerLevelTitle": "Volts the analog trigger channel must cross. Empty: the middle of each capture."
     },
     "componentProps": {
       "close": "Close",

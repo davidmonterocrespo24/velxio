@@ -828,7 +828,7 @@ R_rl n0 0 10000
 R_vm_vmR n0 0 10Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
 * voltmeter probe: read v(n0) - v(0)
-.tran 5.000e-5 5.000e-3
+.tran 2.500e-5 7.500000e-2 7.000000e-2
 .end"
 `;
 
@@ -884,7 +884,7 @@ R_rl n1 0 220
 R_vm_vmR n1 0 10Meg
 .model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p Vds=-200 Ron=.5 Qg=44n)
 * voltmeter probe: read v(n1) - v(0)
-.tran 1.000e-2 4.000e-1
+.tran 1.000e-2 8.000e-1
 .end"
 `;
 
@@ -1394,7 +1394,7 @@ R_r1 n0 0 1000
 R_vm_vmR n0 0 10Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
 * voltmeter probe: read v(n0) - v(0)
-.tran 1.000e-3 8.000e-2
+.tran 5.000e-4 7.800000e-1 7.000000e-1
 .end"
 `;
 
@@ -1421,7 +1421,7 @@ R_vm_vmR n1 0 10Meg
 R_autopull_n0 n0 0 100Meg
 .model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)
 * voltmeter probe: read v(n1) - v(0)
-.tran 1.000e-3 8.000e-2
+.tran 5.000e-4 7.080000e+0 7.000000e+0
 .end"
 `;
 

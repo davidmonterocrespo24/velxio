@@ -27,11 +27,13 @@ export async function solveInput(input: BuildNetlistInput): Promise<ElectricalSo
   const t0 = performance.now();
   const adapter = getAdapter();
   await adapter.init();
-  const { netlist, pinNetMap, nets, voltageSources } = buildNetlist(input);
+  // The analysis the deck's card runs (a periodic source settles first, as
+  // in the app's service), not the input's.
+  const { netlist, pinNetMap, nets, voltageSources, analysis: built } = buildNetlist(input);
   await adapter.loadCircuit(netlist);
 
-  const analysis = input.analysis.kind === 'tran'
-    ? { kind: 'tran' as const, step: input.analysis.step, stop: input.analysis.stop }
+  const analysis = built.kind === 'tran'
+    ? { kind: 'tran' as const, step: built.step, stop: built.stop, ...(built.start ? { start: built.start } : {}) }
     : input.analysis.kind === 'ac'
       ? {
           kind: 'ac' as const,
@@ -78,8 +80,10 @@ export async function solveInput(input: BuildNetlistInput): Promise<ElectricalSo
           nodes.set(key, Array.from(vec.real));
         }
       }
+      // From the start of the stored window, as the service publishes it.
+      const t0 = analysis.kind === 'tran' && analysis.start ? Number(analysis.start) : 0;
       timeWaveforms = {
-        time: Array.from(tVec.real),
+        time: Array.from(tVec.real, (t) => Math.max(0, t - t0)),
         nodes,
         branches,
         // The app's window carries the period it was sized from (storeAdapter).

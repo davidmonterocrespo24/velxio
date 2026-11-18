@@ -263,7 +263,17 @@
       "clear": "Löschen",
       "noChannels": "Keine Kanäle hinzugefügt.",
       "noChannelsHint": "Klicken Sie auf „+ Kanal hinzufügen“, um einen Pin zu überwachen.",
-      "removeChannel": "{{label}} entfernen"
+      "removeChannel": "{{label}} entfernen",
+      "probeLost": "Der gemessene Punkt ist nicht mehr in der Schaltung",
+      "voltsDiv": "V/Teil:",
+      "vChannelTitle": "Analogkanal, auf den V/Teil, Offset und Kopplung wirken",
+      "voltsDivTitle": "Volt pro Teilung. Auto passt jede Aufnahme an; ein Wert legt die Skala fest.",
+      "auto": "Auto",
+      "offset": "Offset:",
+      "offsetTitle": "Spannung in der Mitte der Zeile. Ein hier eingegebener Wert legt die Skala fest.",
+      "couplingTitle": "Kopplung: DC zeigt das Signal mit seiner Vorspannung, AC zieht den Mittelwert ab, um eine kleine Welligkeit auf einer Vorspannung zu zeigen",
+      "triggerLevel": "Pegel:",
+      "triggerLevelTitle": "Spannung, die der analoge Triggerkanal kreuzen muss. Leer: die Mitte jeder Aufnahme."
     },
     "componentProps": {
       "close": "Schließen",

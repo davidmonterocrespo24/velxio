@@ -263,7 +263,17 @@
       "clear": "Limpar",
       "noChannels": "Nenhum canal adicionado.",
       "noChannelsHint": "Clique em \"+ Adicionar Canal\" para monitorar um pino.",
-      "removeChannel": "Remover {{label}}"
+      "removeChannel": "Remover {{label}}",
+      "probeLost": "O ponto medido não está mais no circuito",
+      "voltsDiv": "V/div:",
+      "vChannelTitle": "Canal analógico ajustado por V/div, offset e acoplamento",
+      "voltsDivTitle": "Volts por divisão. Auto ajusta cada captura; um valor fixa a escala.",
+      "auto": "Auto",
+      "offset": "Offset:",
+      "offsetTitle": "Tensão no centro da linha. Um valor digitado aqui fixa a escala.",
+      "couplingTitle": "Acoplamento: DC mostra o sinal com sua polarização, AC tira a média para mostrar um pequeno ripple sobre uma polarização",
+      "triggerLevel": "Nível:",
+      "triggerLevelTitle": "Tensão que o canal de disparo analógico deve cruzar. Vazio: o meio de cada captura."
     },
     "componentProps": {
       "close": "Fechar",

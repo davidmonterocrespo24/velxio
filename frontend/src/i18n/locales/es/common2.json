@@ -265,7 +265,17 @@
       "clear": "Limpiar",
       "noChannels": "No se añadieron canales.",
       "noChannelsHint": "Haz clic en \"+ Añadir canal\" para monitorear un pin.",
-      "removeChannel": "Eliminar {{label}}"
+      "removeChannel": "Eliminar {{label}}",
+      "probeLost": "El punto medido ya no está en el circuito",
+      "voltsDiv": "V/div:",
+      "vChannelTitle": "Canal analógico al que se aplican V/div, desplazamiento y acoplamiento",
+      "voltsDivTitle": "Voltios por división. Auto ajusta cada captura; un valor fija la escala.",
+      "auto": "Auto",
+      "offset": "Desplaz.:",
+      "offsetTitle": "Voltios en el centro de la fila. Un valor escrito aquí fija la escala.",
+      "couplingTitle": "Acoplamiento: DC muestra la señal con su polarización, AC resta la media para ver un rizado pequeño sobre una polarización",
+      "triggerLevel": "Nivel:",
+      "triggerLevelTitle": "Voltios que debe cruzar el canal analógico de disparo. Vacío: el centro de cada captura."
     },
     "componentProps": {
       "close": "Cerrar",

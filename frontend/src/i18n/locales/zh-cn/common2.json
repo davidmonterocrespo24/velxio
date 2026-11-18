@@ -263,7 +263,17 @@
       "clear": "清除",
       "noChannels": "未添加通道。",
       "noChannelsHint": "点击“+ 添加通道”以监视引脚。",
-      "removeChannel": "移除 {{label}}"
+      "removeChannel": "移除 {{label}}",
+      "probeLost": "探测点已不在电路中",
+      "voltsDiv": "V/格:",
+      "vChannelTitle": "V/格、偏移和耦合所设置的模拟通道",
+      "voltsDivTitle": "每格电压。自动会适配每次采集；选择数值则固定刻度。",
+      "auto": "自动",
+      "offset": "偏移:",
+      "offsetTitle": "该行中心的电压。在此输入数值会固定刻度。",
+      "couplingTitle": "耦合：DC 显示带偏置的信号，AC 去掉平均值以显示偏置上的小纹波",
+      "triggerLevel": "电平:",
+      "triggerLevelTitle": "模拟触发通道必须穿越的电压。留空：每次采集的中间值。"
     },
     "componentProps": {
       "close": "关闭",

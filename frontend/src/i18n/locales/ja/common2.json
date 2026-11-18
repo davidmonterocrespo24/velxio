@@ -263,7 +263,17 @@
       "clear": "クリア",
       "noChannels": "チャンネルが追加されていません。",
       "noChannelsHint": "\"+ チャンネル追加\" をクリックしてピンを監視します。",
-      "removeChannel": "{{label}} を削除"
+      "removeChannel": "{{label}} を削除",
+      "probeLost": "測定点は回路にもうありません",
+      "voltsDiv": "V/div:",
+      "vChannelTitle": "V/div・オフセット・結合を設定するアナログチャンネル",
+      "voltsDivTitle": "1目盛りあたりの電圧。Autoは各キャプチャに合わせ、値を選ぶとスケールを固定します。",
+      "auto": "Auto",
+      "offset": "オフセット:",
+      "offsetTitle": "行の中央の電圧。ここに値を入力するとスケールを固定します。",
+      "couplingTitle": "結合: DCはバイアスを含めて表示し、ACは平均を除いてバイアス上の小さなリップルを表示します",
+      "triggerLevel": "レベル:",
+      "triggerLevelTitle": "アナログトリガーチャンネルが横切る電圧。空欄: 各キャプチャの中央。"
     },
     "componentProps": {
       "close": "閉じる",

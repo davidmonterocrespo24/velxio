@@ -233,7 +233,10 @@ export class NgSpiceNodeAdapter implements SolverPort {
     const cmd = (() => {
       switch (analysis.kind) {
         case 'op': return 'op';
-        case 'tran': return `tran ${analysis.step} ${analysis.stop}`;
+        case 'tran':
+          return analysis.start
+            ? `tran ${analysis.step} ${analysis.stop} ${analysis.start}`
+            : `tran ${analysis.step} ${analysis.stop}`;
         case 'ac': return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;
       }
     })();

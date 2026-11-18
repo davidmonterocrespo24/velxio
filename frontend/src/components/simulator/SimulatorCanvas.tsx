@@ -270,7 +270,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     if (target.kind === 'digital') {
       osc.addChannel(target.boardId, target.pin, target.label, target.amplitudeV);
     } else {
-      osc.addNetChannel(target.netName, target.label);
+      osc.addNetChannel(target.netName, target.label, target.probe);
     }
     osc.openOscilloscope();
   }, [t]);

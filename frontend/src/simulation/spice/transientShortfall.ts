@@ -33,6 +33,16 @@ export function transientShortfall(
   if (analysis.kind !== 'tran') return null;
   const stop = parseValueWithUnits(analysis.stop);
   if (!(stop > 0)) return null;
+  // A run that settles first stores nothing before its window (TSTART): one
+  // that failed during that start-up has no sample to say where it stopped.
+  const start = analysis.start ? parseValueWithUnits(analysis.start) : 0;
+  if (timeAxis.length === 0 && start > 0) {
+    return (
+      `${TRANSIENT_SHORTFALL_PREFIX} an instant before ${formatSeconds(start)}, while the circuit ` +
+      `was settling before the window the meters, the scope and the LEDs read: the circuit solver ` +
+      `found no solution past that point, so they have nothing to show.`
+    );
+  }
   const end = timeAxis.length > 0 ? Number(timeAxis[timeAxis.length - 1]) : 0;
   // ngspice ends a complete run on a breakpoint at the stop time itself.
   if (end >= stop * (1 - 1e-6)) return null;

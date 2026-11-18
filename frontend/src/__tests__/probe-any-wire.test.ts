@@ -78,7 +78,11 @@ describe('resolveProbe', () => {
     });
     const netMap = new Map([['r1:2', 'n3']]);
     const target = resolveProbe(w, ctx({}, netMap));
-    expect(target).toEqual({ kind: 'analog', netName: 'n3', label: 'n3' });
+    // With the pin the net was found at, which the channel follows when an
+    // edit renumbers the nets (velxio/velxio-prod#119).
+    expect(target).toEqual({
+      kind: 'analog', netName: 'n3', label: 'n3', probe: { componentId: 'r1', pinName: '2' },
+    });
   });
 
   it('labels the ground net rather than showing its raw name', () => {
@@ -87,7 +91,9 @@ describe('resolveProbe', () => {
       end: { componentId: 'r2', pinName: '1', x: 10, y: 0 },
     });
     const target = resolveProbe(w, ctx({}, new Map([['r1:2', GROUND_NET]])));
-    expect(target).toEqual({ kind: 'analog', netName: '0', label: 'GND' });
+    expect(target).toEqual({
+      kind: 'analog', netName: '0', label: 'GND', probe: { componentId: 'r1', pinName: '2' },
+    });
   });
 
   it('treats an ADC input as ANALOG, not as its Arduino pin number', () => {
@@ -100,7 +106,9 @@ describe('resolveProbe', () => {
       end: { componentId: 'r2', pinName: '1', x: 10, y: 0 },
     });
     const target = resolveProbe(w, ctx({}, new Map([['uno-1:A0', 'n1']])));
-    expect(target).toEqual({ kind: 'analog', netName: 'n1', label: 'n1' });
+    expect(target).toEqual({
+      kind: 'analog', netName: 'n1', label: 'n1', probe: { componentId: 'uno-1', pinName: 'A0' },
+    });
   });
 
   it('treats an ADC input reached THROUGH a resistor as analog too', () => {
@@ -125,7 +133,9 @@ describe('resolveProbe', () => {
       w,
       ctx({ wires: [...wires, w], components: [r] }, new Map([['r1:2', 'n5']])),
     );
-    expect(target).toEqual({ kind: 'analog', netName: 'n5', label: 'n5' });
+    expect(target).toEqual({
+      kind: 'analog', netName: 'n5', label: 'n5', probe: { componentId: 'r1', pinName: '2' },
+    });
   });
 
   it('still resolves an ordinary digital pin next to the ADC ones', () => {

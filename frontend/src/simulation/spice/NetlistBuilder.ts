@@ -22,7 +22,19 @@ import { parseValueWithUnits } from './valueParser';
 import { componentToSpice } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
-import type { BuildNetlistInput, ComponentForSpice, BoardForSpice, WireForSpice } from './types';
+import type {
+  AnalysisMode,
+  BuildNetlistInput,
+  ComponentForSpice,
+  BoardForSpice,
+  WireForSpice,
+} from './types';
+import {
+  largestTimeConstant,
+  settledStepS,
+  settleSeconds,
+  startsAwayFromSteadyState,
+} from './settleTime';
 
 /** True for any self-driven supply net: ground, the main rail, or an aux rail. */
 function isRailNet(net: string): boolean {
@@ -143,6 +155,13 @@ export interface BuildNetlistResult {
    * mean voltage is what the part integrates, and the pad stays at it.
    */
   staticPads: Set<string>;
+  /**
+   * The analysis the netlist's card runs: the input's, with a transient that
+   * asked to `settle` given its start-up (`start`, TSTART), the end of the
+   * run (`stop`) and, when the deck holds a diode, a finer `step`
+   * (settledStepS). The solve must run this one, not the input's.
+   */
+  analysis: AnalysisMode;
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -478,18 +497,41 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   lines.push(...modelLines);
   lines.push(...extraCards);
 
-  switch (analysis.kind) {
+  // A transient that asked to settle runs the circuit's start-up first,
+  // computed but not stored (TSTART), sized from the deck's own cards, when
+  // its operating point at t = 0 is not its steady state (settleTime.ts).
+  let resolved: AnalysisMode = analysis;
+  if (analysis.kind === 'tran' && analysis.settle && startsAwayFromSteadyState(cards)) {
+    const stepS = parseValueWithUnits(analysis.step);
+    const windowS = parseValueWithUnits(analysis.stop);
+    const startS = settleSeconds(largestTimeConstant(cards), stepS, analysis.period);
+    if (startS > 0 && windowS > 0) {
+      // A diode's conduction pulses want a finer step than the window's.
+      const runStepS = settledStepS(cards, stepS);
+      resolved = {
+        ...analysis,
+        ...(runStepS !== stepS ? { step: runStepS.toExponential(3) } : {}),
+        start: startS.toExponential(6),
+        stop: (startS + windowS).toExponential(6),
+      };
+    }
+  }
+  switch (resolved.kind) {
     case 'op':
       lines.push('.op');
       break;
     case 'tran':
-      lines.push(`.tran ${analysis.step} ${analysis.stop}`);
+      lines.push(
+        resolved.start
+          ? `.tran ${resolved.step} ${resolved.stop} ${resolved.start}`
+          : `.tran ${resolved.step} ${resolved.stop}`,
+      );
       break;
     case 'ac': {
-      const kind = analysis.type ?? 'dec';
-      const points = analysis.points ?? 20;
-      const fstart = analysis.fstart ?? 1;
-      const fstop = analysis.fstop ?? 1e6;
+      const kind = resolved.type ?? 'dec';
+      const points = resolved.points ?? 20;
+      const fstart = resolved.fstart ?? 1;
+      const fstop = resolved.fstop ?? 1e6;
       lines.push(`.ac ${kind} ${points} ${fstart} ${fstop}`);
       break;
     }
@@ -554,6 +596,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     sourcedNets,
     partPoweredNets: poweredBy(boardPinNets, powering, partConnections),
     staticPads,
+    analysis: resolved,
   };
 }
 

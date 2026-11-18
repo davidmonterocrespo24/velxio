@@ -12,29 +12,89 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { cssVar } from '../../lib/theme';
 import { useResolvedTheme } from '../../hooks/useTheme';
 import ReactDOM from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   useOscilloscopeStore,
   OSC_V_DIVS,
+  displayShiftV,
   type OscChannel,
+  type OscAnalogChannel,
   type OscSample,
   type TriggerMode,
   type TriggerEdge,
 } from '../../store/useOscilloscopeStore';
+import { parseValue } from '../../simulation/spice/valueParser';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
 import type { BoardKind } from '../../types/board';
 import { boardPads } from '../../simulation/boardPads';
 import { boardPinGroupFor } from '../../simulation/spice/boardPinGroups';
+import {
+  NUM_DIVS,
+  prepareCanvas,
+  drawWaveform,
+  drawAnalogWaveform,
+  drawRuler,
+  formatVoltsPerDiv,
+} from './oscilloscopeDraw';
 import './Oscilloscope.css';
 
-// Horizontal divisions shown at once
-const NUM_DIVS = 10;
 /** Vertical divisions an analog channel's row spans. */
 const NUM_V_DIVS = OSC_V_DIVS;
+
+/** V/div steps an analog channel can be set to by hand (1-2-5, as on a bench
+ *  scope); "Auto" fits each capture instead. */
+const VOLTS_DIV_OPTIONS = [
+  0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20,
+];
+
+/**
+ * A number typed into the scope's header: a voltage, read with the app's value
+ * parser ("4.83", "500m", "-1.2"). The text is the user's while they type and
+ * is committed on Enter or on leaving the field; an unreadable text goes back
+ * to the value it had. With `allowEmpty`, an empty field commits null.
+ */
+const VoltsField: React.FC<{
+  value: number | null;
+  onCommit: (value: number | null) => void;
+  allowEmpty?: boolean;
+  className: string;
+  title: string;
+  placeholder?: string;
+}> = ({ value, onCommit, allowEmpty = false, className, title, placeholder }) => {
+  const shown = value === null ? '' : String(Number(value.toPrecision(6)));
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const text = draft.trim();
+    setDraft(null);
+    if (text === '') {
+      if (allowEmpty) onCommit(null);
+      return;
+    }
+    const parsed = parseValue(text);
+    if (parsed.ok && Number.isFinite(parsed.value)) onCommit(parsed.value);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className={`osc-input ${className}`}
+      value={draft ?? shown}
+      placeholder={placeholder}
+      title={title}
+      aria-label={title}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        else if (e.key === 'Escape') setDraft(null);
+      }}
+    />
+  );
+};
 
 /** Time/div options shown in the selector */
 const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [
@@ -92,262 +152,6 @@ function fallbackPinsForBoardKind(boardKind: BoardKind): { pin: number; label: s
   }
 }
 
-// ── Canvas rendering helpers ────────────────────────────────────────────────
-
-/** Chrome colours for the scope's 2D canvases.
- *
- * A canvas cannot inherit a CSS custom property, so the grid, the axes and
- * the trigger cursor read their values from the token layer at draw time.
- * The channel TRACE colour is not in here on purpose — it comes from the
- * channel's own configuration and identifies the signal, so it stays put
- * across themes the way a probe's clip colour does.
- */
-function scopeChrome() {
-  return {
-    grid: cssVar('--wb-2'),
-    centre: cssVar('--wb-4'),
-    zero: cssVar('--color-border-strong'),
-    axisText: cssVar('--wb-10'),
-    rulerLine: cssVar('--wb-7'),
-    rulerText: cssVar('--wb-10'),
-    trigger: cssVar('--color-feedback-warning'),
-  };
-}
-
-function drawWaveform(
-  canvas: HTMLCanvasElement,
-  samples: OscSample[],
-  color: string,
-  windowEndMs: number,
-  windowMs: number,
-  /**
-   * Trigger marker — when not null, render a vertical orange line at this
-   * X fraction (0..1) of the canvas to show where the trigger event
-   * landed.  Mirrors the orange "T" cursor on a real Tektronix / Rigol.
-   */
-  triggerXFrac: number | null = null,
-): void {
-  const { width, height } = canvas;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.clearRect(0, 0, width, height);
-
-  const chrome = scopeChrome();
-
-  // Background grid lines
-  ctx.strokeStyle = chrome.grid;
-  ctx.lineWidth = 1;
-  for (let d = 0; d <= NUM_DIVS; d++) {
-    const x = Math.round((d / NUM_DIVS) * width);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-  }
-
-  // Horizontal center guide
-  ctx.strokeStyle = chrome.centre;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, height / 2);
-  ctx.lineTo(width, height / 2);
-  ctx.stroke();
-
-  // Trigger marker — drawn under the trace so the waveform sits on top.
-  if (triggerXFrac !== null) {
-    const x = Math.round(triggerXFrac * width);
-    ctx.strokeStyle = chrome.trigger;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = chrome.trigger;
-    ctx.font = 'bold 9px monospace';
-    ctx.fillText('T', x + 2, 10);
-  }
-
-  if (samples.length === 0) return;
-
-  const windowStartMs = windowEndMs - windowMs;
-  const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
-  const HIGH_Y = Math.round(height * 0.15);
-  const LOW_Y = Math.round(height * 0.85);
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-
-  let initState = false;
-  for (let i = samples.length - 1; i >= 0; i--) {
-    if (samples[i].timeMs <= windowStartMs) {
-      initState = samples[i].state;
-      break;
-    }
-  }
-
-  let currentY = initState ? HIGH_Y : LOW_Y;
-  ctx.moveTo(0, currentY);
-
-  for (const s of samples) {
-    if (s.timeMs < windowStartMs) continue;
-    if (s.timeMs > windowEndMs) break;
-
-    const x = Math.max(0, Math.min(width, toX(s.timeMs)));
-    const nextY = s.state ? HIGH_Y : LOW_Y;
-    ctx.lineTo(x, currentY);
-    ctx.lineTo(x, nextY);
-    currentY = nextY;
-  }
-
-  ctx.lineTo(width, currentY);
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.font = '9px monospace';
-  ctx.fillText('H', width - 12, HIGH_Y + 3);
-  ctx.fillText('L', width - 12, LOW_Y + 3);
-}
-
-/**
- * Draw one analog channel: a continuous trace on a volts axis.
- *
- * Not the digital step function with a different colour — an analog capture is
- * a dense block of samples where consecutive points can land on the same pixel
- * column, so the trace is drawn as a polyline and collapsed to a vertical
- * min/max bar wherever more than one sample shares a column. Plotting only
- * every Nth point instead would silently smooth away exactly the spikes a
- * scope exists to show.
- *
- * The vertical mapping is the scope's own: `voltsPerDiv` per division over
- * NUM_V_DIVS divisions, centred on `yOffsetV`, so a 3.3 V trace and a 5 V
- * square wave can share one row honestly.
- */
-function drawAnalogWaveform(
-  canvas: HTMLCanvasElement,
-  samples: OscSample[],
-  color: string,
-  windowEndMs: number,
-  windowMs: number,
-  voltsPerDiv: number,
-  yOffsetV: number,
-): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const { width, height } = canvas.getBoundingClientRect();
-  if (samples.length === 0) return;
-
-  const chrome = scopeChrome();
-  const windowStartMs = windowEndMs - windowMs;
-  const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
-  const spanV = voltsPerDiv * NUM_V_DIVS;
-  // Volts increase upward; y grows downward.
-  const toY = (v: number) => height / 2 - ((v - yOffsetV) / spanV) * height;
-
-  // Zero-volt reference, so the reader can see where ground sits.
-  const zeroY = toY(0);
-  if (zeroY > 0 && zeroY < height) {
-    ctx.strokeStyle = chrome.zero;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(0, zeroY);
-    ctx.lineTo(width, zeroY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-
-  let started = false;
-  let col = -1;
-  let colMin = 0;
-  let colMax = 0;
-
-  const flushColumn = () => {
-    if (col < 0) return;
-    const yA = toY(colMax);
-    const yB = toY(colMin);
-    if (!started) {
-      ctx.moveTo(col, yA);
-      started = true;
-    } else {
-      ctx.lineTo(col, yA);
-    }
-    if (yB !== yA) ctx.lineTo(col, yB);
-  };
-
-  for (const smp of samples) {
-    if (smp.volts === undefined) continue;
-    if (smp.timeMs < windowStartMs || smp.timeMs > windowEndMs) continue;
-    const x = Math.round(Math.max(0, Math.min(width, toX(smp.timeMs))));
-    if (x !== col) {
-      flushColumn();
-      col = x;
-      colMin = smp.volts;
-      colMax = smp.volts;
-    } else {
-      if (smp.volts < colMin) colMin = smp.volts;
-      if (smp.volts > colMax) colMax = smp.volts;
-    }
-  }
-  flushColumn();
-  if (started) ctx.stroke();
-
-  // Volts axis: the top and bottom of the visible span, plus the centre.
-  ctx.fillStyle = chrome.axisText;
-  ctx.font = '9px monospace';
-  const fmt = (v: number) => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1));
-  ctx.fillText(`${fmt(yOffsetV + spanV / 2)}V`, 2, 9);
-  ctx.fillText(`${fmt(yOffsetV)}V`, 2, height / 2 + 3);
-  ctx.fillText(`${fmt(yOffsetV - spanV / 2)}V`, 2, height - 3);
-}
-
-function drawRuler(
-  canvas: HTMLCanvasElement,
-  windowEndMs: number,
-  windowMs: number,
-  timeDivMs: number,
-): void {
-  const { width, height } = canvas;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.clearRect(0, 0, width, height);
-  const chrome = scopeChrome();
-  ctx.strokeStyle = chrome.rulerLine;
-  ctx.fillStyle = chrome.rulerText;
-  ctx.font = '9px monospace';
-  ctx.lineWidth = 1;
-
-  const windowStartMs = windowEndMs - windowMs;
-
-  for (let d = 0; d <= NUM_DIVS; d++) {
-    const timeAtDiv = windowStartMs + d * timeDivMs;
-    const x = Math.round((d / NUM_DIVS) * width);
-
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, 5);
-    ctx.stroke();
-
-    const absMs = Math.abs(timeAtDiv);
-    const label =
-      absMs >= 1000
-        ? `${(timeAtDiv / 1000).toFixed(1)}s`
-        : `${timeAtDiv.toFixed(absMs < 1 ? 2 : 1)}ms`;
-
-    if (d < NUM_DIVS) {
-      ctx.fillText(label, x + 2, height - 3);
-    }
-  }
-}
-
 // ── Channel canvas ──────────────────────────────────────────────────────────
 
 interface ChannelCanvasProps {
@@ -370,39 +174,44 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const theme = useResolvedTheme();
+  const isAnalog = channel.kind === 'analog';
+  const { color, voltsPerDiv, yOffsetV } = channel;
+  // What an analog row draws besides its samples: the mean AC coupling takes
+  // away, and its scale, written in the row ("500mV/div AC").
+  const shiftV = displayShiftV(channel);
+  const scaleText = isAnalog
+    ? `${formatVoltsPerDiv(voltsPerDiv)}/div${channel.coupling === 'ac' ? ' AC' : ''}`
+    : null;
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
 
+    // Drawn in CSS pixels on a context scaled to the backing store
+    // (prepareCanvas), whatever the devicePixelRatio.
     const { width, height } = wrap.getBoundingClientRect();
-    if (width === 0 || height === 0) return;
-
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
-    canvas.height = Math.floor(height) * window.devicePixelRatio;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    const size = { width, height };
+    const ctx = prepareCanvas(canvas, size);
+    if (!ctx) return;
     // Two genuinely different traces: a GPIO channel is a step function
     // between two fixed rails, an analog one is a continuous curve on a volts
     // axis. Drawing the latter with the former's H/L mapping would flatten
     // every waveform into a square wave.
-    if (channel.kind === 'analog') {
+    if (isAnalog) {
       drawAnalogWaveform(
-        canvas, samples, channel.color, windowEndMs, windowMs,
-        channel.voltsPerDiv, channel.yOffsetV,
+        ctx, size, samples, color, windowEndMs, windowMs,
+        voltsPerDiv, yOffsetV, NUM_V_DIVS, triggerXFrac, shiftV, scaleText,
       );
     } else {
-      drawWaveform(canvas, samples, channel.color, windowEndMs, windowMs, triggerXFrac);
+      drawWaveform(ctx, size, samples, color, windowEndMs, windowMs, triggerXFrac);
     }
     // `theme` is not read inside the effect — scopeChrome() picks the new
     // values up on its own — but it belongs in the deps so a stopped scope
     // still repaints its grid when the user switches appearance.
   }, [
-    samples, channel.color, channel.kind, windowEndMs, windowMs, triggerXFrac,
-    channel.kind === 'analog' ? channel.voltsPerDiv : 0,
-    channel.kind === 'analog' ? channel.yOffsetV : 0,
-    theme,
+    samples, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
+    voltsPerDiv, yOffsetV, shiftV, scaleText, theme,
   ]);
 
   return (
@@ -431,18 +240,22 @@ const RulerCanvas: React.FC<RulerCanvasProps> = ({ windowEndMs, windowMs, timeDi
     if (!canvas || !wrap) return;
 
     const { width, height } = wrap.getBoundingClientRect();
-    if (width === 0 || height === 0) return;
-
-    canvas.width = Math.floor(width) * window.devicePixelRatio;
-    canvas.height = Math.floor(height) * window.devicePixelRatio;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    drawRuler(canvas, windowEndMs, windowMs, timeDivMs);
+    const size = { width, height };
+    const ctx = prepareCanvas(canvas, size);
+    if (!ctx) return;
+    drawRuler(ctx, size, windowEndMs, windowMs, timeDivMs);
   }, [windowEndMs, windowMs, timeDivMs, theme]);
 
+  // The ruler is a row like the channels': a cell as wide as their label
+  // column, then the drawing area, so its ticks fall on the traces' time
+  // divisions. Spanning the whole panel put tick 0 under the labels and
+  // drifted 72 px to 0 across the screen (velxio/velxio-prod#115).
   return (
-    <div ref={wrapRef} className="osc-ruler">
-      <canvas ref={canvasRef} className="osc-ruler-canvas" />
+    <div className="osc-ruler">
+      <div className="osc-ruler-spacer" />
+      <div ref={wrapRef} className="osc-ruler-canvas-wrap">
+        <canvas ref={canvasRef} className="osc-ruler-canvas" />
+      </div>
     </div>
   );
 };
@@ -565,7 +378,21 @@ export const Oscilloscope: React.FC = () => {
     setTriggerChannel,
     setTriggerEdge,
     rearmTrigger,
+    triggerLevelV,
+    setTriggerLevelV,
+    setChannelVoltsPerDiv,
+    setChannelOffset,
+    setChannelAutoScale,
+    setChannelCoupling,
   } = useOscilloscopeStore();
+
+  // The vertical controls act on one analog channel at a time, as a bench
+  // scope's knobs act on the selected channel; the first one by default.
+  const analogChannels = channels.filter((c): c is OscAnalogChannel => c.kind === 'analog');
+  const [vChannelId, setVChannelId] = useState<string | null>(null);
+  const vChannel = analogChannels.find((c) => c.id === vChannelId) ?? analogChannels[0];
+  // The channel the trigger listens on (the first one unless one is picked).
+  const triggerChannel = channels.find((c) => c.id === triggerChannelId) ?? channels[0];
 
   // Any board running → oscilloscope can capture
   const anyRunning = useSimulatorStore((s) => s.boards.some((b) => b.running));
@@ -668,6 +495,14 @@ export const Oscilloscope: React.FC = () => {
    *  channel, a net marker for an analog one. */
   const channelSource = (c: OscChannel): string =>
     c.kind === 'digital' ? boardShortName(c.boardId) : 'net';
+  /** Its tooltip: the board, or the net and the part pin it was probed at
+   *  (which the channel follows when an edit renumbers the nets). */
+  const channelSourceTitle = (c: OscChannel): string =>
+    c.kind === 'digital'
+      ? c.boardId
+      : c.probe
+        ? `net ${c.netName} · ${c.probe.componentId}:${c.probe.pinName}`
+        : `net ${c.netName}`;
 
   // Short display name for a board id — strip leading "arduino-", "raspberry-pi-", etc.
   const boardShortName = (boardId: string) => {
@@ -724,6 +559,72 @@ export const Oscilloscope: React.FC = () => {
           ))}
         </select>
 
+        {/* ── Vertical: V/div, offset and coupling of an analog channel ──
+            Auto fits each capture (with 0 V in view under DC coupling); a
+            V/div or an offset typed here fixes the scale until Auto is
+            chosen again (velxio/velxio-prod#114). */}
+        {vChannel && (
+          <>
+            <span className="osc-label">{t('editor.oscilloscope.voltsDiv')}</span>
+            {analogChannels.length > 1 && (
+              <select
+                className="osc-select osc-vchannel"
+                value={vChannel.id}
+                onChange={(e) => setVChannelId(e.target.value)}
+                title={t('editor.oscilloscope.vChannelTitle')}
+                aria-label={t('editor.oscilloscope.vChannelTitle')}
+              >
+                {analogChannels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              className="osc-select osc-vdiv"
+              value={vChannel.autoScale === false ? String(vChannel.voltsPerDiv) : 'auto'}
+              onChange={(e) =>
+                e.target.value === 'auto'
+                  ? setChannelAutoScale(vChannel.id)
+                  : setChannelVoltsPerDiv(vChannel.id, Number(e.target.value))
+              }
+              title={t('editor.oscilloscope.voltsDivTitle')}
+              aria-label={t('editor.oscilloscope.voltsDivTitle')}
+            >
+              <option value="auto">
+                {t('editor.oscilloscope.auto')} ({formatVoltsPerDiv(vChannel.voltsPerDiv)})
+              </option>
+              {VOLTS_DIV_OPTIONS.concat(
+                vChannel.autoScale === false && !VOLTS_DIV_OPTIONS.includes(vChannel.voltsPerDiv)
+                  ? [vChannel.voltsPerDiv]
+                  : [],
+              ).map((v) => (
+                <option key={v} value={String(v)}>
+                  {formatVoltsPerDiv(v)}
+                </option>
+              ))}
+            </select>
+            <span className="osc-label">{t('editor.oscilloscope.offset')}</span>
+            <VoltsField
+              className="osc-offset"
+              value={vChannel.yOffsetV}
+              onCommit={(v) => v !== null && setChannelOffset(vChannel.id, v)}
+              title={t('editor.oscilloscope.offsetTitle')}
+            />
+            <button
+              className={`osc-btn osc-coupling${vChannel.coupling === 'ac' ? ' osc-btn-active' : ''}`}
+              onClick={() =>
+                setChannelCoupling(vChannel.id, vChannel.coupling === 'ac' ? 'dc' : 'ac')
+              }
+              title={t('editor.oscilloscope.couplingTitle')}
+              aria-label={t('editor.oscilloscope.couplingTitle')}
+            >
+              {vChannel.coupling === 'ac' ? 'AC' : 'DC'}
+            </button>
+          </>
+        )}
+
         {/* Run / Pause */}
         <button
           className={`osc-btn${capturing ? '' : ' osc-btn-active'}`}
@@ -777,6 +678,22 @@ export const Oscilloscope: React.FC = () => {
               <option value="either">⇅ Either</option>
             </select>
 
+            {/* An analog source crosses a level; empty is the middle of each
+                capture, so any signal that moves triggers. */}
+            {triggerChannel?.kind === 'analog' && (
+              <>
+                <span className="osc-label">{t('editor.oscilloscope.triggerLevel')}</span>
+                <VoltsField
+                  className="osc-trigger-level"
+                  value={triggerLevelV}
+                  allowEmpty
+                  placeholder={t('editor.oscilloscope.auto')}
+                  onCommit={setTriggerLevelV}
+                  title={t('editor.oscilloscope.triggerLevelTitle')}
+                />
+              </>
+            )}
+
             <span
               className={`osc-trigger-status osc-trigger-status-${triggerStatus}`}
               title={`Trigger status: ${triggerStatus}`}
@@ -819,15 +736,23 @@ export const Oscilloscope: React.FC = () => {
         <>
           <div className="osc-waveforms">
             {channels.map((ch) => (
-              <div key={ch.id} className="osc-channel-row">
+              <div
+                key={ch.id}
+                className={`osc-channel-row${ch.kind === 'analog' && ch.lost ? ' osc-channel-lost' : ''}`}
+              >
                 <div className="osc-channel-label">
-                  <span
-                    className="osc-channel-board"
-                    title={ch.kind === 'digital' ? ch.boardId : `net ${ch.netName}`}
-                  >
+                  <span className="osc-channel-board" title={channelSourceTitle(ch)}>
                     {channelSource(ch)}
                   </span>
-                  <span className="osc-channel-name" style={{ color: ch.color }}>
+                  <span
+                    className="osc-channel-name"
+                    style={{ color: ch.color }}
+                    title={
+                      ch.kind === 'analog' && ch.lost
+                        ? t('editor.oscilloscope.probeLost')
+                        : undefined
+                    }
+                  >
                     {ch.label}
                   </span>
                   <button

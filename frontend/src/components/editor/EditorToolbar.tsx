@@ -9,6 +9,7 @@ import { blockedByBoardGate } from '../../lib/proBoardGate';
 import { boardFlashSupport, requestFlashDialog } from '../../lib/flashRequest';
 import { onWebFlashImplChange } from '../../lib/proWebFlash';
 import { useElectricalStore } from '../../store/useElectricalStore';
+import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { type VerificationResult } from '../../simulation/verify/circuitVerifier';
 import { verifyCircuitFromStore } from '../../simulation/verify/verifyFromStore';
 import { CircuitVerificationModal } from '../simulator/CircuitVerificationModal';
@@ -1618,6 +1619,10 @@ export const EditorToolbar = ({
       const { setComponents, setWires, setBoardType, setBoardPosition, stopSimulation } =
         useSimulatorStore.getState();
       stopSimulation();
+      // The scope's channels belong to the circuit going away. A Wokwi diagram
+      // names its parts r1, led1..., so a channel probed at r1:2 would follow
+      // the imported circuit's r1:2, another point (velxio/velxio-prod#119).
+      useOscilloscopeStore.getState().resetChannels();
       // A board kind this build does not know is left alone rather than
       // coerced. The importer no longer answers 'arduino-uno' for everything
       // it fails to recognise (#268), so say what happened instead of swapping

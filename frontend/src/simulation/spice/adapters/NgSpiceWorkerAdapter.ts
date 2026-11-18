@@ -35,7 +35,9 @@ function analysisToCommand(analysis: SolveAnalysis): string {
       return 'op';
     case 'tran':
       // ngspice tran syntax: `tran <tstep> <tstop> [<tstart> [<tmax>] [uic]]`
-      return `tran ${analysis.step} ${analysis.stop}`;
+      return analysis.start
+        ? `tran ${analysis.step} ${analysis.stop} ${analysis.start}`
+        : `tran ${analysis.step} ${analysis.stop}`;
     case 'ac':
       // ngspice ac syntax: `ac <sweep> <points> <fstart> <fstop>`
       return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;

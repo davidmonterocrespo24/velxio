@@ -73,6 +73,8 @@ describe('VP and VN reach the ADC (velxio/velxio-prod#171)', () => {
       },
       { state: { wires: [], components: [], boards: [esp] }, pinNetMap: new Map([['esp32:VP', 'n3']]) } as never,
     );
-    expect(target).toEqual({ kind: 'analog', netName: 'n3', label: 'n3' });
+    expect(target).toEqual({
+      kind: 'analog', netName: 'n3', label: 'n3', probe: { componentId: 'esp32', pinName: 'VP' },
+    });
   });
 });
