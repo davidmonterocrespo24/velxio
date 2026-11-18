@@ -308,6 +308,39 @@ def no_server_response(request: Request) -> Response:
     )
 
 
+def board_timeout_response(request: Request, seconds: float) -> Response:
+    """The board did not reply within `seconds`.
+
+    That says nothing about a server being there: a slow handler, a busy or
+    throttled simulation and a board that has not answered the connection yet
+    all end here. The page used to say "A web server is listening on this
+    board" on the QEMU lane, and the browser-side boards answered every
+    timeout with "No web server on this board" (velxio/velxio-prod#180).
+    Exported for the overlay's proxy, whose waits differ from this one's.
+    """
+    secs = f'{seconds:g}'
+    return _gateway_error(
+        request,
+        error='board_server_timeout',
+        title='The board did not answer in time',
+        html_body=(
+            f'<p>The board did not reply within {secs} seconds.</p>'
+            '<p>A simulated board runs slower than real silicon, so a handler '
+            'that blocks — a long <code>delay()</code>, a sensor read in the '
+            'request path — can overrun, and a simulation in a background tab '
+            'runs slower still. Keep the simulation tab in the foreground and '
+            'try again.</p>'
+        ),
+        message=(
+            f'The board did not reply within {secs} seconds. A handler that '
+            'blocks (a long delay(), a sensor read in the request path) can '
+            'overrun in the simulator, and a background tab runs slower '
+            'still: keep the simulation tab in the foreground and try again.'
+        ),
+        status_code=408,
+    )
+
+
 def _gateway_prefix(request: Request, path: str) -> str:
     """The '/api/gateway/<client_id>/' this request came through, taken from
     the request itself so it carries the browser's own encoding of the id."""
@@ -489,6 +522,10 @@ def board_request_headers(request: Request) -> dict[str, str]:
     }
 
 
+# How long the QEMU lane's proxy waits for the board's reply.
+_QEMU_REPLY_TIMEOUT_S = 10.0
+
+
 async def _proxy_esp32(inst, path: str, request: Request) -> Response:
     """Reverse-proxy to an ESP32 web server via QEMU slirp hostfwd."""
     target_url = f'http://127.0.0.1:{inst.wifi_hostfwd_port}/{path}'
@@ -496,35 +533,21 @@ async def _proxy_esp32(inst, path: str, request: Request) -> Response:
     headers = board_request_headers(request)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_QEMU_REPLY_TIMEOUT_S) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
                 content=body,
                 headers=headers,
             )
-    except httpx.ConnectError:
-        return no_server_response(request)
     except httpx.TimeoutException:
-        return _gateway_error(
-            request,
-            error='board_server_timeout',
-            title='The board did not answer in time',
-            html_body=(
-                '<p>A web server is listening on this board, but it did not '
-                'finish the reply within 10 seconds.</p>'
-                '<p>The emulated CPU runs slower than real silicon, so a '
-                'handler that blocks — a long <code>delay()</code>, a sensor '
-                'read in the request path — can overrun. Keep the simulation '
-                'tab in the foreground and try again.</p>'
-            ),
-            message=(
-                'The board\'s HTTP server did not answer within 10 seconds. '
-                'Keep the simulation tab in the foreground and avoid blocking '
-                'work inside the request handler.'
-            ),
-            status_code=408,
-        )
+        return board_timeout_response(request, _QEMU_REPLY_TIMEOUT_S)
+    except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+        # slirp's host forward accepts the connection before it dials the
+        # board, so a board with nothing on port 80 shows up as a connection
+        # closed without a reply, not as a refused connect. It used to escape
+        # as a 500.
+        return no_server_response(request)
 
     # Forward response back to browser
     resp_headers = dict(resp.headers)
