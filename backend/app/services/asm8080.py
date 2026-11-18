@@ -18,6 +18,10 @@ import sys
 REG = {'B': 0, 'C': 1, 'D': 2, 'E': 3, 'H': 4, 'L': 5, 'M': 6, 'A': 7}
 RP  = {'B': 0, 'D': 1, 'H': 2, 'SP': 3, 'PSW': 3}   # PSW only valid for PUSH/POP
 
+# The 8080 addresses 64 KB: no location, and no byte, lies past it.
+ADDRESS_SPACE = 0x10000
+PAST_END = "the program does not fit the 64 KB address space (0x0000-0xFFFF)"
+
 
 def _atom(tok: str, labels: dict[str, int]) -> int:
     if tok.startswith("'") and tok.endswith("'") and len(tok) == 3:
@@ -55,6 +59,15 @@ def imm16(val: int) -> tuple[int, int]:
     return (val & 0xFF, (val >> 8) & 0xFF)
 
 
+def _org_target(args: list[str], labels: dict[str, int]) -> int:
+    if not args:
+        raise ValueError("ORG needs an address")
+    new = parse_imm(args[0], labels)
+    if not 0 <= new <= ADDRESS_SPACE:  # 0x10000: the end, where nothing more goes
+        raise ValueError(f"ORG {args[0][:40]} is outside the 64 KB address space (0x0000-0xFFFF)")
+    return new
+
+
 def assemble(src: str) -> bytes:
     # Strip comments + split into (label, mnemonic, args) tuples.
     raw_lines = []
@@ -90,12 +103,14 @@ def assemble(src: str) -> bytes:
     labels: dict[str, int] = {}
     pc = 0
     for (label, mnem, args) in raw_lines:
+        if pc > ADDRESS_SPACE:
+            raise ValueError(PAST_END)
         if label:
             labels[label] = pc
         if mnem is None:
             sizes.append(0); continue
         if mnem == 'ORG':
-            new = parse_imm(args[0], labels)
+            new = _org_target(args, labels)
             # pad to new pc — but our ROM starts at 0 and ORG is only used
             # before any code, so this is a hard set, not a pad.
             pc = new
@@ -117,6 +132,8 @@ def assemble(src: str) -> bytes:
         if size is None:
             raise ValueError(f"unknown mnemonic {mnem}")
         sizes.append(size); pc += size
+    if pc > ADDRESS_SPACE:
+        raise ValueError(PAST_END)
 
     # Pass 2: emit.
     out = bytearray()
@@ -124,12 +141,13 @@ def assemble(src: str) -> bytes:
     # Track an explicit ORG pad
     org_pad_target: int | None = None
     for (idx, (label, mnem, args)) in enumerate(raw_lines):
+        if out_pc > ADDRESS_SPACE:
+            raise ValueError(PAST_END)
         if mnem == 'ORG':
-            tgt = parse_imm(args[0], labels)
+            tgt = _org_target(args, labels)
             if tgt < out_pc:
                 raise ValueError(f"ORG cannot move backwards (at {out_pc} -> {tgt})")
-            while out_pc < tgt:
-                out.append(0x00); out_pc += 1
+            out.extend(bytes(tgt - out_pc)); out_pc = tgt
             continue
         if mnem is None:
             continue
@@ -150,6 +168,8 @@ def assemble(src: str) -> bytes:
         emit = INSTR_ENCODE[mnem]
         bs = emit(args, labels)
         out.extend(bs); out_pc += len(bs)
+    if out_pc > ADDRESS_SPACE:
+        raise ValueError(PAST_END)
 
     return bytes(out)
 

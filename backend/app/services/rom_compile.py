@@ -16,6 +16,7 @@ Future: z80/8086/4004 assemblers and SDCC for C sources.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from importlib import import_module
@@ -45,6 +46,10 @@ def _asmz80():
 
 Target = Literal["8080", "z80", "8086", "4004"]
 Format = Literal["asm", "hex", "bin"]
+
+# Longest source compile_rom builds, in characters. An 8080 or Z80 image is
+# at most 64 KB; a whole one written as DB lines is about 400 KB of text.
+MAX_SOURCE_CHARS = 1 << 20
 
 
 def parse_intel_hex(text: str) -> bytes:
@@ -94,9 +99,26 @@ async def compile_rom(source: str, target: Target, fmt: Format) -> dict:
     Returns a dict shaped like:
         { success, rom_base64, byte_size, stderr, error }
     """
+    if len(source) > MAX_SOURCE_CHARS:
+        return {
+            "success": False, "rom_base64": None, "byte_size": 0, "stderr": "",
+            "error": (
+                f"This program is {len(source):,} characters long; Velxio builds "
+                f"chip programs of up to {MAX_SOURCE_CHARS:,} characters."
+            ),
+        }
     fmt_l = fmt.lower()
     tgt_l = target.lower()
 
+    if fmt_l == "c":
+        return await _compile_c(source, tgt_l)
+    # The other formats run pure-Python code: on a worker thread, so a large
+    # program does not hold up the server's other requests.
+    return await asyncio.to_thread(_compile_in_process, source, target, fmt, fmt_l, tgt_l)
+
+
+def _compile_in_process(source: str, target: str, fmt: str, fmt_l: str, tgt_l: str) -> dict:
+    """compile_rom for the asm, hex and bin formats (synchronous)."""
     if fmt_l == "bin":
         # Source may arrive as a hex string (frontend pre-encodes binary)
         # or as raw text. Try hex-encoded first.
@@ -166,34 +188,36 @@ async def compile_rom(source: str, target: Target, fmt: Format) -> dict:
             "stderr": "", "error": None,
         }
 
-    if fmt_l == "c":
-        # C source via SDCC (Z80 only — pure 8080 has no SDCC backend; Z80
-        # is binary-compat with 8080 so the same .c can target both chips).
-        from app.services.c_compile import compile_c  # lazy — keeps the
-                                                       # import out of the
-                                                       # asm/hex/bin path.
-        result = await compile_c(source, tgt_l if tgt_l in ("z80", "8080") else "z80")
-        rom = result.get("rom_bytes", b"")
-        if not result.get("success"):
-            return {
-                "success": False,
-                "rom_base64": None,
-                "byte_size": 0,
-                "stderr": result.get("stderr", ""),
-                "error": result.get("error", "C compile failed"),
-            }
-        return {
-            "success": True,
-            "rom_base64": base64.b64encode(rom).decode("ascii"),
-            "byte_size": len(rom),
-            "stderr": result.get("stderr", ""),
-            "error": None,
-        }
-
     return {
         "success": False,
         "rom_base64": None,
         "byte_size": 0,
         "stderr": "",
         "error": f"Unknown format {fmt!r} — expected asm / hex / bin / c.",
+    }
+
+
+async def _compile_c(source: str, tgt_l: str) -> dict:
+    """compile_rom for the c format."""
+    # C source via SDCC (Z80 only — pure 8080 has no SDCC backend; Z80
+    # is binary-compat with 8080 so the same .c can target both chips).
+    from app.services.c_compile import compile_c  # lazy — keeps the
+                                                   # import out of the
+                                                   # asm/hex/bin path.
+    result = await compile_c(source, tgt_l if tgt_l in ("z80", "8080") else "z80")
+    rom = result.get("rom_bytes", b"")
+    if not result.get("success"):
+        return {
+            "success": False,
+            "rom_base64": None,
+            "byte_size": 0,
+            "stderr": result.get("stderr", ""),
+            "error": result.get("error", "C compile failed"),
+        }
+    return {
+        "success": True,
+        "rom_base64": base64.b64encode(rom).decode("ascii"),
+        "byte_size": len(rom),
+        "stderr": result.get("stderr", ""),
+        "error": None,
     }
