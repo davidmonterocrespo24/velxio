@@ -1739,12 +1739,21 @@ def _rewrite_call_args(code: str, name_pattern: str, rewrite) -> str:
 
 
 def _call_args(code: str, name_pattern: str) -> list[str]:
-    """The argument text of every `name(args)` call in `code`."""
+    """The argument text of every `name(args)` call in `code`, read the way
+    _rewrite_calls reads them: a call inside another's arguments is not
+    scanned again, and the first call that never closes ends the search.
+    Scanning from every match made a crafted sketch quadratic on the event
+    loop (48 KB of unclosed `WiFi.begin(` took 17 s)."""
     found: list[str] = []
+    pos = 0
     for m in re.finditer(name_pattern + r'\s*\(', code):
+        if m.start() < pos:
+            continue
         close = _matching_paren(code, m.end() - 1)
-        if close >= 0:
-            found.append(code[m.end():close])
+        if close < 0:
+            break
+        found.append(code[m.end():close])
+        pos = close + 1
     return found
 
 
