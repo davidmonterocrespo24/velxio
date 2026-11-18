@@ -216,6 +216,41 @@ describe('the Run check sees each colour (velxio/velxio-prod#174)', () => {
   });
 });
 
+describe('the Run check and a colour that is off (velxio/velxio-prod#174 with #134)', () => {
+  /** A 5 V bench supply through `series` and 330 ohm into the red die, COM on its ground. */
+  async function redThrough(series: Comp) {
+    const components: Comp[] = [
+      { id: 'ps1', metadataId: 'power-supply', properties: { mode: 'dc', voltage: 5, currentLimit: 1 } },
+      series,
+      { id: 'r1', metadataId: 'resistor', properties: { value: '330' } },
+      { id: 'rgb1', metadataId: 'rgb-led', properties: {} },
+    ];
+    const [a, b] = series.metadataId === 'pushbutton' ? ['1.l', '2.l'] : ['1', '2'];
+    const wires: Wire[] = [
+      w('w1', ['ps1', 'SIG'], [series.id, a]),
+      w('w2', [series.id, b], ['r1', '1']),
+      w('w3', ['r1', '2'], ['rgb1', 'R']),
+      w('w4', ['rgb1', 'COM'], ['ps1', 'GND']),
+    ];
+    const result = await verifyCircuit(buildInputFromStore({ components, wires: wires as never, boards: [] }));
+    return result.warnings.filter((x) => x.componentId === 'rgb1' && x.code.startsWith('led-'));
+  }
+
+  it('says nothing about a colour behind a button that is not pressed: its open contact leaks nanoamps', { timeout: 30_000 }, async () => {
+    // A single LED wired the same way has had no warning since #134.
+    expect(await redThrough({ id: 'sw1', metadataId: 'pushbutton', properties: {} })).toEqual([]);
+  });
+
+  it('still points at a colour starved by megaohms in series', { timeout: 30_000 }, async () => {
+    // 5 V through 10 MOhm: about 0.3 uA, far too little to see.
+    const found = await redThrough({ id: 'rs', metadataId: 'resistor', properties: { value: '10M' } });
+    expect(found.map((x) => x.code)).toEqual(['led-no-current']);
+    expect(found[0]!.metric).toBeGreaterThan(1e-7);
+    expect(found[0]!.message).toMatch(/red/);
+    expect(found[0]!.message).toMatch(/series/);
+  });
+});
+
 // ── The part: brightness from the solved currents, on the element's 0-1 scale ──
 
 const services: CircuitSimulationService[] = [];

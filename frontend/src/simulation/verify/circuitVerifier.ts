@@ -1175,12 +1175,17 @@ export async function verifyCircuit(
               : `${what} is carrying ${formatAmps(i)} — above its 20 mA absolute maximum. Add or increase its series resistor.`,
           metric: i,
         });
-      } else if (!commonAnode && i > 0 && i < config.ledMinAmps) {
+      } else if (!commonAnode && i >= config.ledOffAmps && i < config.ledMinAmps) {
+        // As for a single LED (velxio/velxio-prod#134): below ledOffAmps the
+        // colour is held off on purpose (an open contact, an off transistor)
+        // and conducts leakage only; between the two it is starved.
         warnings.push({
           severity: 'warning',
           code: 'led-no-current',
           componentId: rgb.id,
-          message: `${what} appears wired but is carrying almost no current (${formatAmps(i)}). It will not light visibly.`,
+          message:
+            `${what} carries only ${formatAmps(i)}: far too little to light visibly. Something in series ` +
+            `with it limits the current; check the value of its series resistor.`,
           metric: i,
         });
       }
