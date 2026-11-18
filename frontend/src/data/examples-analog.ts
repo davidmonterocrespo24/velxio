@@ -36,9 +36,13 @@ const C_OUT = '#22d3ee'; // output
 const C_WIRE = '#00aaff'; // generic signal
 
 // Standard placeholder sketch text so the editor has something non-empty
-// when the user loads an analog example.
-const ANALOG_SKETCH = `// Analog-only circuit — no Arduino sketch required.
-// Toggle the electrical-simulation (⚡) button to run the SPICE engine.
+// when the user loads an analog example. A board-less circuit runs on its
+// own: loadExample leaves it unpaused, and the toolbar's Stop and Run pause
+// and resume it (there has been no electrical-simulation toggle since
+// 2026-04, velxio/velxio-prod#98).
+const ANALOG_SKETCH = `// Analog circuit, no microcontroller: nothing to program here.
+// It simulates as soon as it is on the canvas: change a part's value and the
+// circuit re-solves. Stop freezes it; Run resumes it.
 void setup() {}
 void loop() {}
 `;
@@ -241,7 +245,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-rlc-series-resonance',
     'Series RLC Resonant Circuit',
-    'L = 1 mH, C = 1 µF gives fr ≈ 5 kHz. Sweep the signal generator — Vc peaks at resonance (Q-dependent).',
+    'L = 1 mH, C = 1 µF: fr = 1/(2π√LC) ≈ 5.03 kHz, Q = √(L/C)/R ≈ 3.2. Sweep the signal generator: the current peaks at fr, while the capacitor voltage (about 3.2 × the input) peaks just below it, near 4.9 kHz, as it does in a series RLC whose Q is not high.',
     'intermediate',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 5000, amplitude: 1, offset: 0 }),
@@ -364,7 +368,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-diode-clipper',
     'Diode Clipper',
-    'Two diodes to VCC/GND via a series resistor limit the output swing to roughly ±0.7 V — symmetric clipping.',
+    'Two diodes in anti-parallel from the output to ground, after a 1 kΩ series resistor, clip the output at one forward drop either way: about ±0.6 V for a 1N4007 at the few milliamps this circuit draws. Symmetric clipping.',
     'intermediate',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 1000, amplitude: 5, offset: 0 }),
@@ -377,7 +381,7 @@ export const analogExamples: ExampleProject[] = [
       w('w1', ['src', 'SIG'], ['r1', '1'], C_SIG),
       w('w2', ['r1', '2'], ['d1', 'A'], C_OUT),
       w('w3', ['r1', '2'], ['d2', 'C'], C_OUT),
-      w('w4', ['d1', 'C'], ['src', 'GND'], C_GND), // upper clip to 0 (really D inside ±0.7 both sides)
+      w('w4', ['d1', 'C'], ['src', 'GND'], C_GND), // d1 clips the positive half, d2 the negative
       w('w5', ['d2', 'A'], ['src', 'GND'], C_GND),
       w('w6', ['r1', '2'], ['vm', 'V+'], C_OUT),
       w('w7', ['src', 'GND'], ['vm', 'V-'], C_GND),
@@ -475,12 +479,12 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-bjt-emitter-follower',
     'BJT Emitter Follower',
-    'Common-collector buffer: unity voltage gain, high input impedance, low output impedance. Great as a driver stage.',
+    'Common-collector buffer: the emitter follows the base one diode drop (about 0.7 V) below it, a voltage gain of 0.99. Input resistance about (β + 1)(re + RE) ≈ 200 kΩ, output resistance about 10 Ω. Great as a driver stage. The 1 kΩ base resistor matters: 100 kΩ there would make a divider with that 200 kΩ and cut the gain to 0.67.',
     'intermediate',
     [
       sigGen('vcc', 60, 40, { waveform: 'dc', offset: 12, amplitude: 0, frequency: 1 }),
       sigGen('src', 60, 240, { waveform: 'sine', frequency: 1000, amplitude: 1, offset: 6 }),
-      res('rb', 260, 80, '100000'),
+      res('rb', 260, 80, '1000'),
       bjtNpn('q1', 420, 160),
       res('re', 500, 300, '1000'),
       vmeter('vm', 640, 220),
@@ -644,14 +648,14 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-mosfet-common-source',
     'MOSFET Common-Source Amplifier',
-    '2N7000 as a small-signal amp: drain resistor sets gain, source resistor stabilises bias. AC-coupled signal input.',
+    '2N7000 as a small-signal amp. The gate divider and the 1 kΩ source resistor set the bias; the 2.2 kΩ drain resistor puts the drain near the middle of its range (about 7.4 V between the source, 2.1 V, and 12 V), so it stays in saturation and swings both ways. With the source resistor unbypassed the gain is Rd / (Rs + 1/gm), about 2: the 0.2 Vpp input comes out about 0.42 Vpp, inverted. AC-coupled signal input.',
     'advanced',
     [
       sigGen('vcc', 60, 40, { waveform: 'dc', offset: 12, amplitude: 0, frequency: 1 }),
       sigGen('src', 60, 260, { waveform: 'sine', frequency: 1000, amplitude: 0.1, offset: 0 }),
       res('rg1', 240, 40, '1000000'),
       res('rg2', 240, 200, '470000'),
-      res('rd', 420, 40, '4700'),
+      res('rd', 420, 40, '2200'),
       res('rs', 420, 300, '1000'),
       cap('cin', 220, 260, '10u'),
       mosN('m1', 380, 160),

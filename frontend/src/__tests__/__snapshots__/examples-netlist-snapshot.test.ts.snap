@@ -750,7 +750,7 @@ exports[`netlist snapshot — analog (30 examples) > an-bjt-emitter-follower 1`]
 "* Velxio circuit
 V_vcc n3 0 DC 12
 V_src n2 0 SIN(6 1 1000)
-R_rb n2 n1 100000
+R_rb n2 n1 1000
 Q_q1 n3 n1 n0 Q2N2222
 R_re n0 0 1000
 R_vm_vmR n0 0 10Meg
@@ -866,7 +866,7 @@ V_vcc n4 0 DC 12
 V_src n3 0 SIN(0 0.1 1000)
 R_rg1 n4 n2 1000000
 R_rg2 n2 0 470000
-R_rd n4 n1 4700
+R_rd n4 n1 2200
 R_rs n0 0 1000
 C_cin n3 n2 0.00001 IC=0
 M_m1 n1 n2 n0 M2N7000
@@ -1613,15 +1613,33 @@ R_autopull_n7 n7 0 100Meg
 
 exports[`netlist snapshot — circuits (41 examples) > l293d-motor-control 1`] = `
 "* Velxio circuit
-B_u1_ch1a n4 0 V = u(V(n3)-2.5) * u(V(n1)-2.5) * V(n0)
-R_u1_ch1a_load n4 0 10Meg
-B_u1_ch1b n5 0 V = u(V(n3)-2.5) * u(V(n2)-2.5) * V(n0)
-R_u1_ch1b_load n5 0 10Meg
-R_rm n4 n5 5
+B_u1_o1_src u1_o1_srcc 0 V = u(V(n3)-1.9) * u(V(n1)-1.9)
+B_u1_o1_snk u1_o1_snkc 0 V = u(V(n3)-1.9) * (1 - u(V(n1)-1.9))
+S_u1_o1_src n0 u1_o1_src u1_o1_srcc 0 L293D_SW
+D_u1_o1_src u1_o1_src n4 L293D_SRC
+D_u1_o1_clamph n4 n0 L293D_CLAMP
+S_u1_o1_snk n4 u1_o1_snk u1_o1_snkc 0 L293D_SW
+D_u1_o1_snk u1_o1_snk 0 L293D_SNK
+D_u1_o1_clampl 0 n4 L293D_CLAMP
+B_u1_o2_src u1_o2_srcc 0 V = u(V(n3)-1.9) * u(V(n2)-1.9)
+B_u1_o2_snk u1_o2_snkc 0 V = u(V(n3)-1.9) * (1 - u(V(n2)-1.9))
+S_u1_o2_src n0 u1_o2_src u1_o2_srcc 0 L293D_SW
+D_u1_o2_src u1_o2_src n5 L293D_SRC
+D_u1_o2_clamph n5 n0 L293D_CLAMP
+S_u1_o2_snk n5 u1_o2_snk u1_o2_snkc 0 L293D_SW
+D_u1_o2_snk u1_o2_snk 0 L293D_SNK
+D_u1_o2_clampl 0 n5 L293D_CLAMP
+R_rm n4 n5 56
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
+R_autopull_n4 n4 0 100Meg
+R_autopull_n5 n5 0 100Meg
+.model L293D_SW SW(Vt=0.5 Vh=0.1 Ron=0.01 Roff=1G)
+.model L293D_SRC D(Is=1.35e-11 N=2 Rs=0.22)
+.model L293D_SNK D(Is=6.5e-10 N=2 Rs=0.22)
+.model L293D_CLAMP D(Is=1e-12 N=1 Rs=1)
 .op
 .end"
 `;
@@ -1631,14 +1649,32 @@ exports[`netlist snapshot — circuits (41 examples) > l293d-speed-pwm 1`] = `
 V_VCC_RAIL vcc_rail 0 DC 5
 R_pot_top vcc_rail n3 10000
 R_pot_bot n3 0 1
-B_u1_ch1a n4 0 V = u(V(n2)-2.5) * u(V(n0)-2.5) * V(vcc_rail)
-R_u1_ch1a_load n4 0 10Meg
-B_u1_ch1b n5 0 V = u(V(n2)-2.5) * u(V(n1)-2.5) * V(vcc_rail)
-R_u1_ch1b_load n5 0 10Meg
-R_rm n4 n5 5
+B_u1_o1_src u1_o1_srcc 0 V = u(V(n2)-1.9) * u(V(n0)-1.9)
+B_u1_o1_snk u1_o1_snkc 0 V = u(V(n2)-1.9) * (1 - u(V(n0)-1.9))
+S_u1_o1_src vcc_rail u1_o1_src u1_o1_srcc 0 L293D_SW
+D_u1_o1_src u1_o1_src n4 L293D_SRC
+D_u1_o1_clamph n4 vcc_rail L293D_CLAMP
+S_u1_o1_snk n4 u1_o1_snk u1_o1_snkc 0 L293D_SW
+D_u1_o1_snk u1_o1_snk 0 L293D_SNK
+D_u1_o1_clampl 0 n4 L293D_CLAMP
+B_u1_o2_src u1_o2_srcc 0 V = u(V(n2)-1.9) * u(V(n1)-1.9)
+B_u1_o2_snk u1_o2_snkc 0 V = u(V(n2)-1.9) * (1 - u(V(n1)-1.9))
+S_u1_o2_src vcc_rail u1_o2_src u1_o2_srcc 0 L293D_SW
+D_u1_o2_src u1_o2_src n5 L293D_SRC
+D_u1_o2_clamph n5 vcc_rail L293D_CLAMP
+S_u1_o2_snk n5 u1_o2_snk u1_o2_snkc 0 L293D_SW
+D_u1_o2_snk u1_o2_snk 0 L293D_SNK
+D_u1_o2_clampl 0 n5 L293D_CLAMP
+R_rm n4 n5 56
 R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
+R_autopull_n4 n4 0 100Meg
+R_autopull_n5 n5 0 100Meg
+.model L293D_SW SW(Vt=0.5 Vh=0.1 Ron=0.01 Roff=1G)
+.model L293D_SRC D(Is=1.35e-11 N=2 Rs=0.22)
+.model L293D_SNK D(Is=6.5e-10 N=2 Rs=0.22)
+.model L293D_CLAMP D(Is=1e-12 N=1 Rs=1)
 .op
 .end"
 `;

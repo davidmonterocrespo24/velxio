@@ -23,6 +23,7 @@ import { setAdcVoltage, emitPropertyChange, analogRailVolts, guestMillis, elemen
 import { registerSensorUpdate, unregisterSensorUpdate } from '../SensorUpdateRegistry';
 import { sensorControlDefault } from '../sensorControlConfig';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { parseValueWithUnits } from '../spice/valueParser';
 
 // ─── Tilt Switch ─────────────────────────────────────────────────────────────
 
@@ -84,16 +85,20 @@ PartSimulationRegistry.register('ntc-temperature-sensor', {
     // The project's temperature arrives on the element (the canvas copies
     // properties onto it); the panel keeps the element in step while running,
     // so a re-attach (Run after a rebuild, Reset) starts from the right value.
-    const el = element as unknown as { temperature?: unknown };
+    const el = element as unknown as { temperature?: unknown; R0?: unknown; beta?: unknown; pullup?: unknown };
     const pin = getArduinoPinHelper('OUT');
 
-    const NTC_R0 = 10_000;
-    const NTC_BETA = 3950;
-    const R_PULL = 10_000;
+    // R0, beta and the pull-up are the part's own, read the way the circuit
+    // model reads them (componentToSpice): fixed at 10 kohm / 3950 / 10 kohm,
+    // this disagreed with the solve for any other part (velxio/velxio-prod#135).
+    const positive = (v: number, fallback: number) => (Number.isFinite(v) && v > 0 ? v : fallback);
     const vcc = analogRailVolts(simulator);
     const tempToVolts = (temp: number) => {
-      const rNtc = NTC_R0 * Math.exp(NTC_BETA * (1 / (temp + 273.15) - 1 / 298.15));
-      return Math.max(0, Math.min(vcc, vcc * (rNtc / (rNtc + R_PULL))));
+      const r0 = positive(parseValueWithUnits(el.R0, 10_000), 10_000);
+      const beta = positive(elementNumber(el.beta, 3950), 3950);
+      const rPull = positive(parseValueWithUnits(el.pullup, 10_000), 10_000);
+      const rNtc = r0 * Math.exp(beta * (1 / (temp + 273.15) - 1 / 298.15));
+      return Math.max(0, Math.min(vcc, vcc * (rNtc / (rNtc + rPull))));
     };
 
     // The project's temperature, room temperature when it sets none. This

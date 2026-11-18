@@ -20,6 +20,10 @@
  *     That single rule prevents the 490 Hz PWM-driven feedback loop that would
  *     otherwise reset the solver debounce and silently stop every active-
  *     semiconductor circuit from being simulated.
+ *
+ * One exception: the L293D. Its outputs are chip-like pads that its part logic
+ * (MotorDriverParts.ts) drives from its inputs, so a stepper or anything else
+ * that follows a pin works behind it (velxio/velxio-prod#170).
  */
 export const ACTIVE_METADATA_IDS: ReadonlySet<string> = new Set([
   // MOSFETs

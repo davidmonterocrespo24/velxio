@@ -1,5 +1,5 @@
 /**
- * MotorDriverParts.ts — simulation logic for stepper motor drivers.
+ * MotorDriverParts.ts — simulation logic for motor drivers.
  *
  * a4988 — Pololu-style bipolar stepper driver with a STEP/DIR interface.
  *   The MCU pulses STEP (one rising edge = one step) and sets DIR for the
@@ -14,6 +14,9 @@
 
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
+import { traceDetailed } from '../PinTrace';
+import { registerChipLikePads } from '../customChips/chipLikePads';
+import { syntheticChipPin } from '../customChips/syntheticPins';
 
 /** Find the DOM element wired to `componentId`'s `pinName`, or null. */
 function getConnectedElement(componentId: string, pinName: string): HTMLElement | null {
@@ -107,6 +110,100 @@ PartSimulationRegistry.register('a4988', {
       );
     }
 
+    return () => unsubs.forEach((u) => u());
+  },
+});
+
+// ─── L293D quadruple half-H driver ──────────────────────────────────────────
+
+/**
+ * l293d — what its outputs do, for everything that follows a pin.
+ *
+ * The circuit solve models the chip's outputs (componentToSpice), but the
+ * parts that follow a PIN found by the wire walk (the steppers, an LED's
+ * digital fallback, a buzzer) saw nothing: the walk crosses resistors and
+ * transistors, not a driver chip, so a stepper on OUT1-OUT4 resolved every
+ * coil to nothing and never moved (velxio/velxio-prod#170). That is the
+ * Arduino Stepper library's own wiring for a bipolar motor.
+ *
+ * So the chip claims its four outputs as chip-like pads (the walk mints one
+ * synthetic pin per output, shared with whatever is wired to it) and drives
+ * them from its inputs: each output follows its input while its pair's
+ * enable is HIGH and is off while it is LOW (TI SLRS008D, Table 1). An input
+ * held at a level reads that level: a supply rail HIGH, ground LOW, and an
+ * open input HIGH, since each sits on a current source from VCC1 (Figure 3).
+ * A chopped input or enable (analogWrite) reaches the output as a duty, the
+ * product of the two, and as the edges themselves.
+ */
+const L293D_ID = 'motor-driver-l293d';
+const L293D_OUTPUTS: ReadonlyArray<{ out: string; input: string; enable: string }> = [
+  { out: 'OUT1', input: 'IN1', enable: 'EN1' },
+  { out: 'OUT2', input: 'IN2', enable: 'EN1' },
+  { out: 'OUT3', input: 'IN3', enable: 'EN2' },
+  { out: 'OUT4', input: 'IN4', enable: 'EN2' },
+];
+registerChipLikePads(
+  L293D_ID,
+  L293D_OUTPUTS.map((o) => o.out),
+);
+
+const GROUND_RAIL = /^(GND|AGND|DGND|PGND|VSS|0V)/i;
+
+PartSimulationRegistry.register(L293D_ID, {
+  attachEvents: (_element, simulator, _getArduinoPinHelper, componentId) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pinManager = (simulator as any).pinManager;
+    if (!pinManager) return () => {};
+
+    const unsubs: (() => void)[] = [];
+    /** Each input's time-average level, 0..1. */
+    const level = new Map<string, number>();
+
+    const watch = (name: string) => {
+      let hit: { arduinoPin: number | null; railName?: string };
+      try {
+        hit = traceDetailed(useSimulatorStore.getState(), componentId, name, 0);
+      } catch {
+        hit = { arduinoPin: null };
+      }
+      const pin = hit.arduinoPin;
+      if (pin === null) {
+        level.set(name, 1); // open: the input's current source holds it HIGH
+        return;
+      }
+      if (pin < 0) {
+        level.set(name, GROUND_RAIL.test(hit.railName ?? '') ? 0 : 1);
+        return;
+      }
+      const duty = typeof pinManager.getPwmValue === 'function' ? Number(pinManager.getPwmValue(pin)) || 0 : 0;
+      level.set(name, duty > 0 ? duty : pinManager.getPinState(pin) ? 1 : 0);
+      unsubs.push(
+        pinManager.onPinChange(pin, (_p: number, high: boolean) => {
+          level.set(name, high ? 1 : 0);
+          update();
+        }),
+      );
+      if (typeof pinManager.onPwmChange === 'function') {
+        unsubs.push(
+          pinManager.onPwmChange(pin, (_p: number, d: number) => {
+            level.set(name, d);
+            update();
+          }),
+        );
+      }
+    };
+
+    const update = () => {
+      for (const o of L293D_OUTPUTS) {
+        const duty = (level.get(o.enable) ?? 1) * (level.get(o.input) ?? 1);
+        const pin = syntheticChipPin(componentId, o.out);
+        pinManager.triggerPinChange(pin, duty > 0.01);
+        if (typeof pinManager.updatePwm === 'function' && duty > 0 && duty < 1) pinManager.updatePwm(pin, duty);
+      }
+    };
+
+    for (const name of new Set(L293D_OUTPUTS.flatMap((o) => [o.enable, o.input]))) watch(name);
+    update();
     return () => unsubs.forEach((u) => u());
   },
 });
