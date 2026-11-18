@@ -261,4 +261,18 @@ describe('a sender’s edges do not come back to it, however late the receiver r
     expect(a.reports.length / 2, `pulses on A, its own and any that came back: ${levels(a)}`).toBe(8);
     expect([levels(a), levels(b)]).toEqual(['LH'.repeat(8), 'LH'.repeat(8)]);
   });
+
+  it('a board that resets while its own pulse is still on the wire does not get the pulse back', () => {
+    const a = new Board('a');
+    const b = new Board('b');
+    wireUp([a, b], [['a', 'b']]);
+    a.pulse(100_000, 1_000);
+    // A frame after the pulse: it lands on B about 20 ms later, in B's time.
+    run([a, b], 0.112);
+    expect(levels(b), 'B has not run the pulse yet').toBe('');
+    a.reset();
+    run([a, b], 1);
+    expect(levels(b), 'B heard the pulse').toBe('LH');
+    expect(levels(a), 'A: the pulse it made before its reset, and nothing after').toBe('LH');
+  });
 });
