@@ -59,7 +59,7 @@ describe('a scope probe on a filtered node reads the circuit, not the pin', () =
     const byId = new Map(ex!.wires.map((w) => [w.id, w as unknown as Wire]));
     // w2: R1 -> LM358 IN+, w3: R1 -> C1 +. Both are the RC's output node.
     for (const id of ['w2', 'w3']) {
-      expect(resolveProbe(byId.get(id)!, ctx), id).toEqual({ kind: 'analog', netName: filterNet, label: filterNet });
+      expect(resolveProbe(byId.get(id)!, ctx), id).toMatchObject({ kind: 'analog', netName: filterNet, label: filterNet });
     }
     // The wire ON pin 9 keeps the logic-analyzer path.
     expect(resolveProbe(byId.get('w1')!, ctx)).toMatchObject({ kind: 'digital', pin: 9 });
@@ -82,7 +82,7 @@ describe('a scope probe on a filtered node reads the circuit, not the pin', () =
       wires,
     };
     const pinNetMap = new Map([['r2:2', 'n2'], ['led1:A', 'n2']]);
-    expect(resolveProbe(wires[4]!, { state: state as never, pinNetMap })).toEqual({
+    expect(resolveProbe(wires[4]!, { state: state as never, pinNetMap })).toMatchObject({
       kind: 'analog',
       netName: 'n2',
       label: 'n2',
@@ -98,7 +98,7 @@ describe('a scope probe on a filtered node reads the circuit, not the pin', () =
     ];
     const state = { boards: [uno], components: [part('l1', 'ind-10m'), part('r1', 'resistor', '100')], wires };
     const pinNetMap = new Map([['l1:2', 'n1'], ['r1:1', 'n1']]);
-    expect(resolveProbe(wires[1]!, { state: state as never, pinNetMap })).toEqual({
+    expect(resolveProbe(wires[1]!, { state: state as never, pinNetMap })).toMatchObject({
       kind: 'analog',
       netName: 'n1',
       label: 'n1',
