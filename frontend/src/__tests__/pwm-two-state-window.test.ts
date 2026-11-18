@@ -129,15 +129,17 @@ describe('a PWM pad on a static load is its two states (velxio/velxio-prod#152)'
       rows.push({ duty, meanA, brightness: el.brightness, onA });
     }
     for (const r of rows) {
-      // Blue LED + 220 ohm from 5 V: about 8.7 mA while the pin is HIGH.
-      expect(r.onA).toBeGreaterThan(0.008);
-      expect(r.onA).toBeLessThan(0.0095);
-      // The average current is the duty times the on-current (3.4 / 5.1 / 6.8 mA) ...
+      // Blue LED + 220 ohm from a 5 V pin: about 7.8 mA while the pin is HIGH
+      // (8.7 mA from an ideal 5 V; the pin's 25 ohm output impedance drops
+      // about 0.2 V, velxio/velxio-prod#140).
+      expect(r.onA).toBeGreaterThan(0.0075);
+      expect(r.onA).toBeLessThan(0.0082);
+      // The average current is the duty times the on-current (3.1 / 4.6 / 6.1 mA) ...
       expect(r.meanA).toBeCloseTo(r.duty * r.onA, 6);
       // ... and the LED part shows what its window says: duty x I_on / 20 mA.
       expect(r.brightness).toBeCloseTo((r.duty * r.onA) / 0.02, 3);
     }
-    expect(rows[0]!.meanA).toBeGreaterThan(0.003); // analogWrite(100): 3.4 mA, not picoamps
+    expect(rows[0]!.meanA).toBeGreaterThan(0.003); // analogWrite(100): 3.1 mA, not picoamps
   });
 
   it('a new duty reuses the HIGH and LOW solves it already has', { timeout: 60_000 }, async () => {

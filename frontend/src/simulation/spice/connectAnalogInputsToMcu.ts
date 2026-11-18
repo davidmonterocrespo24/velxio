@@ -165,6 +165,26 @@ export const ADC_PIN_MAP: Partial<Record<BoardKind, Array<{ pinName: string; cha
 function avrPinFromName(_name: string, channel: number): number {
   return 14 + channel;
 }
+/** The Mega's A0-A15 are pins 54-69: 14 + channel stopped at A7 (pin 21). */
+function megaPinFromName(_name: string, channel: number): number {
+  return 54 + channel;
+}
+
+/**
+ * The pad an AVR board's ADC takes its external reference from: with
+ * analogReference(EXTERNAL) (REFS = 00) a conversion is VIN * 1024 / V(AREF)
+ * (ATmega328P datasheet, sections 24.5.2 and 24.7). avr8js reads it from its
+ * `aref` field, which nothing set, so every EXTERNAL conversion divided by
+ * 5 V (velxio/velxio-prod#154). A board absent here keeps the 5 V default.
+ */
+const ADC_REFERENCE_PAD: Partial<Record<BoardKind, string>> = {
+  'arduino-uno': 'AREF',
+  'arduino-nano': 'AREF',
+  'arduino-mega': 'AREF',
+};
+
+/** The ADC reference never reads below this (the datasheet's VREF floor is 1.0 V): no division by zero. */
+const MIN_AREF_V = 1e-3;
 function gpioPinFromName(name: string, _channel: number): number {
   const m = name.match(/(\d+)$/);
   return m ? parseInt(m[1], 10) : -1;
@@ -173,7 +193,7 @@ function gpioPinFromName(name: string, _channel: number): number {
 const ADC_PIN_TO_GPIO: Partial<Record<BoardKind, (pinName: string, channel: number) => number>> = {
   'arduino-uno': avrPinFromName,
   'arduino-nano': avrPinFromName,
-  'arduino-mega': avrPinFromName,
+  'arduino-mega': megaPinFromName,
   attiny85: avrPinFromName,
 
   'raspberry-pi-pico': gpioPinFromName,
@@ -267,6 +287,14 @@ export function connectAnalogInputsToMcu(): () => void {
         // A part drives this channel itself — leave it alone (see above).
         if (isPartOwnedPin(board.id, gpioPin)) continue;
         setAdcVoltage(sim, gpioPin, clamped);
+      }
+      // The external reference: the solved voltage on AREF, when it is wired.
+      const refPad = ADC_REFERENCE_PAD[board.boardKind];
+      const refNet = refPad ? pinNetMap.get(`${board.id}:${refPad}`) : undefined;
+      const refV = refNet !== undefined ? (refNet === '0' ? 0 : nodeVoltages[refNet]) : undefined;
+      if (refV !== undefined && Number.isFinite(refV)) {
+        const adc = (sim as unknown as { getADC?: () => { aref: number } | null }).getADC?.();
+        if (adc) adc.aref = Math.max(MIN_AREF_V, Math.min(vMax, refV));
       }
     }
   }
@@ -398,7 +426,10 @@ export function connectAnalogInputsToMcu(): () => void {
         continue;
       }
 
+      // AREF's net, for a reference that moves with the circuit (AC path).
+      const refPad = ADC_REFERENCE_PAD[board.boardKind];
       const self = adc as unknown as {
+        aref: number;
         channelValues: Array<number | undefined>;
         referenceVoltage: number;
         sampleCycles: number;
@@ -443,6 +474,11 @@ export function connectAnalogInputsToMcu(): () => void {
           case 3: // Temperature
             voltage = 0.378125;
             break;
+        }
+        if (refPad) {
+          const refNet = useElectricalStore.getState().pinNetMap.get(`${boardId}:${refPad}`);
+          const refV = refNet ? sampleWaveformAtNow(refNet) : undefined;
+          if (refV !== undefined && Number.isFinite(refV)) self.aref = Math.max(MIN_AREF_V, refV);
         }
         const rawValue = (voltage / self.referenceVoltage) * 1024;
         const result = Math.min(Math.max(Math.floor(rawValue), 0), 1023);

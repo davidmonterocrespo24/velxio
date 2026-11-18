@@ -76,6 +76,15 @@ export interface LogicFamily {
    * emission to model real slew rates and current limits.
    */
   output_impedance_ohm?: number;
+  /**
+   * Where the family's own inputs typically switch: a rising node reads HIGH
+   * from `rise`, a falling one LOW from `fall`, and in between the input
+   * keeps its level (a Schmitt trigger). The datasheet's typical curves, not
+   * the guaranteed vil / vih, which leave a wider band where any reading is
+   * allowed. A board reads its digital inputs from the solve here
+   * (connectDigitalInputsToMcu, boardInputSwitch).
+   */
+  input_switch?: { rise: number; fall: number };
 }
 
 export const FAMILIES = {
@@ -165,13 +174,17 @@ export const FAMILIES = {
 
   /**
    * AVR/ATmega 5V HC-family.  Arduino Uno, Mega, Nano (5V variant).
-   * Documented in ATmega328P datasheet section 28.2.
+   * ATmega328P datasheet DS40002061B: Table 30-1 guarantees LOW up to
+   * 0.3 VCC and HIGH from 0.6 VCC; Figures 31-356 to 31-358 show a typical
+   * part switching near 2.6 V rising and 2.1 V falling at 5 V (its pins are
+   * Schmitt-triggered, about 0.5 V of hysteresis).
    */
   AVR_HC: {
     name: 'AVR (ATmega) 5V',
     vcc: 5,
-    vil: 1.0,
+    vil: 1.5,
     vih: 3.0,
+    input_switch: { rise: 2.6, fall: 2.1 },
     cin_pF: 8,
     vol_max: 0.5,
     voh_min: 4.2,
@@ -232,6 +245,24 @@ export function getBoardLogicFamily(boardKind: string): LogicFamily {
   const id = BOARD_FAMILY[boardKind] ?? 'AVR_HC';
   return FAMILIES[id];
 }
+
+/**
+ * Where a board's digital inputs switch (LogicFamily.input_switch), for a
+ * board whose family gives it. Every other board keeps 2.0 V rising and
+ * 0.8 V falling: the RP2040's input limits at 3.3 V (RP2040 datasheet,
+ * Table 625), inside the ESP32's own undefined band. Those were every
+ * board's, and on a 5 V ATmega they held 0.8-1.5 V, a guaranteed LOW, at the
+ * previous level and switched 2.0-2.6 V, where a real part stays LOW
+ * (velxio/velxio-prod#150). An unknown board does not fall back to AVR_HC
+ * here, unlike getBoardLogicFamily.
+ */
+export function boardInputSwitch(boardKind: string): { rise: number; fall: number } {
+  const id = BOARD_FAMILY[boardKind];
+  const family: LogicFamily | undefined = id ? FAMILIES[id] : undefined;
+  return family?.input_switch ?? DEFAULT_INPUT_SWITCH;
+}
+
+const DEFAULT_INPUT_SWITCH = { rise: 2.0, fall: 0.8 } as const;
 
 /**
  * Lookup by id with defensive fallback.  Useful when a component

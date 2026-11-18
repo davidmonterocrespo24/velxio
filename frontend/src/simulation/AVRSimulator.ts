@@ -41,6 +41,7 @@ import type {
   TWIConfig,
 } from 'avr8js';
 import type { AVRTimerConfig } from 'avr8js/dist/esm/peripherals/timer';
+import type { AVRInterruptConfig } from 'avr8js/dist/esm/cpu/cpu';
 import type { ADCConfig, ADCMuxConfiguration } from 'avr8js/dist/esm/peripherals/adc';
 import { ADCMuxInputType, ADCReference } from 'avr8js/dist/esm/peripherals/adc';
 import { PinManager } from './PinManager';
@@ -84,6 +85,113 @@ interface PwmPinDef {
   /** TCCRnA data address and COMnx mask; absent where the layout differs (ATtiny85). */
   comAddr?: number;
   comMask?: number;
+  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85. */
+  timer?: PwmTimer;
+}
+
+/**
+ * A timer's registers, as the duty of its compare outputs needs them
+ * (velxio/velxio-prod#155). Data-space addresses, the same on the ATmega328P
+ * and the ATmega2560 for Timers 0-2.
+ */
+interface PwmTimer {
+  /** A 16-bit timer: OCRn, ICRn and its TOP are read as two bytes. */
+  wide: boolean;
+  tccrA: number;
+  tccrB: number;
+  /** OCRnA, TOP in the modes that count to it. */
+  ocrA: number;
+  /** ICRn (16-bit timers), TOP in the modes that count to it. */
+  icr?: number;
+}
+
+const TIMER0: PwmTimer = { wide: false, tccrA: 0x44, tccrB: 0x45, ocrA: 0x47 };
+const TIMER1: PwmTimer = { wide: true, tccrA: 0x80, tccrB: 0x81, ocrA: 0x88, icr: 0x86 };
+const TIMER2: PwmTimer = { wide: false, tccrA: 0xb0, tccrB: 0xb1, ocrA: 0xb3 };
+const TIMER3: PwmTimer = { wide: true, tccrA: 0x90, tccrB: 0x91, ocrA: 0x98, icr: 0x96 };
+const TIMER4: PwmTimer = { wide: true, tccrA: 0xa0, tccrB: 0xa1, ocrA: 0xa8, icr: 0xa6 };
+const TIMER5: PwmTimer = { wide: true, tccrA: 0x120, tccrB: 0x121, ocrA: 0x128, icr: 0x126 };
+
+/**
+ * A waveform generation mode: the PWM it makes (null for Normal, CTC and the
+ * reserved modes), its TOP, and whether COMnA = 01 toggles OCnA in it.
+ */
+interface WaveMode {
+  pwm: 'fast' | 'phase' | null;
+  top: number | 'ocra' | 'icr';
+  toggleA: boolean;
+}
+const mode = (pwm: WaveMode['pwm'], top: WaveMode['top'], toggleA = false): WaveMode => ({ pwm, top, toggleA });
+/** WGM02:0 of the 8-bit timers (ATmega328P datasheet Tables 15-8 and 18-8). */
+const WGM_8BIT: readonly WaveMode[] = [
+  mode(null, 0xff),
+  mode('phase', 0xff),
+  mode(null, 'ocra'),
+  mode('fast', 0xff),
+  mode(null, 0xff),
+  mode('phase', 'ocra', true),
+  mode(null, 0xff),
+  mode('fast', 'ocra', true),
+];
+/** WGMn3:0 of the 16-bit timers (Table 16-4); phase and frequency correct counts as phase correct. */
+const WGM_16BIT: readonly WaveMode[] = [
+  mode(null, 0xffff),
+  mode('phase', 0xff),
+  mode('phase', 0x1ff),
+  mode('phase', 0x3ff),
+  mode(null, 'ocra'),
+  mode('fast', 0xff),
+  mode('fast', 0x1ff),
+  mode('fast', 0x3ff),
+  mode('phase', 'icr'),
+  mode('phase', 'ocra', true),
+  mode('phase', 'icr'),
+  mode('phase', 'ocra', true),
+  mode(null, 'icr'),
+  mode(null, 0xffff),
+  mode('fast', 'icr', true),
+  mode('fast', 'ocra', true),
+];
+
+/**
+ * The share of the period a compare output holds its pin HIGH, from the
+ * timer's live registers (velxio/velxio-prod#155); 0 while the channel is
+ * disconnected from the pin (COMnx = 00, how analogWrite(pin, 0) and
+ * analogWrite(pin, 255) leave it).
+ *
+ * Fast PWM sets the pin at BOTTOM and clears it on the compare match, one
+ * timer tick after OCR: HIGH for OCR + 1 of TOP + 1 ticks (datasheet section
+ * 15.7.3: OCR at BOTTOM is a one-tick spike, OCR at MAX a constant HIGH).
+ * Phase correct PWM is HIGH for OCR of TOP. Inverting (COMnx = 11) is the
+ * complement; COMnA = 01 toggles OCnA where the mode allows it, a 50 % wave.
+ * The circuit used OCR / 255 for every timer: right for the Uno's
+ * phase-correct pins (3, 9, 10, 11), slightly low for Timer0's fast PWM pins
+ * (5 and 6; 4 and 13 on the Mega), and blind to the 16-bit timers' TOP and
+ * high bytes. Normal and CTC modes, which are not PWM, keep that old figure.
+ */
+function pwmDuty(data: Uint8Array, def: PwmPinDef): number {
+  const timer = def.timer;
+  if (!timer || def.comMask === undefined) {
+    const connected = def.comAddr === undefined || (data[def.comAddr] & (def.comMask ?? 0)) !== 0;
+    return connected ? data[def.ocrAddr] / 255 : 0;
+  }
+  const shift = def.comMask === 0xc0 ? 6 : def.comMask === 0x30 ? 4 : 2;
+  const com = (data[timer.tccrA] & def.comMask) >> shift;
+  if (com === 0) return 0;
+  const tccrA = data[timer.tccrA];
+  const tccrB = data[timer.tccrB];
+  const wave = timer.wide
+    ? WGM_16BIT[((tccrB & 0x18) >> 1) | (tccrA & 0x03)]
+    : WGM_8BIT[((tccrB & 0x08) >> 1) | (tccrA & 0x03)];
+  if (!wave.pwm) return data[def.ocrAddr] / 255;
+  if (com === 1) return shift === 6 && wave.toggleA ? 0.5 : 0;
+  const read = (addr: number) => (timer.wide ? data[addr] | (data[addr + 1] << 8) : data[addr]);
+  const top =
+    wave.top === 'ocra' ? read(timer.ocrA) : wave.top === 'icr' ? read(timer.icr ?? 0) : wave.top;
+  const ocr = read(def.ocrAddr);
+  const high =
+    wave.pwm === 'fast' ? Math.min(1, (ocr + 1) / (top + 1)) : top > 0 ? Math.min(1, ocr / top) : 1;
+  return com === 3 ? 1 - high : high;
 }
 
 // OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano).
@@ -94,35 +202,35 @@ interface PwmPinDef {
 // kept reporting the last duty, so the circuit solver held the pin at that
 // average voltage after analogWrite(0).
 const PWM_PINS_UNO: PwmPinDef[] = [
-  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A low byte → D9
-  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B low byte → D10
-  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D11
-  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D3
+  { ocrAddr: 0x47, pin: 6, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0, timer: TIMER0 }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: 'OCR0B', comAddr: 0x44, comMask: 0x30, timer: TIMER0 }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0, timer: TIMER1 }, // Timer1A → D9
+  { ocrAddr: 0x8a, pin: 10, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30, timer: TIMER1 }, // Timer1B → D10
+  { ocrAddr: 0xb3, pin: 11, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0, timer: TIMER2 }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30, timer: TIMER2 }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
 // Timers 0/1/2 same addresses; Timers 3/4/5 at higher addresses.
 const PWM_PINS_MEGA: PwmPinDef[] = [
-  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0 }, // Timer0A → D13
-  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30 }, // Timer0B → D4
-  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0 }, // Timer1A → D11
-  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30 }, // Timer1B → D12
-  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0 }, // Timer2A → D10
-  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30 }, // Timer2B → D9
+  { ocrAddr: 0x47, pin: 13, label: 'OCR0A', comAddr: 0x44, comMask: 0xc0, timer: TIMER0 }, // Timer0A → D13
+  { ocrAddr: 0x48, pin: 4, label: 'OCR0B', comAddr: 0x44, comMask: 0x30, timer: TIMER0 }, // Timer0B → D4
+  { ocrAddr: 0x88, pin: 11, label: 'OCR1AL', comAddr: 0x80, comMask: 0xc0, timer: TIMER1 }, // Timer1A → D11
+  { ocrAddr: 0x8a, pin: 12, label: 'OCR1BL', comAddr: 0x80, comMask: 0x30, timer: TIMER1 }, // Timer1B → D12
+  { ocrAddr: 0xb3, pin: 10, label: 'OCR2A', comAddr: 0xb0, comMask: 0xc0, timer: TIMER2 }, // Timer2A → D10
+  { ocrAddr: 0xb4, pin: 9, label: 'OCR2B', comAddr: 0xb0, comMask: 0x30, timer: TIMER2 }, // Timer2B → D9
   // Timer3 (0x80–0x8D, but OCR3A/B/C at 0x98/0x9A/0x9C)
-  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0 }, // Timer3A → D5
-  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30 }, // Timer3B → D2
-  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c }, // Timer3C → D3
+  { ocrAddr: 0x98, pin: 5, label: 'OCR3AL', comAddr: 0x90, comMask: 0xc0, timer: TIMER3 }, // Timer3A → D5
+  { ocrAddr: 0x9a, pin: 2, label: 'OCR3BL', comAddr: 0x90, comMask: 0x30, timer: TIMER3 }, // Timer3B → D2
+  { ocrAddr: 0x9c, pin: 3, label: 'OCR3CL', comAddr: 0x90, comMask: 0x0c, timer: TIMER3 }, // Timer3C → D3
   // Timer4 (OCR4A/B/C at 0xA8/0xAA/0xAC)
-  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0 }, // Timer4A → D6
-  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30 }, // Timer4B → D7
-  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c }, // Timer4C → D8
+  { ocrAddr: 0xa8, pin: 6, label: 'OCR4AL', comAddr: 0xa0, comMask: 0xc0, timer: TIMER4 }, // Timer4A → D6
+  { ocrAddr: 0xaa, pin: 7, label: 'OCR4BL', comAddr: 0xa0, comMask: 0x30, timer: TIMER4 }, // Timer4B → D7
+  { ocrAddr: 0xac, pin: 8, label: 'OCR4CL', comAddr: 0xa0, comMask: 0x0c, timer: TIMER4 }, // Timer4C → D8
   // Timer5 (OCR5A/B/C at 0x128/0x12A/0x12C — extended I/O)
-  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0 }, // Timer5A → D46
-  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30 }, // Timer5B → D45
-  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c }, // Timer5C → D44
+  { ocrAddr: 0x128, pin: 46, label: 'OCR5AL', comAddr: 0x120, comMask: 0xc0, timer: TIMER5 }, // Timer5A → D46
+  { ocrAddr: 0x12a, pin: 45, label: 'OCR5BL', comAddr: 0x120, comMask: 0x30, timer: TIMER5 }, // Timer5B → D45
+  { ocrAddr: 0x12c, pin: 44, label: 'OCR5CL', comAddr: 0x120, comMask: 0x0c, timer: TIMER5 }, // Timer5C → D44
 ];
 
 /**
@@ -610,6 +718,55 @@ const TINY85_DDRB = 0x37;
 /** Every AVR variant here runs at 16 MHz. */
 const AVR_CPU_HZ = 16_000_000;
 
+/** SREG's data address and its global interrupt enable bit. */
+const SREG = 0x5f;
+const SREG_I = 0x80;
+
+/**
+ * avr8js's CPU, entering interrupts the way the AVR core does
+ * (velxio/velxio-prod#158).
+ *
+ * "The interrupt execution response for all the enabled AVR interrupts is
+ * four clock cycles minimum" (ATmega328P datasheet DS40002061B, section 7.7):
+ * the PC is pushed and I cleared, then the vector's jump runs. A device with a
+ * 3-byte PC takes five (ATmega2560, section 7.8.1). avr8js charges two on
+ * every device, so each interrupt started 125 ns early on the Uno.
+ *
+ * The same section: "the instruction following SEI will be executed before
+ * any pending interrupts", and after RETI the AVR "will always return to the
+ * main program and execute one more instruction before any pending interrupt
+ * is served". avr8js served a pending interrupt right after either (its issue
+ * #38 asked for the RETI rule in 2020), so a level that stays pending, such as
+ * a low INT0, starved the main program. Here any instruction that turns I on
+ * (SEI, RETI, a write to SREG) lets one more instruction run first, as simavr
+ * does; the peripherals tick as usual meanwhile.
+ */
+class AvrCpu extends CPU {
+  /**
+   * SREG.I as the previous tick left it, so before the instruction that just
+   * ran. Unknown before the first tick: a host that sets I before running
+   * anything (a test enabling interrupts on a bare program) gets it at once.
+   */
+  private interruptsWereOn: boolean | undefined = undefined;
+
+  tick(): void {
+    const data = this.data;
+    const on = (data[SREG] & SREG_I) !== 0;
+    if (on && this.interruptsWereOn === false) {
+      this.interruptsWereOn = true;
+      data[SREG] &= ~SREG_I;
+      super.tick();
+      data[SREG] |= SREG_I;
+      return;
+    }
+    super.tick();
+    const stillOn = (data[SREG] & SREG_I) !== 0;
+    // tick() cleared I: it entered an interrupt, and charged two cycles.
+    if (on && !stillOn) this.cycles += this.pc22Bits ? 3 : 2;
+    this.interruptsWereOn = stillOn;
+  }
+}
+
 /**
  * Peripheral configs of each ATmega variant. The ATmega2560 keeps the
  * ATmega328P's register addresses for Timer0-2, USART0, SPI, TWI, ADC and
@@ -711,6 +868,24 @@ const MEGA_USART3: USARTConfig = {
   UDR: 0x136,
 };
 
+/**
+ * The ATmega2560's ADC multiplexer (datasheet Table 26-4): MUX5 in ADCSRB
+ * selects ADC8-15 (MUX5:0 = 1000xx, avr8js folds MUX5 in as channel 0x20+),
+ * 0x1E is the 1.1 V bandgap and 0x1F GND. The 328P's table it reused had a
+ * 4-bit mask, which dropped MUX5: analogRead(A8..A15) read A0..A7.
+ * Differential inputs are not modelled (they read 0 V).
+ */
+const ATMEGA2560_ADC_CHANNELS: ADCMuxConfiguration = {
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => [i, { type: ADCMuxInputType.SingleEnded, channel: i }]),
+  ),
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, i) => [0x20 + i, { type: ADCMuxInputType.SingleEnded, channel: 8 + i }]),
+  ),
+  0x1e: { type: ADCMuxInputType.Constant, voltage: 1.1 },
+  0x1f: { type: ADCMuxInputType.Constant, voltage: 0 },
+};
+
 const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
   // The compare-output pads and the third channel of Timer1 are the Mega's,
   // not the 328P's: without them a sketch that sets OCR1A drives no pin (#356).
@@ -756,14 +931,29 @@ const ATMEGA2560_PERIPHERALS: AtmegaPeripheralConfigs = {
   ],
   spi: { ...spiConfig, spiInterrupt: 0x30 },
   twi: { ...twiConfig, twiInterrupt: 0x4e },
-  adc: { ...adcConfig, adcInterrupt: 0x3a },
+  // The 2560's references (Table 26-3): REFS 10 is the internal 1.1 V and
+  // 11 the internal 2.56 V. With the 328P's table INTERNAL1V1 converted
+  // against 5 V and INTERNAL2V56 against 1.1 V (velxio/velxio-prod#154).
+  adc: {
+    ...adcConfig,
+    adcInterrupt: 0x3a,
+    numChannels: 16,
+    muxInputMask: 0x3f,
+    muxChannels: ATMEGA2560_ADC_CHANNELS,
+    adcReferences: [
+      ADCReference.AREF,
+      ADCReference.AVCC,
+      ADCReference.Internal1V1,
+      ADCReference.Internal2V56,
+    ],
+  },
   eeprom: { ...eepromConfig, eepromReadyInterrupt: 0x3c },
 };
 
 /** What the simulator itself does with a USART's traffic (console, scope). */
 interface UsartHooks {
-  /** The guest shifted a byte out of this USART. */
-  transmitted(byte: number): void;
+  /** The guest shifted a byte out of this USART; its frame starts at `atCycle`. */
+  transmitted(byte: number, atCycle: number): void;
   /** The guest wrote UCSRA/UCSRB/UCSRC/UBRR: the line settings may have changed. */
   configured(): void;
 }
@@ -783,6 +973,19 @@ interface UsartHooks {
  * would. The queue is this port's, per USART, and a rebuild empties it: on a
  * reset the line is quiet, and what the previous run never read is gone
  * (finding avr-rx-queue-stale-and-throttled).
+ *
+ * Transmitting: the ATmega's transmitter is double-buffered, and avr8js's is
+ * not, so the port takes over the UDR and UCSRA writes (velxio/velxio-prod#161).
+ * UDRn is a buffer in front of the shift register. A byte written there moves
+ * to the shift register at once when it is idle, or right after the stop bit
+ * of the frame on the wire, and UDREn is set as soon as the buffer is free
+ * again (ATmega328P datasheet DS40002061B, sections 20.6.1 and 20.6.3). The
+ * next byte is queued while the current one shifts out, so frames leave back
+ * to back. avr8js set UDRE only when the whole frame was over, which added
+ * the UDRE interrupt's latency to every character: +0.4 % at 9600 baud and
+ * +4.9 % at 115200 with HardwareSerial. Each byte reaches the console, the
+ * fabric and the scope when its frame starts. TXC is set when a frame ends
+ * with the buffer empty; writing UDR does not clear it, writing a one does.
  */
 class AvrUartPort implements UartControllerPort {
   readonly bus = 'uart' as const;
@@ -792,6 +995,11 @@ class AvrUartPort implements UartControllerPort {
   private handler: ((byte: number) => void) | null = null;
   private pending: number[] = [];
   private readonly hooks: UsartHooks;
+  /** A frame is on the wire (the shift register is busy) until `frameEnd`. */
+  private shifting = false;
+  private frameEnd = 0;
+  /** The byte waiting in UDR for the shift register, or null when UDR is empty. */
+  private buffered: number | null = null;
 
   constructor(unit: number, hooks: UsartHooks) {
     this.unit = unit;
@@ -800,15 +1008,78 @@ class AvrUartPort implements UartControllerPort {
   }
 
   /** The CPU was (re)built: take over its USART. */
-  attach(usart: AVRUSART): void {
+  attach(usart: AVRUSART, cpu: CPU, config: USARTConfig): void {
     this.usart = usart;
     this.pending = [];
-    usart.onByteTransmit = (value: number) => {
-      // A peripheral of a CPU that has been replaced reaches nobody.
+    this.shifting = false;
+    this.buffered = null;
+    // A byte avr8js itself reports (nothing in this tree writes UDR around
+    // the hook below, but a caller may hand one over) starts its frame now.
+    usart.onByteTransmit = (value: number) => this.emit(usart, value & 0xff, cpu.cycles);
+    const udre: AVRInterruptConfig = {
+      address: config.dataRegisterEmptyInterrupt,
+      flagRegister: config.UCSRA,
+      flagMask: UCSRA_UDRE,
+      enableRegister: config.UCSRB,
+      enableMask: UCSRB_UDRIE,
+    };
+    const txc: AVRInterruptConfig = {
+      address: config.txCompleteInterrupt,
+      flagRegister: config.UCSRA,
+      flagMask: UCSRA_TXC,
+      enableRegister: config.UCSRB,
+      enableMask: UCSRB_TXCIE,
+    };
+    // One frame in CPU cycles, as avr8js times its receiver: (UBRR + 1) clock
+    // periods of 16 (8 with U2X) per symbol, start + data + parity + stop.
+    const frameCycles = (): number => {
+      const ubrr = (cpu.data[config.UBRRH] << 8) | cpu.data[config.UBRRL];
+      const perSymbol = (ubrr + 1) * (cpu.data[config.UCSRA] & UCSRA_U2X ? 8 : 16);
+      return perSymbol * (1 + usart.bitsPerChar + usart.stopBits + (usart.parityEnabled ? 1 : 0));
+    };
+    const startFrame = (byte: number, atCycle: number): void => {
+      this.shifting = true;
+      this.frameEnd = atCycle + frameCycles();
+      // The buffer is free again the moment its byte reaches the shift register.
+      cpu.setInterruptFlag(udre);
+      this.emit(usart, byte, atCycle);
+      cpu.addClockEvent(frameDone, this.frameEnd - cpu.cycles);
+    };
+    const frameDone = (): void => {
       if (usart !== this.usart) return;
+      this.shifting = false;
+      const next = this.buffered;
+      if (next === null) {
+        cpu.setInterruptFlag(txc);
+        return;
+      }
+      // Right after the stop bit: the next frame starts where this one ended,
+      // not where the clock event happened to run.
+      this.buffered = null;
+      startFrame(next, this.frameEnd);
+    };
+    cpu.writeHooks[config.UDR] = (value) => {
+      // Nothing reaches a transmitter that is off (velxio/velxio-prod#167):
+      // no frame, and UDRE stays as it was, so the sketch keeps running.
+      if (!usart.txEnable) return true;
       const byte = value & 0xff;
-      this.handler?.(byte);
-      this.hooks.transmitted(byte);
+      if (!this.shifting) startFrame(byte, cpu.cycles);
+      else if (this.buffered === null) {
+        this.buffered = byte;
+        cpu.clearInterrupt(udre);
+      }
+      // A write while UDRE is clear is ignored by the transmitter (UDRn).
+      return true;
+    };
+    // UCSRA: RXC, UDRE, FE, DOR and UPE are read-only and TXC is cleared by
+    // writing a one. avr8js stored the written value masked to U2X and MPCM,
+    // which cleared UDRE on every write: HardwareSerial writes UCSRA right
+    // after each UDR write, and with UDRE back at one at once that dropped it.
+    cpu.writeHooks[config.UCSRA] = (value, oldValue) => {
+      cpu.data[config.UCSRA] = (oldValue & UCSRA_READ_ONLY) | (value & (UCSRA_U2X | UCSRA_MPCM));
+      cpu.clearInterruptByFlag(txc, value);
+      if ((value & UCSRA_U2X) !== (oldValue & UCSRA_U2X)) usart.onConfigurationChange?.();
+      return true;
     };
     usart.onRxComplete = () => this.drain();
     usart.onConfigurationChange = () => {
@@ -816,6 +1087,21 @@ class AvrUartPort implements UartControllerPort {
       // Serial.begin turned the receiver on: what arrived before it can go in now.
       this.drain();
     };
+  }
+
+  /** A frame leaves the transmitter: the fabric, the console and the scope hear it. */
+  private emit(usart: AVRUSART, byte: number, atCycle: number): void {
+    // A peripheral of a CPU that has been replaced reaches nobody.
+    if (usart !== this.usart) return;
+    // Neither does a byte written while the transmitter is off. avr8js
+    // reports every write to UDR, but with TXEN clear the USART does not
+    // drive TXD and shifts nothing out (ATmega328P datasheet, section 20.6
+    // and UDRn): a sketch that never calls Serial.begin() prints nothing on
+    // a real board, to the monitor or to a board wired to TX, and keeps
+    // running (velxio/velxio-prod#167).
+    if (!usart.txEnable) return;
+    this.handler?.(byte);
+    this.hooks.transmitted(byte, atCycle);
   }
 
   /** The live avr8js peripheral, for the simulator's own reporting. */
@@ -867,6 +1153,16 @@ class AvrUartPort implements UartControllerPort {
   }
 }
 
+// UCSRnA and UCSRnB bits (the same on every USART here).
+const UCSRA_TXC = 0x40;
+const UCSRA_UDRE = 0x20;
+const UCSRA_U2X = 0x02;
+const UCSRA_MPCM = 0x01;
+/** RXC, UDRE, FE, DOR, UPE: the flags of UCSRnA a write does not change (TXC is write-one-to-clear). */
+const UCSRA_READ_ONLY = 0x80 | UCSRA_TXC | UCSRA_UDRE | 0x10 | 0x08 | 0x04;
+const UCSRB_TXCIE = 0x40;
+const UCSRB_UDRIE = 0x20;
+
 // SPCR bits (the same on every ATmega here).
 const SPCR_SPE = 0x40;
 const SPCR_CPOL = 0x08;
@@ -899,17 +1195,23 @@ class AvrSpiPort implements SpiControllerPort {
     this.engine = engine;
     this.cpu = cpu;
     this.spcr = config.SPCR;
-    engine.onByte = (mosi) => this.frame(engine, mosi);
+    engine.onByte = (mosi) => this.frame(engine, cpu, mosi);
   }
 
-  private frame(engine: AVRSPI, mosi: number): void {
+  private frame(engine: AVRSPI, cpu: CPU, mosi: number): void {
     // A peripheral of a CPU that has been replaced reaches nobody.
     if (engine !== this.engine) {
       engine.completeTransfer(0xff);
       return;
     }
+    // The target answers as the frame starts; the guest sees SPIF and reads
+    // the byte when the eight SCK periods are over (SPSR: "When a serial
+    // transfer is complete, the SPIF Flag is set"), transferCycles after the
+    // SPDR write, as avr8js's own default handler does. Completed inside the
+    // write, 64 bytes at 125 kHz took 56 us instead of 4.1 ms
+    // (velxio/velxio-prod#159).
     const miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
-    engine.completeTransfer(miso);
+    cpu.addClockEvent(() => engine.completeTransfer(miso), engine.transferCycles);
   }
 
   setFrameHandler(handler: ((mosi: number, bits: number) => number) | null): void {
@@ -1029,7 +1331,8 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   // (DDR 1 -> 0 with PORT already what it was) is exactly such a change: it
   // must reach PinManager.updatePort so the pad's drive state is reported.
   private lastDdr: Map<string, number> = new Map();
-  private lastOcrValues: number[] = [];
+  /** The duty last reported per PWM channel (pwmPins order). */
+  private lastPwmDuties: number[] = [];
   /**
    * Last known TXEN bit value per USART, used to detect 0→1 transitions and
    * seed the TX pin baseline at idle HIGH the moment the firmware enables the
@@ -1054,7 +1357,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.uartPorts = this.usartDefs().map(
       (def, unit) =>
         new AvrUartPort(unit, {
-          transmitted: (byte) => this.usartTransmitted(unit, def, byte),
+          transmitted: (byte, atCycle) => this.usartTransmitted(unit, def, byte, atCycle),
           configured: () => this.handleUartConfigChange(unit, def),
         }),
     );
@@ -1067,6 +1370,23 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.i2cBus = new I2CBusManager(nullI2CMaster(), {
       unit: 0,
       name: boardVariant === 'tiny85' ? 'USI' : 'TWI',
+    });
+    // The TWI spends bus time on every step (velxio/velxio-prod#159): each
+    // address or data packet is nine SCL periods (ATmega328P datasheet,
+    // sections 22.3.3 and 22.3.4), and a START, a repeated START or a STOP
+    // about one. SCL = CPU clock / (16 + 2 * TWBR * 4^TWPS) (section 22.5.2),
+    // read when the step starts. Completing at once made a 100 kHz register
+    // read take 80 us instead of about 440 us. Bus-free time and clock
+    // stretching are not modelled.
+    this.i2cBus.setBusTiming((phase, complete) => {
+      const cpu = this.cpu;
+      if (!cpu || !this.twi) {
+        complete();
+        return;
+      }
+      const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
+      const sclCycles = 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+      cpu.addClockEvent(complete, phase === 'byte' ? 9 * sclCycles : sclCycles);
     });
     // Seed the input register to the pull's resting level the instant the
     // firmware enables it (INPUT_PULLUP -> HIGH). Real silicon does this in
@@ -1168,7 +1488,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // ATtiny85 RAMEND = 0x025F; 512 bytes SRAM.
     const sramBytes =
       this.boardVariant === 'mega' ? 8448 : this.boardVariant === 'tiny85' ? 512 : 8192;
-    const cpu = new CPU(this.program, sramBytes);
+    const cpu = new AvrCpu(this.program, sramBytes);
     this.cpu = cpu;
 
     if (this.boardVariant === 'tiny85') {
@@ -1210,7 +1530,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       // Every USART of the variant, each behind its port: the console, the
       // scope and the bus fabric all read them through AvrUartPort.attach.
       const usarts = cfg.usarts.map((def) => new AVRUSART(cpu, def.config, AVR_CPU_HZ));
-      usarts.forEach((usart, unit) => this.uartPorts[unit].attach(usart));
+      usarts.forEach((usart, unit) => this.uartPorts[unit].attach(usart, cpu, cfg.usarts[unit].config));
       this.usart = usarts[0];
 
       this.twi = new AVRTWI(cpu, cfg.twi, AVR_CPU_HZ);
@@ -1272,7 +1592,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.lastPortCValue = 0;
     this.lastPortDValue = 0;
     this.lastDdr.clear();
-    this.lastOcrValues = new Array(this.pwmPins.length).fill(0);
+    this.lastPwmDuties = new Array(this.pwmPins.length).fill(0);
     this.lastTxEnable = this.uartPorts.map(() => false);
 
     this.setupPinHooks();
@@ -1327,9 +1647,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * that port and no other), and the oscilloscope sees the frame on the TX
    * pin of whichever USART it was.
    */
-  private usartTransmitted(unit: number, def: UsartDef, byte: number): void {
+  private usartTransmitted(unit: number, def: UsartDef, byte: number, atCycle: number): void {
     if (unit === 0 && this.onSerialData) this.onSerialData(String.fromCharCode(byte));
-    this.emitUartTxFrame(this.uartPorts[unit].engine, def.txPin, byte);
+    this.emitUartTxFrame(this.uartPorts[unit].engine, def.txPin, byte, atCycle);
   }
 
   /**
@@ -1351,8 +1671,17 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    * timing that holds at any sweep speed. The scope channel only: the bus
    * fabric hears the byte from the port, and a decoder on a hardware TX pad
    * would otherwise read every byte a second time.
+   *
+   * The frame starts at `startCycle`, where the shift register loads it: at
+   * the UDR write when the transmitter was idle, right after the previous
+   * stop bit when the byte waited in the buffer (AvrUartPort).
    */
-  private emitUartTxFrame(usart: AVRUSART | null, txPin: number, byte: number): void {
+  private emitUartTxFrame(
+    usart: AVRUSART | null,
+    txPin: number,
+    byte: number,
+    startCycle = this.cpu?.cycles ?? 0,
+  ): void {
     if (!usart || !this.cpu || !this.onPinChangeWithTime) return;
     if (!usart.txEnable) return;
 
@@ -1361,7 +1690,6 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
 
     const freqHz = 16_000_000;
     const cyclesPerBit = freqHz / baud;
-    const startCycle = this.cpu.cycles;
 
     // Build the frame bit-by-bit. UART idles HIGH; start = LOW; data LSB first;
     // optional parity; stop bit(s) HIGH.  Idle->start gives the first transition.
@@ -1576,13 +1904,13 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // audio use it to recover the real onset time instead of the frame edge.
     const timeMs = this.cpu.cycles / 16_000;
     const pins = this.pwmPins;
+    const data = this.cpu.data;
     for (let i = 0; i < pins.length; i++) {
-      const { ocrAddr, pin, comAddr, comMask } = pins[i] as PwmPinDef;
-      const connected = comAddr === undefined || (this.cpu.data[comAddr] & comMask!) !== 0;
-      const ocrValue = connected ? this.cpu.data[ocrAddr] : 0;
-      if (ocrValue !== this.lastOcrValues[i]) {
-        this.lastOcrValues[i] = ocrValue;
-        this.pinManager.updatePwm(pin, ocrValue / 255, timeMs);
+      const def = pins[i] as PwmPinDef;
+      const duty = pwmDuty(data, def);
+      if (duty !== this.lastPwmDuties[i]) {
+        this.lastPwmDuties[i] = duty;
+        this.pinManager.updatePwm(def.pin, duty, timeMs);
       }
     }
   }

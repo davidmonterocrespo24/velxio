@@ -42,12 +42,13 @@ import type { BoardKind } from '../../types/board';
 import { stm32PinNameToLinear } from '../Stm32Bridge';
 import { boardPinToNumber } from '../../utils/boardPinMapping';
 import { sanitizeSpiceId } from './NetlistBuilder';
+import { boardInputSwitch } from '../LogicFamilies';
 
-// 3.3 V LVCMOS thresholds with a hysteresis band so a node hovering near the
-// midpoint doesn't chatter. A pulled-up idle input sits at ~3.3 V and a
-// pressed button pulls it to ~0 V, so the band is rarely entered.
-const V_HIGH = 2.0;
-const V_LOW = 0.8;
+// Each board switches at its own input levels, with a hysteresis band so a
+// node hovering near the midpoint doesn't chatter (boardInputSwitch): about
+// 2.6 / 2.1 V on a 5 V ATmega, 2.0 / 0.8 V on the 3.3 V boards. A pulled-up
+// idle input sits at the rail and a pressed button pulls it to ~0 V, so the
+// band is rarely entered.
 
 /** Map a board pin name to a plain GPIO number, or -1 if it isn't one we
  *  drive digitally (GND/VCC/UART-named pads, etc.). Delegates to the
@@ -85,6 +86,7 @@ export function connectDigitalInputsToMcu(): () => void {
       const pm = getBoardPinManager(board.id);
       const driven = pm ? pm.getOutputPins() : new Set<number>();
       const prefix = `${board.id}:`;
+      const { rise: vHigh, fall: vLow } = boardInputSwitch(board.boardKind);
       // STM32 names pins PA0/PC13/… and its PinManager + setPinState key on the
       // linear pin (port*16+pin); every other board uses plain GPIO numbers.
       const isStm32 = isStm32BoardKind(board.boardKind);
@@ -144,8 +146,8 @@ export function connectDigitalInputsToMcu(): () => void {
         const stateKey = `${board.id}:${gpio}`;
         const prev = lastLevel.get(stateKey);
         let next: boolean;
-        if (v >= V_HIGH) next = true;
-        else if (v <= V_LOW) next = false;
+        if (v >= vHigh) next = true;
+        else if (v <= vLow) next = false;
         else if (prev !== undefined) next = prev; // inside the band — hold
         // A node sitting in the undefined band with no history is not
         // something to have an opinion about: real silicon reads it as

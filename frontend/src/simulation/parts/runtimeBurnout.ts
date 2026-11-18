@@ -21,6 +21,7 @@
 import { useElectricalStore } from '../../store/useElectricalStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { parseValueWithUnits } from '../spice/valueParser';
+import { pinCurrentFindings } from '../verify/pinCurrent';
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 /** Sustained over-limit time before destruction (the "thermal" delay), ms. */
@@ -143,7 +144,41 @@ function emitFault(id: string, message: string): void {
   }
 }
 
+/**
+ * Board pins over their current (velxio/velxio-prod#140): each pin and each
+ * board total is reported once per run, again only if it gets worse
+ * (warning, then error). A pin is not destroyed: a real one may survive, or
+ * fail later, and the sketch keeps running either way.
+ */
+const reportedPinCurrent = new Map<string, 'warning' | 'error'>();
+
+function checkPinCurrents(): void {
+  const { boards } = useSimulatorStore.getState();
+  const { branchCurrents, pinNetMap } = useElectricalStore.getState();
+  if (!boards?.length || !branchCurrents) return;
+  for (const f of pinCurrentFindings(boards, branchCurrents, pinNetMap)) {
+    const key = `${f.boardId}:${f.pinName ?? '*'}`;
+    const before = reportedPinCurrent.get(key);
+    if (before === f.severity || before === 'error') continue;
+    reportedPinCurrent.set(key, f.severity);
+    // eslint-disable-next-line no-console
+    console.warn(`[pin-current] ${f.message}`);
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('velxio-circuit-fault', {
+            detail: { componentId: f.boardId, kind: 'pin-current', message: f.message, severity: f.severity },
+          }),
+        );
+      } catch {
+        /* CustomEvent unavailable — the console.warn is enough */
+      }
+    }
+  }
+}
+
 function check(): void {
+  checkPinCurrents();
   const sim = useSimulatorStore.getState();
   const { nodeVoltages, pinNetMap } = useElectricalStore.getState();
   const now = Date.now();
@@ -179,6 +214,7 @@ export function installRuntimeBurnoutMonitor(): void {
     if (s.hexEpoch !== lastHexEpoch) {
       lastHexEpoch = s.hexEpoch;
       overSinceByComponent.clear();
+      reportedPinCurrent.clear();
     }
   });
   // Re-check on every fresh solve (the store publishes a new object each solve).

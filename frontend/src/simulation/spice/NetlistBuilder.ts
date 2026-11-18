@@ -362,6 +362,8 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // referenced VCC — we must still emit the rail source (step 6) or the
   // pull-up would hang off a dead node and the input would read LOW anyway.
   let vccRailNeeded = false;
+  // The nodes between a pin's source and its output impedance.
+  const padNodes = new Set<string>();
   for (const board of boards) {
     for (const [pinName, state] of Object.entries(board.pins)) {
       const net = netLookup(board.id, pinName);
@@ -388,10 +390,38 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
         continue;
       }
       if (!net) continue;
-      if (isRailNet(net)) continue; // already served by a rail source
       const v = state.type === 'digital' ? state.v : state.duty * board.vcc;
-      cards.push(`V_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)} ${net} 0 DC ${v}`);
+      const source = `V_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`;
+      const ohms = board.pinOutputOhms ?? 0;
+      if (ohms > 0) {
+        // A real output pin: its driver behind the pin's output impedance
+        // (velxio/velxio-prod#140). The source keeps its name, so the
+        // scheduler's alters and the branch current, which is the pin's
+        // current, are unchanged; its own node sits between the two. A pin on
+        // a rail gets its driver too: driven HIGH into GND it is the short it
+        // is on hardware, which the run checks (verify/pinCurrent).
+        const pad = `pad_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}`;
+        cards.push(`${source} ${pad} 0 DC ${v}`);
+        cards.push(`R_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}_out ${pad} ${net} ${ohms}`);
+        padNodes.add(pad);
+        if (!isRailNet(net)) sourcedNets.add(net);
+        continue;
+      }
+      if (isRailNet(net)) continue; // already served by a rail source
+      cards.push(`${source} ${net} 0 DC ${v}`);
       sourcedNets.add(net); // board GPIO V-source drives this net (e.g. cross-board input)
+    }
+  }
+
+  // A pin that loads its net inside the chip (BoardForSpice.pinLoads): an
+  // ATmega's AREF, the 32 kOhm input of its ADC reference. Only where a wire
+  // lands on it; a rail is held by its own source.
+  for (const board of boards) {
+    for (const [pinName, ohms] of Object.entries(board.pinLoads ?? {})) {
+      const net = netLookup(board.id, pinName);
+      if (!net || isRailNet(net) || !(ohms > 0)) continue;
+      cards.push(`R_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)}_load ${net} 0 ${ohms}`);
+      sourcedNets.add(net);
     }
   }
 
@@ -508,7 +538,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   }
 
   // ── 7. Auto pull-downs for floating nets ─────────────────────────────────
-  const floating = detectFloatingNets(netNames, cards);
+  const floating = detectFloatingNets(netNames, cards, padNodes);
   for (const net of floating) {
     cards.push(`R_autopull_${net} ${net} 0 100Meg`);
   }
@@ -1023,8 +1053,14 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
  *
  * Returns the set of nets that should receive an auto 100 MΩ pull-down.
  */
-function detectFloatingNets(netNames: Map<string, string>, cards: string[]): Set<string> {
-  const nets = new Set(netNames.values());
+function detectFloatingNets(
+  netNames: Map<string, string>,
+  cards: string[],
+  internalNodes: ReadonlySet<string> = new Set(),
+): Set<string> {
+  // Internal nodes (a pin's driver behind its output impedance) are paths
+  // like any net, so a load reached through one is not floating.
+  const nets = new Set([...netNames.values(), ...internalNodes]);
 
   // Build an undirected adjacency list over DC-conducting elements.
   // For a 2-terminal element the two nets on it become connected.

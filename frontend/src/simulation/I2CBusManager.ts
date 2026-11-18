@@ -125,6 +125,19 @@ export interface I2CControllerOptions {
   routing?: () => I2cRouting | 'static';
 }
 
+/** A step of a transaction on the wire: a (repeated) START, a STOP, or a 9-bit byte packet. */
+export type I2cBusPhase = 'start' | 'stop' | 'byte';
+
+/**
+ * When the controller hears that a step is over. The manager answers every
+ * step from the fabric at once; `complete` hands that answer to the
+ * peripheral. By default it runs at once. An engine that clocks its bus
+ * defers it by the time the step occupies the wire (velxio/velxio-prod#159).
+ */
+export type I2cBusTiming = (phase: I2cBusPhase, complete: () => void) => void;
+
+const COMPLETE_AT_ONCE: I2cBusTiming = (_phase, complete) => complete();
+
 // ── I2C Bus Manager (implements TWIEventHandler for avr8js) ────────────────
 
 export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
@@ -141,6 +154,8 @@ export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
   private fabricActive = false;
   /** The fabric heard a START since the last STOP, so it is owed that STOP. */
   private fabricOpen = false;
+  /** When a step's completion reaches the peripheral (setBusTiming). */
+  private timing: I2cBusTiming = COMPLETE_AT_ONCE;
 
   /**
    * Construct a bus bound to an `I2CMaster`.  For backward
@@ -216,10 +231,20 @@ export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
     this.routingChangeHandler?.();
   }
 
+  /**
+   * When the peripheral hears that each step is over (I2cBusTiming); null
+   * restores "at once". The targets still answer the moment the step starts:
+   * only the completion waits.
+   */
+  setBusTiming(timing: I2cBusTiming | null): void {
+    this.timing = timing ?? COMPLETE_AT_ONCE;
+  }
+
   // ── TWIEventHandler implementation (master-side events from the local MCU) ──
 
   start(_repeated: boolean): void {
-    this.master.completeStart();
+    const master = this.master;
+    this.timing('start', () => master.completeStart());
   }
 
   stop(): void {
@@ -229,7 +254,8 @@ export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
     this.fabricOpen = false;
     this.fabricActive = false;
     owed?.stop();
-    this.master.completeStop();
+    const master = this.master;
+    this.timing('stop', () => master.completeStop());
   }
 
   connectToSlave(addr: number, write: boolean): void {
@@ -241,18 +267,22 @@ export class I2CBusManager implements TWIEventHandler, I2cControllerPort {
       this.fabricOpen = true;
       this.fabricActive = h.start(addr, !write);
     }
-    this.master.completeConnect(this.fabricActive);
+    const ack = this.fabricActive;
+    const master = this.master;
+    this.timing('byte', () => master.completeConnect(ack));
   }
 
   writeByte(value: number): void {
     const ack = this.fabricActive && this.handler ? this.handler.write(value) : false;
-    this.master.completeWrite(ack);
+    const master = this.master;
+    this.timing('byte', () => master.completeWrite(ack));
   }
 
   readByte(_ack: boolean): void {
     // Open-drain: with nobody addressed the line reads the pull-up.
-    const value = this.fabricActive && this.handler ? this.handler.read() : 0xff;
-    this.master.completeRead(value & 0xff);
+    const value = (this.fabricActive && this.handler ? this.handler.read() : 0xff) & 0xff;
+    const master = this.master;
+    this.timing('byte', () => master.completeRead(value));
   }
 }
 

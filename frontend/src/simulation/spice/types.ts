@@ -62,6 +62,16 @@ export interface BoardForSpice {
    * check only; the netlist holds them on their rail.
    */
   powerInputs?: Record<string, { min: number; max: number }>;
+  /**
+   * Pins that load their net to ground inside the chip, pin name -> ohms
+   * (BoardPinGroup.pinLoads): an ATmega's AREF.
+   */
+  pinLoads?: Record<string, number>;
+  /**
+   * Series output impedance of a driven pin, ohms (BoardPinGroup.pinDrive):
+   * the pin's source sits behind it. Absent, the pin is an ideal source.
+   */
+  pinOutputOhms?: number;
 }
 
 export type PinSourceState =

@@ -19,6 +19,7 @@ import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
 import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
+import { flagProperty } from '../../utils/flagProperty';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -1000,7 +1001,10 @@ const MAPPERS: Record<string, Mapper> = {
     const term1 = t1l ?? t1r ?? netLookup('A');
     const term2 = t2l ?? t2r ?? netLookup('B');
     if (term1 && term2) {
-      const R = Boolean(comp.properties.pressed) ? 0.01 : 1e9;
+      // Read `pressed` the way the canvas draws it (flagProperty): typed as
+      // text, "false" is released. Boolean("false") closed the switch under a
+      // button drawn released (velxio/velxio-prod#151).
+      const R = flagProperty(comp.properties.pressed) ? 0.01 : 1e9;
       cards.push(`R_${comp.id}_sw ${term1} ${term2} ${R}`);
     }
     return cards.length ? { cards, modelsUsed: new Set() } : null;

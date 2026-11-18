@@ -225,6 +225,8 @@ export function buildInputFromStore(snap: StoreSnapshot): BuildNetlistInput {
       auxPinNames: group.aux?.pins,
       auxVolts: group.aux?.volts,
       powerInputs: group.powerInputs,
+      pinLoads: group.pinLoads,
+      pinOutputOhms: group.pinDrive?.ohms,
     };
   });
 
