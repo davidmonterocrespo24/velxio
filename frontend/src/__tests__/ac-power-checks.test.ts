@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { verifyCircuit } from '../simulation/verify/circuitVerifier';
 import { buildInputFromStore } from '../simulation/spice/storeAdapter';
+import { buildPreflightSnapshot, type PreflightState } from '../simulation/verify/verifyFromStore';
 import { componentStress } from '../simulation/parts/runtimeBurnout';
 import type { TimeWaveforms } from '../simulation/spice/types';
 
@@ -131,6 +132,121 @@ describe('the circuit check sees what an alternating source dissipates (#117)', 
     expect(reverse.map((w) => w.componentId)).toEqual(['c1']);
     expect(reverse[0]!.metric).toBeLessThan(-4.5);
   });
+});
+
+describe("a supply on a board's power pin is a fight with the board's rail, not an overload (#117, #96)", () => {
+  // A board's power pins are ideal sources in the netlist (an ESP32's 3V3
+  // regulator output, its USB 5 V behind a diode on VIN, an Uno's 5V), so a
+  // supply at another voltage there sits at its current limit whatever the
+  // limit is, and the check names that fight as a supply-on-rail warning
+  // (#96). An AC supply's peak current over the window comes out a hair above
+  // its operating-point current, and the check took that for a load that
+  // clips the supply at its peaks: it blocked Run with "Raise the
+  // currentLimit", at a 10 A limit too.
+  const link = (id: string, a: string, b: string) => {
+    const [ac, ap] = a.split(':');
+    const [bc, bp] = b.split(':');
+    return {
+      id,
+      start: { componentId: ac!, pinName: ap! },
+      end: { componentId: bc!, pinName: bp! },
+    };
+  };
+  type Extra = Pick<PreflightState, 'components' | 'wires'>;
+  const supplyOnPin = (
+    board: { boardKind: string; id: string; pin: string; gnd: string },
+    properties: Record<string, unknown>,
+    extra: Extra = { components: [], wires: [] },
+  ): PreflightState => ({
+    components: [{ id: 'ps', metadataId: 'power-supply', properties }, ...extra.components],
+    wires: [
+      link('w0', 'ps:SIG', `${board.id}:${board.pin}`),
+      link('w1', 'ps:GND', `${board.id}:${board.gnd}`),
+      ...extra.wires,
+    ],
+    boards: [{ id: board.id, boardKind: board.boardKind }],
+  });
+  /** A resistor from `pin` to a 5 V-peak, 50 Hz generator whose GND is `gnd`. */
+  const generatorFrom = (pin: string, ohms: string, gnd: string): Extra => ({
+    components: [
+      {
+        id: 'g1',
+        metadataId: 'signal-generator',
+        properties: { waveform: 'sine', frequency: 50, amplitude: 5, offset: 0 },
+      },
+      { id: 'rl', metadataId: 'resistor', properties: { value: ohms, power: '20' } },
+    ],
+    wires: [link('w2', pin, 'rl:1'), link('w3', 'rl:2', 'g1:SIG'), link('w4', 'g1:GND', gnd)],
+  });
+  async function supplyFindings(state: PreflightState) {
+    const { snap, synthesizedPins } = buildPreflightSnapshot(state);
+    const input = buildInputFromStore(snap);
+    // Every circuit here is also solved over the window: something on it moves.
+    expect(input.analysis.kind === 'tran' && input.analysis.timeVarying).toBe(true);
+    const res = await verifyCircuit(input, { synthesizedPins });
+    return { res, mine: [...res.errors, ...res.warnings].filter((f) => f.componentId === 'ps') };
+  }
+
+  const pins = [
+    { boardKind: 'esp32', id: 'esp32', pin: '3V3', gnd: 'GND' },
+    { boardKind: 'esp32', id: 'esp32', pin: 'VIN', gnd: 'GND' },
+    { boardKind: 'arduino-uno', id: 'uno', pin: '5V', gnd: 'GND.1' },
+  ];
+  for (const board of pins) {
+    for (const limit of [1, 10]) {
+      it(
+        `5 V AC on the ${board.pin} pin of ${board.id}, ${limit} A limit: a warning`,
+        { timeout: 60_000 },
+        async () => {
+          const { res, mine } = await supplyFindings(
+            supplyOnPin(board, { mode: 'ac', voltage: 5, frequency: 50, currentLimit: limit }),
+          );
+          expect(res.errors).toEqual([]);
+          expect(mine.map((f) => f.code)).toEqual(['supply-on-rail']);
+          expect(mine[0]!.message).toContain(`${board.pin} pin of ${board.id}`);
+          expect(mine[0]!.message).toContain(`its ${limit} A current limit`);
+          expect(mine[0]!.message).toMatch(/fight over that pin/);
+          expect(mine[0]!.message).not.toMatch(/asks for more|Raise the currentLimit|peaks/);
+        },
+      );
+    }
+  }
+
+  it(
+    'a DC supply on 3V3 with a generator elsewhere on the canvas keeps its warning',
+    { timeout: 60_000 },
+    async () => {
+      const esp32 = pins[0]!;
+      const { res, mine } = await supplyFindings(
+        supplyOnPin(
+          esp32,
+          { mode: 'dc', voltage: 5, frequency: 50, currentLimit: 1 },
+          generatorFrom('esp32:GND', '1k', 'esp32:GND'),
+        ),
+      );
+      expect(res.errors).toEqual([]);
+      expect(mine.map((f) => f.code)).toEqual(['supply-on-rail']);
+      expect(mine[0]!.message).toMatch(/back-feed/);
+    },
+  );
+
+  it(
+    "a supply that powers the board through VIN and meets its limit at its load's peaks still blocks",
+    { timeout: 60_000 },
+    async () => {
+      // 9 V into VIN, and 10 ohm from the 5V pin (the same net on the board) to
+      // a 5 V-peak sine: 0.9 A at t = 0, and 1.4 A asked at the sine's troughs.
+      const { mine } = await supplyFindings(
+        supplyOnPin(
+          pins[1]!,
+          { mode: 'dc', voltage: 9, frequency: 50, currentLimit: 1 },
+          generatorFrom('esp32:5V', '10', 'esp32:GND'),
+        ),
+      );
+      expect(mine.map((f) => f.code)).toEqual(['source-overload']);
+      expect(mine[0]!.message).toMatch(/peaks/);
+    },
+  );
 });
 
 describe('the burnout model averages over what the solve published (#117)', () => {

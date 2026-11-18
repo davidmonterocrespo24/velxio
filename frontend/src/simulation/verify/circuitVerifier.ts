@@ -1027,7 +1027,12 @@ export async function verifyCircuit(
       ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
     if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
-      const onRail = isPsu && !fromWave
+      // A supply on a board's rail is at its limit because the two fight,
+      // whichever reading put it there: an AC supply's peak over the window
+      // comes out a hair above its operating point, and it is the same fight.
+      // The rail check gives way off the rails and for a supply that powers a
+      // board through its input, so a load that clips the supply still blocks.
+      const onRail = isPsu
         ? supplyOnRailWarning(src, threshold, branchCurrents[`v_${src.id}`] ?? 0, rails, pinNetMap, input)
         : null;
       if (onRail) {
