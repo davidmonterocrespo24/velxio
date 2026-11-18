@@ -968,7 +968,9 @@ class ArduinoCLIService:
         try:
             def _run():
                 return subprocess.run(
-                    [self.cli_path, "lib", "search", query, "--format", "json"],
+                    # "--" ends arduino-cli's options: a query that starts with "-" is
+                    # searched for, never read as an option (velxio/velxio-prod#236).
+                    [self.cli_path, "lib", "search", "--format", "json", "--", query],
                     capture_output=True, text=True, encoding='utf-8', errors='replace'
                 )
 
@@ -1060,7 +1062,7 @@ class ArduinoCLIService:
 
             def _run():
                 return subprocess.run(
-                    [self.cli_path, "lib", "install", lib_spec],
+                    [self.cli_path, "lib", "install", "--", lib_spec],
                     capture_output=True, text=True, encoding='utf-8', errors='replace'
                 )
 
@@ -1079,7 +1081,7 @@ class ArduinoCLIService:
                     print(f"Versioned install failed, retrying with plain name: {plain_name}")
                     def _run_plain():
                         return subprocess.run(
-                            [self.cli_path, "lib", "install", plain_name],
+                            [self.cli_path, "lib", "install", "--", plain_name],
                             capture_output=True, text=True, encoding='utf-8', errors='replace'
                         )
                     result = await asyncio.to_thread(_run_plain)
@@ -1296,7 +1298,7 @@ class ArduinoCLIService:
 
             def _run():
                 return subprocess.run(
-                    [self.cli_path, "lib", "uninstall", library_name],
+                    [self.cli_path, "lib", "uninstall", "--", library_name],
                     capture_output=True, text=True, encoding='utf-8', errors='replace',
                 )
 

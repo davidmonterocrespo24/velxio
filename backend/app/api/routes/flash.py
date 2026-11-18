@@ -75,6 +75,15 @@ _FQBN_PREFIXES = (
 # Format → file extension hint for arduino-cli. Some flashers key
 # off the extension; passing the wrong one makes esptool refuse a
 # .hex it would otherwise burn as .bin.
+# What a port and an FQBN may hold (velxio/velxio-prod#236). arduino-cli
+# expands {property} references inside the port string when it builds the
+# uploader's command line, and splits it on quotes, so a port is a plain
+# device name: a /dev path (/dev/ttyUSB0, /dev/cu.usbmodem1101, a
+# /dev/serial/by-id/ link) or a Windows COM port. An FQBN is its three
+# words and, after a fourth colon, its menu options (key=value,...).
+_PORT_OK = re.compile(r'(?:/dev/[A-Za-z0-9._:/+-]+|COM[0-9]{1,3})')
+_FQBN_OK = re.compile(r'[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.=,-]+)?')
+
 _FORMAT_EXTENSIONS = {
     "hex": ".hex",
     "bin": ".bin",
@@ -131,6 +140,11 @@ async def flash_upload(
                 f"Expected one of {sorted(_FORMAT_EXTENSIONS)}."
             ),
         )
+    if not _FQBN_OK.fullmatch(fqbn):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An FQBN holds letters, digits and . _ - , = between its colons.",
+        )
     if not any(fqbn.startswith(p) for p in _FQBN_PREFIXES):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -138,6 +152,11 @@ async def flash_upload(
                 f"FQBN {fqbn!r} is not in the flash allow-list. "
                 f"Supported prefixes: {list(_FQBN_PREFIXES)}."
             ),
+        )
+    if port.strip() and not _PORT_OK.fullmatch(port):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A port is a device name: /dev/... or COM<n>.",
         )
     if not port.strip():
         raise HTTPException(
