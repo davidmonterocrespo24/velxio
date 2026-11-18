@@ -25,6 +25,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { readSpan, spanStats } from '../../simulation/spice/waveformStats';
 import { cssVar } from '../../lib/theme';
 import { useResolvedTheme } from '../../hooks/useTheme';
+import { isSeatWire } from '../../utils/breadboardNets';
 
 function formatV(v: number): string {
   const abs = Math.abs(v);
@@ -57,6 +58,15 @@ export function ElectricalOverlay({
   const pinNetMap = useElectricalStore((s) => s.pinNetMap);
 
   const wires = useSimulatorStore((s) => s.wires);
+  // The SEATED boards' ids only, as one string: the boards array itself is
+  // replaced on every serial flush, and the label memo must not rebuild at
+  // that rate. (An unseated board's bb wires, a Wokwi import's, keep labels.)
+  const boardIdsKey = useSimulatorStore((s) =>
+    s.boards
+      .filter((b) => b.seatedOn)
+      .map((b) => b.id)
+      .join('\u0000'),
+  );
 
   const labels = useMemo(() => {
     if (Object.keys(nodeVoltages).length === 0) return [];
@@ -64,7 +74,17 @@ export function ElectricalOverlay({
     // label and a voltmeter on the same net agree (velxio/velxio-prod#100).
     const span = timeWaveforms ? readSpan(timeWaveforms.time, timeWaveforms.period) : null;
 
+    // A board plugged into a breadboard owns one zero-length seat wire per
+    // pin: labelling them would sprout a label on every pin of the board.
+    // (boardIdsKey lists the seated boards only.)
+    // A seated PART's seat wires keep theirs: hovering the part is how its
+    // node voltages are read (its legs have no other wire of their own).
+    const boardIds = new Set(boardIdsKey ? boardIdsKey.split('\u0000') : []);
     return wires
+      .filter(
+        (w) =>
+          !(isSeatWire(w) && (boardIds.has(w.start.componentId) || boardIds.has(w.end.componentId))),
+      )
       .map((w) => {
         const mx = (w.start.x + w.end.x) / 2;
         const my = (w.start.y + w.end.y) / 2;
@@ -94,7 +114,7 @@ export function ElectricalOverlay({
         };
       })
       .filter((l) => l.v !== undefined && l.netName !== '0');
-  }, [wires, pinNetMap, nodeVoltages, timeWaveforms]);
+  }, [wires, boardIdsKey, pinNetMap, nodeVoltages, timeWaveforms]);
 
   // Hover gate kept in its own memo so the label list above does not rebuild
   // every time the cursor moves.

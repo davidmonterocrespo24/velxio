@@ -34,7 +34,7 @@ import { PinOverlay } from './PinOverlay';
 // The size table lives in utils/boardGeometry (the store needs it too, for
 // rotated pin positions); re-exported for existing importers.
 export { BOARD_SIZE } from '../../utils/boardGeometry';
-import { boardBox, boardSize, normalizeRotation } from '../../utils/boardGeometry';
+import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../../utils/boardGeometry';
 
 interface BoardOnCanvasProps {
   board: BoardInstance;
@@ -76,6 +76,9 @@ export const BoardOnCanvas = ({
   const led13 = onboardLeds?.led === true;
   const size = boardSize(boardKind);
   const rotation = normalizeRotation(board.rotation);
+  // 1 except for a board seated on a breadboard (utils/boardSeat.ts), drawn
+  // at the breadboard's real scale about the same centre as the rotation.
+  const scale = normalizeScale(board.scale);
   // Canvas-space box of the rotated board (status dot anchors to it).
   const box = boardBox(board);
   // Seated on a socket component (Round Display back header)? Decides the
@@ -100,6 +103,26 @@ export const BoardOnCanvas = ({
     () => isBoardSeated(id, boardKind, x, y, components),
     [id, boardKind, x, y, components, seatEpoch],
   );
+  // A board saved as plugged into a breadboard normally arrives with its
+  // seat wires; when a save path dropped them (or its breadboard is gone),
+  // repair the seat once the element can be read. A board with no seatedOn
+  // is never touched, so older projects load exactly as before. Asked on the
+  // next frame and once more later, like the socket check above, because the
+  // custom element may upgrade after the first render.
+  const seatedOnBreadboard = board.seatedOn;
+  // Every bulk replace of the canvas (an import, a load) bumps hydrationSeq:
+  // a seat whose wires such a replace dropped is re-checked then too.
+  const hydrationSeq = useSimulatorStore((st) => st.hydrationSeq);
+  React.useEffect(() => {
+    if (!seatedOnBreadboard) return;
+    const repair = () => useSimulatorStore.getState().repairBoardSeat(id);
+    const raf = requestAnimationFrame(repair);
+    const t = setTimeout(repair, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [id, seatedOnBreadboard, hydrationSeq]);
   // Drag-to-front rank: 0 = never dragged (static layering applies).
   const zRaise = useSimulatorStore((st) => st.zOrders[id] ?? 0);
 
@@ -221,16 +244,22 @@ export const BoardOnCanvas = ({
       // without covering the board (its buttons/screen stay interactive).
       onContextMenu={onContextMenu}
     >
-      {/* The board, its selection ring and its drag surface turn together
-          about the footprint centre. Pins (PinOverlay below) stay outside and
-          rotate their positions instead, so their hover labels read upright. */}
+      {/* The board, its selection ring and its drag surface turn (and, when
+          seated on a breadboard, scale) together about the footprint centre.
+          Pins (PinOverlay below) stay outside and transform their positions
+          instead, so their hover labels read upright. A plain board emits no
+          transform at all, exactly as before scale existed. */}
       <div
         data-board-rotation={rotation}
+        data-board-scale={scale}
         style={{
           position: 'absolute',
           left: 0,
           top: 0,
-          transform: rotation ? `rotate(${rotation}deg)` : undefined,
+          transform:
+            rotation || scale !== 1
+              ? `${rotation ? `rotate(${rotation}deg)` : ''}${rotation && scale !== 1 ? ' ' : ''}${scale !== 1 ? `scale(${scale})` : ''}`
+              : undefined,
           transformOrigin: `${x + size.w / 2}px ${y + size.h / 2}px`,
         }}
       >
@@ -309,6 +338,7 @@ export const BoardOnCanvas = ({
         wrapperOffsetY={0}
         rotation={rotation}
         pivotBox={size}
+        scale={scale}
         zoom={zoom}
         wiring={wiring}
       />

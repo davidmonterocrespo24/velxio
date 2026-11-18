@@ -34,7 +34,7 @@ import {
 import { annotateSerialChunk } from '../utils/serialDiagnostics';
 import { blockedByBoardGate, reportBoardRunRefused } from '../lib/proBoardGate';
 import { getSerialTxInterceptor } from '../lib/proHardwareSerial';
-import { boardBox, boardSize, normalizeRotation } from '../utils/boardGeometry';
+import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../utils/boardGeometry';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
 import { useOscilloscopeStore } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
@@ -64,7 +64,21 @@ import {
 } from '../utils/wireAutoRoute';
 import { isBreadboard } from '../utils/breadboardNets';
 import { isBoardSeated } from '../utils/socketSnap';
-import { computeSeating } from '../utils/breadboardSnap';
+import { computeSeating, SEAT_TOLERANCE } from '../utils/breadboardSnap';
+import {
+  BREADBOARD_PITCH,
+  boardPadOffsets,
+  boardSeatWireId,
+  breadboardHolesInUse,
+  canSeatOnBreadboard,
+  holeWorld,
+  isOverTerminalArea,
+  isSeatableBreadboard,
+  planBoardSeat,
+  readBoardHeader,
+  type BoardHeader,
+  type BoardSeatPlan,
+} from '../utils/boardSeat';
 import { createSerialBatcher } from './serialBatcher';
 import { emitSerialTap } from './serialTap';
 import { applySerialWireDisplay, applySerialWireTransmit, nominalBaud } from './serialWire';
@@ -1354,6 +1368,43 @@ class BusBoundSimulatorMap<V> extends Map<string, V> {
   }
 }
 
+/**
+ * One board drag in progress (dragBoardTo / endBoardDrag). Kept outside the
+ * store state on purpose: it is gesture bookkeeping, nothing renders from it
+ * and nothing should persist it.
+ */
+interface BoardDragGesture {
+  /** Pose the board had when the drag began: a cancelled gesture puts it
+   *  back exactly (cancelBoardDrag). */
+  start: { x: number; y: number; rotation: number | undefined; scale: number | undefined };
+  /** Rotation the board returns to off the breadboard: the one it had when
+   *  the drag began, or what R set mid-drag. */
+  startRotation: number;
+  /** Header geometry read once per drag (null: the board cannot seat). */
+  header: BoardHeader | null;
+  /** The seat the board is previewing, written on drop. */
+  plan: BoardSeatPlan | null;
+  /** Rotation to try first on the breadboard: the seat's when the drag
+   *  began seated, then whatever the last preview (or a flip) chose. */
+  seatRotation: number | null;
+  /** Added to the pointer-derived position: what a flip in the preview
+   *  shifted the footprint by to keep the header in place. */
+  offset: { x: number; y: number };
+  /** Position the last plan was made for (re-plans are rate-limited). */
+  lastWant: { x: number; y: number } | null;
+  /** The pose this gesture last gave the board. A board found in any other
+   *  pose was changed by something else since, and the gesture is dropped. */
+  lastPose: { x: number; y: number; rotation: number; scale: number } | null;
+  /** The breadboard a seated board began the drag on, and where it was: if
+   *  it moves during the gesture (a running board carries it), the start
+   *  pose moves with it, so restoring never pulls the board off its holes. */
+  startBb: { id: string; x: number; y: number } | null;
+}
+const boardDrags = new Map<string, BoardDragGesture>();
+/** A previewed seat holds on while the board's centre stays within this
+ *  margin of the breadboard's rows, so it does not flicker at the edge. */
+const SEAT_RELEASE_MARGIN = 2 * BREADBOARD_PITCH;
+
 const simulatorMap = new BusBoundSimulatorMap<
   | AVRSimulator
   | RP2040Simulator
@@ -1656,8 +1707,59 @@ interface SimulatorState {
     activeBoardId: string | null;
   }) => void;
   updateBoard: (boardId: string, updates: Partial<BoardInstance>) => void;
-  /** Turn a board 90 degrees clockwise and re-stamp its wire endpoints. */
+  /** Turn a board 90 degrees clockwise and re-stamp its wire endpoints. A
+   *  board seated on a breadboard turns 180 degrees instead and re-seats (a
+   *  quarter turn can never straddle the trench); it stays put when the
+   *  turned seat is blocked. */
   rotateBoard: (boardId: string) => void;
+  /**
+   * Plug a board into a breadboard from code (the agent, the load repair):
+   * the board takes the breadboard's real scale, a rotation whose header rows
+   * straddle the trench, and one `bb` seat wire per header pad
+   * (utils/boardSeat.ts). With `anchorPin` + `anchorHole` the named pad lands
+   * in that hole (what the agent's server solved); otherwise the nearest free
+   * seat to where the board is. Returns false, changing nothing, when the
+   * board cannot be read yet or does not fit.
+   */
+  seatBoardOnBreadboard: (
+    boardId: string,
+    opts?: {
+      bbId?: string;
+      rotation?: number;
+      anchorPin?: string;
+      anchorHole?: string;
+      maxMove?: number;
+    },
+  ) => boolean;
+  /** Take a board off its breadboard: scale back to 1, seat wires removed,
+   *  rotation kept. A board that is not seated is left alone. */
+  unseatBoard: (boardId: string) => void;
+  /** Start a board drag (the canvas calls it once the pointer has left its
+   *  click dead zone). Replaces whatever an earlier gesture left behind. */
+  beginBoardDrag: (boardId: string) => void;
+  /**
+   * One frame of a board drag. Over a breadboard the board previews its seat
+   * (real scale, turned to straddle, snapped to the nearest free spot); off
+   * it, it follows the pointer at scale 1 with the rotation it had when the
+   * drag began. Nothing electrical changes until endBoardDrag.
+   */
+  dragBoardTo: (boardId: string, x: number, y: number) => void;
+  /** End of a board drag: write the previewed seat, or unseat a board that
+   *  was dragged off its breadboard. */
+  endBoardDrag: (boardId: string) => void;
+  /** A board drag that turned out to be a click, or was cancelled: put the
+   *  board back exactly as the drag found it, seat untouched. */
+  cancelBoardDrag: (boardId: string) => void;
+  /** A move the canvas makes to a board it is dragging (the socket magnet),
+   *  recorded by the gesture so its end and cancel stay right. */
+  moveBoardInDrag: (boardId: string, pos: { x: number; y: number }) => void;
+  /**
+   * A board saved as seated whose seat wires are gone (a save path that
+   * drops them, a hand-edited file) or whose breadboard is gone: re-seat it
+   * once where it is, or unseat it. A board with no `seatedOn` is never
+   * touched, so projects from before seating existed load unchanged.
+   */
+  repairBoardSeat: (boardId: string) => void;
   /** The canvas clipboard: the last board or component copied (one slot,
    *  last copy wins). Null = nothing copied yet. */
   canvasClipboard: CanvasClipboard | null;
@@ -2526,6 +2628,294 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
   // ── Legacy single-board PinManager (references initial board's pm) ───────
   const legacyPinManager = initialPm;
 
+  // ── Boards on the breadboard (utils/boardSeat.ts) ────────────────────────
+  /** A seat wire of `boardId`: a bb wire with the board on one end. */
+  const isSeatWireOf = (w: Wire, boardId: string): boolean =>
+    !!w.bb && (w.start.componentId === boardId || w.end.componentId === boardId);
+
+  /** Holes already taken on each breadboard, leaving out `boardId`'s own
+   *  seat, read once per call site (a drag frame asks per breadboard). */
+  function seatObstacles(boardId: string): (bbId: string) => ReadonlySet<string> {
+    const s = get();
+    const cache = new Map<string, ReadonlySet<string>>();
+    return (bbId) => {
+      let used = cache.get(bbId);
+      if (!used) {
+        const bb = s.components.find((c) => c.id === bbId);
+        used = bb ? breadboardHolesInUse(bb, s.boards, s.wires, boardId) : new Set<string>();
+        cache.set(bbId, used);
+      }
+      return used;
+    };
+  }
+
+  /** Move / turn / scale a board without touching its seat. */
+  function setBoardPose(
+    boardId: string,
+    pose: { x: number; y: number; rotation: number; scale: number },
+  ): void {
+    set((st) => ({
+      boardPosition: st.activeBoardId === boardId ? { x: pose.x, y: pose.y } : st.boardPosition,
+      boards: st.boards.map((b) =>
+        b.id === boardId
+          ? {
+              ...b,
+              x: pose.x,
+              y: pose.y,
+              rotation: pose.rotation,
+              scale: pose.scale === 1 ? undefined : pose.scale,
+            }
+          : b,
+      ),
+    }));
+  }
+
+  /** A simulation is running: the board's own, or the active board's (the
+   *  store's flat flag). No seat changes then (the parts resolved their pins
+   *  when the run started, and nothing re-resolves them mid-run). */
+  function simulationBusy(board: BoardInstance): boolean {
+    return board.running || get().running;
+  }
+
+  /** True for a board that is NOT seated but carries board-ended bb wires to
+   *  a breadboard: a Wokwi import's `$bb` connections. Those pins are plugged
+   *  by the imported mapping, not by geometry, so the board is left to them:
+   *  it moves as it always did and is never re-seated from its footprint
+   *  (which has no relation to that mapping). */
+  function hasForeignSeatWires(board: BoardInstance): boolean {
+    if (board.seatedOn) return false;
+    const s = get();
+    return s.wires.some(
+      (w) =>
+        w.bb &&
+        ((w.start.componentId === board.id &&
+          s.components.some((c) => c.id === w.end.componentId && isBreadboard(c.metadataId))) ||
+          (w.end.componentId === board.id &&
+            s.components.some((c) => c.id === w.start.componentId && isBreadboard(c.metadataId)))),
+    );
+  }
+
+  function newBoardGesture(board: BoardInstance): BoardDragGesture {
+    const bb = board.seatedOn ? get().components.find((c) => c.id === board.seatedOn) : undefined;
+    return {
+      start: { x: board.x, y: board.y, rotation: board.rotation, scale: board.scale },
+      startRotation: normalizeRotation(board.rotation),
+      header:
+        canSeatOnBreadboard(board.boardKind) && !hasForeignSeatWires(board)
+          ? readBoardHeader(board.id)
+          : null,
+      plan: null,
+      seatRotation: board.seatedOn ? normalizeRotation(board.rotation) : null,
+      offset: { x: 0, y: 0 },
+      lastWant: null,
+      lastPose: null,
+      startBb: bb ? { id: bb.id, x: bb.x, y: bb.y } : null,
+    };
+  }
+
+  function rememberPose(g: BoardDragGesture, boardId: string): void {
+    const b = get().boards.find((x) => x.id === boardId);
+    if (!b) return;
+    g.lastPose = {
+      x: b.x,
+      y: b.y,
+      rotation: normalizeRotation(b.rotation),
+      scale: normalizeScale(b.scale),
+    };
+  }
+
+  /**
+   * Whether a seated board's seat still holds where the board is drawn: one
+   * seat wire per header pad, each in a hole with a pad OF THAT NAME on it
+   * (a board can name two pads alike, an STM32 pill's GND, so any pad of the
+   * name will do). False when the seat is gone, short, or the board was
+   * moved or turned behind the store's back. Null when the element cannot be
+   * read yet.
+   */
+  function seatIsSound(board: BoardInstance): boolean | null {
+    const s = get();
+    const bb = s.components.find((c) => c.id === board.seatedOn);
+    if (!bb || !isSeatableBreadboard(bb)) return false;
+    const header = readBoardHeader(board.id);
+    if (!header) return null;
+    const seat = s.wires.filter(
+      (w) =>
+        isSeatWireOf(w, board.id) &&
+        (w.start.componentId === bb.id || w.end.componentId === bb.id),
+    );
+    if (seat.length !== header.pads.length) return false;
+    const offsets = boardPadOffsets(
+      header.pads,
+      boardSize(board.boardKind),
+      normalizeRotation(board.rotation),
+      normalizeScale(board.scale),
+    );
+    return seat.every((w) => {
+      const onBoard = w.start.componentId === board.id ? w.start : w.end;
+      const holeName = w.end.componentId === bb.id ? w.end.pinName : w.start.pinName;
+      const at = holeWorld(bb, holeName);
+      if (!at) return false;
+      return header.pads.some(
+        (p, i) =>
+          (p.name === onBoard.pinName || p.names.includes(onBoard.pinName)) &&
+          Math.hypot(board.x + offsets[i].dx - at.x, board.y + offsets[i].dy - at.y) <= SEAT_TOLERANCE,
+      );
+    });
+  }
+
+  /** The pose a gesture began with. The seat (wires, seatedOn) is never
+   *  touched by a gesture, so this is all a cancel has to undo; but a board
+   *  whose seat was cleared meanwhile (its breadboard removed by something
+   *  else) must not come back at the seat scale. */
+  function restoreGestureStart(boardId: string, g: BoardDragGesture): void {
+    const board = get().boards.find((b) => b.id === boardId);
+    // Still on the breadboard it began on: back to its holes, wherever that
+    // breadboard is now (a running seated board drags its breadboard along).
+    let dx = 0;
+    let dy = 0;
+    if (board && g.startBb && board.seatedOn === g.startBb.id) {
+      const bb = get().components.find((c) => c.id === g.startBb!.id);
+      if (bb) {
+        dx = bb.x - g.startBb.x;
+        dy = bb.y - g.startBb.y;
+      }
+    }
+    const x = g.start.x + dx;
+    const y = g.start.y + dy;
+    set((st) => ({
+      boardPosition: st.activeBoardId === boardId ? { x, y } : st.boardPosition,
+      boards: st.boards.map((b) =>
+        b.id === boardId
+          ? {
+              ...b,
+              x,
+              y,
+              rotation: g.start.rotation,
+              scale: b.seatedOn ? g.start.scale : undefined,
+            }
+          : b,
+      ),
+    }));
+    get().updateWirePositions(boardId);
+  }
+
+  /**
+   * Write a seat in ONE store update: the board's pose, `seatedOn`, and one
+   * bb wire per header pad (replacing any seat wires it had), so the
+   * netlist, the Interconnect and autosave each see a single change. The
+   * board also loses its drag-to-front rank: seated, it sits just above the
+   * breadboard and below the parts plugged in beside it.
+   */
+  function writeBoardSeat(boardId: string, plan: BoardSeatPlan, header: BoardHeader): boolean {
+    const s = get();
+    const board = s.boards.find((b) => b.id === boardId);
+    const bb = s.components.find((c) => c.id === plan.bbId);
+    if (!board || !bb || !isSeatableBreadboard(bb)) return false;
+    const offsets = boardPadOffsets(header.pads, boardSize(board.boardKind), plan.rotation, plan.scale);
+    const byName = new Map(offsets.map((o) => [o.name, o]));
+    const seatWires: Wire[] = [];
+    plan.holes.forEach((h, i) => {
+      const o = byName.get(h.pinName);
+      const at = holeWorld(bb, h.holeName);
+      if (!o || !at) return;
+      seatWires.push({
+        id: boardSeatWireId(boardId, i, h.holeName),
+        start: { componentId: boardId, pinName: h.pinName, x: plan.x + o.dx, y: plan.y + o.dy },
+        end: { componentId: bb.id, pinName: h.holeName, x: at.x, y: at.y },
+        waypoints: [],
+        color: '#000000',
+        bb: true,
+      });
+    });
+    set((st) => {
+      const zOrders = { ...st.zOrders };
+      delete zOrders[boardId];
+      return {
+        zOrders,
+        boardPosition:
+          st.activeBoardId === boardId ? { x: plan.x, y: plan.y } : st.boardPosition,
+        boards: st.boards.map((b) =>
+          b.id === boardId
+            ? {
+                ...b,
+                x: plan.x,
+                y: plan.y,
+                rotation: plan.rotation,
+                scale: plan.scale === 1 ? undefined : plan.scale,
+                seatedOn: bb.id,
+              }
+            : b,
+        ),
+        wires: [...st.wires.filter((w) => !isSeatWireOf(w, boardId)), ...seatWires],
+      };
+    });
+    get().updateWirePositions(boardId);
+    return true;
+  }
+
+  /**
+   * The same seat turned end for end, with the HEADER kept where it is: the
+   * centre of the pads, not the footprint, is what must not move, or a board
+   * whose header sits off-centre (an ESP32-CAM by 32 px) would land several
+   * columns away and R would fail against whatever sits there.
+   */
+  function planFlip(
+    board: BoardInstance,
+    header: BoardHeader,
+    bb: Component,
+    fromRotation: number,
+    fromX: number,
+    fromY: number,
+  ): BoardSeatPlan | null {
+    const size = boardSize(board.boardKind);
+    const centroid = (o: { dx: number; dy: number }[]) => ({
+      x: o.reduce((a, p) => a + p.dx, 0) / o.length,
+      y: o.reduce((a, p) => a + p.dy, 0) / o.length,
+    });
+    const here = centroid(boardPadOffsets(header.pads, size, fromRotation, header.seatScale));
+    return planBoardSeat({
+      boardKind: board.boardKind,
+      header,
+      wantX: fromX,
+      wantY: fromY,
+      rotations: [fromRotation + 180],
+      breadboards: [bb],
+      used: seatObstacles(board.id),
+      maxMove: BREADBOARD_PITCH,
+      wantFor: (_rotation, offsets) => {
+        const there = centroid(offsets);
+        return { x: fromX + here.x - there.x, y: fromY + here.y - there.y };
+      },
+    });
+  }
+
+  /** Unseat every board plugged into `bbId` (the breadboard left the canvas
+   *  or turned): scale back to 1, seat wires gone. */
+  function unseatBoardsOn(bbId: string): void {
+    for (const b of get().boards) {
+      if (b.seatedOn === bbId) clearBoardSeat(b.id);
+    }
+  }
+
+  /** Unseat: scale back to 1, `seatedOn` cleared, seat wires removed. Only
+   *  a SEATED board's bb wires are its seat; an unseated board can carry
+   *  board-ended bb wires from a Wokwi import, and those are left alone. */
+  function clearBoardSeat(boardId: string): void {
+    const board = get().boards.find((b) => b.id === boardId);
+    if (!board) return;
+    const wasSeated = !!board.seatedOn;
+    set((st) => ({
+      boards: st.boards.map((b) =>
+        b.id === boardId ? { ...b, scale: undefined, seatedOn: undefined } : b,
+      ),
+      wires:
+        wasSeated && st.wires.some((w) => isSeatWireOf(w, boardId))
+          ? st.wires.filter((w) => !isSeatWireOf(w, boardId))
+          : st.wires,
+    }));
+    get().updateWirePositions(boardId);
+  }
+
   return {
     // ── Multi-board state ─────────────────────────────────────────────────
     boards: [INITIAL_BOARD],
@@ -2745,6 +3135,22 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     },
 
     updateBoard: (boardId: string, updates: Partial<BoardInstance>) => {
+      // The same rule as setBoardPosition for a patch that moves, turns or
+      // rescales a seated board (an embed re-centring every board, say):
+      // the seat goes first, unless the patch writes the seat itself.
+      const before = get().boards.find((b) => b.id === boardId);
+      if (
+        before?.seatedOn &&
+        !boardDrags.has(boardId) &&
+        !('seatedOn' in updates) &&
+        ((updates.x !== undefined && updates.x !== before.x) ||
+          (updates.y !== undefined && updates.y !== before.y) ||
+          ('rotation' in updates && normalizeRotation(updates.rotation) !== normalizeRotation(before.rotation)) ||
+          ('scale' in updates && normalizeScale(updates.scale) !== normalizeScale(before.scale)))
+      ) {
+        if (simulationBusy(before)) return;
+        clearBoardSeat(boardId);
+      }
       set((s) => ({
         boards: s.boards.map((b) => (b.id === boardId ? { ...b, ...updates } : b)),
       }));
@@ -2753,11 +3159,387 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     rotateBoard: (boardId: string) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
+      // A seated board under a running sketch is never turned, not even
+      // mid-drag (a running seated board drags its breadboard along).
+      if (board.seatedOn && simulationBusy(board)) return;
+      const g = boardDrags.get(boardId);
+      if (g?.plan && g.header) {
+        // R while a seat preview is up: flip the PREVIEW end for end in place
+        // (a quarter turn could never straddle). Blocked: nothing changes.
+        const bb = get().components.find((c) => c.id === g.plan!.bbId);
+        const flipped = bb && planFlip(board, g.header, bb, g.plan.rotation, g.plan.x, g.plan.y);
+        if (flipped) {
+          // The flip keeps the HEADER where it was, so the footprint moved:
+          // later frames add that shift to the pointer, or the next pixel of
+          // movement would re-plan from the old footprint and slide the
+          // board several columns.
+          const shiftX = flipped.x - g.plan.x;
+          const shiftY = flipped.y - g.plan.y;
+          g.offset = { x: g.offset.x + shiftX, y: g.offset.y + shiftY };
+          if (g.lastWant) g.lastWant = { x: g.lastWant.x + shiftX, y: g.lastWant.y + shiftY };
+          g.seatRotation = flipped.rotation;
+          g.plan = flipped;
+          setBoardPose(boardId, {
+            x: flipped.x,
+            y: flipped.y,
+            rotation: flipped.rotation,
+            scale: flipped.scale,
+          });
+          rememberPose(g, boardId);
+          get().updateWirePositions(boardId);
+        }
+        return;
+      }
+      if (g) {
+        // Mid-drag and off any breadboard (a board that began the drag
+        // seated included: it only comes off at the drop): a plain quarter
+        // turn, which is also what the board keeps off the breadboard.
+        const rotation = (normalizeRotation(board.rotation) + 90) % 360;
+        set((s) => ({
+          boards: s.boards.map((b) => (b.id === boardId ? { ...b, rotation } : b)),
+        }));
+        g.startRotation = rotation;
+        rememberPose(g, boardId);
+        get().recalculateAllWirePositions();
+        return;
+      }
+      if (board.seatedOn) {
+        // Seated: R flips the board end for end and re-seats it in place.
+        // When that spot is blocked (a part in the way) the board stays as
+        // it is: R is never the way off the breadboard, dragging is. Nor does
+        // it re-plug while a simulation runs: every pin would change strip
+        // under the sketch (re-plugging is an edit-mode gesture).
+        if (simulationBusy(board)) return;
+        const header = readBoardHeader(boardId);
+        const bb = get().components.find((c) => c.id === board.seatedOn);
+        if (!header || !bb || !isSeatableBreadboard(bb)) return;
+        const plan = planFlip(board, header, bb, normalizeRotation(board.rotation), board.x, board.y);
+        if (plan) writeBoardSeat(boardId, plan, header);
+        return;
+      }
       const rotation = (normalizeRotation(board.rotation) + 90) % 360;
       set((s) => ({
         boards: s.boards.map((b) => (b.id === boardId ? { ...b, rotation } : b)),
       }));
       get().recalculateAllWirePositions();
+    },
+
+    seatBoardOnBreadboard: (boardId, opts = {}) => {
+      const s = get();
+      const board = s.boards.find((b) => b.id === boardId);
+      if (!board || !canSeatOnBreadboard(board.boardKind)) return false;
+      // Never re-plug under a running sketch: the parts already resolved
+      // their pins, and nothing would re-resolve them until the next run.
+      if (simulationBusy(board)) return false;
+      // Nor over a Wokwi import's own plugging (see hasForeignSeatWires).
+      if (hasForeignSeatWires(board)) return false;
+      const header = readBoardHeader(boardId);
+      if (!header) return false;
+      const bbs = s.components.filter(
+        (c) => isSeatableBreadboard(c) && (!opts.bbId || c.id === opts.bbId),
+      );
+      if (bbs.length === 0) return false;
+      const cur = normalizeRotation(board.rotation);
+      const rotations =
+        opts.rotation !== undefined
+          ? [normalizeRotation(opts.rotation)]
+          : [cur, cur + 90, cur + 270, cur + 180];
+      // Anchored: the named pad must land in the named hole, as the agent's
+      // server solved it. Each rotation puts the board somewhere else for
+      // that, and the tight maxMove keeps the browser on the same holes.
+      let wantFor: ((rotation: number, offsets: { name: string; dx: number; dy: number }[]) => {
+        x: number;
+        y: number;
+      } | null) | undefined;
+      let maxMove = opts.maxMove;
+      if (opts.anchorPin || opts.anchorHole) {
+        // Every full breadboard has a hole of that name: with two on the
+        // canvas the anchor means nothing unless the caller says which one.
+        if (!opts.anchorPin || !opts.anchorHole || bbs.length !== 1) return false;
+        const target = holeWorld(bbs[0], opts.anchorHole);
+        const pad = header.pads.find(
+          (p) => p.name === opts.anchorPin || p.names.includes(opts.anchorPin!),
+        );
+        if (!target || !pad) return false;
+        wantFor = (_rotation, offsets) => {
+          const o = offsets.find((x) => x.name === pad.name);
+          return o ? { x: target.x - o.dx, y: target.y - o.dy } : null;
+        };
+        maxMove = maxMove ?? BREADBOARD_PITCH / 2;
+      }
+      const plan = planBoardSeat({
+        boardKind: board.boardKind,
+        header,
+        wantX: board.x,
+        wantY: board.y,
+        rotations,
+        breadboards: bbs,
+        used: seatObstacles(boardId),
+        maxMove,
+        wantFor,
+      });
+      if (!plan) return false;
+      return writeBoardSeat(boardId, plan, header);
+    },
+
+    unseatBoard: (boardId) => {
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board || (!board.seatedOn && board.scale === undefined)) return;
+      if (simulationBusy(board)) return;
+      clearBoardSeat(boardId);
+    },
+
+    beginBoardDrag: (boardId) => {
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board) return;
+      // A fresh gesture, whatever an earlier one left behind.
+      boardDrags.set(boardId, newBoardGesture(board));
+    },
+
+    dragBoardTo: (boardId, x, y) => {
+      const s = get();
+      let board = s.boards.find((b) => b.id === boardId);
+      if (!board) return;
+      let g = boardDrags.get(boardId);
+      if (g?.lastPose) {
+        const p = g.lastPose;
+        const same =
+          Math.abs(board.x - p.x) < 1e-6 &&
+          Math.abs(board.y - p.y) < 1e-6 &&
+          normalizeRotation(board.rotation) === p.rotation &&
+          Math.abs(normalizeScale(board.scale) - p.scale) < 1e-9;
+        if (!same) {
+          // Something else changed the board since (an undo, the agent, a
+          // gesture whose end never arrived): this is a new gesture. A seated
+          // board moved that way is off its holes unless its breadboard
+          // carried it: then its seat still holds; otherwise it comes off.
+          boardDrags.delete(boardId);
+          g = undefined;
+          if (board.seatedOn && !simulationBusy(board) && seatIsSound(board) === false) {
+            clearBoardSeat(boardId);
+            board = get().boards.find((b) => b.id === boardId) ?? board;
+          }
+        }
+      }
+      if (!g) {
+        g = newBoardGesture(board);
+        boardDrags.set(boardId, g);
+      }
+      // Where the pointer wants the footprint, plus whatever a flip in the
+      // preview shifted it by.
+      const wx = x + g.offset.x;
+      const wy = y + g.offset.y;
+      // A board that can never seat, or any board while a simulation runs,
+      // just moves: x/y only, so R pressed mid-drag sticks.
+      if (!g.header || simulationBusy(board)) {
+        if (g.plan) {
+          g.plan = null;
+          g.offset = { x: 0, y: 0 };
+          setBoardPose(boardId, { x, y, rotation: g.startRotation, scale: 1 });
+        } else {
+          get().setBoardPosition({ x, y }, boardId);
+        }
+        rememberPose(g, boardId);
+        return;
+      }
+      // The solver is the costly part: re-plan only once the pointer has
+      // moved a third of a hole since the last plan. In between a previewed
+      // board stays on its holes and a free one simply follows the pointer.
+      if (g.lastWant && Math.hypot(wx - g.lastWant.x, wy - g.lastWant.y) < BREADBOARD_PITCH / 3) {
+        if (!g.plan) {
+          get().setBoardPosition({ x: wx, y: wy }, boardId);
+          rememberPose(g, boardId);
+        }
+        return;
+      }
+      g.lastWant = { x: wx, y: wy };
+      let plan: BoardSeatPlan | null = null;
+      // The footprint centre is the one point neither the seat scale nor
+      // the turn moves, so it is what decides "over the breadboard".
+      const size = boardSize(board.boardKind);
+      const cx = wx + size.w / 2;
+      const cy = wy + size.h / 2;
+      const margin = g.plan ? SEAT_RELEASE_MARGIN : 0;
+      const bbs = s.components.filter(
+        (c) => isSeatableBreadboard(c) && isOverTerminalArea(c, cx, cy, margin),
+      );
+      if (bbs.length > 0) {
+        const used = seatObstacles(boardId);
+        const all = [g.startRotation, g.startRotation + 90, g.startRotation + 270, g.startRotation + 180];
+        // Keep the rotation the board already has on the breadboard (the
+        // preview's, the last one it previewed in this gesture, or its seat's
+        // when the drag began seated): another straddling turn often fits a
+        // fraction of a pitch nearer, and taking it would flip the board end
+        // for end under the pointer. The rest only when it stops fitting.
+        const keep = g.plan ? g.plan.rotation : g.seatRotation;
+        const plan1 = planBoardSeat({
+          boardKind: board.boardKind,
+          header: g.header,
+          wantX: wx,
+          wantY: wy,
+          rotations: keep !== null ? [keep] : all,
+          breadboards: bbs,
+          used,
+        });
+        // The other rotations only when the kept one is BLOCKED here (a part
+        // in the way), never when it is merely out of reach: at the edge of
+        // the solver's reach the half turn is often still in range, and
+        // taking it flipped a board dragged out and back end for end.
+        const keptIsBlocked =
+          !plan1 &&
+          keep !== null &&
+          planBoardSeat({
+            boardKind: board.boardKind,
+            header: g.header,
+            wantX: wx,
+            wantY: wy,
+            rotations: [keep],
+            breadboards: bbs,
+            used: () => new Set<string>(),
+          }) !== null;
+        plan =
+          plan1 ??
+          (keptIsBlocked
+            ? planBoardSeat({
+                boardKind: board.boardKind,
+                header: g.header,
+                wantX: wx,
+                wantY: wy,
+                rotations: all,
+                breadboards: bbs,
+                used,
+              })
+            : null);
+      }
+      // A preview flipped with R carries a pointer offset. Before letting the
+      // preview go, try once more from the bare pointer: the release test ran
+      // on the offset centre, and dropping the preview there only to pick it
+      // up again a frame later made the board blink at the breadboard's end.
+      if (!plan && g.plan && (g.offset.x !== 0 || g.offset.y !== 0)) {
+        const cx0 = x + size.w / 2;
+        const cy0 = y + size.h / 2;
+        const bbs0 = s.components.filter(
+          (c) => isSeatableBreadboard(c) && isOverTerminalArea(c, cx0, cy0, SEAT_RELEASE_MARGIN),
+        );
+        if (bbs0.length > 0) {
+          const retry = planBoardSeat({
+            boardKind: board.boardKind,
+            header: g.header,
+            wantX: x,
+            wantY: y,
+            rotations: [g.plan.rotation],
+            breadboards: bbs0,
+            used: seatObstacles(boardId),
+          });
+          if (retry) {
+            plan = retry;
+            g.offset = { x: 0, y: 0 };
+            g.lastWant = { x, y };
+          }
+        }
+      }
+      const wasPreviewing = g.plan !== null;
+      g.plan = plan;
+      if (plan) {
+        g.seatRotation = plan.rotation;
+        setBoardPose(boardId, { x: plan.x, y: plan.y, rotation: plan.rotation, scale: plan.scale });
+      } else if (wasPreviewing || normalizeScale(board.scale) !== 1) {
+        // Leaving a preview or a seat: back to scale 1, to the rotation the
+        // board had before the preview turned it, and under the pointer (the
+        // offset a flip added only holds while the header sits on holes).
+        g.offset = { x: 0, y: 0 };
+        g.lastWant = { x, y };
+        setBoardPose(boardId, { x, y, rotation: g.startRotation, scale: 1 });
+      } else {
+        g.offset = { x: 0, y: 0 };
+        get().setBoardPosition({ x, y }, boardId);
+      }
+      rememberPose(g, boardId);
+    },
+
+    endBoardDrag: (boardId) => {
+      const g = boardDrags.get(boardId);
+      boardDrags.delete(boardId);
+      if (!g) return;
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board) return;
+      // No frame of its own ever moved the board (the canvas carried a
+      // running seated board by its breadboard): nothing to commit. The seat
+      // stays, following the breadboard, even if the run stopped meanwhile.
+      if (g.lastPose === null && g.plan === null) {
+        if (board.seatedOn) restoreGestureStart(boardId, g);
+        return;
+      }
+      if (simulationBusy(board)) {
+        // A simulation started during the gesture: change no seat. A seated
+        // board goes back where it was; a preview is simply dropped.
+        if (board.seatedOn) restoreGestureStart(boardId, g);
+        else if (g.plan) setBoardPose(boardId, { x: board.x, y: board.y, rotation: g.startRotation, scale: 1 });
+        return;
+      }
+      if (g.plan && g.header && writeBoardSeat(boardId, g.plan, g.header)) return;
+      if (g.plan || board.seatedOn || board.scale !== undefined) {
+        // Dragged off its breadboard, or the previewed breadboard vanished
+        // before the drop: off the breadboard, at the rotation it had.
+        set((st) => ({
+          boards: st.boards.map((b) =>
+            b.id === boardId ? { ...b, rotation: g.startRotation } : b,
+          ),
+        }));
+        clearBoardSeat(boardId);
+      }
+    },
+
+    moveBoardInDrag: (boardId, pos) => {
+      // The canvas moving a dragged board itself (the socket magnet): the
+      // gesture adopts the pose, so a later cancel still knows its true start
+      // and the stale-gesture check does not mistake it for a foreign move.
+      let g = boardDrags.get(boardId);
+      const board = get().boards.find((b) => b.id === boardId);
+      if (!board) return;
+      if (!g) {
+        g = newBoardGesture(board);
+        boardDrags.set(boardId, g);
+      }
+      if (g.plan) {
+        g.plan = null;
+        setBoardPose(boardId, { x: pos.x, y: pos.y, rotation: g.startRotation, scale: 1 });
+      } else {
+        get().setBoardPosition(pos, boardId);
+      }
+      g.offset = { x: 0, y: 0 };
+      g.lastWant = null;
+      rememberPose(g, boardId);
+    },
+
+    cancelBoardDrag: (boardId) => {
+      const g = boardDrags.get(boardId);
+      boardDrags.delete(boardId);
+      if (!g) return;
+      restoreGestureStart(boardId, g);
+    },
+
+    repairBoardSeat: (boardId) => {
+      const s = get();
+      const board = s.boards.find((b) => b.id === boardId);
+      if (!board?.seatedOn) return;
+      const bb = s.components.find((c) => c.id === board.seatedOn);
+      if (!bb || !isSeatableBreadboard(bb)) {
+        clearBoardSeat(boardId);
+        return;
+      }
+      // Nothing re-plugs under a running sketch.
+      if (simulationBusy(board)) return;
+      const sound = seatIsSound(board);
+      // Element not readable yet: leave everything as saved and let the
+      // caller try again once it is, rather than unseating on a race.
+      if (sound === null || sound) return;
+      const ok = get().seatBoardOnBreadboard(boardId, {
+        bbId: bb.id,
+        rotation: normalizeRotation(board.rotation),
+        maxMove: BREADBOARD_PITCH,
+      });
+      if (!ok) clearBoardSeat(boardId);
     },
 
     canvasClipboard: null,
@@ -2938,6 +3720,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (b.languageMode && b.languageMode !== 'arduino') patch.languageMode = b.languageMode;
         if (b.name && b.name.trim()) patch.name = b.name;
         if (b.rotation) patch.rotation = normalizeRotation(b.rotation);
+        // A board plugged into a breadboard: its seat wires ride in `wires`,
+        // these two say it IS seated and at what scale. Restored as saved,
+        // never re-derived (BoardOnCanvas only repairs a seat whose wires
+        // are missing; see repairBoardSeat).
+        if (b.seatedOn) {
+          patch.seatedOn = b.seatedOn;
+          if (b.scale !== undefined && normalizeScale(b.scale) !== 1) patch.scale = normalizeScale(b.scale);
+        }
         // P2.4 — restore per-board persisted fields that ride in boards_json.
         if (b.boardOptions) patch.boardOptions = b.boardOptions;
         if (b.spiffsFiles) patch.spiffsFiles = b.spiffsFiles;
@@ -2971,8 +3761,25 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           : c,
       );
       setComponents(normalizedComponents);
-      setWires(payload.wires);
-      keepWireShapes(payload.wires);
+      // A board saved as seated on a breadboard that is not in the save
+      // (a corrupt or hand-edited file) loads unseated (setComponents just
+      // cleared its marker), and its seat wires, which would point at a
+      // component that does not exist, are left out. Only saves that know
+      // about seats (seatedOn) are affected.
+      const orphanSeated = new Set(
+        payload.boards
+          .filter((b) => b.seatedOn && !normalizedComponents.some((c) => c.id === b.seatedOn))
+          .map((b) => b.id),
+      );
+      const loadedWires =
+        orphanSeated.size > 0
+          ? payload.wires.filter(
+              (w) =>
+                !(w.bb && (orphanSeated.has(w.start.componentId) || orphanSeated.has(w.end.componentId))),
+            )
+          : payload.wires;
+      setWires(loadedWires);
+      keepWireShapes(loadedWires);
 
       // Active board: prefer the saved one, fall back to the first.
       const targetActive =
@@ -2991,6 +3798,19 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => {
       const id = boardId ?? get().activeBoardId ?? INITIAL_BOARD_ID;
+      // Moving a SEATED board from outside a drag gesture (the agent's
+      // move_board, an import) takes it off its breadboard first: a seat is
+      // its pose, and a board moved away with its seat kept would stay wired
+      // to holes it no longer covers. Under a running sketch it does not move.
+      const before = get().boards.find((b) => b.id === id);
+      if (
+        before?.seatedOn &&
+        !boardDrags.has(id) &&
+        (before.x !== pos.x || before.y !== pos.y)
+      ) {
+        if (simulationBusy(before)) return;
+        clearBoardSeat(id);
+      }
       set((s) => ({
         boardPosition: s.activeBoardId === id ? pos : s.boardPosition,
         boards: s.boards.map((b) => (b.id === id ? { ...b, x: pos.x, y: pos.y } : b)),
@@ -3914,6 +4734,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const boardId = activeBoardId ?? INITIAL_BOARD_ID;
       const pm = getBoardPinManager(boardId) ?? legacyPinManager;
 
+      // A board plugged into a breadboard comes off before it changes kind:
+      // its seat wires name the old kind's pads, and its seat scale is the
+      // old drawing's (a Wokwi import re-kinds the active board this way).
+      {
+        const before = get().boards.find((b) => b.id === boardId);
+        if (before && (before.seatedOn || before.scale !== undefined)) clearBoardSeat(boardId);
+      }
+
       // Stop and remove old simulator / bridge
       getBoardSimulator(boardId)?.stop();
       simulatorMap.delete(boardId);
@@ -4328,11 +5156,23 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     addComponent: (component) => set((state) => ({ components: [...state.components, component] })),
 
-    removeComponent: (id) =>
+    removeComponent: (id) => {
+      // A breadboard taking its boards' seats with it: those boards come off
+      // (scale 1) instead of staying shrunk over nothing.
+      const seated = get().boards.filter((b) => b.seatedOn === id).map((b) => b.id);
       set((state) => ({
         components: state.components.filter((c) => c.id !== id),
         wires: state.wires.filter((w) => w.start.componentId !== id && w.end.componentId !== id),
-      })),
+        ...(seated.length > 0
+          ? {
+              boards: state.boards.map((b) =>
+                seated.includes(b.id) ? { ...b, scale: undefined, seatedOn: undefined } : b,
+              ),
+            }
+          : {}),
+      }));
+      for (const boardId of seated) get().updateWirePositions(boardId);
+    },
 
     updateComponent: (id, updates) => {
       const before = get().components.find((c) => c.id === id);
@@ -4387,6 +5227,35 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         for (const rid of riders) {
           const rc = get().components.find((c) => c.id === rid);
           if (rc) get().updateComponent(rid, { x: rc.x + dx, y: rc.y + dy });
+        }
+        // Boards plugged into it ride along too. A rigid move keeps every
+        // seat hole, so this is a pure translation: no re-solve, and the
+        // seat wires keep their ids (they name the holes).
+        const boardRiders = get().boards.filter((b) => b.seatedOn === id);
+        if (boardRiders.length > 0) {
+          set((st) => ({
+            boards: st.boards.map((b) =>
+              b.seatedOn === id ? { ...b, x: b.x + dx, y: b.y + dy } : b,
+            ),
+            boardPosition: boardRiders.some((b) => b.id === st.activeBoardId)
+              ? { x: st.boardPosition.x + dx, y: st.boardPosition.y + dy }
+              : st.boardPosition,
+          }));
+          for (const b of boardRiders) get().updateWirePositions(b.id);
+        }
+      }
+      // A turned breadboard cannot hold a board (seating supports unrotated
+      // breadboards only, as for parts): its boards come off.
+      // (A properties write often carries `rotation` unchanged, so judge the
+      // breadboard's resulting angle, not the presence of the key.)
+      if (
+        before &&
+        isBreadboard(before.metadataId) &&
+        rotationChanged &&
+        normalizeRotation(updates.properties?.rotation) !== 0
+      ) {
+        for (const b of get().boards) {
+          if (b.seatedOn === id) clearBoardSeat(b.id);
         }
       }
     },
@@ -4470,11 +5339,26 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // would point at component IDs that no longer exist after this, and a
       // live sensor value kept for an id belongs to the previous canvas.
       liveSensorProperties.clear();
+      // A board seated on a breadboard that is not in the new list comes off
+      // (a Wokwi import replaces the canvas this way). loadProjectState sets
+      // its boards before its components, so a saved seat survives here.
+      const breadboards = new Set(
+        components.filter((c) => isBreadboard(c.metadataId)).map((c) => c.id),
+      );
       set((state) => ({
         components,
         history: [],
         historyIndex: -1,
         hydrationSeq: state.hydrationSeq + 1,
+        ...(state.boards.some((b) => b.seatedOn && !breadboards.has(b.seatedOn))
+          ? {
+              boards: state.boards.map((b) =>
+                b.seatedOn && !breadboards.has(b.seatedOn)
+                  ? { ...b, scale: undefined, seatedOn: undefined }
+                  : b,
+              ),
+            }
+          : {}),
       }));
     },
 
@@ -4710,6 +5594,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             ? normalizeRotation(board.rotation)
             : 0;
         const pivot = !component && board ? boardSize(board.boardKind) : undefined;
+        // A board seated on a breadboard is drawn scaled about the same centre.
+        const scale = !component && board ? normalizeScale(board.scale) : 1;
 
         const updatedWires = state.wires.map((wire) => {
           const updated = { ...wire };
@@ -4721,6 +5607,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               compY,
               rotation,
               pivot,
+              scale,
             );
             if (pos) updated.start = { ...wire.start, x: pos.x, y: pos.y };
           }
@@ -4732,6 +5619,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               compY,
               rotation,
               pivot,
+              scale,
             );
             if (pos) updated.end = { ...wire.end, x: pos.x, y: pos.y };
           }
@@ -4806,6 +5694,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           startY,
           startRotation,
           !startComp && startBoard ? boardSize(startBoard.boardKind) : undefined,
+          !startComp && startBoard ? normalizeScale(startBoard.scale) : 1,
         );
         updated.start = startPos
           ? { ...wire.start, x: startPos.x, y: startPos.y }
@@ -4828,6 +5717,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           endY,
           endRotation,
           !endComp && endBoard ? boardSize(endBoard.boardKind) : undefined,
+          !endComp && endBoard ? normalizeScale(endBoard.scale) : 1,
         );
         updated.end = endPos
           ? { ...wire.end, x: endPos.x, y: endPos.y }
@@ -4986,7 +5876,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       get().pushCommand({
         description: `Add ${component.metadataId}`,
         execute: () => set((s) => ({ components: [...s.components, component] })),
-        undo: () =>
+        undo: () => {
           set((s) => ({
             components: s.components.filter((c) => c.id !== component.id),
             // Mirror the cascade in removeComponent so a redo→undo round
@@ -4994,31 +5884,114 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             wires: s.wires.filter(
               (w) => w.start.componentId !== component.id && w.end.componentId !== component.id,
             ),
-          })),
+          }));
+          // Boards plugged into it since come off (their seat wires went
+          // with the cascade above): no board stays shrunk over nothing.
+          unseatBoardsOn(component.id);
+        },
       });
     },
 
     recordRemoveComponent: (id) => {
-      const state = get();
-      const removed = state.components.find((c) => c.id === id);
+      const removed = get().components.find((c) => c.id === id);
       if (!removed) return;
-      // Capture wires that will be cascaded too — undo must restore both
-      // the component AND its wires together.
-      const removedWires = state.wires.filter(
-        (w) => w.start.componentId === id || w.end.componentId === id,
-      );
+      // What a removal takes with it, read from the PRESENT state each time
+      // the command runs (the first time and every redo): board seats are not
+      // in history, so between an undo and a redo a board can have been
+      // seated on this breadboard, or moved to another one.
+      type SeatSnapshot = {
+        id: string;
+        scale: number | undefined;
+        seatedOn: string | undefined;
+        x: number;
+        y: number;
+        rotation: number;
+      };
+      let removedWires: Wire[] = [];
+      let seatedBoards: SeatSnapshot[] = [];
       get().pushCommand({
         description: `Remove ${removed.metadataId}`,
-        execute: () =>
+        execute: () => {
+          const now = get();
+          // Capture wires that will be cascaded too — undo must restore both
+          // the component AND its wires together.
+          removedWires = now.wires.filter(
+            (w) => w.start.componentId === id || w.end.componentId === id,
+          );
+          // Boards plugged into a removed breadboard: undo gives back their
+          // seat (scale + seatedOn) together with the seat wires above.
+          seatedBoards = now.boards
+            .filter((b) => b.seatedOn === id)
+            .map((b) => ({
+              id: b.id,
+              scale: b.scale,
+              seatedOn: b.seatedOn,
+              x: b.x,
+              y: b.y,
+              rotation: normalizeRotation(b.rotation),
+            }));
           set((s) => ({
             components: s.components.filter((c) => c.id !== id),
             wires: s.wires.filter((w) => w.start.componentId !== id && w.end.componentId !== id),
-          })),
+            ...(seatedBoards.length > 0
+              ? {
+                  boards: s.boards.map((b) =>
+                    b.seatedOn === id ? { ...b, scale: undefined, seatedOn: undefined } : b,
+                  ),
+                }
+              : {}),
+          }));
+        },
         undo: () => {
+          // A board may have moved on since the removal: give a seat back
+          // only to a board that still exists, is unseated, and sits exactly
+          // where it was. Any other board keeps its present state, and its
+          // old seat wires stay out (they would short it to holes it no
+          // longer covers).
+          const now = get().boards;
+          const restorable = new Set(
+            seatedBoards
+              .filter((x) => {
+                const b = now.find((nb) => nb.id === x.id);
+                return (
+                  !!b &&
+                  !b.seatedOn &&
+                  b.x === x.x &&
+                  b.y === x.y &&
+                  normalizeRotation(b.rotation) === x.rotation
+                );
+              })
+              .map((x) => x.id),
+          );
+          const dropped = new Set(
+            seatedBoards.filter((x) => !restorable.has(x.id)).map((x) => x.id),
+          );
+          const wiresBack = removedWires.filter(
+            (w) =>
+              !(
+                w.bb &&
+                (dropped.has(w.start.componentId) || dropped.has(w.end.componentId))
+              ),
+          );
           set((s) => ({
             components: [...s.components, removed],
-            wires: [...s.wires, ...removedWires],
+            wires: [...s.wires, ...wiresBack],
+            ...(restorable.size > 0
+              ? {
+                  boards: s.boards.map((b) => {
+                    const seat = seatedBoards.find((x) => x.id === b.id);
+                    return seat && restorable.has(b.id)
+                      ? { ...b, scale: seat.scale, seatedOn: seat.seatedOn }
+                      : b;
+                  }),
+                }
+              : {}),
           }));
+          for (const b of seatedBoards.filter((x) => restorable.has(x.id))) {
+            const recalcBoard = () => get().updateWirePositions(b.id);
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(recalcBoard);
+            else recalcBoard();
+          }
           // Recalc this part's wire endpoints once it re-mounts. Without this
           // a rotated component restored via Ctrl+Z keeps the unrotated wire
           // coords captured at delete time, so its wires sit off the pins
@@ -5038,13 +6011,25 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       get().pushCommand(
         {
           description: 'Move component',
+          // A breadboard goes through updateComponent, which carries what is
+          // plugged into it (parts by their seat wires, boards by seatedOn);
+          // writing its x/y alone left a seated board behind, still wired to
+          // holes that had moved away.
           execute: () => {
+            if (isBreadboard(get().components.find((c) => c.id === id)?.metadataId ?? '')) {
+              get().updateComponent(id, { x: to.x, y: to.y });
+              return;
+            }
             set((s) => ({
               components: s.components.map((c) => (c.id === id ? { ...c, x: to.x, y: to.y } : c)),
             }));
             get().updateWirePositions(id);
           },
           undo: () => {
+            if (isBreadboard(get().components.find((c) => c.id === id)?.metadataId ?? '')) {
+              get().updateComponent(id, { x: from.x, y: from.y });
+              return;
+            }
             set((s) => ({
               components: s.components.map((c) =>
                 c.id === id ? { ...c, x: from.x, y: from.y } : c,
@@ -5071,6 +6056,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             // Ctrl+Z after a rotate would re-show the post-rotation pin
             // positions against the now-restored unrotated component.
             get().updateWirePositions(id);
+            // A turned breadboard cannot hold a board.
+            if (normalizeRotation(nextRotation) !== 0) unseatBoardsOn(id);
           },
           undo: () => {
             set((s) => ({
@@ -5079,6 +6066,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
               ),
             }));
             get().updateWirePositions(id);
+            if (normalizeRotation(prevRotation) !== 0) unseatBoardsOn(id);
           },
         },
         { applyNow: false },

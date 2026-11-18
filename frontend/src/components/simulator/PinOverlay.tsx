@@ -56,6 +56,9 @@ interface PinOverlayProps {
    *  wrapper origin. Boards pass their footprint (no DynamicComponent
    *  wrapper to measure). */
   pivotBox?: { w: number; h: number };
+  /** Uniform drawing scale about the pivotBox centre (a board seated on a
+   *  breadboard is shown at the breadboard's real scale). Default 1. */
+  scale?: number;
   /** True while a wire is in progress — paints every square even on dense
    * components (breadboards) because they're all valid wire targets. */
   wiring?: boolean;
@@ -72,6 +75,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
   zoom = 1,
   rotation = 0,
   pivotBox,
+  scale = 1,
   wiring = false,
 }) => {
   const [pins, setPins] = useState<PinInfo[]>([]);
@@ -122,9 +126,12 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
   // On touch-primary devices, compute world-space size so the pin is at least
   // TOUCH_MIN_SCREEN_PX on screen — but clamp to PIN_WORLD_MAX so very low
   // zoom levels can't produce gigantic overlays. On desktop, keep PIN_VISUAL.
+  // A board drawn below scale 1 (seated on a breadboard, 9.6 px pitch) gets
+  // squares to match, or each one would cover the free hole beside its pin
+  // and a wire meant for that hole would start on the board pin instead.
   const pinSize = isCoarse
     ? Math.min(PIN_WORLD_MAX, Math.max(PIN_VISUAL, TOUCH_MIN_SCREEN_PX / zoom))
-    : PIN_VISUAL;
+    : PIN_VISUAL * Math.min(1, scale > 0 ? scale : 1);
   const pinHalf = pinSize / 2;
 
   // On hover, squares stay invisible and only the ONE under the cursor lights
@@ -179,6 +186,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
           pivotBox ?? wrapperBox,
           wrapperOffsetX,
           wrapperOffsetY,
+          pivotBox ? scale : 1,
         );
 
         return (

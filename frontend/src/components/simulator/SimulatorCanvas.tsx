@@ -37,7 +37,7 @@ import { WireLayer } from './WireLayer';
 import type { SegmentHandle, WaypointHandle, AlignmentGuide } from './WireLayer';
 import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
 import { BoardOnCanvas } from './BoardOnCanvas';
-import { boardSize, normalizeRotation } from '../../utils/boardGeometry';
+import { boardSize, normalizeRotation, normalizeScale } from '../../utils/boardGeometry';
 import { BoardDock } from './BoardDock';
 import { PartSimulationRegistry } from '../../simulation/parts';
 import { PROPERTY_CHANGE_EVENT, type PropertyChangeDetail } from '../../simulation/parts/partUtils';
@@ -66,6 +66,8 @@ import {
   seatOnDrop,
   snapPositionToBreadboard,
 } from '../../utils/breadboardSnap';
+import { boardOccupiedHoles } from '../../utils/boardSeat';
+import { isSeatWire } from '../../utils/breadboardNets';
 import { snapBoardToSocket, isBoardSeated } from '../../utils/socketSnap';
 import {
   findWireNearPoint,
@@ -162,6 +164,98 @@ function carrySeatedBoards(
       st.setBoardPosition({ x: b.x + dx, y: b.y + dy }, b.id);
     }
   }
+}
+
+/**
+ * Board drags plug boards into breadboards (store dragBoardTo/endBoardDrag,
+ * utils/boardSeat.ts). The drag id is `__board__:<id>`, or the legacy
+ * `__board__` for the active board.
+ */
+function boardIdOfDrag(dragId: string | null | undefined): string | null {
+  if (!dragId) return null;
+  if (dragId.startsWith('__board__:')) return dragId.slice('__board__:'.length);
+  if (dragId === '__board__') return useSimulatorStore.getState().activeBoardId;
+  return null;
+}
+
+/** Move a dragged board one frame: the breadboard seat preview lives here. */
+function dragBoardFrame(boardId: string | null, x: number, y: number): void {
+  const st = useSimulatorStore.getState();
+  if (boardId) st.dragBoardTo(boardId, x, y);
+  else st.setBoardPosition({ x, y });
+}
+
+/**
+ * Every way a board drag ends (drop, tap, pinch, long press, a cancelled
+ * touch, the pointer leaving the canvas) lands here, so a previewed seat is
+ * always either written or undone: a board shown shrunk on a breadboard with
+ * no seat behind it is the one state that must never survive a gesture.
+ * `cancel` (a click, a tap, an interrupted gesture) puts the board back
+ * exactly as the drag found it instead of committing anything.
+ */
+function finishBoardDrag(dragId: string | null | undefined, cancel = false): void {
+  const boardId = boardIdOfDrag(dragId);
+  if (!boardId) return;
+  const st = useSimulatorStore.getState();
+  if (cancel) st.cancelBoardDrag(boardId);
+  else st.endBoardDrag(boardId);
+}
+
+/** Pointer travel (client px) before a pressed board starts to move: the
+ *  canvas's click test for the mouse, a finger's usual slop for touch. Until
+ *  then nothing moves, previews, seats or unseats, at any zoom and however
+ *  long the press lasts, so a click never changes a board. */
+const BOARD_DRAG_SLOP_MOUSE = 5;
+const BOARD_DRAG_SLOP_TOUCH = 8;
+
+/** True once this press is a real board drag (beginning the store gesture
+ *  the first time the pointer leaves the dead zone). */
+function boardDragReady(
+  ref: { current: string | null },
+  dragId: string,
+  travel: number,
+  slop: number,
+): boolean {
+  if (ref.current === dragId) return true;
+  if (travel < slop) return false;
+  // Another pointer's board drag still open (a mouse held while a finger
+  // drags another board): cancel it rather than lose it mid-preview.
+  if (ref.current) finishBoardDrag(ref.current, true);
+  const boardId = boardIdOfDrag(dragId);
+  if (boardId) useSimulatorStore.getState().beginBoardDrag(boardId);
+  ref.current = dragId;
+  return true;
+}
+
+/** End the board gesture of this press, if it ever began. A gesture left
+ *  open by an earlier press (a chorded button, a finger lifted elsewhere) is
+ *  cancelled rather than silently forgotten with its board mid-preview. */
+function endBoardGesture(
+  ref: { current: string | null },
+  dragId: string | null | undefined,
+  cancel = false,
+): void {
+  if (ref.current) finishBoardDrag(ref.current, cancel || ref.current !== dragId);
+  ref.current = null;
+}
+
+/**
+ * A RUNNING board plugged into a breadboard is dragged as one piece with it,
+ * the way a running socket stack is (re-plugging is an edit-mode gesture:
+ * every pin would change strip under the sketch). Returns true when it did.
+ */
+function carrySeatedRunningBoard(
+  b: { id: string; x: number; y: number; seatedOn?: string; running: boolean } | undefined,
+  nb: { x: number; y: number },
+  simRunning: boolean,
+): boolean {
+  if (!b?.seatedOn || !(b.running || simRunning)) return false;
+  const st = useSimulatorStore.getState();
+  const bb = st.components.find((c) => c.id === b.seatedOn);
+  if (!bb) return false;
+  // The breadboard carries the board along (store updateComponent riders).
+  st.updateComponent(bb.id, { x: bb.x + (nb.x - b.x), y: bb.y + (nb.y - b.y) } as never);
+  return true;
 }
 
 /** Check if a board kind is an ESP32-family board. */
@@ -525,6 +619,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
    * re-asking after the first pixel of movement answers no and the stack
    * would come apart one frame in.
    */
+  // The board drag (by drag id) whose store gesture has begun: set once the
+  // pointer leaves the click dead zone, cleared when the press ends.
+  const boardGestureRef = useRef<string | null>(null);
   const carriedSocketRef = useRef<{ dragId: string; sockId: string } | null>(null);
   // Captures (x, y) of the dragged component at mousedown so a drag-end
   // can record the diff as a single undoable Move. Boards are intentionally
@@ -811,6 +908,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         }
         // Cancel any active drag/pan and prepare zoom
         isPanningRef.current = false;
+        // A carried socket stack is never pulled apart by a cancel: commit.
+        endBoardGesture(
+          boardGestureRef,
+          touchDraggedComponentIdRef.current,
+          !carriedSocketRef.current?.sockId,
+        );
         touchDraggedComponentIdRef.current = null;
 
         const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -913,6 +1016,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         const boardInstance = boardId ? storeBoards.find((b) => b.id === boardId) : null;
         if (boardInstance) {
           const world = toWorld(touch.clientX, touch.clientY);
+          endBoardGesture(boardGestureRef, boardGestureRef.current, true);
+          // A new press decides afresh whether it carries a socket stack.
+          carriedSocketRef.current = null;
           touchDraggedComponentIdRef.current = `__board__:${boardId}`;
           touchDragOffsetRef.current = {
             x: world.x - boardInstance.x,
@@ -931,6 +1037,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             longPressFiredRef.current = true;
             // Cancel the implicit drag so finger lifting after the menu opens
             // doesn't also fire the short-tap "set active board" branch.
+            endBoardGesture(
+              boardGestureRef,
+              touchDraggedComponentIdRef.current,
+              !carriedSocketRef.current?.sockId,
+            );
             touchDraggedComponentIdRef.current = null;
             setBoardContextMenu({ boardId: targetBoardId, x: pressX, y: pressY });
           }, LONG_PRESS_MS);
@@ -938,6 +1049,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           // Fallback to legacy single board
           const board = boardPositionRef.current;
           const world = toWorld(touch.clientX, touch.clientY);
+          endBoardGesture(boardGestureRef, boardGestureRef.current, true);
+          carriedSocketRef.current = null;
           touchDraggedComponentIdRef.current = '__board__';
           touchDragOffsetRef.current = {
             x: world.x - board.x,
@@ -1098,7 +1211,17 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         // ── Single finger component/board drag ──
         const world = toWorld(touch.clientX, touch.clientY);
         const touchId = touchDraggedComponentIdRef.current;
-        if (touchId && touchId.startsWith('__board__:')) {
+        const touchTravel = Math.hypot(
+          touch.clientX - touchClickStartPosRef.current.x,
+          touch.clientY - touchClickStartPosRef.current.y,
+        );
+        if (
+          touchId &&
+          touchId.startsWith('__board__') &&
+          !boardDragReady(boardGestureRef, touchId, touchTravel, BOARD_DRAG_SLOP_TOUCH)
+        ) {
+          // Still inside the dead zone: the board does not move yet.
+        } else if (touchId && touchId.startsWith('__board__:')) {
           const boardId = touchId.slice('__board__:'.length);
           const nb = {
             x: world.x - touchDragOffsetRef.current.x,
@@ -1128,17 +1251,19 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               x: sock.x + (nb.x - b.x),
               y: sock.y + (nb.y - b.y),
             } as any);
-            setBoardPosition(nb, boardId);
+            st.moveBoardInDrag(boardId, nb);
           } else {
             const seated =
               b && snapBoardToSocket(boardId, b.boardKind, nb.x, nb.y, componentsRef.current ?? []);
-            setBoardPosition(seated || nb, boardId);
+            if (seated) st.moveBoardInDrag(boardId, seated);
+            else if (!carrySeatedRunningBoard(b, nb, st.running)) dragBoardFrame(boardId, nb.x, nb.y);
           }
         } else if (touchId === '__board__') {
-          setBoardPosition({
-            x: world.x - touchDragOffsetRef.current.x,
-            y: world.y - touchDragOffsetRef.current.y,
-          });
+          dragBoardFrame(
+            boardIdOfDrag('__board__'),
+            world.x - touchDragOffsetRef.current.x,
+            world.y - touchDragOffsetRef.current.y,
+          );
         } else {
           let nx = world.x - touchDragOffsetRef.current.x;
           let ny = world.y - touchDragOffsetRef.current.y;
@@ -1183,6 +1308,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       // touchend so we don't also fire the short-tap action below.
       if (longPressFiredRef.current) {
         longPressFiredRef.current = false;
+        endBoardGesture(
+          boardGestureRef,
+          touchDraggedComponentIdRef.current,
+          !carriedSocketRef.current?.sockId,
+        );
         touchDraggedComponentIdRef.current = null;
         e.preventDefault();
         return;
@@ -1209,7 +1339,25 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         pinchStartDistRef.current = 0;
       }
 
-      if (e.touches.length > 0) return; // Still fingers on screen
+      if (e.touches.length > 0) {
+        // The dragging finger lifted while fingers rest OUTSIDE the canvas:
+        // no later touchend of ours will come, so the board drag ends here
+        // (cancelled, as a pinch would) instead of staying mid-preview.
+        if (
+          e.targetTouches.length === 0 &&
+          touchDraggedComponentIdRef.current?.startsWith('__board__')
+        ) {
+          endBoardGesture(
+            boardGestureRef,
+            touchDraggedComponentIdRef.current,
+            !carriedSocketRef.current?.sockId,
+          );
+          touchDraggedComponentIdRef.current = null;
+          carriedSocketRef.current = null;
+          recalculateAllWirePositions();
+        }
+        return; // Still fingers on screen
+      }
 
       // ── Finish segment drag (wire editing) via touch ──
       if (segmentDragRef.current) {
@@ -1310,6 +1458,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           // same as the mouse path.
           seatDroppedComponentRef.current(touchId);
         }
+        endBoardGesture(boardGestureRef, touchId);
 
         recalculateAllWirePositions();
         touchDraggedComponentIdRef.current = null;
@@ -1384,11 +1533,33 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     el.addEventListener('touchstart', onTouchStart, { passive: false });
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     el.addEventListener('touchend', onTouchEnd, { passive: false });
+    // The browser can take a touch away mid-gesture (a system gesture, an
+    // app switch, palm rejection): end it the way a cancel should, with the
+    // board put back as the drag found it.
+    const onTouchCancel = () => {
+      cancelLongPress();
+      endBoardGesture(
+        boardGestureRef,
+        touchDraggedComponentIdRef.current,
+        !carriedSocketRef.current?.sockId,
+      );
+      touchDraggedComponentIdRef.current = null;
+      carriedSocketRef.current = null;
+      isPanningRef.current = false;
+      // Whatever the cancelled touch was doing: no long press pending, no
+      // pinch in progress, and the pan it moved committed to state.
+      longPressFiredRef.current = false;
+      pinchStartDistRef.current = 0;
+      setPan({ ...panRef.current });
+      recalculateAllWirePositions();
+    };
+    el.addEventListener('touchcancel', onTouchCancel);
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchCancel);
       cancelLongPress();
     };
   }, [toWorld, setBoardPosition, updateComponent, recalculateAllWirePositions, cancelLongPress]);
@@ -1682,6 +1853,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!editable) return;
       if (!mod && !e.altKey && (e.key === 'r' || e.key === 'R')) {
+        // A board being dragged takes R, whatever is selected: it is the
+        // thing in the user's hand (flips a seat preview end for end).
+        const dragging = boardIdOfDrag(boardGestureRef.current);
+        if (dragging) {
+          sim.rotateBoard(dragging);
+          e.preventDefault();
+          return;
+        }
         if (selectedComponentId) {
           handleRotateComponent(selectedComponentId);
           e.preventDefault();
@@ -1813,6 +1992,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Component dragging handlers
   const handleComponentMouseDown = (componentId: string, e: React.MouseEvent) => {
     if (showPropertyDialog) return;
+    // A board gesture still open from an earlier press ends before a part
+    // takes the pointer.
+    if (boardGestureRef.current) endBoardGesture(boardGestureRef, boardGestureRef.current, true);
 
     // While running, the canvas is read-only and most components
     // (pushbutton, switch, pot, …) need the raw event so their
@@ -1882,7 +2064,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       const world = toWorld(e.clientX, e.clientY);
       if (draggedComponentId.startsWith('__board__:')) {
         const boardId = draggedComponentId.slice('__board__:'.length);
-        {
+        const travel = Math.hypot(e.clientX - clickStartPos.x, e.clientY - clickStartPos.y);
+        if (boardDragReady(boardGestureRef, draggedComponentId, travel, BOARD_DRAG_SLOP_MOUSE)) {
           const nb = { x: world.x - dragOffset.x, y: world.y - dragOffset.y };
           const st = useSimulatorStore.getState();
           const b = st.boards.find((bb) => bb.id === boardId);
@@ -1911,18 +2094,24 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               x: sock.x + (nb.x - b.x),
               y: sock.y + (nb.y - b.y),
             } as any);
-            setBoardPosition(nb, boardId);
+            st.moveBoardInDrag(boardId, nb);
           } else {
             // Socket magnet: a shield that declares boardSocket (the Round
             // Display's XIAO header) grabs a matching board dragged onto it.
+            // Otherwise the breadboard magnet: over a breadboard the board
+            // previews its seat (real scale, turned to straddle the trench).
             const seated =
               b && snapBoardToSocket(boardId, b.boardKind, nb.x, nb.y, componentsRef.current ?? []);
-            setBoardPosition(seated || nb, boardId);
+            if (seated) st.moveBoardInDrag(boardId, seated);
+            else if (!carrySeatedRunningBoard(b, nb, st.running)) dragBoardFrame(boardId, nb.x, nb.y);
           }
         }
       } else if (draggedComponentId === '__board__') {
         // legacy fallback
-        setBoardPosition({ x: world.x - dragOffset.x, y: world.y - dragOffset.y });
+        const travel = Math.hypot(e.clientX - clickStartPos.x, e.clientY - clickStartPos.y);
+        if (boardDragReady(boardGestureRef, '__board__', travel, BOARD_DRAG_SLOP_MOUSE)) {
+          dragBoardFrame(boardIdOfDrag('__board__'), world.x - dragOffset.x, world.y - dragOffset.y);
+        }
       } else {
         let nx = world.x - dragOffset.x;
         let ny = world.y - dragOffset.y;
@@ -2064,7 +2253,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     const state = useSimulatorStore.getState();
     const comp = state.components.find((c) => c.id === componentId);
     if (!comp) return;
-    const placement = seatOnDrop(comp, comp.x, comp.y, state.components);
+    // A board plugged into the breadboard holds its pin holes and every hole
+    // under its body: a part dropped there slides to free holes instead.
+    const placement = seatOnDrop(comp, comp.x, comp.y, state.components, (bbId) => {
+      const bb = state.components.find((c) => c.id === bbId);
+      return bb ? boardOccupiedHoles(bb, state.boards, state.wires) : new Set<string>();
+    });
     if (!placement || placement.moved < 0.01) return;
     updateComponent(componentId, { x: placement.x, y: placement.y } as any);
   };
@@ -2254,6 +2448,10 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         }
       }
       dragStartPosRef.current = null;
+      // A board drag ends here: write the seat it previewed, or take it off
+      // the breadboard it was dragged away from. A press that never left the
+      // dead zone never began one, so a click changes nothing.
+      endBoardGesture(boardGestureRef, draggedComponentId);
 
       recalculateAllWirePositions();
       setDraggedComponentId(null);
@@ -3271,6 +3469,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           onMouseLeave={() => {
             isPanningRef.current = false;
             setPan({ ...panRef.current });
+            endBoardGesture(boardGestureRef, draggedComponentId);
             setDraggedComponentId(null);
             raisedThisDragRef.current = null;
       carriedSocketRef.current = null;
@@ -3476,9 +3675,13 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                     setHoveredBoardId((curr) => (curr === board.id ? null : curr))
                   }
                   onMouseDown={(e) => {
+                    // Only the primary button drags (a chorded right or
+                    // middle press must not restart a drag in progress).
+                    if (e.button !== 0) return;
                     setClickStartTime(Date.now());
                     setClickStartPos({ x: e.clientX, y: e.clientY });
                     const world = toWorld(e.clientX, e.clientY);
+                    endBoardGesture(boardGestureRef, boardGestureRef.current, true);
                     setDraggedComponentId(`__board__:${board.id}`);
                     setDragOffset({ x: world.x - board.x, y: world.y - board.y });
                   }}
@@ -3737,6 +3940,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                     b?.y ?? 0,
                     normalizeRotation(b?.rotation),
                     b ? boardSize(b.boardKind) : undefined,
+                    normalizeScale(b?.scale),
                   );
                   worldX = pos?.x ?? (b?.x ?? 0) + pin.x;
                   worldY = pos?.y ?? (b?.y ?? 0) + pin.y;
@@ -3941,6 +4145,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   b.y,
                   normalizeRotation(b.rotation),
                   boardSize(b.boardKind),
+                  normalizeScale(b.scale),
                 );
                 handlePinClick(id, pinName, pos?.x ?? b.x + pin.x, pos?.y ?? b.y + pin.y);
               }}
@@ -4252,8 +4457,13 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           const label = board
             ? boardDisplayName(board)
             : t('editor.canvas.removeConfirm.boardFallback');
+          // Wires the user drew: a board plugged into a breadboard also owns
+          // one invisible seat wire per pin, and those are not worth a warning.
+          // (An unseated board's bb wires, a Wokwi import's, still count.)
           const connectedWires = wires.filter(
-            (w) => w.start.componentId === boardToRemove || w.end.componentId === boardToRemove,
+            (w) =>
+              !(isSeatWire(w) && board?.seatedOn) &&
+              (w.start.componentId === boardToRemove || w.end.componentId === boardToRemove),
           ).length;
           return (
             <div

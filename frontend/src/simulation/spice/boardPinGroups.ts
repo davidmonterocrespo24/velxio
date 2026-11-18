@@ -84,7 +84,9 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc: 5,
     gnd: ['GND.1', 'GND.2', 'GND'],
     vcc_pins: ['5V', 'VCC', 'AREF'],
-    aux: { volts: 3.3, pins: ['3V3'] },
+    // The wokwi Nano names its 3.3 V pad '3.3V' (as the Uno does); with only
+    // '3V3' listed the pad fell to the VCC fallback and sat at 5 V.
+    aux: { volts: 3.3, pins: ['3.3V', '3V3'] },
   },
   'arduino-mega': {
     vcc: 5,
@@ -106,16 +108,17 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
   'stm32-netduino-plus2': STM32_GROUP,
   'stm32-netduino2': STM32_GROUP,
 
+  // ADC_VREF is the ADC reference, the 3.3 V supply through a filter.
   'raspberry-pi-pico': {
     vcc: 3.3,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
-    vcc_pins: ['3V3'],
+    vcc_pins: ['3V3', 'ADC_VREF'],
     aux: { volts: 5, pins: ['VBUS', 'VSYS'] },
   },
   'pi-pico-w': {
     vcc: 3.3,
     gnd: ['GND.1', 'GND.2', 'GND.3', 'GND'],
-    vcc_pins: ['3V3'],
+    vcc_pins: ['3V3', 'ADC_VREF'],
     aux: { volts: 5, pins: ['VBUS', 'VSYS'] },
   },
   'raspberry-pi-3': { vcc: 5, gnd: ['GND'], vcc_pins: ['5V'], aux: { volts: 3.3, pins: ['3V3'] } },
@@ -165,7 +168,9 @@ export const BOARD_PIN_GROUPS: Record<AllBoardKinds, BoardPinGroup> = {
     vcc: 3.3,
     gnd: ['GND'],
     vcc_pins: ['3V3'],
-    aux: { volts: 5, pins: ['5V', 'VUSB'] },
+    // The board's pads are VBUS (USB 5 V) and VIN; '5V' / 'VUSB' are kept for
+    // projects wired by those names.
+    aux: { volts: 5, pins: ['5V', 'VUSB', 'VBUS', 'VIN'] },
   },
   'esp32-c3': {
     vcc: 3.3,

@@ -272,29 +272,57 @@ export interface Placement {
 }
 
 interface IndexedHoles {
-  cells: Map<string, Hole[]>;
+  cells: Map<number, Hole[]>;
   ox: number;
   oy: number;
 }
 
-function cellKey(x: number, y: number): string {
-  return `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
+/** Numeric cell key: no string per probe (a board seat preview probes the
+ *  grid tens of thousands of times a frame). Unique for any canvas size. */
+function cellKey(gx: number, gy: number): number {
+  return gx * 1_000_003 + gy;
 }
+
+/** The index of the last breadboards seen, by kind and position: a seat
+ *  preview re-solves every pointer frame against the same breadboard. */
+const indexCache = new Map<string, IndexedHoles>();
 
 /** Bucket a breadboard's holes by world position for O(1) nearest lookup. */
 function indexHoles(bb: ComponentLike): IndexedHoles | null {
+  const cacheKey = `${bb.metadataId}|${bb.x}|${bb.y}`;
+  const hit = indexCache.get(cacheKey);
+  if (hit) return hit;
   const holes = breadboardHoles(bb.metadataId);
   if (!holes) return null;
   const ox = bb.x + WRAPPER_INSET;
   const oy = bb.y + WRAPPER_INSET;
-  const cells = new Map<string, Hole[]>();
+  const cells = new Map<number, Hole[]>();
   for (const h of holes) {
-    const key = cellKey(ox + h.x, oy + h.y);
+    const key = cellKey(Math.floor((ox + h.x) / CELL), Math.floor((oy + h.y) / CELL));
     const bucket = cells.get(key);
     if (bucket) bucket.push(h);
     else cells.set(key, [h]);
   }
-  return { cells, ox, oy };
+  const idx = { cells, ox, oy };
+  if (indexCache.size >= 16) indexCache.clear();
+  indexCache.set(cacheKey, idx);
+  return idx;
+}
+
+/** Strip (net group) of each hole of a breadboard kind, computed once. */
+const groupCache = new Map<string, Map<string, string | null>>();
+function holeGroup(metadataId: string, holeName: string): string | null {
+  let groups = groupCache.get(metadataId);
+  if (!groups) {
+    groups = new Map();
+    groupCache.set(metadataId, groups);
+  }
+  let g = groups.get(holeName);
+  if (g === undefined) {
+    g = breadboardGroupKey(metadataId, holeName);
+    groups.set(holeName, g);
+  }
+  return g;
 }
 
 /** Nearest hole to a world point via the spatial hash, or null past `max`. */
@@ -305,7 +333,7 @@ function lookupHole(idx: IndexedHoles, x: number, y: number, max: number): Hole 
   let bestDist = max;
   for (let gx = cx - 1; gx <= cx + 1; gx++) {
     for (let gy = cy - 1; gy <= cy + 1; gy++) {
-      const bucket = idx.cells.get(`${gx},${gy}`);
+      const bucket = idx.cells.get(cellKey(gx, gy));
       if (!bucket) continue;
       for (const h of bucket) {
         const d = Math.hypot(idx.ox + h.x - x, idx.oy + h.y - y);
@@ -332,6 +360,10 @@ function lookupHole(idx: IndexedHoles, x: number, y: number, max: number): Hole 
  * @param bb      the target breadboard
  * @param occupied hole names already taken on this board (by other parts)
  * @param wantX/wantY where the user dropped it
+ * @param accept  optional extra rule a fully seated placement must pass (a
+ *                board uses it to refuse a spot where its BODY would cover
+ *                another part's pins); a rejected candidate is skipped, not
+ *                fatal, so the next-nearest placement can still win.
  * @returns the closest valid placement, or null when the part does not fit
  *          anywhere within the search radius.
  */
@@ -341,6 +373,7 @@ export function solvePlacement(
   occupied: ReadonlySet<string>,
   wantX: number,
   wantY: number,
+  accept?: (placement: Placement) => boolean,
 ): Placement | null {
   if (pins.length === 0) return null;
   const idx = indexHoles(bb);
@@ -387,7 +420,7 @@ export function solvePlacement(
       // power rail) is a single net, so that silently shorts the part to
       // itself. Geometrically legal, electrically ruinous — a 7-segment will
       // happily lay its pins across a rail without this.
-      const group = breadboardGroupKey(bb.metadataId, hole.name);
+      const group = holeGroup(bb.metadataId, hole.name);
       if (group !== null) {
         if (groupsHere.has(group)) {
           ok = false;
@@ -435,12 +468,14 @@ export function solvePlacement(
     // final position. Ties keep the earlier candidate (grid emission order).
     const moved = Math.hypot(fx - wantX, fy - wantY);
     if (!best || moved < best.moved) {
-      best = {
+      const placement: Placement = {
         x: fx,
         y: fy,
         holes: assigned.map((a) => ({ pinName: a.pinName, holeName: a.holeName })),
         moved,
       };
+      if (accept && !accept(placement)) continue;
+      best = placement;
     }
   }
   return best;
@@ -500,6 +535,10 @@ export function seatOnDrop(
   droppedX: number,
   droppedY: number,
   components: ComponentLike[],
+  /** Holes of a breadboard taken by something that is not a component: a
+   *  BOARD plugged into it holds the holes of its pins and every hole under
+   *  its body between its two header rows (utils/boardSeat.ts). */
+  extraOccupied?: (bbId: string) => ReadonlySet<string>,
 ): Placement | null {
   if (isBreadboard(comp.metadataId)) return null;
   const bbs = breadboardsOf(components);
@@ -511,10 +550,13 @@ export function seatOnDrop(
   // left board must not fling it onto one across the canvas.
   let best: Placement | null = null;
   for (const bb of bbs) {
+    const occupied = occupiedHoles(bb, components, comp.id);
+    const extra = extraOccupied?.(bb.id);
+    if (extra) for (const h of extra) occupied.add(h);
     const placement = solvePlacement(
       pins,
       bb,
-      occupiedHoles(bb, components, comp.id),
+      occupied,
       droppedX,
       droppedY,
     );

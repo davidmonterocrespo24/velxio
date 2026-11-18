@@ -52,6 +52,7 @@ import {
 import './EditorToolbar.css';
 import { ThemeToggle } from '../layout/ThemeToggle';
 import { getResolvedTheme } from '../../lib/theme';
+import { isSeatWire } from '../../utils/breadboardNets';
 
 /**
  * Output-console group for circuit pre-flight + runtime faults. Routing these
@@ -1413,8 +1414,14 @@ export const EditorToolbar = ({
       // board, nothing said (#268 review).
       const foreignBoardIds = boards.filter((b) => b.id !== board?.id).map((b) => b.id);
       const foreign = new Set(foreignBoardIds);
+      // A seated board's seat wires are its plugging, not wires the user drew.
+      const seatedForeign = new Set(
+        boards.filter((b) => b.id !== board?.id && b.seatedOn).map((b) => b.id),
+      );
       const strandedWires = wires.filter(
-        (w) => foreign.has(w.start.componentId) || foreign.has(w.end.componentId),
+        (w) =>
+          !(isSeatWire(w) && (seatedForeign.has(w.start.componentId) || seatedForeign.has(w.end.componentId))) &&
+          (foreign.has(w.start.componentId) || foreign.has(w.end.componentId)),
       ).length;
       await exportToWokwiZip(
         files,

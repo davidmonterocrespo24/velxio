@@ -37,6 +37,16 @@ function serialisableBoard(b: BoardInstance) {
     y: b.y,
     // Only a turned board carries it, so unrotated projects save unchanged.
     ...(b.rotation ? { rotation: b.rotation } : {}),
+    // Only a board plugged into a breadboard carries these (its seat wires
+    // ride in wires_json), so every other project saves byte-identical and
+    // its autosave hash does not move. A scale without a seat (a drag
+    // preview caught mid-gesture) is never persisted.
+    ...(b.seatedOn
+      ? {
+          seatedOn: b.seatedOn,
+          ...(b.scale !== undefined && b.scale !== 1 ? { scale: b.scale } : {}),
+        }
+      : {}),
     activeFileGroupId: b.activeFileGroupId,
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,
