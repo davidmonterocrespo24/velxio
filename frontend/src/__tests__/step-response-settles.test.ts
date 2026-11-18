@@ -40,6 +40,7 @@ import { createElectricalStorePort } from '../simulation/spice/start';
 import { connectAnalogInputsToMcu } from '../simulation/spice/connectAnalogInputsToMcu';
 import { averageOverWindow, readAmmeter, readVoltmeter } from '../simulation/spice/probes';
 import { readSpan, spanStats } from '../simulation/spice/waveformStats';
+import { boardPinGroupFor } from '../simulation/spice/boardPinGroups';
 import { useSimulatorStore, getBoardSimulator } from '../store/useSimulatorStore';
 import { useElectricalStore } from '../store/useElectricalStore';
 import type { PinSourceState } from '../simulation/spice/types';
@@ -171,7 +172,7 @@ describe('a step runs until the circuit settles, then the ADC reads the operatin
     expect(analogRead(0.1 + 7200)).toBeLessThan(0.01);
   });
 
-  it('a 1 H coil behind its own 10 Ohm, 10 kOhm elsewhere: tau 0.1 s, not 0.1 ms', { timeout: 120_000 }, async () => {
+  it('a 1 H coil behind its own 10 Ohm, 10 kOhm elsewhere: tau 0.1 s (with an ideal pin), not 0.1 ms', { timeout: 120_000 }, async () => {
     const id = 'uno-rl';
     const { service, published, drive, analogRead } = bench(
       id,
@@ -191,10 +192,14 @@ describe('a step runs until the circuit settles, then the ADC reads the operatin
     );
     await service.tick();
     await drive(true, 0.1);
-    // The coil's node falls as its current builds: 5 V * 10k / 10.01k * e^(-t / tau),
-    // tau = 1 H / (10 Ohm || 10 kOhm).
-    const tau = 1 / ((10 * 10e3) / (10 + 10e3));
-    const v = (t: number) => ((5 * 10e3) / (10e3 + 10)) * Math.exp(-t / tau);
+    // The coil's node falls as its current builds: 5 V * 10k / (10k + Rs) *
+    // e^(-t / tau), tau = 1 H / (Rs || 10 kOhm), where Rs is the 10 Ohm and
+    // the pin's own output impedance, when the board's pin data gives one
+    // (BoardPinGroup.pinDrive, the ATmega's 25 Ohm, velxio/velxio-prod#140).
+    const pinOhms = (boardPinGroupFor('arduino-uno') as { pinDrive?: { ohms: number } }).pinDrive?.ohms ?? 0;
+    const rs = 10 + pinOhms;
+    const tau = 1 / ((rs * 10e3) / (rs + 10e3));
+    const v = (t: number) => ((5 * 10e3) / (10e3 + rs)) * Math.exp(-t / tau);
     expect(Math.abs(analogRead(0.1 + 0.01) - v(0.01))).toBeLessThan(0.02);
     expect(Math.abs(analogRead(0.1 + 0.1) - v(0.1))).toBeLessThan(0.02);
     // At DC the coil shorts the node: 0 V, as release 7 and the bench show.
