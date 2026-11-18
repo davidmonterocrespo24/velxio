@@ -32,6 +32,7 @@ import { createElectricalStorePort } from '../simulation/spice/start';
 import { useElectricalStore } from '../store/useElectricalStore';
 import { buildNetlist } from '../simulation/spice/NetlistBuilder';
 import { buildInputFromStore } from '../simulation/spice/storeAdapter';
+import { boardPinGroupFor } from '../simulation/spice/boardPinGroups';
 import { componentToSpice, isSpiceMapped } from '../simulation/spice/componentToSpice';
 import { verifyCircuit } from '../simulation/verify/circuitVerifier';
 import { buildPreflightSnapshot } from '../simulation/verify/verifyFromStore';
@@ -126,9 +127,11 @@ describe('the RGB LED in the netlist (velxio/velxio-prod#174)', () => {
     );
     const r = await runNetlist(buildNetlist(input).netlist);
     const i = amps(r, 'i(v_amm_sense)');
-    // (5 V - about 1.98 V) / 220 ohm
-    expect(i).toBeGreaterThan(0.013);
-    expect(i).toBeLessThan(0.0145);
+    // (5 V - about 1.98 V) over 220 ohm and the pin's own output impedance
+    // (an ATmega pin's 25 ohm, velxio/velxio-prod#140): 12.3 mA.
+    const rOut = boardPinGroupFor('arduino-uno').pinDrive?.ohms ?? 0;
+    expect(i).toBeGreaterThan((5 - 2.1) / (220 + rOut));
+    expect(i).toBeLessThan((5 - 1.9) / (220 + rOut));
     expect(amps(r, 'i(v_rgb1_r_sense)')).toBeCloseTo(i, 6);
   });
 
@@ -144,7 +147,8 @@ describe('the RGB LED in the netlist (velxio/velxio-prod#174)', () => {
         { '9': { type: 'digital', v: pin9 } },
       );
     const low = await runNetlist(buildNetlist(canvas(0)).netlist);
-    expect(amps(low, 'i(v_rgb1_r_sense)')).toBeGreaterThan(0.013);
+    const rOut = boardPinGroupFor('arduino-uno').pinDrive?.ohms ?? 0;
+    expect(amps(low, 'i(v_rgb1_r_sense)')).toBeGreaterThan((5 - 2.1) / (220 + rOut));
     const high = await runNetlist(buildNetlist(canvas(5)).netlist);
     expect(amps(high, 'i(v_rgb1_r_sense)')).toBeLessThan(1e-6);
   });
@@ -292,8 +296,10 @@ describe('the RGB LED part (velxio/velxio-prod#174)', () => {
     expect(el.ledGreen).toBeCloseTo(meanA('v_rgb1_g_sense') / 0.02, 3);
     expect(el.ledGreen).toBeGreaterThan(0.15);
     expect(el.ledGreen).toBeLessThan(0.3);
-    // Blue: its pin is LOW.
-    expect(el.ledBlue).toBe(0);
+    // Blue: its pin is LOW, so it is dark. Behind the pin's output impedance
+    // (velxio/velxio-prod#140) the die's current is a solver residue, about
+    // 1e-56 A, not an exact zero.
+    expect(el.ledBlue).toBeLessThan(1e-9);
     for (const v of [el.ledRed, el.ledGreen, el.ledBlue]) {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
