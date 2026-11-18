@@ -114,6 +114,14 @@ function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
 }
 
+/** A time for a card at 12 significant digits (0.0005 - 1e-9 prints 0.000499999). */
+function spiceNumber(v: number): string {
+  return String(Number(v.toPrecision(12)));
+}
+
+/** The rise and fall of the signal generator's square wave (PULSE TR and TF). */
+const SQUARE_EDGE_S = 1e-9;
+
 function twoPin(
   comp: ComponentForSpice,
   netLookup: NetLookup,
@@ -948,6 +956,14 @@ const MAPPERS: Record<string, Mapper> = {
   //   offset:    V DC                       (default 0)
   // Emits a SIN / PULSE / DC source accordingly. For square waves uses
   // PULSE with ~1ns edges; for DC, amplitude is ignored.
+  //
+  // PULSE holds V2 for PW only, after a rise of TR and before a fall of TF,
+  // so between its 50 % points a pulse lasts TR/2 + PW + TF/2. A square wave
+  // is high for half its period there: PW = T/2 - (TR + TF)/2. PW = T/2 kept
+  // it high for T/2 + 1 ns, and two generators whose edges should meet (1 kHz
+  // falling as 2 kHz rises) overlapped by 1 ns: an AND gate fed by them put
+  // out a 1.2 ns spike at 0.5, 1.5, 2.5 ... ms (velxio/velxio-prod#149). The
+  // edges stay 1 ns up to 250 MHz and take a quarter of the period above.
   'signal-generator': (comp, netLookup) => {
     const sig = netLookup('SIG') ?? netLookup('+');
     const gnd = netLookup('GND') ?? netLookup('-') ?? netLookup('−');
@@ -961,10 +977,12 @@ const MAPPERS: Record<string, Mapper> = {
     let source: string;
     if (waveform === 'square') {
       const period = 1 / freq;
-      const pw = period / 2;
+      const edgeS = Math.min(SQUARE_EDGE_S, period / 4);
+      const edge = edgeS === SQUARE_EDGE_S ? '1n' : spiceNumber(edgeS);
+      const pw = spiceNumber(Math.max(0, period / 2 - edgeS));
       const vlo = off - amp;
       const vhi = off + amp;
-      source = `PULSE(${vlo} ${vhi} 0 1n 1n ${pw} ${period})`;
+      source = `PULSE(${vlo} ${vhi} 0 ${edge} ${edge} ${pw} ${period})`;
     } else if (waveform === 'dc') {
       source = `DC ${off}`;
     } else {

@@ -89,11 +89,14 @@ describe('readVoltmeter with .tran timeWaveforms', () => {
       expect(reading.ac.rms).toBeLessThan(idealRms * 1.15);
       expect(reading.ac.peak).toBeGreaterThan(4.5);
       expect(reading.ac.peak).toBeLessThan(5.1);
+      // The swing, peak to peak: twice the amplitude for a centered sine.
+      expect(reading.ac.peakToPeak).toBeGreaterThan(9);
+      expect(reading.ac.peakToPeak).toBeLessThan(10.2);
       expect(Math.abs(reading.ac.dc)).toBeLessThan(0.5);
 
       // Display strings should lead with the RMS formatted value.
       expect(reading.ac.rmsDisplay).toMatch(/^RMS /);
-      expect(reading.ac.peakDisplay).toMatch(/^pk /);
+      expect(reading.ac.peakToPeakDisplay).toMatch(/^pp /);
       expect(reading.ac.dcDisplay).toMatch(/^DC /);
       // The top-line `display` field should now be the RMS string (not the scalar).
       expect(reading.display).toBe(reading.ac.rmsDisplay);
