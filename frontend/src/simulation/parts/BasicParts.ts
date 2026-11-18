@@ -181,6 +181,15 @@ PartSimulationRegistry.register('dip-switch-8', {
 // "Run Anyway" past that warning, or for faults that only appear mid-run.
 const LED_RATED_MAX_A = 0.02;
 const LED_BURNOUT_A = 0.1;
+/**
+ * The least brightness an LED is drawn lit at: a thousandth of full, 20 uA
+ * for a 20 mA LED. The element draws any lit LED at 30 % of its full glow or
+ * more, so a current far below that showed as that glow. A publish window and
+ * the hold after a solve already drew the LED dark below this; a single
+ * solve used 1 uA, so a night light leaking 1 uA into daylight showed the
+ * same faint glow as one at 2 mA (velxio/velxio-prod#226).
+ */
+const LED_VISIBLE_BRIGHTNESS = 1e-3;
 
 /**
  * What an LED's current is over a transient capture: its mean magnitude on
@@ -390,12 +399,12 @@ PartSimulationRegistry.register('led', {
             ? windowBrightness
             : Math.min(1, current / LED_RATED_MAX_A);
         lastSpiceTs = Date.now();
-        el.value = windowBrightness !== undefined ? windowBrightness > 1e-3 : current > 1e-6;
+        el.value = lastSpiceBrightness > LED_VISIBLE_BRIGHTNESS;
         el.brightness = lastSpiceBrightness;
         return;
       }
       if (Date.now() - lastSpiceTs < HOLD_MS && lastSpiceTs > 0 && Number.isFinite(lastSpiceBrightness)) {
-        el.value = lastSpiceBrightness > 1e-3;
+        el.value = lastSpiceBrightness > LED_VISIBLE_BRIGHTNESS;
         el.brightness = lastSpiceBrightness;
         return;
       }
