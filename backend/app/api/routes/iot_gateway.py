@@ -542,11 +542,11 @@ async def _proxy_esp32(inst, path: str, request: Request) -> Response:
             )
     except httpx.TimeoutException:
         return board_timeout_response(request, _QEMU_REPLY_TIMEOUT_S)
-    except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
+    except (httpx.NetworkError, httpx.RemoteProtocolError):
         # slirp's host forward accepts the connection before it dials the
         # board, so a board with nothing on port 80 shows up as a connection
-        # closed without a reply, not as a refused connect. It used to escape
-        # as a 500.
+        # closed or reset without a reply (on the read, or on the write of a
+        # request body), not as a refused connect. It used to escape as a 500.
         return no_server_response(request)
 
     # Forward response back to browser

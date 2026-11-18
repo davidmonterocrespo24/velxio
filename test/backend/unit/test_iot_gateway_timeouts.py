@@ -21,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import httpx
 import pytest
 from starlette.requests import Request
 
@@ -84,6 +85,24 @@ async def test_a_reply_cut_short_is_no_server_either():
         resp = await _proxy(port)
     assert resp.status_code == 404
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError])
+async def test_every_way_the_forward_drops_the_connection_is_no_server(error):
+    """The read, or the write of a POST's body, can be the one that fails."""
+    def board(request):
+        raise error("connection reset by peer", request=request)
+
+    real_client = iot_gateway.httpx.AsyncClient
+
+    def client(**kwargs):
+        return real_client(transport=httpx.MockTransport(board), **kwargs)
+
+    with patch.object(iot_gateway.httpx, "AsyncClient", side_effect=client):
+        resp = await _proxy(40000)
+    assert resp.status_code == 404
+    assert json.loads(resp.body)["error"] == "no_server_on_board"
 
 @pytest.mark.asyncio
 async def test_a_board_that_does_not_reply_in_time():
