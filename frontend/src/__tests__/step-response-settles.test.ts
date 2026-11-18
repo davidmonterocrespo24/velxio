@@ -210,22 +210,23 @@ describe('a step runs until the circuit settles, then the ADC reads the operatin
 });
 
 describe('a step that rings is not run longer', () => {
-  it('a 1 mH / 10 uF tank behind 10 mOhm: its first run, then the operating point', { timeout: 120_000 }, async () => {
-    // 1.6 kHz, and it rings for about 0.2 s: past its goal and back on every
-    // period. A run that long costs ngspice a step every few tens of
-    // microseconds of it, and the distance to the goal is no measure of when
-    // it settles: the step
-    // keeps its first run (twice the deck's settle time, here 10 ms) and the
-    // circuit is at its operating point after that. (A pin's own output
-    // impedance, where the board's pin data gives one, damps the tank: it
-    // then settles within the run.)
+  it('a 1 H / 1 uF tank behind 10 mOhm: its first run, then the operating point', { timeout: 120_000 }, async () => {
+    // 159 Hz, and behind the Uno pin's 25 Ohm output (velxio/velxio-prod#140)
+    // it rings for about 0.4 s: past its goal and back on every period. A run
+    // that long costs ngspice a step every few tens of microseconds of it,
+    // and the distance to the goal is no measure of when it settles: the step
+    // keeps its first run (twice the deck's settle time, here 0.1 s) and the
+    // circuit is at its operating point after that. (A 1 mH / 10 uF tank
+    // stopped ringing behind that 25 Ohm and settled within its first run, so
+    // it no longer tested this; run longer, this one takes three runs to
+    // 1.07 s.)
     const id = 'uno-lc';
     const { service, published, drive, analogRead } = bench(
       id,
       [
         { id: 'rs', metadataId: 'resistor', properties: { value: '0.01' } },
-        { id: 'l1', metadataId: 'inductor', properties: { value: '1m' } },
-        { id: 'c1', metadataId: 'capacitor', properties: { value: '10u' } },
+        { id: 'l1', metadataId: 'inductor', properties: { value: '1' } },
+        { id: 'c1', metadataId: 'capacitor', properties: { value: '1u' } },
         { id: 'rl', metadataId: 'resistor', properties: { value: '100' } },
       ],
       [
@@ -242,7 +243,7 @@ describe('a step that rings is not run longer', () => {
     await drive(true, 0.1);
     const step = published.at(-1)!.stepWaveforms;
     expect(step?.oneShot).toBeDefined();
-    expect(step!.time.at(-1)!).toBeLessThanOrEqual(0.0101);
+    expect(step!.time.at(-1)!).toBeLessThanOrEqual(0.101);
     // Then the operating point: the pin's level on the tank (5 V from an ideal
     // pin; less from one behind its output impedance, which the 100 Ohm load
     // on the pin then pulls down).
