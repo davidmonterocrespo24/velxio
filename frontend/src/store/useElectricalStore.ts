@@ -27,6 +27,9 @@ export interface SolveWindowState {
   levels: Record<string, number>;
   nodeVoltages: Record<string, number>;
   branchCurrents: Record<string, number>;
+  /** The state's own transient capture, when it was solved as one (a deck
+   *  whose sources move by themselves); the scalars are its last sample. */
+  timeWaveforms?: TimeWaveforms;
 }
 
 /**

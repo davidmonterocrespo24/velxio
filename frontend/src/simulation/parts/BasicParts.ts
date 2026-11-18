@@ -5,6 +5,7 @@ import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { readSpan, spanStats } from '../spice/waveformStats';
+import type { TimeWaveforms } from '../spice/types';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -181,6 +182,20 @@ PartSimulationRegistry.register('dip-switch-8', {
 const LED_RATED_MAX_A = 0.02;
 const LED_BURNOUT_A = 0.1;
 
+/**
+ * What an LED's current is over a transient capture: its mean magnitude on
+ * the span a meter reads (whole periods, after settling), which is what the
+ * eye sees of a current that moves faster than it can follow; the last
+ * sample when there is no such span. Undefined without a capture of it.
+ */
+function captureCurrent(tw: TimeWaveforms | undefined, key: string): number | undefined {
+  const samples = tw?.branches.get(key);
+  if (!tw || !samples || samples.length === 0) return undefined;
+  const span = readSpan(tw.time, tw.period);
+  const stats = span ? spanStats(tw.time, samples, span) : null;
+  return stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
+}
+
 /** Surface a circuit fault for an LED — console + a UI event the toolbar shows. */
 function reportLedFault(componentId: string, kind: string, message: string): void {
   console.warn(`[led] ${componentId}: ${message}`);
@@ -290,14 +305,8 @@ PartSimulationRegistry.register('led', {
       const { branchCurrents, timeWaveforms, window } = useElectricalStore.getState();
       const iKey = `v_${componentId}_sense`;
       let raw = branchCurrents[iKey];
-      if (timeWaveforms) {
-        const samples = timeWaveforms.branches.get(iKey);
-        if (samples && samples.length > 0) {
-          const span = readSpan(timeWaveforms.time, timeWaveforms.period);
-          const stats = span ? spanStats(timeWaveforms.time, samples, span) : null;
-          raw = stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
-        }
-      }
+      const fromCapture = captureCurrent(timeWaveforms, iKey);
+      if (fromCapture !== undefined) raw = fromCapture;
       // A publish window is the circuit over the last few tens of
       // milliseconds as the pad states it went through, each with its
       // share. The eye integrates light over about that long, so the LED
@@ -308,14 +317,24 @@ PartSimulationRegistry.register('led', {
       // ever shown, and a pulse shorter than a solve plus a gap was lost).
       // The burnout check uses the highest current of the window: a short
       // overcurrent is still an overcurrent.
+      // A state solved as a transient (a deck whose sources move by
+      // themselves, a generator on the canvas) carries its own capture, and
+      // its current is that capture's mean, as above; a window of such states
+      // is read state by state too, where the latest state's capture alone
+      // used to stand for the whole window. Beside a generator a PWM pad's
+      // HIGH and LOW states are each a transient, and the capture published
+      // for them is their mix: its mean current would brighten an LED driven
+      // past its rating and hide from the burnout check the current of the
+      // HIGH state (velxio/velxio-prod#232).
       let windowBrightness: number | undefined;
       let windowPeak: number | undefined;
-      if (!timeWaveforms && window && window.states.length > 1) {
+      const statesCaptured = !!window && window.states.every((st) => st.timeWaveforms);
+      if (window && window.states.length > 1 && (!timeWaveforms || statesCaptured)) {
         let seen = false;
         let mean = 0;
         let peak = 0;
         for (const st of window.states) {
-          const i = st.branchCurrents[iKey];
+          const i = captureCurrent(st.timeWaveforms, iKey) ?? st.branchCurrents[iKey];
           if (i === undefined) continue;
           if (!Number.isFinite(i)) {
             peak = i;
