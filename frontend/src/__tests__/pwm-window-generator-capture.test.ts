@@ -74,12 +74,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function service(canvas: { components: Comp[]; wires: Wire[] }, pins: () => Record<string, PinSourceState>) {
+type Board = { id: string; boardKind: string };
+const UNO: Board = { id: 'arduino-uno', boardKind: 'arduino-uno' };
+
+function service(
+  canvas: { components: Comp[]; wires: Wire[] },
+  pins: () => Record<string, PinSourceState>,
+  board: Board = UNO,
+) {
   __setSchedulerSolverFactoryForTests(() => new NgSpiceNodeAdapter());
   const published: ElectricalSnapshot[] = [];
   const storePort = createElectricalStorePort();
   const simStore: SimulatorStorePort = {
-    getState: () => ({ ...canvas, boards: [{ id: 'arduino-uno', boardKind: 'arduino-uno', running: true }] }),
+    getState: () => ({ ...canvas, boards: [{ id: board.id, boardKind: board.boardKind, running: true }] }),
     subscribe: () => () => {},
   };
   const svc = new CircuitSimulationService(
@@ -142,7 +149,9 @@ describe('a generator keeps its capture beside a PWM pad on a static load (#232)
     const states = snap.window?.states ?? [];
     expect(states.filter((st) => st.weight > 0).length).toBe(2);
     const onA = Math.max(...states.map((st) => Math.abs(st.branchCurrents['v_led1_sense'] ?? 0)));
-    expect(onA).toBeGreaterThan(0.008);
+    // About 8 mA while HIGH (7.3 mA behind an ATmega pin's 25 ohm output,
+    // velxio/velxio-prod#140).
+    expect(onA).toBeGreaterThan(0.006);
     // The capture's LED current is the duty-weighted average over the period ...
     const led = snap.timeWaveforms!.branches.get('v_led1_sense')!;
     const span = readSpan(snap.timeWaveforms!.time, snap.timeWaveforms!.period)!;
@@ -219,11 +228,39 @@ function pwmLed(ohms: string, withGenerator: boolean): { components: Comp[]; wir
   };
 }
 
+const ESP32: Board = { id: 'esp32', boardKind: 'esp32' };
+/**
+ * A red LED on an ESP32's GPIO25 through `ohms`, beside the issue's generator
+ * on GPIO34 or alone. An ATmega's pins are driven through their 25 ohm output
+ * (velxio/velxio-prod#140), which holds an LED on an Uno's pin under the 100 mA
+ * that burns it; the ESP32's pins have no such model, so one can still push an
+ * LED past it.
+ */
+function esp32PwmLed(ohms: string, withGenerator: boolean): { components: Comp[]; wires: Wire[] } {
+  const gen = GENERATOR_AND_PWM_LED.components.find((c) => c.id === 'gen')!;
+  return {
+    components: [
+      ...(withGenerator ? [gen] : []),
+      { id: 'r1', metadataId: 'resistor', properties: { value: ohms } },
+      { id: 'led1', metadataId: 'led', properties: { color: 'red' } },
+    ],
+    wires: [
+      ...(withGenerator ? [w('g1', ['gen', 'SIG'], ['esp32', '34']), w('g2', ['gen', 'GND'], ['esp32', 'GND'])] : []),
+      w('w1', ['esp32', '25'], ['r1', '1']),
+      w('w2', ['r1', '2'], ['led1', 'A']),
+      w('w3', ['led1', 'C'], ['esp32', 'GND.1']),
+    ],
+  };
+}
+
 describe('a PWM LED reads the same beside a generator as without one (#232, #152)', () => {
-  /** The LED on pin 9 at `duty`: its brightness, its current while HIGH, and
-   *  whether it burnt out. */
-  async function ledAt(ohms: string, duty: number, withGenerator: boolean) {
-    const { svc, published } = service(pwmLed(ohms, withGenerator), () => ({ '9': { type: 'pwm', duty } }));
+  /** The LED on pin 9 (on an ESP32, GPIO25) at `duty`: its brightness, its
+   *  current while HIGH, and whether it burnt out. */
+  async function ledAt(ohms: string, duty: number, withGenerator: boolean, board: Board = UNO) {
+    const { svc, published } =
+      board === UNO
+        ? service(pwmLed(ohms, withGenerator), () => ({ '9': { type: 'pwm', duty } }))
+        : service(esp32PwmLed(ohms, withGenerator), () => ({ '25': { type: 'pwm', duty } }), board);
     const el = attachLed('led1', 9);
     await svc.tick();
     const snap = published.at(-1)!;
@@ -247,9 +284,10 @@ describe('a PWM LED reads the same beside a generator as without one (#232, #152
     const beside = await ledAt('47', 0.5, true);
     expect(beside.analysis).toBe('tran');
     expect(beside.captured).toBe(true);
-    // About 39 mA while HIGH (the blue LED through 47 ohm): past the rating,
-    // so the HIGH state is at full brightness, for half the period.
-    expect(alone.onA).toBeGreaterThan(0.03);
+    // Past the 20 mA rating while HIGH (the blue LED through 47 ohm: 39 mA
+    // from an ideal pin, 26 mA behind an ATmega pin's 25 ohm output), so the
+    // HIGH state is at full brightness, for half the period.
+    expect(alone.onA).toBeGreaterThan(0.02);
     expect(alone.brightness).toBeCloseTo(0.5, 3);
     // The mix's mean, 0.5 x 39 mA, would read as 0.97 of full brightness.
     expect(beside.brightness).toBeCloseTo(alone.brightness, 3);
@@ -257,12 +295,13 @@ describe('a PWM LED reads the same beside a generator as without one (#232, #152
 
   it('an LED that burns while HIGH burns beside a generator too, whatever its mean current', { timeout: 60_000 }, async () => {
     const duty = 0.3;
-    const alone = await ledAt('15', duty, false);
-    // The case tells the two apart: over 100 mA while HIGH, under it on average.
+    const alone = await ledAt('10', duty, false, ESP32);
+    // The case tells the two apart: over 100 mA while HIGH (a red LED through
+    // 10 ohm from 3.3 V, about 135 mA), under it on average.
     expect(alone.onA).toBeGreaterThan(0.1);
     expect(alone.onA * duty).toBeLessThan(0.1);
     expect(alone.burnt).toBe(true);
-    const beside = await ledAt('15', duty, true);
+    const beside = await ledAt('10', duty, true, ESP32);
     expect(beside.burnt).toBe(true);
     expect(beside.brightness).toBe(0);
   });
