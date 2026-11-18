@@ -172,9 +172,10 @@ PartSimulationRegistry.register('slide-potentiometer', {
  * `threshold` (2.5 V), in the dark, LOW in the light. Its LED (`ledDO`)
  * lights when DO is LOW, as on the board and in Wokwi, whether DO is wired or
  * not. A board that takes its inputs from the solve (spiceDrivenInputs) reads
- * DO from the circuit, which models the comparator (componentToSpice); any
- * other gets the level from here. Before, nothing drove DO, and the LED copied
- * the board pin's own level (velxio/velxio-prod#227).
+ * DO from the circuit, which models the comparator's open-collector output
+ * and the board's 10 kOhm pull-up (componentToSpice); any other gets the level
+ * from here. Before, nothing drove DO, and the LED copied the board pin's own
+ * level (velxio/velxio-prod#227).
  */
 PartSimulationRegistry.register('photoresistor-sensor', {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
@@ -208,10 +209,10 @@ PartSimulationRegistry.register('photoresistor-sensor', {
     let lux = elementNumber(el.lux, 500);
     writeAo(lux);
 
-    // DO and its LED (see above). Once a solve has landed, the module's
-    // supply is what it solved between VCC and GND (none with either leg
-    // unwired) and AO its solved AO when AO is wired; before one, the board's
-    // rail and the LDR model, as for AO.
+    // DO and its LED (see above). The comparator reads the divider's own
+    // level on the module's supply, as the netlist's does (componentToSpice):
+    // once a solve has landed, the supply is what it solved between VCC and
+    // GND (none with either leg unwired); before one, the board's rail.
     const solvedVolts = (pin: string): number | undefined => {
       const { pinNetMap, nodeVoltages } = useElectricalStore.getState();
       const net = pinNetMap.get(`${componentId}:${pin}`);
@@ -238,17 +239,13 @@ PartSimulationRegistry.register('photoresistor-sensor', {
         : vcc !== undefined && gnd !== undefined
           ? vcc - gnd
           : 0;
-      const aoSolved = solvedVolts('AO');
-      const ao =
-        aoSolved !== undefined && gnd !== undefined
-          ? aoSolved - gnd
-          : ldrModuleAoVolts(
-              supply,
-              ldrResistance(light, ldrParams(props)),
-              ldrModuleFixedOhms(props),
-            );
+      const level = ldrModuleAoVolts(
+        supply,
+        ldrResistance(light, ldrParams(props)),
+        ldrModuleFixedOhms(props),
+      );
       const powered = supply > 0.5;
-      const high = powered && ldrModuleDoHigh(ao, ldrModuleDoThreshold(props));
+      const high = powered && ldrModuleDoHigh(level, ldrModuleDoThreshold(props));
       el.ledDO = powered && !high;
       if (pushesDo && pushedDo !== high) {
         pushedDo = high;

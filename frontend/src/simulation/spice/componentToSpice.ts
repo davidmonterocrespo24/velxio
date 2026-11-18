@@ -18,7 +18,17 @@ import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
-import { ldrModuleDoThreshold, ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
+import {
+  LDR_MODULE_DO_OFF_OHMS,
+  LDR_MODULE_DO_PULLUP_OHMS,
+  LDR_MODULE_DO_SINK_AMPS,
+  LDR_MODULE_DO_SINK_KNEE_VOLTS,
+  ldrModuleAoVolts,
+  ldrModuleDoThreshold,
+  ldrModuleFixedOhms,
+  ldrParams,
+  ldrResistance,
+} from './ldrModel';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -1435,8 +1445,8 @@ const MAPPERS: Record<string, Mapper> = {
   // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO), the
   // LM393 light-sensor board. Internal topology, as on the real board and in
   // Wokwi: a fixed 10k from VCC to AO and the LDR from AO to GND. Brighter
-  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). The DO
-  // (comparator) pin is not modelled.
+  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). DO is the
+  // comparator's open-collector output with its 10k pull-up (below).
   // The LDR is a GL5528 by default, R = rl10 · (10 / lux)^gamma up to its
   // dark resistance (ldrModel.ts, velxio/velxio-prod#103).
   photoresistor: (comp, netLookup) => {
@@ -1454,36 +1464,47 @@ const MAPPERS: Record<string, Mapper> = {
     );
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
+    const ao = netLookup('AO');
     const doNet = netLookup('DO');
-    // The module's comparator (ldrModel: ldrModuleDoHigh) drives DO between
-    // its GND and its VCC, so it needs both, and DO on a net of its own: tied
-    // to either rail it has nothing to drive. With AO unwired the divider
-    // still runs, on a node of its own: a module wired for DO alone switches
-    // too. Before this DO was driven by nothing, and a sketch reading it read
-    // whatever the board pin floated to (velxio/velxio-prod#227).
-    const comparator = !!(doNet && vcc && gnd && doNet !== vcc && doNet !== gnd);
-    const ao = netLookup('AO') ?? (comparator ? `${comp.id}_ao` : null);
+    const fixedOhms = ldrModuleFixedOhms(comp.properties);
+    const cards: string[] = [];
     if (ao && (vcc || gnd)) {
       // The legs that are wired: a module missing its GND reads VCC through
       // the fixed resistor, one missing its VCC reads 0 V through the LDR. The
       // solve then owns AO in every wiring that powers the module at all
       // (velxio/velxio-prod#188: the part no longer writes it).
-      const cards: string[] = [];
       if (gnd) cards.push(`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`);
-      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${ldrModuleFixedOhms(comp.properties)}`);
-      if (comparator) {
-        // DO at the module's VCC while AO is above the threshold, at its GND
-        // below it, over the logic gates' finite edge (LOGIC_EDGE_VOLTS). An
-        // ideal source like the op-amps' output, so a board pin reading DO
-        // is the input it is, and the pre-run check leaves it one.
-        const rel = (n: string) => (gnd === '0' ? `V(${n})` : `(V(${n})-V(${gnd}))`);
-        const vth = ldrModuleDoThreshold(comp.properties);
-        cards.push(
-          `B_${comp.id}_do ${doNet} ${gnd} V = ${rel(vcc!)}*(0.5*(1+tanh((${rel(ao)}-${vth})/${LOGIC_EDGE_VOLTS})))`,
-        );
-      }
-      return { cards, modelsUsed: new Set() };
+      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${fixedOhms}`);
     }
+    // DO, the comparator (ldrModel: ldrModuleDoHigh), as the board builds it
+    // (velxio/velxio-prod#227): the LM393's open-collector output, which sinks
+    // DO to GND while the divider sits under the threshold (in the light), and
+    // a 10k pull-up to VCC, which alone drives DO in the dark. Before, DO was
+    // driven by nothing, and then by an ideal source that pushed 0.41 A into a
+    // transistor base and left no solution beside a pin the sketch drives.
+    // The comparator reads the divider's own level, unloaded, which is AO on
+    // the board unless something loads AO: so DO wired back onto AO gives the
+    // level the board settles at when powered at that light, not a latch the
+    // solve cannot place. DO on a rail has nothing to drive. Declared as a net
+    // the module powers, so the pre-run check leaves the board pin reading it
+    // an input (NetlistBuilder, partPoweredNets); the off transistor's leakage
+    // is what ties DO to the module's GND among its own cards, as poweredBy
+    // asks (the sink, a current, holds no voltage).
+    let supplies: string[] | undefined;
+    if (doNet && vcc && doNet !== vcc && doNet !== gnd) {
+      cards.push(`R_${comp.id}_dopull ${vcc} ${doNet} ${LDR_MODULE_DO_PULLUP_OHMS}`);
+      if (gnd) {
+        const rel = (n: string) => (gnd === '0' ? `V(${n})` : `(V(${n})-V(${gnd}))`);
+        const level = `${ldrModuleAoVolts(1, Rldr, fixedOhms).toPrecision(6)}*${rel(vcc)}`;
+        const sinking = `0.5*(1+tanh((${ldrModuleDoThreshold(comp.properties)}-${level})/${LOGIC_EDGE_VOLTS}))`;
+        cards.push(
+          `B_${comp.id}_do ${doNet} ${gnd} I = ${LDR_MODULE_DO_SINK_AMPS}*${sinking}*tanh(${rel(doNet)}/${LDR_MODULE_DO_SINK_KNEE_VOLTS})`,
+          `R_${comp.id}_dooff ${doNet} ${gnd} ${LDR_MODULE_DO_OFF_OHMS}`,
+        );
+        supplies = [doNet];
+      }
+    }
+    if (cards.length > 0) return { cards, modelsUsed: new Set(), ...(supplies ? { supplies } : {}) };
     // Legacy / discrete LDR fallbacks: emit bare 2-terminal resistor.
     const pins = twoPin(comp, netLookup, 'LDR1', 'LDR2') ?? twoPin(comp, netLookup, '1', '2');
     if (!pins) return null;
