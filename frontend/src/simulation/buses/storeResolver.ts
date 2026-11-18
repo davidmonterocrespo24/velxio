@@ -4,7 +4,7 @@
  * parts can never disagree about where a wire goes.
  */
 
-import { traceBoardGpio, traceDetailed, type TraceState } from '../PinTrace';
+import { boardPadsAcrossResistors, traceBoardGpio, traceDetailed, type TraceState } from '../PinTrace';
 import { SYNTHETIC_CHIP_PIN_BASE } from '../customChips/syntheticPins';
 import { boardPinToNumber } from '../../utils/boardPinMapping';
 import type { NetResolver, PinRef, ResolvedPin } from './types';
@@ -78,11 +78,17 @@ export function createStoreNetResolver(getState: () => TraceState): NetResolver 
           const pin = traceBoardGpio(state, ref.componentId, ref.pinName, b.id);
           if (pin !== null) add(b.id, pin);
         }
+        for (const hit of boardPadsAcrossResistors(state, ref.componentId, ref.pinName)) add(hit.boardId, hit.pin);
       }
       // A board pad ends a trace (the pad is what drives the node), so a wire
       // from that pad to ANOTHER board's pad, directly or through a breadboard
       // or a passive, is walked from here: that wire is the same net on the
-      // bench, and it is how two boards share an I2C bus.
+      // bench, and it is how two boards share an I2C bus. The trace answers
+      // the pad nearest to the endpoint, which on a resistor next to this
+      // pad is this pad again, so the net is also walked across the parts a
+      // logic level passes at DC: a level-shifting divider or a series
+      // resistor between two boards' UART pins joins them on the bench
+      // (velxio/velxio-prod#189).
       while (queue.length) {
         const from = queue.shift()!;
         for (const ep of padEndpoints(state, from.boardId, from.pin)) {
@@ -97,6 +103,7 @@ export function createStoreNetResolver(getState: () => TraceState): NetResolver 
             const pin = traceBoardGpio(state, ep.componentId, ep.pinName, b.id);
             if (pin !== null) add(b.id, pin);
           }
+          for (const hit of boardPadsAcrossResistors(state, ep.componentId, ep.pinName)) add(hit.boardId, hit.pin);
         }
       }
       return Array.from(found, ([boardId, pin]) => ({ kind: 'board', boardId, pin }));

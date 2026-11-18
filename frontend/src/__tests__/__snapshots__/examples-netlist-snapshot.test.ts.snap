@@ -226,8 +226,10 @@ exports[`netlist snapshot — 100-days (49 examples) > 100d-esp32-oled-smart-ui-
 V_VCC_RAIL vcc_rail 0 DC 5
 R_eyes-btn-next_sw n0 vcc_rail 1000000000
 R_eyes-btn-sel_sw n3 vcc_rail 1000000000
+R_autopull_n0 n0 0 100Meg
 R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
+R_autopull_n3 n3 0 100Meg
 .op
 .end"
 `;
@@ -1875,6 +1877,9 @@ R_g2_load n2 0 1Meg
 R_rl n1 n3 220
 V_qled_sense n3 qled_sense_mid DC 0
 D_qled qled_sense_mid n6 LED_GREEN
+R_autopull_n0 n0 0 100Meg
+R_autopull_n4 n4 0 100Meg
+R_autopull_n5 n5 0 100Meg
 .model LED_GREEN D(Is=1e-22 N=1.9)
 .nodeset V(n1)=0 V(n2)=5
 .op
@@ -2390,6 +2395,8 @@ R_u1_load n6 0 1Meg
 R_rl n6 n4 220
 V_led1_sense n4 led1_sense_mid DC 0
 D_led1 led1_sense_mid n5 LED_YELLOW
+R_autopull_n0 n0 0 100Meg
+R_autopull_n1 n1 0 100Meg
 R_autopull_n2 n2 0 100Meg
 R_autopull_n3 n3 0 100Meg
 .model LED_YELLOW D(Is=1e-21 N=1.8)

@@ -219,6 +219,7 @@ function pickDynamicAnalysis(
       kind: 'tran',
       step: STEP_RESPONSE_STEP_S.toExponential(3),
       stop: stopS.toExponential(3),
+      settleS: Math.max(MIN_TRAN_STOP_S, rawStop),
     };
   }
 

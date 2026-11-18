@@ -19,7 +19,7 @@
  */
 import { UnionFind } from './unionFind';
 import { parseValueWithUnits } from './valueParser';
-import { componentToSpice, logicGateLinks } from './componentToSpice';
+import { componentToSpice, logicGateLinks, OPEN_CONTACT_OHMS } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
 import type {
@@ -1042,8 +1042,13 @@ function lastNameIndex(t: readonly string[]): number {
  *
  *   - R, L, V, I, B, F, H, W: their two nodes. A current source (I, F, a B
  *     written as I = ...) holds no voltage; it has always counted as a path.
- *   - E, G: their two output nodes. S: the switch's two nodes (Ron or Roff
- *     between them). The control nodes of these are only sensed.
+ *     A resistor of OPEN_CONTACT_OHMS or more is a contact that may be open
+ *     (a button not pressed, a slide switch's other leg) and joins nothing
+ *     (velxio/velxio-prod#192).
+ *   - E, G: their two output nodes; their control nodes are only sensed.
+ *   - S: its control pair only. Its switch pair is a relay's contact, open or
+ *     closed as the solve decides (#192); the control pair is the coil's,
+ *     which conducts.
  *   - D: anode and cathode. Q: collector, base and emitter. J, Z: drain,
  *     gate and source. SPICE stamps GMIN across every pn junction, so a node
  *     reached only through a junction is never singular and needs no
@@ -1059,6 +1064,7 @@ function dcPathNodes(card: string): string[] {
   if (t.length < 3) return [];
   switch (t[0]!.charAt(0).toUpperCase()) {
     case 'R':
+      return parseValueWithUnits(t[3], 0) >= OPEN_CONTACT_OHMS ? [] : [t[1]!, t[2]!];
     case 'L':
     case 'V':
     case 'I':
@@ -1068,9 +1074,10 @@ function dcPathNodes(card: string): string[] {
     case 'W':
     case 'E':
     case 'G':
-    case 'S':
     case 'D':
       return [t[1]!, t[2]!];
+    case 'S':
+      return t.length >= 5 ? [t[3]!, t[4]!] : [];
     case 'Q':
     case 'J':
     case 'Z':
@@ -1095,14 +1102,25 @@ function dcPathNodes(card: string): string[] {
  * Does a graph walk starting from node "0" and "vcc_rail" (both have a
  * hard-wired source in every circuit that references them), traversing the
  * DC paths of every card (dcPathNodes): resistors, inductors, sources,
- * switches, junctions, a MOSFET's channel, subcircuits. A part's internal
- * nodes join the walk like any other node, but only canvas nets are ever
- * reported.
+ * junctions, a MOSFET's channel, subcircuits, a switch's control pair. A
+ * part's internal nodes join the walk like any other node, but only canvas
+ * nets are ever reported.
  *
  * Capacitors (C...) are intentionally NOT conductive in this walk — they are
  * OPEN at DC, so a net connected only via a C to another node is still
  * floating; and so is one reached only through a MOSFET's gate or the
  * control input of a controlled source.
+ *
+ * Neither is a contact that may be open: a resistor of OPEN_CONTACT_OHMS or
+ * more (a button not pressed, a slide switch's other leg) or a relay's contact
+ * (an S card's switch pair, open or closed as the solve decides). An input
+ * that reaches nothing else floats on the bench, and here it gets the
+ * pull-down every floating input gets: through the 1 GOhm alone a gate input
+ * or an MCU pin wired to an open switch on 5 V sat at 5 V and read HIGH, a
+ * voltmeter's 10 MOhm pulled it to 49.5 mV, and the digital gate engine,
+ * where an open throw is Hi-Z, read the same input LOW
+ * (velxio/velxio-prod#192). A closed contact beside the pull-down outweighs
+ * it by ten orders of magnitude.
  *
  * An older version of this function used a "touched-by-R" heuristic: a net
  * was marked safe if ANY resistor terminal referenced it. That was wrong for

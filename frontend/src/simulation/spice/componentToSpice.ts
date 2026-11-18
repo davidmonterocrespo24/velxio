@@ -179,6 +179,14 @@ function emitInductor(
   };
 }
 
+/**
+ * The resistance of an open switch contact (a button not pressed, a slide
+ * switch's unselected leg). A real open contact conducts nothing; this keeps
+ * the node in the matrix. NetlistBuilder counts no resistance this large as a
+ * DC path when it looks for floating nets (velxio/velxio-prod#192).
+ */
+export const OPEN_CONTACT_OHMS = 1e9;
+
 // ── Bench power supply (constant voltage / constant current) ─────────────
 /** Output resistance of the supply in constant-voltage mode. */
 const SUPPLY_OUTPUT_OHMS = '10m';
@@ -1076,7 +1084,7 @@ const MAPPERS: Record<string, Mapper> = {
       // Read `pressed` the way the canvas draws it (flagProperty): typed as
       // text, "false" is released. Boolean("false") closed the switch under a
       // button drawn released (velxio/velxio-prod#151).
-      const R = flagProperty(comp.properties.pressed) ? 0.01 : 1e9;
+      const R = flagProperty(comp.properties.pressed) ? 0.01 : OPEN_CONTACT_OHMS;
       cards.push(`R_${comp.id}_sw ${term1} ${term2} ${R}`);
     }
     return cards.length ? { cards, modelsUsed: new Set() } : null;
@@ -1098,8 +1106,8 @@ const MAPPERS: Record<string, Mapper> = {
     const pin3 = netLookup('3');
     const toPin3 = comp.properties.value === 1 || comp.properties.value === '1';
     const cards: string[] = [];
-    if (pin1) cards.push(`R_${comp.id}_1 ${common} ${pin1} ${toPin3 ? 1e9 : 0.01}`);
-    if (pin3) cards.push(`R_${comp.id}_3 ${common} ${pin3} ${toPin3 ? 0.01 : 1e9}`);
+    if (pin1) cards.push(`R_${comp.id}_1 ${common} ${pin1} ${toPin3 ? OPEN_CONTACT_OHMS : 0.01}`);
+    if (pin3) cards.push(`R_${comp.id}_3 ${common} ${pin3} ${toPin3 ? 0.01 : OPEN_CONTACT_OHMS}`);
     return cards.length ? { cards, modelsUsed: new Set() } : null;
   },
 
