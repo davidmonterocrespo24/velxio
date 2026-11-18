@@ -1,5 +1,6 @@
 // I2C Bus Scanner — TWI Protocol Test
-// Scans all 127 I2C addresses and reports which ones respond with ACK.
+// Scans the 7-bit addresses 1-126 (0 is the general call, 127 is reserved)
+// every 10 seconds and reports which ones respond with ACK.
 // Wired on the canvas (SDA = A4, SCL = A5):
 //   0x3C = SSD1306 OLED
 //   0x50 = 24C01 EEPROM
@@ -14,6 +15,9 @@ void setup() {
   Serial.println("===========================");
   Serial.println("  I2C Bus Scanner (TWI)");
   Serial.println("===========================");
+}
+
+void loop() {
   Serial.println("Scanning...");
   Serial.println();
 
@@ -35,8 +39,8 @@ void setup() {
         case 0x48: Serial.print("  (Temperature sensor)"); break;
         case 0x50: Serial.print("  (EEPROM)"); break;
         case 0x68: Serial.print("  (DS1307 RTC)"); break;
-        case 0x76: Serial.print("  (BME280 sensor)"); break;
-        case 0x77: Serial.print("  (BMP180/BMP280)"); break;
+        case 0x76: Serial.print("  (BMP280/BME280)"); break;
+        case 0x77: Serial.print("  (BMP280/BME280/BMP180)"); break;
       }
       Serial.println();
       devicesFound++;
@@ -51,11 +55,9 @@ void setup() {
   if (devicesFound == 0) {
     Serial.println("No I2C devices found. Check connections.");
   }
-}
 
-void loop() {
   // Rescan every 10 seconds
   delay(10000);
-  Serial.println("\nRescanning...");
-  setup();
+  Serial.println();
+  Serial.println("Rescanning...");
 }

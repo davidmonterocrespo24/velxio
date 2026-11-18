@@ -15,10 +15,17 @@ pin can source.
 | NC | normally closed: joined to COM while the coil is idle |
 
 - **Pull-in and drop-out** are fractions of `coil_voltage`: the contacts
-  close once the coil sees **75%** of it (3.75 V on a 5 V coil) and, within a
-  time-domain run, open again below **45%** (2.25 V). A 3.3 V pin on a 5 V
-  coil never reaches 3.75 V, so it never pulls in: use a 3.3 V coil, or feed
-  the coil from 5 V through a transistor.
+  close once the coil sees **75%** of it (3.75 V on a 5 V coil) and open
+  again below **45%** (2.25 V). In between they stay where they were, from
+  one solve to the next: a relay fed through its own NO contact (a seal-in,
+  with START across that contact) holds after START is released, until STOP
+  breaks the coil circuit. Opening a project or an example starts every relay
+  released, as at power-up. A 3.3 V pin on a 5 V coil never reaches 3.75 V, so
+  it never pulls in: use a 3.3 V coil, or feed the coil from 5 V through a
+  transistor.
+- The contacts follow the coil **current**: when the drive is cut they hold
+  while it decays through the flyback diode (about 0.2 ms on the default
+  coil), and a Zener in series with the diode makes the release faster.
 - **`coil_resistance` sets the coil current**, exactly as on a datasheet:
   I = coil voltage / R (5 V / 70 Ω = 71 mA, the usual SRD-05VDC part). It does
   not move the pull-in point; `coil_voltage` does.

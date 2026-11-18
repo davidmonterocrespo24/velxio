@@ -162,7 +162,8 @@ describe('relay coil_resistance (#373): what the field does and where it shows',
     const over = await solveCoil({ boardVcc: 5, coilV: 5, coilR: 70, feed: 'pin', pinV: 3.76 });
     expect(under.closed).toBe(false);
     expect(over.closed).toBe(true);
-    expect(over.netlist).toMatch(/\.model RELAY_SW SW\(Vt=3 Vh=0\.75 /);
+    // The NO switch of a 5 V coil (named by its coil voltage, #169).
+    expect(over.netlist).toMatch(/\.model RELAY_NO_5 SW\(Vt=3 Vh=0\.75 /);
   });
 
   it('e) transient ramp: closes at 0.75 Vnom, opens at 0.45 Vnom', { timeout: 60_000 }, async () => {

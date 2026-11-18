@@ -37,8 +37,9 @@ describe('logic gates with a finite-slope edge', () => {
     expect(netlist).toContain('tanh(');
     expect(netlist).not.toMatch(/u\(V\(/);
     // Both gate outputs solve to a finite voltage. At power-up, with both
-    // inputs released HIGH, the symmetric loop settles on its midpoint; a
-    // real latch does the same until an input breaks the tie.
+    // inputs released HIGH, the loop also has a symmetric midpoint, an
+    // unstable equilibrium a real latch never sits on; the deck seeds it into
+    // a state (sr-latch-memory.test.ts, velxio/velxio-prod#147).
     const outs = Object.entries(v).filter(([k]) => /^n\d+$/.test(k)).map(([, x]) => x);
     expect(outs.length).toBeGreaterThan(0);
     for (const x of outs) expect(Number.isFinite(x)).toBe(true);

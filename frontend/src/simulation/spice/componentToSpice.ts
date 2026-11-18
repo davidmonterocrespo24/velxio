@@ -40,6 +40,13 @@ export interface SpiceEmission {
    * nets the cards do not show (a subcircuit's output).
    */
   drives?: string[];
+  /**
+   * A switch with memory (a relay's armature): the node its S cards follow
+   * and where they change state. The circuit service reads the node after a
+   * solve and builds the next deck with the switches where they ended
+   * (MapperContext.operated), so a sealed-in relay stays in.
+   */
+  memory?: { control: string; on: number; off: number };
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -47,6 +54,12 @@ export type NetLookup = (pinName: string) => string | null;
 export interface MapperContext {
   /** Supply voltage in effect (V). Boards set this; ground is 0. */
   vcc: number;
+  /** A part with memory (SpiceEmission.memory): whether its last solve left
+   *  it operated. Absent: released, as at power-up. */
+  operated?: boolean;
+  /** Nets driven by a logic gate on a feedback loop (an SR latch), which the
+   *  deck seeds with .nodeset (velxio/velxio-prod#147). */
+  latchNets?: ReadonlySet<string>;
 }
 
 export type Mapper = (
@@ -162,6 +175,50 @@ function logicStep(net: string, threshold: number): string {
   return `(0.5*(1+tanh((V(${net})-${threshold})/${LOGIC_EDGE_VOLTS})))`;
 }
 
+/**
+ * Output resistance of a logic gate on a feedback loop, about a 74HC output
+ * (TI SN74HC00: VOH 4.31 V min at -4 mA from 4.5 V). It is what lets the
+ * deck's .nodeset place the loop in a state (see the gates note).
+ */
+const LATCH_GATE_OHMS = 25;
+
+/** The node a gate's B source drives: its output pin, or, on a feedback loop
+ *  (MapperContext.latchNets), an internal node behind LATCH_GATE_OHMS. */
+function gateOutput(id: string, y: string, ctx: MapperContext): { node: string; cards: string[] } {
+  if (!ctx.latchNets?.has(y)) return { node: y, cards: [] };
+  const node = `${id}_yi`;
+  return { node, cards: [`R_${id}_ro ${node} ${y} ${LATCH_GATE_OHMS}`] };
+}
+
+/** Which pins of a logic part drive which: per gate, its inputs and its output. */
+export interface GateLink {
+  inputs: string[];
+  output: string;
+}
+
+const GATE_LINKS: Record<string, GateLink[]> = (() => {
+  const t: Record<string, GateLink[]> = {};
+  for (const g of ['and', 'or', 'nand', 'nor', 'xor', 'xnor']) t[`logic-gate-${g}`] = [{ inputs: ['A', 'B'], output: 'Y' }];
+  t['logic-gate-not'] = [{ inputs: ['A'], output: 'Y' }];
+  for (const g of ['and', 'or', 'nand', 'nor']) {
+    t[`logic-gate-${g}-3`] = [{ inputs: ['A', 'B', 'C'], output: 'Y' }];
+    t[`logic-gate-${g}-4`] = [{ inputs: ['A', 'B', 'C', 'D'], output: 'Y' }];
+  }
+  for (const ic of ['ic-74hc00', 'ic-74hc08', 'ic-74hc32', 'ic-74hc02', 'ic-74hc86']) {
+    t[ic] = [1, 2, 3, 4].map((i) => ({ inputs: [`${i}A`, `${i}B`], output: `${i}Y` }));
+  }
+  for (const ic of ['ic-74hc04', 'ic-74hc14']) {
+    t[ic] = [1, 2, 3, 4, 5, 6].map((i) => ({ inputs: [`${i}A`], output: `${i}Y` }));
+  }
+  return t;
+})();
+
+/** The gates of a logic part (inputs -> output), or null for any other part.
+ *  NetlistBuilder finds the feedback loops (latches) from them. */
+export function logicGateLinks(metadataId: string): readonly GateLink[] | null {
+  return GATE_LINKS[metadataId] ?? null;
+}
+
 // One entry per colour the part's colour select offers: a colour missing here
 // used to take the red card silently, so orange and purple (velxio/velxio-prod
 // #95) ran at 1.8 V. Forward voltage at 10 mA / 20 mA:
@@ -183,6 +240,101 @@ const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
   white: { name: 'LED_WHITE', Is: '1e-28', n: '2.0' },
   purple: { name: 'LED_PURPLE', Is: '1e-28', n: '2.11' },
 };
+
+// ── Relays: pull-in, drop-out, and which pins are the coil ────────────────
+// ngspice SW closes at Vt + Vh and opens at Vt - Vh. With Vt = 0.6 and
+// Vh = 0.15 of the nominal coil voltage a relay's contacts close at 75 % of
+// it and, within a time-domain run, open again below 45 %. 75 % is the
+// Songle SRD-05VDC-SL-C's must-operate maximum, the voltage at which every
+// relay is guaranteed to close (Omron: apply that percentage or more to make
+// sure it operates); 45 % is above its guaranteed 10 % release.
+const RELAY_SW_VT = 0.6;
+const RELAY_SW_VH = 0.15;
+/** The fraction of its nominal coil voltage at which a relay pulls in. The
+ *  circuit check warns about a coil fed below it (velxio/velxio-prod#108). */
+export const RELAY_PULL_IN_FRACTION = RELAY_SW_VT + RELAY_SW_VH;
+/** ...and the fraction below which a pulled-in relay drops out again. */
+const RELAY_DROP_OUT_FRACTION = RELAY_SW_VT - RELAY_SW_VH;
+
+/**
+ * A relay contact set's memory (SpiceEmission.memory) and the state flag its S
+ * cards start in. ngspice starts a switch whose control sits inside its
+ * hysteresis band in the state its ON/OFF instance flag gives it, OFF by
+ * default; with no flag every solve began with the contacts open, so a relay
+ * fed through its own NO contact (a seal-in) dropped out the moment its
+ * START button was released (velxio/velxio-prod#109).
+ */
+function relayMemory(
+  control: string,
+  coilV: number,
+  operated: boolean | undefined,
+): { memory: NonNullable<SpiceEmission['memory']>; flag: string } {
+  return {
+    memory: {
+      control,
+      on: round3(coilV * RELAY_PULL_IN_FRACTION),
+      off: round3(coilV * RELAY_DROP_OUT_FRACTION),
+    },
+    flag: operated ? ' ON' : '',
+  };
+}
+/**
+ * The two switch models of a relay contact set for a coil of `coilV`, named by
+ * that voltage: NO conducts while the switch is on, NC is the same switch with
+ * the conductances swapped, so it conducts while the switch is off. Sharing
+ * the control and the hysteresis state makes NC exactly the complement of NO
+ * (velxio/velxio-prod#169). A name per coil voltage keeps a 5 V and a 12 V
+ * relay on one canvas from sharing one `.model` line (the first one won).
+ */
+function relaySwitchModels(
+  prefix: string,
+  coilV: number,
+): { no: string; nc: string; noCard: string; ncCard: string } {
+  const tag = String(round3(coilV)).replace('-', 'm').replace('.', 'p');
+  const no = `${prefix}_NO_${tag}`;
+  const nc = `${prefix}_NC_${tag}`;
+  const vt = round3(coilV * RELAY_SW_VT);
+  const vh = round3(coilV * RELAY_SW_VH);
+  return {
+    no,
+    nc,
+    noCard: `.model ${no} SW(Vt=${vt} Vh=${vh} Ron=0.05 Roff=1G)`,
+    ncCard: `.model ${nc} SW(Vt=${vt} Vh=${vh} Ron=1G Roff=0.05)`,
+  };
+}
+
+/** The KS2E-M-DC5 has no coil_voltage field: its coil is the 5 V of its name. */
+const KS2E_COIL_VOLTS = 5;
+
+/** A relay part's coil, as the circuit check needs it. */
+export interface RelayCoil {
+  /** The coil's two pins. */
+  coil: [string, string];
+  /** Each group of contact pins the armature switches among; galvanically
+   *  isolated from the coil and from each other. */
+  contacts: string[][];
+  /** The property holding the nominal coil voltage, when the part has one. */
+  voltageField?: string;
+  /** The nominal coil voltage when no field sets it (and the field's default). */
+  volts: number;
+}
+
+const RELAY_COILS: Record<string, RelayCoil> = {
+  relay: { coil: ['COIL+', 'COIL-'], contacts: [['COM', 'NO', 'NC']], voltageField: 'coil_voltage', volts: 5 },
+  'ks2e-m-dc5': {
+    coil: ['COIL1', 'COIL2'],
+    contacts: [
+      ['P1', 'NO1', 'NC1'],
+      ['P2', 'NO2', 'NC2'],
+    ],
+    volts: KS2E_COIL_VOLTS,
+  },
+};
+
+/** The coil of a relay part, or null for a part that is not a relay. */
+export function relayCoilOf(metadataId: string): RelayCoil | null {
+  return RELAY_COILS[metadataId] ?? null;
+}
 
 /** Colours already reported as missing from LED_MODELS (one warning each). */
 const unknownLedColours = new Set<string>();
@@ -345,20 +497,39 @@ const MAPPERS: Record<string, Mapper> = {
       ]),
     };
   },
+  // Vishay's own 1N4007 model (vishay.com/docs/89789/1n4007.txt): 0.63 V at
+  // 10 mA, 0.74 V at 0.1 A and 0.89 V at 1 A, on the typical curve of the
+  // 1N4001-1N4007 datasheet (Fig. 4: about 0.62 / 0.75 / 0.9 V; 1.1 V max at
+  // 1 A). The card before dropped 0.44 V at 10 mA and 0.67 V at 1 A, 0.2 V
+  // under any silicon rectifier (velxio/velxio-prod#132). Its storage time,
+  // Tt=4.10886u, is left out: at an amp it is a diffusion capacitance of
+  // about 90 uF, and on the trapezoidal method a rectifier charging 1000 uF
+  // from the lab supply rang +-17 mA every sample (power-supply-cv-cc spec)
+  // for a recovery that only matters at tens of kHz, where a 1N4007 is the
+  // wrong part anyway.
   'diode-1n4007': (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     return {
       cards: [`D_${comp.id} ${pins[0]} ${pins[1]} D1N4007`],
-      modelsUsed: new Set(['.model D1N4007 D(Is=76.9n N=1.45 Rs=0.0342 Ikf=2.34 Bv=1000 Ibv=5u)']),
+      modelsUsed: new Set([
+        '.model D1N4007 D(Is=14.3733n N=1.80829 Rs=0.0414712 Eg=1.11 Xti=3 Cjo=28.119p Vj=0.700053 M=0.346714 Fc=0.5 Bv=1100 Ibv=10)',
+      ]),
     };
   },
+  // 1N4733A (Vishay 1N4728A series): VZ 5.1 V at IZT = 49 mA, ZZT 7 ohm max,
+  // VF 1.2 V max at 200 mA. ngspice puts the junction at Bv when it carries
+  // Ibv, and Rs adds IZT * Rs on top, so Bv is 5.1 V less that: the card had
+  // Bv=5.1 with Rs=5 and read 5.34 V at IZT (velxio/velxio-prod#132). Rs=2
+  // gives a 2.5 ohm slope at IZT (4.95 V at 5 mA, 5.22 V at 0.1 A) and keeps
+  // the forward drop a silicon one: 0.69 V at 10 mA, 1.15 V at 200 mA (it was
+  // 0.47 V and 1.49 V).
   'zener-1n4733': (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, 'A', 'C');
     if (!pins) return null;
     return {
       cards: [`D_${comp.id} ${pins[0]} ${pins[1]} D1N4733`],
-      modelsUsed: new Set(['.model D1N4733 D(Is=1n N=1 Rs=5 Bv=5.1 Ibv=50m)']),
+      modelsUsed: new Set(['.model D1N4733 D(Is=50f N=1 Rs=2 Bv=5.002 Ibv=49m)']),
     };
   },
 
@@ -374,7 +545,13 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N2222`],
       modelsUsed: new Set([
-        '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
+        // ISE/NE (velxio/velxio-prod#136): the stock card had no base
+        // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
+        // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
+        // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
+        // (179 at 10 mA, 141 at 150 mA as before, every point above the
+        // datasheet minimums 35 / 50 / 75 / 100).
+        '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
       ]),
     };
   },
@@ -398,7 +575,13 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3055`],
       modelsUsed: new Set([
-        '.model Q2N3055 NPN(BF=73 BR=2.66 RB=.81 RC=.0856 RE=.000856 CJC=1000P PC=.75 MC=.33 TR=.5703U IS=2.37E-8 CJE=415P PE=.75 ME=.5 TF=99.52N NE=1.26 IK=1)',
+        // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
+        // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
+        // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
+        // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
+        // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
+        // Junction capacitances and transit times are the old card's.
+        '.model Q2N3055 NPN(IS=3E-12 BF=115 IKF=4 BR=2.66 RB=.81 RC=.0856 RE=.03 CJC=1000P PC=.75 MC=.33 TR=.5703U CJE=415P PE=.75 ME=.5 TF=99.52N)',
       ]),
     };
   },
@@ -439,6 +622,14 @@ const MAPPERS: Record<string, Mapper> = {
   // `standard.mos`. IRF530 (100 V N-MOS, same series) substitutes for IRF540.
   // IRF9640 (200 V P-MOS) substitutes for IRF9540 — both close enough that
   // a casual circuit drawn around "IRF540" still behaves correctly.
+  //
+  // Breakdown: LTspice's `Vds=` is a label ngspice ignores, so none of these
+  // ever broke down, and a coil switched off with no flyback diode drove the
+  // drain to kilovolts (2.6 kV on a 2N7000 from 5 V). `BV` puts the
+  // avalanche on the body diode (ngspice README.vdmos), at the part's rated
+  // V(BR)DSS: 60 V for the 2N7000 (onsemi), 100 V for the IRF540 and the
+  // IRF9540 (Vishay). The drain now clamps there, as a real part's does
+  // before it dissipates the energy or fails (velxio/velxio-prod#110).
   'mosfet-2n7000': (comp, netLookup) => {
     const d = netLookup('D');
     const g = netLookup('G');
@@ -447,7 +638,7 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards: [`M_${comp.id} ${d} ${g} ${s} M2N7000`],
       modelsUsed: new Set([
-        '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p Vds=60 Ron=2 Qg=1.5n)',
+        '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)',
       ]),
     };
   },
@@ -461,7 +652,7 @@ const MAPPERS: Record<string, Mapper> = {
       modelsUsed: new Set([
         // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
         // smaller die). Close enough for the canvas.
-        '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p Vds=100 Ron=160m Qg=26n)',
+        '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p BV=100 Vds=100 Ron=160m Qg=26n)',
       ]),
     };
   },
@@ -476,22 +667,32 @@ const MAPPERS: Record<string, Mapper> = {
       cards: [`M_${comp.id} ${d} ${g} ${s} MIRF9540`],
       modelsUsed: new Set([
         // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
-        // identical pin-out and similar Vto. The `pchan` keyword is what
-        // tells the VDMOS engine to flip polarity.
-        '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p Vds=-200 Ron=.5 Qg=44n)',
+        // identical pin-out and similar Vto; BV gives it the IRF9540's own
+        // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
+        // engine to flip polarity.
+        '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p BV=100 Vds=-100 Ron=.5 Qg=44n)',
       ]),
     };
   },
-  // FQP27P06 has no good LTSpice equivalent — kept on Level=1 PMOS with the
-  // historical parameter set. Upgrade when a Fairchild VDMOS model is found.
+  // FQP27P06: a VDMOS card fitted to Fairchild's datasheet (Rev. A2), as no
+  // library carries one (velxio/velxio-prod#136). RDS(on) 54 mohm at VGS
+  // -10 V, ID -13.5 A (0.055 typ, 0.07 max); VGS(th) -2.66 V at 250 uA
+  // (-2 to -4 V); gFS 12.6 S at 13.5 A (12.4 typ); 14.8 A at VGS -5 V, VDS
+  // -30 V (Fig. 2: about 15 A); Ciss / Crss / Coss 1114 / 114 / 466 pF at
+  // VDS -25 V (1100 / 120 / 510 typ); BV at its -60 V rating (#110). A 5 V
+  // gate swing turns it well on (0.11 ohm at 1 A); 3.3 V barely (0.5 A at
+  // VDS -1 V). The Level-1 placeholder it replaces was 32.6 ohm at -5 V and
+  // 10.7 ohm at -10 V (200 times the datasheet), with no breakdown.
   'mosfet-fqp27p06': (comp, netLookup) => {
     const d = netLookup('D');
     const g = netLookup('G');
     const s = netLookup('S');
     if (!d || !g || !s) return null;
     return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} ${s} MFQP27P06 L=2u W=500u`],
-      modelsUsed: new Set(['.model MFQP27P06 PMOS(Level=1 Vto=-2.5 Kp=50u Lambda=0.01)']),
+      cards: [`M_${comp.id} ${d} ${g} ${s} MFQP27P06`],
+      modelsUsed: new Set([
+        '.model MFQP27P06 VDMOS(pchan Vto=-2.9 Kp=6 Rd=20m Rs=10m Rb=10m lambda=.01 Cgdmax=1n Cgdmin=.1n Cgs=1n Cjo=2n BV=60 Vds=-60 Ron=55m Qg=33n)',
+      ]),
     };
   },
 
@@ -927,107 +1128,65 @@ const MAPPERS: Record<string, Mapper> = {
   // the canvas, and the pre-flight refuses the example before it compiles
   // (project/gallery-libraries-2026-09, cause H). A 50 mV tanh edge keeps
   // every truth table exact at 0 V / vcc (the gate examples solve to the
-  // same numbers to two decimals) and gives the loop a solution: the
-  // symmetric midpoint at power-up, which is what a real latch does until an
-  // input breaks the tie. The Schmitt inverter (hysteresis by design) and
-  // the L293D enable logic keep the ideal step: neither is cross-coupled.
-  // Written as one helper so the edge width is a single number.
+  // same numbers to two decimals) and gives the loop a solution. A real
+  // latch powers up in one of its two states and keeps it; the symmetric
+  // midpoint the loop also has is an unstable equilibrium a real one leaves
+  // in nanoseconds, but an operating point with no history lands on it. So a
+  // gate on a feedback loop (MapperContext.latchNets) drives its pin through
+  // LATCH_GATE_OHMS, and the deck seeds the loop's nets with .nodeset
+  // (NetlistBuilder): with the state they had at the last solve, or a
+  // definite power-up state. ngspice's .nodeset cannot move an ideal source's
+  // node, hence the resistance (velxio/velxio-prod#147). The Schmitt inverter
+  // (hysteresis by design) and the L293D enable logic keep the ideal step:
+  // neither is cross-coupled. Written as one helper so the edge width is a
+  // single number.
 
   // Convention: inputs at 2-input gates are 'A','B'; output is 'Y'. Threshold
   // is ctx.vcc/2. A 1 MΩ load keeps the output node DC-connected so ngspice
   // doesn't see it as floating (otherwise .op returns matrix singular).
-  'logic-gate-and': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
+  ...(() => {
+    const twoInput = (expr: (a: string, b: string, T: number, vcc: number) => string): Mapper => (comp, netLookup, ctx) => {
+      const a = netLookup('A'),
+        b = netLookup('B'),
+        y = netLookup('Y');
+      if (!a || !b || !y) return null;
+      const out = gateOutput(comp.id, y, ctx);
+      return {
+        cards: [
+          `B_${comp.id} ${out.node} 0 V = ${expr(a, b, ctx.vcc / 2, ctx.vcc)}`,
+          ...out.cards,
+          `R_${comp.id}_load ${y} 0 1Meg`,
+        ],
+        modelsUsed: new Set(),
+      };
     };
-  },
-  'logic-gate-or': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
     return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
+      'logic-gate-and': twoInput((a, b, T, vcc) => `${vcc} * ${logicStep(a, T)} * ${logicStep(b, T)}`),
+      'logic-gate-or': twoInput(
+        (a, b, T, vcc) => `${vcc} * (1 - (1-${logicStep(a, T)}) * (1-${logicStep(b, T)}))`,
+      ),
+      'logic-gate-nand': twoInput((a, b, T, vcc) => `${vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`),
+      'logic-gate-nor': twoInput((a, b, T, vcc) => `${vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`),
+      'logic-gate-xor': twoInput(
+        (a, b, T, vcc) =>
+          `${vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
+      ),
+      'logic-gate-xnor': twoInput(
+        (a, b, T, vcc) =>
+          `${vcc} * (1 - (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)}))`,
+      ),
     };
-  },
-  'logic-gate-nand': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)} * ${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-nor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1-${logicStep(a, T)}) * (1-${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-xor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)})`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
-  'logic-gate-xnor': (comp, netLookup, ctx) => {
-    const a = netLookup('A'),
-      b = netLookup('B'),
-      y = netLookup('Y');
-    if (!a || !b || !y) return null;
-    const T = ctx.vcc / 2;
-    return {
-      cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - (${logicStep(a, T)} + ${logicStep(b, T)} - 2*${logicStep(a, T)}*${logicStep(b, T)}))`,
-        `R_${comp.id}_load ${y} 0 1Meg`,
-      ],
-      modelsUsed: new Set(),
-    };
-  },
+  })(),
   'logic-gate-not': (comp, netLookup, ctx) => {
     const a = netLookup('A'),
       y = netLookup('Y');
     if (!a || !y) return null;
     const T = ctx.vcc / 2;
+    const out = gateOutput(comp.id, y, ctx);
     return {
       cards: [
-        `B_${comp.id} ${y} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)})`,
+        `B_${comp.id} ${out.node} 0 V = ${ctx.vcc} * (1 - ${logicStep(a, T)})`,
+        ...out.cards,
         `R_${comp.id}_load ${y} 0 1Meg`,
       ],
       modelsUsed: new Set(),
@@ -1051,9 +1210,11 @@ const MAPPERS: Record<string, Mapper> = {
         const y = netLookup('Y');
         if (inputs.some((n) => !n) || !y) return null;
         const T = ctx.vcc / 2;
+        const out = gateOutput(comp.id, y, ctx);
         return {
           cards: [
-            `B_${comp.id} ${y} 0 V = ${build(inputs as string[], T, ctx.vcc)}`,
+            `B_${comp.id} ${out.node} 0 V = ${build(inputs as string[], T, ctx.vcc)}`,
+            ...out.cards,
             `R_${comp.id}_load ${y} 0 1Meg`,
           ],
           modelsUsed: new Set(),
@@ -1146,7 +1307,9 @@ const MAPPERS: Record<string, Mapper> = {
           const b = netLookup(`${i}B`);
           const y = netLookup(`${i}Y`);
           if (!a || !b || !y) continue; // skip unwired gates silently
-          cards.push(`B_${comp.id}_${i} ${y} 0 V = ${build(a, b, y, T, ctx.vcc)}`);
+          const out = gateOutput(`${comp.id}_${i}`, y, ctx);
+          cards.push(`B_${comp.id}_${i} ${out.node} 0 V = ${build(a, b, y, T, ctx.vcc)}`);
+          cards.push(...out.cards);
           cards.push(`R_${comp.id}_${i}_load ${y} 0 1Meg`);
         }
         if (cards.length === 0) return null;
@@ -1164,7 +1327,9 @@ const MAPPERS: Record<string, Mapper> = {
           const a = netLookup(`${i}A`);
           const y = netLookup(`${i}Y`);
           if (!a || !y) continue;
-          cards.push(`B_${comp.id}_${i} ${y} 0 V = ${build(a, y, T, ctx.vcc)}`);
+          const out = gateOutput(`${comp.id}_${i}`, y, ctx);
+          cards.push(`B_${comp.id}_${i} ${out.node} 0 V = ${build(a, y, T, ctx.vcc)}`);
+          cards.push(...out.cards);
           cards.push(`R_${comp.id}_${i}_load ${y} 0 1Meg`);
         }
         if (cards.length === 0) return null;
@@ -1210,55 +1375,73 @@ const MAPPERS: Record<string, Mapper> = {
   })(),
 
   // ── Optocouplers (LED + phototransistor in one package) ─────────────────
-  // Pattern: LED on input side, current-sense resistor (0V source) measures
-  // I_LED, an F-source (CCCS) mirrors that current into the phototransistor
-  // output with the part's Current Transfer Ratio (CTR).
-  'opto-4n25': (comp, netLookup) => {
-    const an = netLookup('AN');
-    const cat = netLookup('CAT');
-    const col = netLookup('COL');
-    const emit = netLookup('EMIT');
-    if (!an || !cat || !col || !emit) return null;
-    const CTR = 0.5; // 50%
+  // The IR LED's current, read by a 0 V sense source, is mirrored by an F
+  // source (CCCS) as photocurrent from the collector into the base of an NPN
+  // phototransistor, which amplifies it: I_C = CTR * I_LED while V_CE is above
+  // saturation, and the transistor saturates when the load cannot take that
+  // much. The output used to be the F source alone, an ideal current source
+  // from collector to emitter: behind the usual 10 k pull-up it drove the
+  // collector to -59.67 V (4N25) in the gallery's optocoupler-signal, and to
+  // -124 V with a PC817 (velxio/velxio-prod#131).
+  //
+  // The LED (shared by both parts) drops 1.18 V at 10 mA, 1.22 V at 20 mA and
+  // 1.30 V at 50 mA: Vishay 4N25 1.3 V typ / 1.5 max at 50 mA, Sharp PC817X
+  // 1.2 V typ / 1.4 max at 20 mA. The old card dropped 1.48 V at 10 mA and
+  // 1.76 V at 50 mA. The transistor: BF = 100, and RC = 50 ohm for the
+  // phototransistor's collector body, so V_CE(sat) is about 0.1 V at 1 mA and
+  // 0.15 V at 2 mA (PC817 0.1 typ / 0.2 max at IC 1 mA; 4N25 0.5 max at
+  // 2 mA). The base has no pin: 100 Meg to the emitter keeps it defined in
+  // the dark, and 100 Meg from collector to emitter stays as before.
+  ...(() => {
+    const OPTO_BF = 100;
+    const optocoupler =
+      (ctr: number): Mapper =>
+      (comp, netLookup) => {
+        const an = netLookup('AN');
+        const cat = netLookup('CAT');
+        const col = netLookup('COL');
+        const emit = netLookup('EMIT');
+        if (!an || !cat || !col || !emit) return null;
+        const base = `${comp.id}_base`;
+        return {
+          cards: [
+            `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
+            `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
+            // Photocurrent: I_LED * CTR / (BF + 1), so I_C = CTR * I_LED.
+            `F_${comp.id}_pt ${col} ${base} V_${comp.id}_sense ${ctr / (OPTO_BF + 1)}`,
+            `Q_${comp.id}_pt ${col} ${base} ${emit} QOPTO_PT`,
+            `R_${comp.id}_be ${base} ${emit} 100Meg`,
+            `R_${comp.id}_leak ${col} ${emit} 100Meg`,
+          ],
+          modelsUsed: new Set([
+            '.model DLED_OPTO D(Is=1.3e-13 N=1.8 Rs=1.1)',
+            `.model QOPTO_PT NPN(IS=1e-14 BF=${OPTO_BF} RC=50)`,
+          ]),
+        };
+      };
     return {
-      cards: [
-        `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
-        `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
-        `F_${comp.id}_pt ${col} ${emit} V_${comp.id}_sense ${CTR}`,
-        `R_${comp.id}_leak ${col} ${emit} 100Meg`,
-      ],
-      modelsUsed: new Set(['.model DLED_OPTO D(Is=1e-14 N=2 Rs=5)']),
+      // 4N25: CTR 50 % typ at IF 10 mA (20 % min).
+      'opto-4n25': optocoupler(0.5),
+      // PC817: CTR 50-600 % by rank; 100 % here.
+      'opto-pc817': optocoupler(1.0),
     };
-  },
-  'opto-pc817': (comp, netLookup) => {
-    const an = netLookup('AN');
-    const cat = netLookup('CAT');
-    const col = netLookup('COL');
-    const emit = netLookup('EMIT');
-    if (!an || !cat || !col || !emit) return null;
-    const CTR = 1.0; // 100% (typical for PC817, min 50% max 600%)
-    return {
-      cards: [
-        `D_${comp.id}_led ${an} ${comp.id}_mid DLED_OPTO`,
-        `V_${comp.id}_sense ${comp.id}_mid ${cat} DC 0`,
-        `F_${comp.id}_pt ${col} ${emit} V_${comp.id}_sense ${CTR}`,
-        `R_${comp.id}_leak ${col} ${emit} 100Meg`,
-      ],
-      modelsUsed: new Set(['.model DLED_OPTO D(Is=1e-14 N=2 Rs=5)']),
-    };
-  },
+  })(),
 
   // ── Electromechanical relay (SPDT, 5-pin) ───────────────────────────────
   // Coil is modelled as R in series with L. Contacts are voltage-controlled
   // switches (ngspice `S` element) with native hysteresis via Vt/Vh — avoids
-  // chatter when V_COIL sits near the activation threshold. The NC contact
-  // uses a B-source that inverts the coil voltage as its control signal,
-  // because ngspice SW has no "normally closed" mode.
+  // chatter when V_COIL sits near the activation threshold. ngspice SW has no
+  // "normally closed" mode, so NC is a second switch on the SAME control with
+  // its on and off resistances swapped (relaySwitchModels): one armature, one
+  // hysteresis state, NC closed exactly when NO is open. It used to be a
+  // switch of its own on Vnom - V(coil), which opened at 55 % and reclosed at
+  // 25 % of Vnom, so whole ranges of coil voltage left both contacts open
+  // (velxio/velxio-prod#169).
   // Optional flyback diode across the coil (anode on COIL-, cathode on COIL+).
   // NO and NC contact cards are only emitted when their respective pins are
   // wired — leaving NC unconnected is a very common pattern and must not
   // suppress the rest of the relay (coil + NO switch).
-  relay: (comp, netLookup) => {
+  relay: (comp, netLookup, ctx) => {
     const cp = netLookup('COIL+');
     const cn = netLookup('COIL-');
     const com = netLookup('COM');
@@ -1269,27 +1452,27 @@ const MAPPERS: Record<string, Mapper> = {
     if (!cp || !cn || !com) return null;
     const coilR = parseValueWithUnits(comp.properties.coil_resistance, 70);
     const coilV = parseValueWithUnits(comp.properties.coil_voltage, 5);
-    // The contacts follow the voltage ACROSS the coil, not its current. With
-    // a fixed R the two are proportional (I = V_coil / R), so a threshold in
-    // volts is the same test as one in amps, and it stays right for every
-    // Vnom / R pair: a 12 V / 400 Ω relay (30 mA) pulls in at 12 V exactly
-    // like the 5 V / 70 Ω default (71 mA). coil_resistance therefore sets the
-    // CURRENT the coil draws (an ammeter in series reads Vnom / R: 71.4 mA
-    // at 70 Ω, 0.9 nA at 5.365 GΩ) and matters as soon as the drive has
-    // resistance of its own: through 1 kΩ a 70 Ω coil keeps 0.33 V and
-    // stays open while a 5 GΩ one keeps 5 V and closes. From an ideal rail
-    // at Vnom the contact state cannot depend on R, which is what issue
-    // #373 read as the field being "non-functional".
+    // The contacts follow the coil current, read as the voltage across the
+    // coil's resistance, R * I (below). At DC that IS the voltage across the
+    // coil (L is a short), so a threshold in volts is the same test as one in
+    // amps, and it stays right for every Vnom / R pair: a 12 V / 400 Ω relay
+    // (30 mA) pulls in at 12 V exactly like the 5 V / 70 Ω default (71 mA).
+    // coil_resistance therefore sets the CURRENT the coil draws (an ammeter
+    // in series reads Vnom / R: 71.4 mA at 70 Ω, 0.9 nA at 5.365 GΩ) and
+    // matters as soon as the drive has resistance of its own: through 1 kΩ a
+    // 70 Ω coil keeps 0.33 V and stays open while a 5 GΩ one keeps 5 V and
+    // closes. From an ideal rail at Vnom the contact state cannot depend on
+    // R, which is what issue #373 read as the field being "non-functional".
     //
     // ngspice SW closes at Vt + Vh and opens at Vt - Vh, so these give
     // pull-in at 0.75 Vnom and drop-out at 0.45 Vnom. Measured on a
     // 0 -> 5 -> 0 V ramp with the default coil: NO closes at 3.754 V and
     // opens at 2.248 V. A Songle SRD-05VDC-SL-C, the 5 V / 70 Ω part the
     // defaults describe, specifies 75% pull-in, so the closing edge is the
-    // datasheet figure. A bare .op has no history and leaves the switch open
-    // anywhere inside the band (3.3 V on a 5 V coil solves open).
-    const threshold = coilV * 0.6;
-    const hysteresis = coilV * 0.15;
+    // datasheet figure. Inside the band an operating point keeps the state
+    // the deck starts the switches in: released on a fresh deck (3.3 V on a
+    // 5 V coil solves open), and where the last solve left them once the
+    // circuit service carries it (ctx.operated, velxio/velxio-prod#109).
     const includeFlyback = comp.properties.include_flyback !== false;
     // A relay coil is a wire-wound inductor: R (of the copper) in SERIES
     // with ideal L. Modelling R and L in parallel would make the coil a DC
@@ -1300,33 +1483,39 @@ const MAPPERS: Record<string, Mapper> = {
       `R_${comp.id}_coil ${cp} ${coilMidNet} ${coilR}`,
       `L_${comp.id}_coil ${coilMidNet} ${cn} 20m`,
     ];
-    // What the armature responds to. A bare coil has no polarity: current
-    // either way magnetises it, so the contacts follow |V| and a relay wired
-    // COIL+ to GND with the drive on COIL- pulls in like any other (the
-    // component doc always said "polarity only matters for the flyback
-    // diode"; the model used the signed voltage and stayed open). With the
-    // diode fitted the part IS polarised: driven backwards the diode conducts
-    // and, on silicon, clamps the coil to a diode drop, so it never pulls in.
-    // The solve's sources are ideal and would hold the full voltage across
-    // coil and diode alike, hence the signed control in that case, read
-    // straight off the coil pins as it always was (the deck of a relay with
-    // its diode is unchanged; only the bare coil gets the |V| source).
-    const coilDrive = includeFlyback ? `V(${cp}) - V(${cn})` : `abs(V(${cp}) - V(${cn}))`;
-    let ctrl = `${cp} ${cn}`;
-    if (!includeFlyback && (no || nc)) {
-      ctrl = `${comp.id}_coilv 0`;
-      cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
-    }
+    // What the armature responds to: the flux, which the coil CURRENT sets.
+    // The control is R * I, the voltage across the coil's resistance. When
+    // the drive is cut the current keeps flowing through the suppressor and
+    // decays with L/R and the clamp voltage, and the contacts hold until it
+    // falls below the drop-out: about 0.19 ms behind the built-in 1N4148,
+    // sooner behind a diode and a Zener, as TE and Omron describe (a
+    // suppressor that lets the energy decay slowly retards the release).
+    // Read off the terminal voltage, which a diode collapses to one drop at
+    // once, the contacts opened in the first time step and a diode and a
+    // Zener could not be told apart (velxio/velxio-prod#137).
+    //
+    // A bare coil has no polarity: current either way magnetises it, so the
+    // contacts follow |R * I| and a relay wired COIL+ to GND with the drive on
+    // COIL- pulls in like any other (the component doc always said "polarity
+    // only matters for the flyback diode"). With the diode fitted the part IS
+    // polarised: driven backwards the diode conducts and, on silicon, clamps
+    // the coil to a diode drop, so it never pulls in. The solve's sources are
+    // ideal and would hold the full voltage across coil and diode alike,
+    // hence the signed control in that case.
+    const coilDrive = includeFlyback
+      ? `V(${cp}) - V(${coilMidNet})`
+      : `abs(V(${cp}) - V(${coilMidNet}))`;
+    const ctrl = `${comp.id}_coilv 0`;
+    if (no || nc) cards.push(`B_${comp.id}_coilv ${comp.id}_coilv 0 V = ${coilDrive}`);
+    const sw = relaySwitchModels('RELAY', coilV);
+    const mem = relayMemory(`${comp.id}_coilv`, coilV, ctx.operated);
     if (no) {
-      // NO: closes when the coil drive exceeds Vt (normal SW behaviour)
-      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} RELAY_SW`);
+      // NO: closes when the coil drive exceeds Vt + Vh (normal SW behaviour)
+      cards.push(`S_${comp.id}_no ${com} ${no} ${ctrl} ${sw.no}${mem.flag}`);
     }
     if (nc) {
-      // NC: inverted control — B-source maps (drive → Vnom − drive) so that
-      // SW still "turns on when ctrl > Vt", but meaning is inverted.
-      const ctrlInvNet = `${comp.id}_ncctrl`;
-      cards.push(`B_${comp.id}_ncctrl ${ctrlInvNet} 0 V = ${coilV} - (${coilDrive})`);
-      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrlInvNet} 0 RELAY_SW`);
+      // NC: the same switch, conducting while it is off.
+      cards.push(`S_${comp.id}_nc ${com} ${nc} ${ctrl} ${sw.nc}${mem.flag}`);
     }
     if (includeFlyback) {
       cards.push(`D_${comp.id}_fly ${cn} ${cp} D1N4148`);
@@ -1334,11 +1523,13 @@ const MAPPERS: Record<string, Mapper> = {
     return {
       cards,
       modelsUsed: new Set([
-        `.model RELAY_SW SW(Vt=${threshold} Vh=${hysteresis} Ron=0.05 Roff=1G)`,
+        ...(no ? [sw.noCard] : []),
+        ...(nc ? [sw.ncCard] : []),
         // Must match the canonical D1N4148 in `diode-1n4148` exactly, or
         // the netlist dedupe Set will emit two `.model D1N4148` lines.
         '.model D1N4148 D(Is=2.52n Rs=.568 N=1.752 Cjo=4p M=.4 tt=20n Bv=100 Ibv=0.1u)',
       ]),
+      ...(no || nc ? { memory: mem.memory } : {}),
     };
   },
 
@@ -1346,49 +1537,45 @@ const MAPPERS: Record<string, Mapper> = {
   // One coil between COIL1 and COIL2 and two change-over poles: P1 to NO1 /
   // NC1 and P2 to NO2 / NC2, switched together. Same coil and switch model as
   // `relay` above (R in series with L, 75 % pull-in, 45 % drop-out), with two
-  // differences. The coil is not polarised, so the contacts follow |V| across
-  // it and a relay wired COIL2-high still pulls in. And the part has no
+  // differences. The coil is not polarised, so the contacts follow |R * I|
+  // through it and a relay wired COIL2-high still pulls in. And the part has no
   // properties, so the coil is the 5 V nominal on its label; the KEST sheet
   // only gives coil power < 0.36 W, i.e. at least ~70 ohm, the generic
   // relay's default. Without this mapper the contacts were open pins in the
   // netlist: a load on any of them never conducted.
-  'ks2e-m-dc5': (comp, netLookup) => {
+  'ks2e-m-dc5': (comp, netLookup, ctx) => {
     const c1 = netLookup('COIL1');
     const c2 = netLookup('COIL2');
     if (!c1 || !c2) return null;
-    const coilV = 5;
+    const coilV = KS2E_COIL_VOLTS;
     const coilMid = `${comp.id}_coilmid`;
     const ctrl = `${comp.id}_coilv`;
-    const ctrlInv = `${comp.id}_ncctrl`;
     const cards = [
       `R_${comp.id}_coil ${c1} ${coilMid} 70`,
       `L_${comp.id}_coil ${coilMid} ${c2} 20m`,
-      `B_${comp.id}_coilv ${ctrl} 0 V = abs(V(${c1}) - V(${c2}))`,
-      `B_${comp.id}_ncctrl ${ctrlInv} 0 V = ${coilV} - abs(V(${c1}) - V(${c2}))`,
+      // |R * I|: the coil current, as the generic relay (velxio/velxio-prod#137).
+      `B_${comp.id}_coilv ${ctrl} 0 V = abs(V(${c1}) - V(${coilMid}))`,
     ];
-    let contacts = 0;
+    // Both poles' NO and NC on one control (relaySwitchModels): NC closed
+    // exactly when NO is open, as the generic relay (velxio/velxio-prod#169).
+    const sw = relaySwitchModels('KS2E', coilV);
+    const mem = relayMemory(ctrl, coilV, ctx.operated);
+    const models = new Set<string>();
     for (const pole of ['1', '2']) {
       const com = netLookup(`P${pole}`);
       if (!com) continue;
       const no = netLookup(`NO${pole}`);
       const nc = netLookup(`NC${pole}`);
       if (no) {
-        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 KS2E_SW`);
-        contacts++;
+        cards.push(`S_${comp.id}_no${pole} ${com} ${no} ${ctrl} 0 ${sw.no}${mem.flag}`);
+        models.add(sw.noCard);
       }
       if (nc) {
-        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrlInv} 0 KS2E_SW`);
-        contacts++;
+        cards.push(`S_${comp.id}_nc${pole} ${com} ${nc} ${ctrl} 0 ${sw.nc}${mem.flag}`);
+        models.add(sw.ncCard);
       }
     }
-    return {
-      cards,
-      modelsUsed: new Set(
-        // Its own model name: `relay` writes RELAY_SW with ITS coil voltage,
-        // and two different .model lines under one name break the netlist.
-        contacts ? [`.model KS2E_SW SW(Vt=${coilV * 0.6} Vh=${coilV * 0.15} Ron=0.05 Roff=1G)`] : [],
-      ),
-    };
+    return { cards, modelsUsed: models, ...(models.size ? { memory: mem.memory } : {}) };
   },
 
   // ── Schottky diodes (Vf ≈ 0.3–0.45 V at 1 A). Phase 2: LTSpice models

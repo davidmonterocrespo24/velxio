@@ -29,7 +29,7 @@
  */
 import { buildInputFromStore } from './storeAdapter';
 import { buildNetlist, sanitizeSpiceId } from './NetlistBuilder';
-import type { TimeWaveforms } from './types';
+import type { NodeMemoryCell, SwitchMemoryCell, TimeWaveforms } from './types';
 import { digitalGatesEnabled, isAllDigital } from '../digital/digitalGateEngine';
 import { PadTimeline, stateKey, type WindowResult, type WindowState } from './PadTimeline';
 import { transientShortfall } from './transientShortfall';
@@ -47,6 +47,9 @@ export interface SimulatorStorePort {
     /** Components destroyed at runtime (P4) — excluded from the netlist so a
      *  burnt part actually goes open. Optional for non-store ports. */
     burntComponents?: Set<string>;
+    /** Bumped by every bulk replacement of the canvas (useSimulatorStore's
+     *  hydrationSeq): another circuit loaded. Optional for non-store ports. */
+    hydrationSeq?: number;
   };
   subscribe(listener: (state: unknown, prev: unknown) => void): () => void;
 }
@@ -357,6 +360,70 @@ export class CircuitSimulationService {
   private recentLevels = new Map<string, { volts: number; at: number }>();
   private rebuildStartedAt = 0;
 
+  // ── Memory: the parts that keep a state between solves ────────────────
+  //
+  // A relay's armature stays where it is while its coil sits between its
+  // drop-out and pull-in levels, so a relay fed through its own NO contact
+  // (a seal-in, a motor starter's hold contact) stays in after START is
+  // released. ngspice has that hysteresis inside one analysis only: every
+  // deck started its switches released, every operating point found the
+  // open solution, and a sealed-in relay dropped out (velxio/velxio-prod
+  // #109). The service carries each armature's state from the solve it
+  // published to the next deck it builds (BuildNetlistInput.memory).
+
+  /** Component id -> whether its armature ended the last published solve
+   *  operated. */
+  private switchMemory = new Map<string, boolean>();
+  /** The loaded deck's switches with memory and the state it starts them in. */
+  private memoryCells: SwitchMemoryCell[] = [];
+  /**
+   * A latch of logic gates is the same story: two stable states and an
+   * unstable midpoint an operating point with no history lands on. Each
+   * latch output's volts at the last published solve, by the gate's output
+   * pin, seed the next deck (.nodeset), so an SR latch keeps its state when
+   * SET or RESET is released (velxio/velxio-prod#147).
+   */
+  private nodeMemory = new Map<string, number>();
+  private nodeMemoryCells: NodeMemoryCell[] = [];
+  /**
+   * The store's hydrationSeq the memory belongs to. A new one means the
+   * canvas was replaced wholesale (a project, an example, an import, a new
+   * project from the starter picker): that circuit powers up anew, every
+   * relay released and every latch in its power-up state, even where its
+   * parts carry the ids of the one before, as a reopened gallery example
+   * does. Read with the components the deck is built from, so a solve of
+   * the old circuit that ends after the load cannot teach it back.
+   */
+  private memoryHydrationSeq: number | undefined = undefined;
+  /**
+   * A pad-state solve starts the switches where the loaded deck does, so one
+   * that ends elsewhere (a pin pulled a relay in) asks for a rebuild that
+   * starts them there. Those rebuilds run at once while there is credit for
+   * them: MEMORY_REBUILD_BURST of it, one more every MEMORY_REBUILD_MS. A
+   * circuit whose memory moves on every solve (a relay whose own contact
+   * cuts its coil can) is held to one rebuild per MEMORY_REBUILD_MS once the
+   * burst is spent. A latch set and then reset by two pin pulses rebuilds
+   * for each: with one rebuild per 250 ms and no burst, the solves after
+   * RESET came from the deck seeded with SET and showed Q high again until
+   * the next rebuild was due. Faster than the credit comes back (more than
+   * about four changes a second, sustained), solves still run on a deck
+   * seeded with an older state, and what they show is not learnt (see
+   * memoryStale): a pulse that ends before the rebuild is lost.
+   */
+  private memoryRebuildAt = -Infinity;
+  /** The rebuild credit left at memoryRebuildAt (see memoryRebuildCredit). */
+  private memoryRebuildTokens = 0;
+  private memoryRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly MEMORY_REBUILD_MS = 250;
+  private static readonly MEMORY_REBUILD_BURST = 4;
+  /**
+   * Set from a pad-state solve that moved the memory until the rebuild it
+   * asked for runs. Pad-state solves in between come from a deck that starts
+   * the memory in its old state (a window that closes first, a cached state),
+   * so they do not get to overwrite what was learnt.
+   */
+  private memoryStale = false;
+
   /** How often the window closes and publishes while pads keep changing. */
   static readonly PUBLISH_WINDOW_MS = 33;
   /**
@@ -417,6 +484,10 @@ export class CircuitSimulationService {
     this.pwmPads = [];
     this.healRequests.clear();
     this.recentLevels.clear();
+    if (this.memoryRebuildTimer !== null) {
+      clearTimeout(this.memoryRebuildTimer);
+      this.memoryRebuildTimer = null;
+    }
   }
 
   /** What `__spiceDebug()` shows of the edge path: where the edges stand
@@ -779,9 +850,67 @@ export class CircuitSimulationService {
     }
   }
 
-  /** The scheduler's per-pin voltages follow what is published. */
+  /** The scheduler's per-pin voltages follow what is published, and so does
+   *  the circuit's memory. */
   private adopt(vec: StateVectors): void {
     if (this.scheduler.getLastResult() !== vec.result) this.scheduler.adoptResult?.(vec.result);
+    if (!this.memoryStale) this.noteMemory(vec.result);
+  }
+
+  /**
+   * Where the switches with memory ended the solve being published: operated
+   * above their pull-in, released below their drop-out, and between the two
+   * in the state the deck started them in. A pad-state solve that leaves one
+   * elsewhere asks for a rebuild (see memoryRebuildAt).
+   */
+  private noteMemory(result: import('./ports/SolverPort').SolveResult): void {
+    if (this.memoryCells.length === 0 && this.nodeMemoryCells.length === 0) return;
+    const last = (name: string): number | undefined => {
+      const vec = result.vectors.get(`v(${name.toLowerCase()})`);
+      return vec && vec.real.length > 0 ? vec.real[vec.real.length - 1] : undefined;
+    };
+    let moved = false;
+    for (const cell of this.memoryCells) {
+      const v = last(cell.control);
+      if (v === undefined) continue;
+      const operated = v > cell.on ? true : v < cell.off ? false : cell.seed;
+      this.switchMemory.set(cell.id, operated);
+      if (operated !== cell.seed) moved = true;
+    }
+    for (const cell of this.nodeMemoryCells) {
+      const v = last(cell.net);
+      if (v === undefined || !Number.isFinite(v)) continue;
+      this.nodeMemory.set(cell.key, v);
+      if (v > cell.threshold !== cell.seed > cell.threshold) moved = true;
+    }
+    if (moved && this.padSources.length > 0) this.requestMemoryRebuild();
+  }
+
+  private requestMemoryRebuild(): void {
+    if (this.stopped) return;
+    this.memoryStale = true;
+    if (this.memoryRebuildTimer !== null) return;
+    const go = () => {
+      this.memoryRebuildTimer = null;
+      const now = nowMs();
+      this.memoryRebuildTokens = this.memoryRebuildCredit(now) - 1;
+      this.memoryRebuildAt = now;
+      this.note({ memoryRebuild: [...this.switchMemory, ...this.nodeMemory] });
+      // Queued now, it runs before any window that closes after this solve.
+      void this.tick();
+    };
+    const credit = this.memoryRebuildCredit(nowMs());
+    if (credit >= 1) go();
+    else this.memoryRebuildTimer = setTimeout(go, (1 - credit) * CircuitSimulationService.MEMORY_REBUILD_MS);
+  }
+
+  /** Memory rebuilds that may run at once at `now`: the credit left at the
+   *  last one plus one per MEMORY_REBUILD_MS since, up to the burst. */
+  private memoryRebuildCredit(now: number): number {
+    return Math.min(
+      CircuitSimulationService.MEMORY_REBUILD_BURST,
+      this.memoryRebuildTokens + (now - this.memoryRebuildAt) / CircuitSimulationService.MEMORY_REBUILD_MS,
+    );
   }
 
   private levelsRecord(levels: readonly number[]): Record<string, number> {
@@ -854,9 +983,16 @@ export class CircuitSimulationService {
 
   private async runSolve(): Promise<void> {
     this.rebuildCount++;
+    // This rebuild starts the memory where the last solves left it.
+    this.memoryStale = false;
     this.lastRebuildAt = Date.now();
     this.rebuildStartedAt = nowMs();
     const state = this.simStore.getState();
+    if (state.hydrationSeq !== this.memoryHydrationSeq) {
+      this.memoryHydrationSeq = state.hydrationSeq;
+      this.switchMemory = new Map();
+      this.nodeMemory = new Map();
+    }
     // P4: a runtime-destroyed part is excluded from the netlist so it actually
     // goes open — its current stops and anything it fed loses power (cascading
     // failure), the way real hardware behaves once a component burns out.
@@ -879,8 +1015,9 @@ export class CircuitSimulationService {
     const input = buildInputFromStore(snap as Parameters<typeof buildInputFromStore>[0]);
     // The analysis the deck's card runs, with the start-up a periodic source
     // settles through before the stored window (velxio/velxio-prod#143).
+    input.memory = { switches: this.switchMemory, nodes: this.nodeMemory };
     const built = buildNetlist(input);
-    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads } = built;
+    const { netlist, pinNetMap, nets, voltageSources, sourcedNets, staticPads, memoryCells, nodeMemoryCells } = built;
     let analysis = built.analysis;
     const padNames = new Set<string>();
     for (const b of input.boards) {
@@ -900,6 +1037,7 @@ export class CircuitSimulationService {
     const extraVectors: string[] = [];
     for (const net of nets) extraVectors.push(`v(${net})`);
     for (const vs of voltageSources) extraVectors.push(`i(${vs.toLowerCase()})`);
+    for (const cell of memoryCells) extraVectors.push(`v(${cell.control.toLowerCase()})`);
     this.scheduler.setExtraVectorsOfInterest?.(extraVectors);
 
     const loadStart = nowMs();
@@ -949,6 +1087,11 @@ export class CircuitSimulationService {
           ? { kind: 'tran', step: analysis.step, stop: analysis.stop, start: analysis.start }
           : { kind: 'tran', step: analysis.step, stop: analysis.stop }
         : { kind: 'op' };
+    // The memory the new deck starts from, and only for parts still in it.
+    this.memoryCells = memoryCells;
+    this.switchMemory = new Map(memoryCells.map((c) => [c.id, c.seed] as const));
+    this.nodeMemoryCells = nodeMemoryCells;
+    this.nodeMemory = new Map(nodeMemoryCells.map((c) => [c.key, c.seed] as const));
     const sameShape = shape === this.deckShape;
     this.deckShape = shape;
     this.loadPads(
@@ -960,6 +1103,7 @@ export class CircuitSimulationService {
     const result = this.scheduler.getLastResult();
     if (!result) return;
     const vec = this.extract(result, this.loadedContext);
+    this.noteMemory(result);
     const levels = (this.solverLevels ?? []).slice();
     const key = stateKey(levels);
     this.remember(key, vec);

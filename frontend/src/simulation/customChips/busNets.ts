@@ -124,6 +124,19 @@ export function setBusDrive(
   recompute(pm, netKey);
 }
 
+/**
+ * How a net resolves without one of its drivers: what a two-way element (a
+ * closed switch) sees on one side, so that what it passes on to the other
+ * side never includes its own pass-through back.
+ */
+export function resolveBusNetWithout(netKey: number, driverId: string): Resolved {
+  const m = nets.get(netKey);
+  if (!m) return resolveNet([]);
+  const others: Drive[] = [];
+  for (const [id, d] of m) if (id !== driverId) others.push(d);
+  return resolveNet(others);
+}
+
 // ── Board pins ──────────────────────────────────────────────────────────────
 
 /** Where a resolved level goes besides the PinManager: the guest's input
