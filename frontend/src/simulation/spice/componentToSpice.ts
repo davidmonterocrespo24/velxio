@@ -18,7 +18,7 @@ import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
-import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
+import { ldrModuleDoThreshold, ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -1454,7 +1454,15 @@ const MAPPERS: Record<string, Mapper> = {
     );
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
-    const ao = netLookup('AO');
+    const doNet = netLookup('DO');
+    // The module's comparator (ldrModel: ldrModuleDoHigh) drives DO between
+    // its GND and its VCC, so it needs both, and DO on a net of its own: tied
+    // to either rail it has nothing to drive. With AO unwired the divider
+    // still runs, on a node of its own: a module wired for DO alone switches
+    // too. Before this DO was driven by nothing, and a sketch reading it read
+    // whatever the board pin floated to (velxio/velxio-prod#227).
+    const comparator = !!(doNet && vcc && gnd && doNet !== vcc && doNet !== gnd);
+    const ao = netLookup('AO') ?? (comparator ? `${comp.id}_ao` : null);
     if (ao && (vcc || gnd)) {
       // The legs that are wired: a module missing its GND reads VCC through
       // the fixed resistor, one missing its VCC reads 0 V through the LDR. The
@@ -1463,6 +1471,17 @@ const MAPPERS: Record<string, Mapper> = {
       const cards: string[] = [];
       if (gnd) cards.push(`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`);
       if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${ldrModuleFixedOhms(comp.properties)}`);
+      if (comparator) {
+        // DO at the module's VCC while AO is above the threshold, at its GND
+        // below it, over the logic gates' finite edge (LOGIC_EDGE_VOLTS). An
+        // ideal source like the op-amps' output, so a board pin reading DO
+        // is the input it is, and the pre-run check leaves it one.
+        const rel = (n: string) => (gnd === '0' ? `V(${n})` : `(V(${n})-V(${gnd}))`);
+        const vth = ldrModuleDoThreshold(comp.properties);
+        cards.push(
+          `B_${comp.id}_do ${doNet} ${gnd} V = ${rel(vcc!)}*(0.5*(1+tanh((${rel(ao)}-${vth})/${LOGIC_EDGE_VOLTS})))`,
+        );
+      }
       return { cards, modelsUsed: new Set() };
     }
     // Legacy / discrete LDR fallbacks: emit bare 2-terminal resistor.

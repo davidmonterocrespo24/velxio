@@ -841,13 +841,18 @@ describe('Photoresistor-sensor — attachEvents', () => {
     expect(adc.channelValues[0]).toBeCloseTo(0.432, 2);
   });
 
-  it('registers DO indicator listener when digital output pin is connected', () => {
+  // DO is the module's comparator, not a copy of the board pin: at the
+  // default 500 lux it is light, so DO is LOW and its LED lights
+  // (velxio/velxio-prod#227; photoresistor-module-do.test.ts).
+  it('drives DO from its comparator and lights the DO LED in the light', () => {
     const logic = PartSimulationRegistry.get('photoresistor-sensor')!;
     const el = makeElement({ ledDO: false });
     const sim = makeSimulator(makeADC());
 
     logic.attachEvents!(el, sim as any, pinMap({ AO: 14, DO: 4 }));
-    expect(sim.pinManager.onPinChange.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect((el as unknown as { ledDO: boolean }).ledDO).toBe(true);
+    expect(sim.setPinState).toHaveBeenCalledWith(4, false);
+    expect(sim.pinManager.onPinChange).not.toHaveBeenCalled();
   });
 });
 

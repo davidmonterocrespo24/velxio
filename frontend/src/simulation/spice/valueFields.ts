@@ -94,6 +94,8 @@ const FIELDS: Readonly<Record<string, readonly ValueField[]>> = {
   photoresistor: [
     field('dark', 'dark resistance', 'Ω', 1_000_000),
     field('pullup', 'pull-up resistance', 'Ω', 10_000),
+    // The module's DO comparator (ldrModel, LDR_MODULE_DO_THRESHOLD_V).
+    field('threshold', 'DO threshold', 'V', 2.5),
   ],
   'power-supply': [
     field('voltage', 'voltage', 'V', 5),

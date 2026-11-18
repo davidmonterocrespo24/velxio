@@ -2827,11 +2827,20 @@
         "control": "number",
         "min": 0.1,
         "description": "LDR slope: log(R) per log(lux) (GL5528: 0.6; Wokwi default: 0.7)"
+      },
+      "threshold": {
+        "name": "threshold",
+        "type": "number",
+        "defaultValue": 2.5,
+        "control": "number",
+        "min": 0,
+        "description": "Digital output threshold, V: DO is HIGH while AO is above it, in the dark (Wokwi default: 2.5)"
       }
     },
     "defaultValues": {
       "rl10": 15,
-      "gamma": 0.6
+      "gamma": 0.6,
+      "threshold": 2.5
     }
   }
 }

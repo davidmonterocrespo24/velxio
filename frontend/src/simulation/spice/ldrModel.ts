@@ -104,3 +104,23 @@ export function ldrModuleAoVolts(
 ): number {
   return (vcc * ldrOhms) / (ldrOhms + fixedOhms);
 }
+
+/**
+ * The module's comparator, its LM393, against the threshold its potentiometer
+ * sets: DO is HIGH while AO is above the threshold, in the dark, and LOW in
+ * the light, when the module's DO LED lights. Wokwi's element takes the
+ * threshold as `threshold`, in volts, 2.5 by default (about 100 lux with its
+ * own LDR): "The digital output ("DO") pin goes high when it's dark, and low
+ * when there's light" (docs.wokwi.com/parts/wokwi-photoresistor-sensor).
+ */
+export const LDR_MODULE_DO_THRESHOLD_V = 2.5;
+
+/** The module's DO threshold in volts: `threshold`, or 2.5 V. */
+export function ldrModuleDoThreshold(properties: Record<string, unknown>): number {
+  return parseValueWithUnits(properties.threshold, LDR_MODULE_DO_THRESHOLD_V);
+}
+
+/** Whether the module drives DO HIGH (dark) with AO at `aoVolts` (see above). */
+export function ldrModuleDoHigh(aoVolts: number, thresholdVolts: number): boolean {
+  return aoVolts > thresholdVolts;
+}
