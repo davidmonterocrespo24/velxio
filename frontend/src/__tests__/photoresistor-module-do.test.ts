@@ -213,7 +213,9 @@ describe("DO is the board's output stage: the LM393's open collector and a 10 kO
     const low: PinSourceState = { type: 'digital', v: 0 };
     for (const lux of [0, 500]) {
       const s = await solveCanvas(canvas(lux), { '7': high, '13': high });
-      expect(s.volts('uno:7'), `${lux} lux`).toBeCloseTo(5, 3);
+      // The pin holds DO HIGH; behind an ATmega pin's 25 ohm output
+      // (velxio/velxio-prod#140) the sink's 16 mA pulls it 0.4 V down.
+      expect(s.volts('uno:7'), `${lux} lux`).toBeGreaterThan(4.5);
       // The unrelated LED on pin 13 still solves.
       expect(s.amps('v_led1_sense'), `${lux} lux`).toBeGreaterThan(10e-3);
       // In the light the comparator sinks what the pin drives, up to its
