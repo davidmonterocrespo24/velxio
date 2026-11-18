@@ -4,10 +4,12 @@
  * The circuit service runs a step only when the circuit is not where the new
  * pad state's operating point has it: from the capacitor voltages and
  * inductor currents it holds at the edge, read on the curve published last at
- * the time since it began, as a one-shot capture whose t = 0 is the edge. A
- * circuit already there (a Blink with a decoupling capacitor) runs none. And
- * a board whose ADC the bridge does not hook (the ESP32 family) is fed the
- * curve as a scalar over time: pushed as a waveform, the engine would loop it.
+ * the time since it began, as a one-shot capture whose t = 0 is the edge
+ * (ElectricalSnapshot.stepWaveforms, beside the operating point it settles
+ * to). A circuit already there (a Blink with a decoupling capacitor) runs
+ * none. And a board whose ADC the bridge does not hook (the ESP32 family) is
+ * fed the curve as a scalar over time and then the operating point: pushed as
+ * a waveform, the engine would loop it.
  *
  * The first two run the real service, scheduler and ngspice (the Node adapter).
  */
@@ -68,10 +70,10 @@ function setup(
   return { service, published, drive };
 }
 
-/** The A0 capture of a snapshot at `t` seconds after it began. */
+/** The A0 curve of a snapshot's step at `t` seconds after it began. */
 const a0At = (s: ElectricalSnapshot, t: number): number => {
   const net = s.pinNetMap.get('uno:A0')!;
-  return interpolateAt(s.timeWaveforms!.time, s.timeWaveforms!.nodes.get(net)!, t);
+  return interpolateAt(s.stepWaveforms!.time, s.stepWaveforms!.nodes.get(net)!, t);
 };
 
 const RC = {
@@ -92,19 +94,24 @@ describe('a reactive circuit steps from the state it is in', () => {
     const { service, published, drive } = setup(RC.components, RC.wires, {});
     await service.tick(); // pin 8 not driven: the capacitor at 0 V
     expect(published.at(-1)!.timeWaveforms).toBeUndefined();
+    expect(published.at(-1)!.stepWaveforms).toBeUndefined();
 
     await drive('8', true, 100); // digitalWrite(8, HIGH) at 100 ms of guest time
     const charge = published.at(-1)!;
-    expect(charge.timeWaveforms?.oneShot?.guestMs).toEqual({ uno: 100 });
+    expect(charge.stepWaveforms?.oneShot?.guestMs).toEqual({ uno: 100 });
+    // The state's own capture is not the step: the meters read the DC it
+    // settles to, which is what the scalar fields hold.
+    expect(charge.timeWaveforms).toBeUndefined();
+    expect(charge.nodeVoltages[charge.pinNetMap.get('uno:A0')!]).toBeCloseTo(5, 3);
     // 5 (1 - e^-t) with RC = 1 s, and a capture long enough to see it settle.
     expect(a0At(charge, 0)).toBeCloseTo(0, 2);
     expect(a0At(charge, 0.1)).toBeCloseTo(5 * (1 - Math.exp(-0.1)), 2);
     expect(a0At(charge, 1)).toBeCloseTo(5 * (1 - Math.exp(-1)), 2);
-    expect(charge.timeWaveforms!.time.at(-1)!).toBeGreaterThanOrEqual(4.9);
+    expect(charge.stepWaveforms!.time.at(-1)!).toBeGreaterThanOrEqual(4.9);
 
     await drive('8', false, 600); // digitalWrite(8, LOW) 0.5 s later
     const discharge = published.at(-1)!;
-    expect(discharge.timeWaveforms?.oneShot?.guestMs).toEqual({ uno: 600 });
+    expect(discharge.stepWaveforms?.oneShot?.guestMs).toEqual({ uno: 600 });
     const v0 = 5 * (1 - Math.exp(-0.5));
     expect(a0At(discharge, 0)).toBeCloseTo(v0, 2);
     expect(a0At(discharge, 1)).toBeCloseTo(v0 * Math.exp(-1), 2);
@@ -131,12 +138,12 @@ describe('a reactive circuit steps from the state it is in', () => {
     await drive('13', false, 1000);
     await drive('13', true, 2000);
     expect(service.stepSolveCount).toBe(0);
-    expect(published.at(-1)!.timeWaveforms?.oneShot).toBeUndefined();
+    expect(published.at(-1)!.stepWaveforms).toBeUndefined();
   });
 });
 
-describe('an ADC the bridge does not hook follows a one-shot capture as a scalar', () => {
-  it('ESP32: the curve at the guest time since the edge, never a looping waveform push', async () => {
+describe('an ADC the bridge does not hook follows a step as a scalar', () => {
+  it('ESP32: the curve at the guest time since the edge, then the operating point, never a looping waveform push', async () => {
     vi.useFakeTimers();
     const { useSimulatorStore, getBoardSimulator } = await import('../store/useSimulatorStore');
     const { useElectricalStore } = await import('../store/useElectricalStore');
@@ -167,17 +174,19 @@ describe('an ADC the bridge does not hook follows a one-shot capture as a scalar
       guestUs = 1_500_000; // 0.5 s after the edge
       useElectricalStore.setState({
         pinNetMap: new Map([[`${id}:34`, 'n0']]),
-        nodeVoltages: { n0: 3 },
+        // The operating point the step settles to: past the capture's end,
+        // which here stops short of it, this is what the pad reads.
+        nodeVoltages: { n0: 3.2 },
         sourcedNets: new Set(['n0']),
-        timeWaveforms: capture,
+        stepWaveforms: capture,
       } as never);
       expect(fed.at(-1)).toEqual([34, 1]);
       guestUs = 2_000_000; // 1 s
       vi.advanceTimersByTime(20);
       expect(fed.at(-1)).toEqual([34, 2]);
-      guestUs = 3_500_000; // past the end: the last sample, then the feed stops
+      guestUs = 3_500_000; // past the end: the operating point, then the feed stops
       vi.advanceTimersByTime(20);
-      expect(fed.at(-1)).toEqual([34, 3]);
+      expect(fed.at(-1)).toEqual([34, 3.2]);
       const n = fed.length;
       vi.advanceTimersByTime(100);
       expect(fed.length).toBe(n);

@@ -19,15 +19,16 @@
  *   • AC (.tran), ESP32: push the entire waveform to the QEMU MMIO
  *     via `setAdcWaveform` — QEMU does its own interpolation.
  *
- * A one-shot capture (TimeWaveforms.oneShot: a step response the service ran
- * from the state the circuit was in at a pad edge) is what the circuit does
- * once, from that edge on. The AVR/RP2040 hooks read it at the time since the
- * edge, on the board's own clock when the edge was that board's, and hold its
- * last sample past its end; replayed modulo its length it was a sawtooth. The
- * ESP32 push would loop it the same way, so on the boards whose ADC voltages
- * the bridge sets (the ESP32 family) a one-shot capture is fed as a scalar
- * that follows the curve, every ONE_SHOT_FEED_MS, until it ends
- * (velxio/velxio-prod#153).
+ * A step (`stepWaveforms`, a one-shot capture: what the circuit does once
+ * from a pad edge on, from the state it was in then) is read at the time
+ * since the edge, on the board's own clock when the edge was that board's:
+ * by the AVR/RP2040 hooks at each conversion, and on the boards whose ADC
+ * voltages the bridge sets (the ESP32 family) as a scalar that follows the
+ * curve, every ONE_SHOT_FEED_MS, until it ends. Replayed modulo its length it
+ * was a sawtooth, and pushed to the ESP32 engines it would loop. Past its end
+ * the circuit is at the operating point the scalar fields hold, which is what
+ * every ADC reads from then on; held at the last sample, a step that ended
+ * before the circuit settled stayed there for good (velxio/velxio-prod#153).
  *
  * A part that models its OWN analog output (a pulse sensor's PPG waveform, a
  * sensor module with no SPICE model that writes its channel directly) owns
@@ -303,17 +304,37 @@ export function connectAnalogInputsToMcu(): () => void {
     }
   }
 
-  /** The capture's value on `net` now, as `boardId` reads it: at the time
-   *  since a one-shot capture began, or replayed modulo a repeating one. */
+  /** The step the store holds, if any (see the header). */
+  function stepCapture(): TimeWaveforms | undefined {
+    const { stepWaveforms } = useElectricalStore.getState();
+    return stepWaveforms?.oneShot ? stepWaveforms : undefined;
+  }
+
+  /** The operating point's volts on `net`, the circuit past a step's end;
+   *  undefined where the scalar injection leaves the pad alone. */
+  function settledVolts(net: string): number | undefined {
+    const { nodeVoltages, sourcedNets } = useElectricalStore.getState();
+    if (sourcedNets.size > 0 && !sourcedNets.has(net)) return undefined;
+    const v = nodeVoltages[net];
+    return v !== undefined && Number.isFinite(v) ? v : undefined;
+  }
+
+  /** The circuit's volts on `net` now, as `boardId` reads them: on a step at
+   *  the time since it began and at its operating point past its end, or
+   *  replayed modulo a repeating capture. */
   function sampleWaveformAtNow(net: string, boardId: string, sim: unknown): number | undefined {
+    const step = stepCapture();
+    const stepSamples = step?.nodes.get(net);
+    if (step?.oneShot && stepSamples) {
+      const t = oneShotElapsedS(step.oneShot, boardId, sim);
+      const endS = step.time[step.time.length - 1] ?? 0;
+      return t < endS ? interpolateAt(step.time, stepSamples, t) : settledVolts(net);
+    }
     const { timeWaveforms } = useElectricalStore.getState();
-    if (!timeWaveforms) return undefined;
+    if (!timeWaveforms || timeWaveforms.oneShot) return undefined;
     const samples = timeWaveforms.nodes.get(net);
     if (!samples) return undefined;
     const times = timeWaveforms.time;
-    if (timeWaveforms.oneShot) {
-      return interpolateAt(times, samples, oneShotElapsedS(timeWaveforms.oneShot, boardId, sim));
-    }
     const periodS = times[times.length - 1];
     if (!(periodS > 0)) return undefined;
     const t = ((performance.now() - replayStartMs) / 1000) % periodS;
@@ -321,21 +342,22 @@ export function connectAnalogInputsToMcu(): () => void {
   }
 
   /**
-   * Feed a one-shot capture to every ADC this module does not hook (an
-   * engine whose ADC voltages the bridge sets: the ESP32 family's), as a
-   * scalar that follows the curve, until every board is past its end. The
-   * hooked AVR/RP2040 ADCs sample it at each conversion instead.
+   * Feed a step to every ADC this module does not hook (an engine whose ADC
+   * voltages the bridge sets: the ESP32 family's), as a scalar that follows
+   * the curve, until every board is past its end, and then the operating
+   * point. The hooked AVR/RP2040 ADCs sample it at each conversion instead.
    */
   let oneShotTimer: ReturnType<typeof setInterval> | null = null;
   /** The volts each pad was last fed, so a settled tail sends nothing (a
    *  bridge engine may sit behind a WebSocket). Keyed `${boardId}:${gpio}`. */
   const oneShotFed = new Map<string, number>();
   function feedOneShot(): void {
-    const { timeWaveforms, pinNetMap, sourcedNets } = useElectricalStore.getState();
-    const shot = timeWaveforms?.oneShot;
+    const { pinNetMap, sourcedNets } = useElectricalStore.getState();
+    const step = stepCapture();
+    const shot = step?.oneShot;
     let pending = false;
-    if (timeWaveforms && shot) {
-      const times = timeWaveforms.time;
+    if (step && shot) {
+      const times = step.time;
       const endS = times[times.length - 1] ?? 0;
       for (const board of useSimulatorStore.getState().boards) {
         const adcPins = adcPinsFor(board.boardKind);
@@ -347,16 +369,18 @@ export function connectAnalogInputsToMcu(): () => void {
         // capture at each conversion (installAdcReadHooks).
         if (typeof (sim as unknown as { setAdcVoltage?: unknown }).setAdcVoltage !== 'function') continue;
         const t = oneShotElapsedS(shot, board.id, sim);
-        if (t < endS) pending = true;
+        const ended = !(t < endS);
+        if (!ended) pending = true;
         const vMax = board.boardKind.startsWith('esp32') ? 3.3 : 5.0;
         for (const { pinName, channel } of adcPins) {
           const net = pinNetMap.get(`${board.id}:${pinName}`);
           if (!net) continue;
           if (sourcedNets.size > 0 && !sourcedNets.has(net)) continue;
-          const samples = timeWaveforms.nodes.get(net);
+          const samples = step.nodes.get(net);
           if (!samples || samples.length === 0) continue;
-          const v = interpolateAt(times, samples, t);
-          if (!Number.isFinite(v)) continue;
+          // Past its end the circuit is at the operating point.
+          const v = ended ? settledVolts(net) : interpolateAt(times, samples, t);
+          if (v === undefined || !Number.isFinite(v)) continue;
           const gpioPin = gpioForBoardPin(board.boardKind, pinName, channel);
           if (gpioPin < 0 || isPartOwnedPin(board.id, gpioPin)) continue;
           const volts = Math.max(0, Math.min(vMax, v));
@@ -550,7 +574,11 @@ export function connectAnalogInputsToMcu(): () => void {
 
   // Re-inject + re-hook on every solve result.
   const unsubResult = useElectricalStore.subscribe((state, prev) => {
-    if (state.nodeVoltages !== prev.nodeVoltages || state.timeWaveforms !== prev.timeWaveforms) {
+    if (
+      state.nodeVoltages !== prev.nodeVoltages ||
+      state.timeWaveforms !== prev.timeWaveforms ||
+      state.stepWaveforms !== prev.stepWaveforms
+    ) {
       // The scalar injection below sets every pad again.
       oneShotFed.clear();
       injectVoltagesIntoADC();
