@@ -437,10 +437,27 @@ const LINK_MIN_QUIET_S = 0.005;
 // the one it made, or one a wire brought it. That stops the echo, a ring of
 // boards (three wired each to each) hands every pad an edge once, and a board
 // between two others still passes one on (a chain).
+//
+// Every step of it is a few operations, however many edges are in flight and
+// however long a receiver takes to run them: an edge carries the pads that
+// have it, and a pad's levels are a queue read from an index. #74's review
+// measured the first version, which kept each pad's edges in a Map for a
+// second of its board's clock, walked from the oldest on every edge, and took
+// levels off the queue with shift(): those two took 46 % of the CPU of a fast
+// signal between two Unos (120 k edges a second took more than twice the time
+// they took before the bookkeeping), and a sender forgot its edges before a
+// receiver stopped for two seconds, or running at a sixtieth of real time, had
+// them land, so they came back to it as pulses it never made.
 
-/** An edge on the wires: made once, on the pad it started on. */
+/**
+ * An edge on the wires: made once, on the pad it started on, and the pads that
+ * have it (that one, and each a wire handed it to since). It lives while a
+ * level that carries it waits on a pad, or a pad's last report was it: as long
+ * as it can come back to a pad, however slowly the receiver runs, and no
+ * longer. No pad forgets an edge by its clock.
+ */
 interface LinkEdge {
-  readonly pad: string;
+  readonly pads: PadEdges[];
 }
 
 /** A level a wire scheduled on a pad, and the edge it carries. */
@@ -455,10 +472,9 @@ interface HandedLevel {
 interface PadEdges {
   /** The board's cycles when the pad last heard of the wires: lower now, the board started over. */
   clock: number;
-  /** The levels the wires handed the pad that it has not reported, in the order they land. */
-  readonly handed: HandedLevel[];
-  /** The edges the pad made or was handed, with the board's cycles then, oldest first. */
-  readonly seen: Map<LinkEdge, number>;
+  /** The levels the wires handed the pad, in the order they land: it has not reported the ones from `head` on. */
+  handed: HandedLevel[];
+  head: number;
   /** The pad's last report and the edge it was: a report reaches each wire on the pad in turn. */
   last: { cycles: number; nanos: number; level: boolean; edge: LinkEdge } | null;
 }
@@ -470,42 +486,77 @@ const padEdges = new Map<string, PadEdges>();
 const LINK_TAKEN_WITHIN_S = 0.00002;
 
 /**
- * How long a pad keeps an edge it has, in seconds of its board: longer than
- * one takes to come back to it, down the wire it went or round a ring (a hop
- * is LINK_MAX_AHEAD_S of the receiver and a frame at most; a receiver at a
- * tenth of real time stretches that tenfold).
+ * The most levels a pad holds that it has not reported (a board that does not
+ * run lands none). Past it the oldest is dropped: it still lands, as an edge
+ * of the pad's own, and goes back up the wire it came down.
  */
-const LINK_SEEN_S = 1;
-
-/** The most levels and edges a pad keeps (a board that does not run lands none). */
 const LINK_PAD_MAX = 1 << 14;
+
+/** A pad's queue lets go of the levels read off its head once they are this many, and half of it or more. */
+const LINK_QUEUE_COMPACT = 1 << 10;
+
+/**
+ * The steps the bookkeeping has taken since the interconnect was reset: a
+ * level queued, read, or moved along its queue, and a pad looked for on an
+ * edge. The specs hold it to a few an edge with thousands in flight.
+ */
+let linkSteps = 0;
 
 const nanosOf = (sim: TimedSim): number =>
   typeof sim.getCurrentNanos === 'function' ? sim.getCurrentNanos() : -1;
 
-/** A pad's edges, started over when its board's clock has gone back (a reset: what it was handed went with its old run). */
+/**
+ * A pad's edges. When its board's clock has gone back (a reset), the levels
+ * the pad was waiting for went with its old run; the edges it made or reported
+ * stay its own (one still on the wires is not new to it).
+ */
 function padOf(key: string, cycles: number): PadEdges {
   let p = padEdges.get(key);
   if (!p) {
-    p = { clock: cycles, handed: [], seen: new Map(), last: null };
+    p = { clock: cycles, handed: [], head: 0, last: null };
     padEdges.set(key, p);
   } else if (cycles < p.clock) {
-    p.handed.length = 0;
-    p.seen.clear();
+    dropHanded(p);
     p.last = null;
   }
   p.clock = cycles;
   return p;
 }
 
-/** The pad has `edge` from now on; an edge it has had for LINK_SEEN_S is forgotten. */
-function keepEdge(p: PadEdges, edge: LinkEdge, cycles: number, hz: number): void {
-  p.seen.delete(edge);
-  p.seen.set(edge, cycles);
-  for (const [e, t] of p.seen) {
-    if (t > cycles - LINK_SEEN_S * hz && p.seen.size <= LINK_PAD_MAX) break;
-    p.seen.delete(e);
+/** The pad has `edge`: it made it, was handed it, or reported it. */
+function hasEdge(p: PadEdges, edge: LinkEdge): boolean {
+  linkSteps += edge.pads.length;
+  return edge.pads.includes(p);
+}
+
+/** The pad has `edge` from now on. */
+function keepEdge(p: PadEdges, edge: LinkEdge): void {
+  if (!hasEdge(p, edge)) edge.pads.push(p);
+}
+
+/** The level at the head of the pad's queue is read (see LINK_QUEUE_COMPACT for when the read ones go). */
+function readHanded(p: PadEdges): void {
+  linkSteps++;
+  if (++p.head === p.handed.length) {
+    p.handed.length = 0;
+    p.head = 0;
+  } else if (p.head >= LINK_QUEUE_COMPACT && p.head * 2 >= p.handed.length) {
+    linkSteps += p.handed.length - p.head;
+    p.handed = p.handed.slice(p.head);
+    p.head = 0;
   }
+}
+
+/** The levels the pad has not reported are dropped, and it no longer has their edges. */
+function dropHanded(p: PadEdges): void {
+  for (let i = p.head; i < p.handed.length; i++) {
+    const pads = p.handed[i].edge.pads;
+    linkSteps += pads.length;
+    const k = pads.indexOf(p);
+    if (k >= 0) pads.splice(k, 1);
+  }
+  p.handed = [];
+  p.head = 0;
 }
 
 /**
@@ -519,12 +570,11 @@ function edgeOf(pad: string, cycles: number, nanos: number, hz: number, level: b
   const last = p.last;
   if (last && last.cycles === cycles && last.nanos === nanos && last.level === level) return last.edge;
   let edge: LinkEdge | undefined;
-  const h = p.handed;
-  while (h.length > 0) {
-    const e = h[0];
+  while (p.head < p.handed.length) {
+    const e = p.handed[p.head];
     const now = e.ns ? nanos : cycles;
     if (e.at > now + (e.ns ? 1 : 0)) break; // not landed yet
-    h.shift();
+    readHanded(p);
     // Landed long before this report: the pad had that level, or its guest drives it.
     if (e.at < now - LINK_TAKEN_WITHIN_S * (e.ns ? 1e9 : hz)) continue;
     if (e.level === level) {
@@ -532,8 +582,8 @@ function edgeOf(pad: string, cycles: number, nanos: number, hz: number, level: b
       break;
     }
   }
-  edge ??= { pad };
-  keepEdge(p, edge, cycles, hz);
+  if (edge) keepEdge(p, edge);
+  else edge = { pads: [p] };
   p.last = { cycles, nanos, level, edge };
   return edge;
 }
@@ -545,14 +595,20 @@ function handEdge(pad: string, dst: TimedSim, hz: number, cycles: number, atCycl
   const ns = nanos >= 0;
   const now = ns ? nanos : cycles;
   const at = ns ? nanos + ((atCycle - cycles) / hz) * 1e9 : atCycle;
-  const h = p.handed;
-  // What landed before now was reported (and taken off) or never will be.
+  // What landed before now was reported (and read) or never will be; a pad
+  // that holds LINK_PAD_MAX drops its oldest.
   const stale = now - LINK_TAKEN_WITHIN_S * (ns ? 1e9 : hz);
-  while (h.length > 0 && (h[0].at < stale || h.length >= LINK_PAD_MAX)) h.shift();
+  while (p.head < p.handed.length && (p.handed[p.head].at < stale || p.handed.length - p.head >= LINK_PAD_MAX)) {
+    readHanded(p);
+  }
+  // In the order they land: last, unless a level of another wire lands later.
+  const h = p.handed;
   let i = h.length;
-  while (i > 0 && h[i - 1].at > at) i--;
-  h.splice(i, 0, { level, edge, at, ns });
-  keepEdge(p, edge, cycles, hz);
+  while (i > p.head && h[i - 1].at > at) i--;
+  linkSteps += h.length - i + 1;
+  if (i === h.length) h.push({ level, edge, at, ns });
+  else h.splice(i, 0, { level, edge, at, ns });
+  keepEdge(p, edge);
 }
 
 /**
@@ -611,7 +667,7 @@ function makeTimedPush(fromBoardId: string, fromPin: number, toBoardId: string, 
     // The edge this report is; the receiver's pad has it already when it is
     // the level a wire handed the sender from there, or one come round a ring.
     const edge = edgeOf(fromPad, fromNow, nanosOf(src), srcHz, state);
-    if (padOf(toPad, toNow).seen.has(edge)) return;
+    if (hasEdge(padOf(toPad, toNow), edge)) return;
     // The receiver still holds what this link gave it: its clock has not gone
     // back (a reset starts it over, and its queue with it).
     const held = timed && toNow >= lastNow;
@@ -970,7 +1026,14 @@ export function unbindBoard(boardId: string): void {
   }
   // Remove the board entry; subsequent updateWires() will re-resolve.
   boards.delete(boardId);
-  for (const pad of padEdges.keys()) if (pad.startsWith(`${boardId}:`)) padEdges.delete(pad);
+  for (const [pad, p] of padEdges) {
+    if (!pad.startsWith(`${boardId}:`)) continue;
+    // Its edges can outlive it on other pads: they hold nothing of its queue.
+    p.handed = [];
+    p.head = 0;
+    p.last = null;
+    padEdges.delete(pad);
+  }
 }
 
 let lastWireSnapshot: string = '';
@@ -1048,6 +1111,7 @@ export function resetInterconnect(): void {
   boards.clear();
   propagatingPins.clear();
   padEdges.clear();
+  linkSteps = 0;
   for (const u of chipNetUnsubs) u();
   chipNetUnsubs = [];
   chipNetLinks.clear();
@@ -1058,6 +1122,11 @@ export function resetInterconnect(): void {
 /** Diagnostic: return route count (for tests). */
 export function getRouteCount(): number {
   return routes.size;
+}
+
+/** Diagnostic: the steps the edge bookkeeping has taken since the last reset (for tests). */
+export function getLinkEdgeSteps(): number {
+  return linkSteps;
 }
 
 export function getBoundBoardIds(): string[] {
