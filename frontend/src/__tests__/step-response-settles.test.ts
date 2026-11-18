@@ -209,6 +209,44 @@ describe('a step runs until the circuit settles, then the ADC reads the operatin
   });
 });
 
+describe('a step that rings is not run longer', () => {
+  it('a 1 mH / 10 uF tank behind 10 mOhm: its first run, then the operating point', { timeout: 120_000 }, async () => {
+    // 1.6 kHz, and it rings for about 0.2 s: past its goal and back on every
+    // period. A run that long costs ngspice a step every few tens of
+    // microseconds of it, and the distance to the goal is no measure of when
+    // it settles: the step
+    // keeps its first run (twice the deck's settle time, here 10 ms) and the
+    // circuit is at its operating point after that. (A pin's own output
+    // impedance, where the board's pin data gives one, damps the tank: it
+    // then settles within the run.)
+    const id = 'uno-lc';
+    const { service, published, drive, analogRead } = bench(
+      id,
+      [
+        { id: 'rs', metadataId: 'resistor', properties: { value: '0.01' } },
+        { id: 'l1', metadataId: 'inductor', properties: { value: '1m' } },
+        { id: 'c1', metadataId: 'capacitor', properties: { value: '10u' } },
+        { id: 'rl', metadataId: 'resistor', properties: { value: '100' } },
+      ],
+      [
+        w('w1', [id, '8'], ['rs', '1']),
+        w('w2', ['rs', '2'], ['l1', '1']),
+        w('w3', ['l1', '2'], ['c1', '1']),
+        w('w4', ['c1', '2'], [id, 'GND.1']),
+        w('w5', ['c1', '1'], [id, 'A0']),
+        w('w6', [id, '8'], ['rl', '1']),
+        w('w7', ['rl', '2'], [id, 'GND.2']),
+      ],
+    );
+    await service.tick();
+    await drive(true, 0.1);
+    const step = published.at(-1)!.stepWaveforms;
+    expect(step?.oneShot).toBeDefined();
+    expect(step!.time.at(-1)!).toBeLessThanOrEqual(0.0101);
+    expect(analogRead(0.1 + 1)).toBeGreaterThan(4.99);
+  });
+});
+
 describe('the meters read a step as the DC it settles to, not its tail as AC', () => {
   it('a voltmeter across an RC and an ammeter in series after the pin goes HIGH', { timeout: 120_000 }, async () => {
     const id = 'uno-vm';

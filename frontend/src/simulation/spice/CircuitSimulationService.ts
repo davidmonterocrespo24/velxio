@@ -346,17 +346,38 @@ function sameReactiveState(kind: 'C' | 'L', x: number, y: number): boolean {
   return Math.abs(x - y) <= reactiveTolerance(kind, x, y);
 }
 
+/** A device's state at every sample of a result: a capacitor's voltage, an
+ *  inductor's current; null when a vector it needs is missing. */
+function deviceSeries(result: SolveResult, d: ReactiveDevice): number[] | null {
+  const vec = (name: string) => result.vectors.get(name)?.real;
+  if (d.kind === 'L') {
+    const i = vec(`i(${d.name.toLowerCase()})`);
+    return i ? Array.from(i) : null;
+  }
+  const a = d.a === '0' ? undefined : vec(`v(${d.a})`);
+  const b = d.b === '0' ? undefined : vec(`v(${d.b})`);
+  if ((d.a !== '0' && !a) || (d.b !== '0' && !b)) return null;
+  const n = Math.min(a?.length ?? Infinity, b?.length ?? Infinity);
+  if (!Number.isFinite(n)) return null;
+  const out = new Array<number>(n);
+  for (let k = 0; k < n; k++) out[k] = (a ? a[k]! : 0) - (b ? b[k]! : 0);
+  return out;
+}
+
 /**
  * How long a step that ran for `stopS` seconds needs to settle, judged from
  * its capture `result` against the state of the operating point it settles
  * to (`goal`): 0 when every capacitor and inductor already ends where the
- * goal has it. Otherwise the slowest one's distance from the goal is taken
- * to shrink as it did over the second half of the run, e^(-t / tau), and the
- * answer is when that reaches what sameReactiveState tolerates; a distance
- * that did not shrink (a ringing or a slower start) asks for four times the
- * run. The time constant the deck's parts give (AnalysisMode.settleS) is the
- * largest R times the largest C, or an L over the largest R, which misses a
- * coil's own series resistor and resistors in series (velxio/velxio-prod#153).
+ * goal has it, or when one of them went past its goal (it rings: an LC, an
+ * oscillator), whose distance from the goal says nothing of when it settles
+ * and whose longer run would cost as many more of its periods. Otherwise the
+ * slowest one's distance from the goal is taken to shrink as it did over the
+ * second half of the run, e^(-t / tau), and the answer is when that reaches
+ * what sameReactiveState tolerates; a distance that did not shrink asks for
+ * four times the run. The time constant the deck's parts give
+ * (AnalysisMode.settleS) is the largest R times the largest C, or an L over
+ * the largest R, which misses a coil's own series resistor and resistors in
+ * series (velxio/velxio-prod#153).
  */
 function stepNeedsS(
   result: SolveResult, devices: readonly ReactiveDevice[], goal: ReadonlyMap<string, number>, stopS: number,
@@ -371,6 +392,9 @@ function stepNeedsS(
     const tol = reactiveTolerance(d.kind, x, target);
     const dEnd = Math.abs(x - target);
     if (dEnd <= tol) continue;
+    const series = deviceSeries(result, d);
+    const side = series && series.length > 0 ? Math.sign(series[0]! - target) : 0;
+    if (side !== 0 && series!.some((v) => (v - target) * side < -tol)) return 0;
     const h = half.get(d.name);
     const dHalf = h === undefined ? Infinity : Math.abs(h - target);
     const tau = dHalf > dEnd && Number.isFinite(dHalf) ? stopS / 2 / Math.log(dHalf / dEnd) : NaN;
