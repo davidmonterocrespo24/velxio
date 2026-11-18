@@ -243,7 +243,10 @@ describe('a step that rings is not run longer', () => {
     const step = published.at(-1)!.stepWaveforms;
     expect(step?.oneShot).toBeDefined();
     expect(step!.time.at(-1)!).toBeLessThanOrEqual(0.0101);
-    expect(analogRead(0.1 + 1)).toBeGreaterThan(4.99);
+    // Then the operating point: the pin's level on the tank (5 V from an ideal
+    // pin; less from one behind its output impedance, which the 100 Ohm load
+    // on the pin then pulls down).
+    expect(Math.abs(analogRead(0.1 + 1) - scalarA0(published.at(-1)!, id))).toBeLessThan(0.01);
   });
 });
 
