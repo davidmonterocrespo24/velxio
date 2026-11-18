@@ -112,6 +112,15 @@ export type AnalysisMode =
        */
       settle?: boolean;
       /**
+       * The step, in `step`'s form, that the window's and the start-up's
+       * budgets of steps are counted in, when `step` is finer than it for the
+       * integration's sake alone: a deck that can resonate runs at a
+       * hundredth of its fastest period instead of a twentieth
+       * (velxio/velxio-prod#121), and its window and start-up last as long
+       * as any other deck's. Absent: `step`.
+       */
+      budgetStep?: string;
+      /**
        * ngspice's TSTART: the run is computed from t = 0 but stored from here
        * on. The time axis the readers get (TimeWaveforms) starts at 0 anyway:
        * the service takes `start` off it.

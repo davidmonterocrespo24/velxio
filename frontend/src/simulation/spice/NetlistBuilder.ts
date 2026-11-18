@@ -570,11 +570,14 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   let resolved: AnalysisMode = analysis;
   if (analysis.kind === 'tran' && analysis.settle && startsAwayFromSteadyState(cards)) {
     const stepS = parseValueWithUnits(analysis.step);
+    // The start-up's budget counts plain steps, however fine a resonant
+    // deck integrates (budgetStep, velxio/velxio-prod#121).
+    const budgetStepS = analysis.budgetStep ? parseValueWithUnits(analysis.budgetStep) : stepS;
     const windowS = parseValueWithUnits(analysis.stop);
-    const startS = settleSeconds(largestTimeConstant(cards), stepS, analysis.period);
+    const startS = settleSeconds(largestTimeConstant(cards), budgetStepS, analysis.period);
     if (startS > 0 && windowS > 0) {
       // A diode's conduction pulses want a finer step than the window's.
-      const runStepS = settledStepS(cards, stepS);
+      const runStepS = settledStepS(cards, stepS, budgetStepS);
       resolved = {
         ...analysis,
         ...(runStepS !== stepS ? { step: runStepS.toExponential(3) } : {}),
