@@ -26,7 +26,8 @@ import { GROUND_PIN_RE, buildNetlist, connectionPairs, sanitizeSpiceId } from '.
 import { MIN_SUPPLY_LIMIT_A } from '../spice/componentToSpice';
 import { runNetlist as runSpice } from '../spice/runNetlist';
 import { UnionFind } from '../spice/unionFind';
-import { BOARD_PIN_GROUPS, auxRailNetName, railVolts } from '../spice/boardPinGroups';
+import { BOARD_PIN_GROUPS, auxRailNetName, gpioMaxVoltsFor, railVolts } from '../spice/boardPinGroups';
+import { boardPinToNumber } from '../../utils/boardPinMapping';
 import { breadboardGroupKey, hasInternalNets, isBreadboard } from '../../utils/breadboardNets';
 import type { BuildNetlistInput, ElectricalSolveResult } from '../spice/types';
 import { readValueField, unreadableValues } from '../spice/valueFields';
@@ -1131,6 +1132,20 @@ export async function verifyCircuit(
     }
   }
 
+  // ── Rule 5: a part's voltage on a GPIO above what the pad takes ─────────
+  // A supply, a battery, a generator or a regulator wired straight to a GPIO
+  // (with its return on ground) is read there: the pre-flight leaves that pin
+  // an input (verifyFromStore), so nothing above says anything about the
+  // level. A 9 V battery on an ESP32's VP or a 7805's 5 V on its GPIO32 ran
+  // silently, and so did a bench supply at 5-9 V on a GPIO; on hardware the
+  // pad's protection diodes conduct and the chip is likely damaged, while the
+  // simulation reads the pin as if it took the voltage (velxio/velxio-prod#225).
+  // The limit is the board's (gpioMaxVoltsFor: none of an ESP32's pads is
+  // 5 V tolerant; an STM32's FT pads need per-pin data, so it is not checked).
+  // Non-blocking, like the board over-voltage above.
+  const named = new Set([...fightingPins, ...sourceConflicts.map((c) => c.componentId ?? '')]);
+  warnings.push(...gpioOverVoltageWarnings(input, pinNetMap, partPoweredNets, solve.nodeVoltages, named));
+
   // ── Rule 6: electrolytic capacitor over-voltage / reverse polarity ─────
   // Electrolytic caps have a voltage rating (over it they vent / burst) and a
   // polarity (reverse-biasing destroys them). Their +/- pins are normal nets,
@@ -1753,6 +1768,86 @@ export function findPinDriveConflicts(
   return out;
 }
 
+
+/**
+ * The highest point of a part's output when it moves by itself: a generator's
+ * wave (offset plus amplitude) or an AC supply's sine (its setting is the
+ * peak). Undefined for a part that holds its output steady, whose level is
+ * the solved voltage of its net.
+ */
+function waveCrest(part: BuildNetlistInput['components'][number]): number | undefined {
+  if (part.metadataId === 'signal-generator') {
+    if (String(part.properties.waveform ?? 'sine').toLowerCase() === 'dc') return undefined;
+    return readValueField(part, 'offset') + Math.abs(readValueField(part, 'amplitude'));
+  }
+  if (part.metadataId === 'power-supply' && String(part.properties.mode ?? 'dc').toLowerCase() === 'ac') {
+    return Math.abs(readValueField(part, 'voltage'));
+  }
+  return undefined;
+}
+
+/**
+ * A board GPIO that a part powers at a level above what the board's pads
+ * take (Rule 5): a supply's, a battery's or a generator's +, or a regulator's
+ * VOUT, wired to the pin with its return on ground (NetlistBuilder,
+ * partPoweredNets), against the board's limit (gpioMaxVoltsFor). The level
+ * is the crest of a part's wave when it moves by itself, else the solved
+ * voltage of the pin's net. One warning per pin, naming the part that puts
+ * the most on it; a part in `named` (reported already as a fight with the
+ * pin) is left out. Exported for tests.
+ */
+export function gpioOverVoltageWarnings(
+  input: BuildNetlistInput,
+  pinNetMap: ReadonlyMap<string, string>,
+  partPoweredNets: ReadonlyMap<string, readonly string[]>,
+  nodeVoltages: Readonly<Record<string, number>>,
+  named: ReadonlySet<string> = new Set(),
+): CircuitWarning[] {
+  const out: CircuitWarning[] = [];
+  if (partPoweredNets.size === 0) return out;
+  for (const board of input.boards) {
+    if (!board.boardKind) continue;
+    const max = gpioMaxVoltsFor(board.boardKind);
+    if (max === undefined) continue;
+    const pins = new Set<string>();
+    for (const wire of input.wires) {
+      for (const end of [wire.start, wire.end]) if (end.componentId === board.id) pins.add(end.pinName);
+    }
+    for (const pinName of pins) {
+      const gpio = boardPinToNumber(board.boardKind, pinName);
+      if (gpio === null || gpio < 0) continue;
+      const net = pinNetMap.get(`${board.id}:${pinName}`);
+      if (net === undefined) continue;
+      let worst: { part: BuildNetlistInput['components'][number]; volts: number; moving: boolean } | undefined;
+      for (const partId of partPoweredNets.get(net) ?? []) {
+        if (named.has(partId)) continue;
+        const part = input.components.find((c) => c.id === partId);
+        if (!part) continue;
+        const crest = waveCrest(part);
+        const volts = crest ?? nodeVoltages[net];
+        if (volts === undefined || !Number.isFinite(volts)) continue;
+        if (!worst || volts > worst.volts) worst = { part, volts, moving: crest !== undefined };
+      }
+      if (!worst || !(worst.volts > max)) continue;
+      const who = `${worst.part.metadataId} ${worst.part.id}`;
+      const puts = worst.moving
+        ? `drives ${board.id}'s ${pinName} pin up to ${formatVolts(worst.volts)}`
+        : `holds ${board.id}'s ${pinName} pin at ${formatVolts(worst.volts)}`;
+      out.push({
+        severity: 'warning',
+        code: 'over-voltage',
+        componentId: worst.part.id,
+        metric: worst.volts,
+        message:
+          `${who} ${puts}, above the ${formatVolts(max)} that a GPIO pin of ${board.id} takes. On hardware ` +
+          `the pin's protection diodes would conduct and the chip would likely be damaged; the simulation ` +
+          `reads the pin as if it took that voltage. Bring the level under ${formatVolts(board.vcc)} before ` +
+          `the pin, with a voltage divider or a level shifter.`,
+      });
+    }
+  }
+  return out;
+}
 
 // ── Raspberry Pi header buses ─────────────────────────────────────────────
 

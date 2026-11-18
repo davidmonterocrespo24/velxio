@@ -165,6 +165,8 @@ export interface ProBoardDef {
     gnd: string[];
     vcc_pins: string[];
     aux?: { volts: number; pins: string[] };
+    /** The most voltage a GPIO pad takes (BoardPinGroup.gpioMaxVolts). */
+    gpioMaxVolts?: number;
   };
   /** In-browser simulator factory (e.g. the RP2350/Hazard3 emulator). The pm
    *  argument is the store's PinManager instance. */
