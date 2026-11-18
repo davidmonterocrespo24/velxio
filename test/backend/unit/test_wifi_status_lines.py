@@ -51,7 +51,7 @@ KNOWN_LINES: list[tuple[bytes, list[dict], list[dict]]] = [
      [{'status': 'connected', 'ssid': 'Velxio-GUEST'}], []),
     (b'I (800) wifi:connected with Velxio-GUEST, aid = 1, channel 6, BW20, rssi: -45',
      [{'status': 'connected', 'ssid': 'Velxio-GUEST'}], []),
-    (b'Connecting to WiFi', [{'status': 'connected', 'ssid': 'Velxio-GUEST'}], []),
+    (b'Connecting to WiFi', [{'status': 'initializing'}], []),
     (b'I (9999) wifi:state: run -> init (0)', [{'status': 'disconnected'}], []),
     (b'I (2345) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0',
      [{'status': 'got_ip', 'ip': '192.168.4.2'}], []),
@@ -147,7 +147,7 @@ class TestTheQemuLaneReachesGotIp(unittest.TestCase):
     def test_a_sketch_printing_its_address_reports_got_ip(self):
         got = read_loop(uart_tx_lines(0, ARDUINO_STA_IP))
         self.assertEqual(wifi_events(got), [
-            {'status': 'connected', 'ssid': 'Velxio-GUEST'},
+            {'status': 'initializing'},
             {'status': 'got_ip', 'ip': '192.168.4.15'},
         ])
 
@@ -208,7 +208,7 @@ class TestSerialStatusLines(unittest.TestCase):
         wifi, _ = feed_all(lines, [b'Connecting to WiFi'] + [b'.'] * 5000)
         self.assertLessEqual(len(lines._pending), 256)
         # What the bound cut off is still read, once.
-        self.assertEqual(wifi, [{'status': 'connected', 'ssid': 'Velxio-GUEST'}])
+        self.assertEqual(wifi, [{'status': 'initializing'}])
         wifi, _ = feed_all(lines, [b' Connected!\r\n'] + monitor_chunks(b'sta ip: 192.168.4.15\r\n'))
         self.assertEqual(wifi, [{'status': 'got_ip', 'ip': '192.168.4.15'}])
 
@@ -249,7 +249,7 @@ class TestTheSubprocessLaneReadsWholeLinesToo(unittest.TestCase):
         """The gateway reaches only the lib manager's boards (iot_gateway.py),
         so a link on this lane would open "No board to reach"."""
         self.assertEqual(wifi_events(self._read_serial(GALLERY_HTTP_SERVER)),
-                         [{'status': 'connected', 'ssid': 'Velxio-GUEST'}])
+                         [{'status': 'initializing'}])
 
 
 # The gallery's esp32-http-server sketch, as it prints on the QEMU lane:
@@ -300,7 +300,7 @@ class TestTheStationsOwnAddress(unittest.TestCase):
     def test_the_gallery_web_server_reaches_got_ip(self):
         got = read_loop(uart_tx_lines(0, GALLERY_HTTP_SERVER))
         self.assertEqual(wifi_events(got), [
-            {'status': 'connected', 'ssid': 'Velxio-GUEST'},
+            {'status': 'initializing'},
             {'status': 'got_ip', 'ip': '192.168.4.15'},
         ])
 
@@ -333,7 +333,7 @@ class TestTheStationsOwnAddress(unittest.TestCase):
 
     def test_only_a_board_with_a_host_forward_reads_its_address(self):
         got = read_loop(uart_tx_lines(0, GALLERY_HTTP_SERVER), hostfwd_port=0)
-        self.assertEqual(wifi_events(got), [{'status': 'connected', 'ssid': 'Velxio-GUEST'}])
+        self.assertEqual(wifi_events(got), [{'status': 'initializing'}])
 
     def test_the_forward_targets_that_address(self):
         from app.services.esp32_worker import wifi_nic_arg
