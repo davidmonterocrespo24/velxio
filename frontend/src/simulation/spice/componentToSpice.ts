@@ -727,19 +727,19 @@ const MAPPERS: Record<string, Mapper> = {
   // are the board's logic rail and ground, the only supply an op-amp had
   // before the pins existed, so a circuit drawn then solves as it always did.
   //
-  // Input impedance is 1 MΩ differential + a 10 MΩ common-mode load so the
-  // netlist never has floating inputs during DC.
+  // The behavioural parts load each input with their `rin` to ground. The
+  // LM358's inputs are its macro-model's: the input transistors' bias
+  // current, tens of nanoamperes, and 100 MOhm between the inputs.
   'opamp-lm358': (comp, netLookup) => {
     const inp = netLookup('IN+');
     const inn = netLookup('IN-');
     const out = netLookup('OUT');
     if (!inp || !inn || !out) return null;
-    // Phase 1d #9: real LM358 macro-model subckt enabled now that
-    // Phase 1d #2 added `.options gmin=1e-10 gminsteps=20 sourcesteps=10
-    // method=gear maxord=2` to both adapters — the subckt converges
-    // where the prior `.op` skipped. Real slew rate (~0.5 V/µs), GBW
-    // (~1 MHz), and rail headroom come for free vs the prior behavioural
-    // B-source clamp. Its supply pins take the part's V+ / V- nets.
+    // The LM358 macro-model subcircuit (National's, with the local changes
+    // models/lm358Subckt.ts lists): slew rate (~0.5 V/µs), GBW (~1 MHz) and
+    // the output's swing to each rail come with it, where the behavioural
+    // B-source clamp it replaced had none. Its supply pins take the part's
+    // V+ / V- nets.
     const { vp, vm } = opampSupply(netLookup);
     return {
       cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],

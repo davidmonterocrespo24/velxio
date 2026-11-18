@@ -4168,10 +4168,26 @@
           "type": "string",
           "defaultValue": "1000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "1000"
+        "value": "1000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "tags": [
@@ -4191,10 +4207,26 @@
           "type": "string",
           "defaultValue": "1000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "1000"
+        "value": "1000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-1k",
@@ -4215,10 +4247,26 @@
           "type": "string",
           "defaultValue": "1000000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "1000000"
+        "value": "1000000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-1m",
@@ -4239,10 +4287,26 @@
           "type": "string",
           "defaultValue": "10000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "10000"
+        "value": "10000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-10k",
@@ -4263,10 +4327,26 @@
           "type": "string",
           "defaultValue": "100000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "100000"
+        "value": "100000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-100k",
@@ -4287,10 +4367,26 @@
           "type": "string",
           "defaultValue": "2200",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "2200"
+        "value": "2200",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-2k2",
@@ -4311,10 +4407,26 @@
           "type": "string",
           "defaultValue": "22000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "22000"
+        "value": "22000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-22k",
@@ -4335,10 +4447,26 @@
           "type": "string",
           "defaultValue": "220",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "220"
+        "value": "220",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-220",
@@ -4359,10 +4487,26 @@
           "type": "string",
           "defaultValue": "330",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "330"
+        "value": "330",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-330",
@@ -4383,10 +4527,26 @@
           "type": "string",
           "defaultValue": "4700",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "4700"
+        "value": "4700",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-4k7",
@@ -4407,10 +4567,26 @@
           "type": "string",
           "defaultValue": "47000",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "47000"
+        "value": "47000",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-47k",
@@ -4431,10 +4607,26 @@
           "type": "string",
           "defaultValue": "470",
           "control": "text"
+        },
+        {
+          "name": "power",
+          "type": "string",
+          "defaultValue": "0.25",
+          "control": "select",
+          "options": [
+            "0.125",
+            "0.25",
+            "0.5",
+            "1",
+            "2",
+            "5"
+          ],
+          "description": "Power rating (W)"
         }
       ],
       "defaultValues": {
-        "value": "470"
+        "value": "470",
+        "power": "0.25"
       },
       "pinCount": 0,
       "id": "resistor-470",

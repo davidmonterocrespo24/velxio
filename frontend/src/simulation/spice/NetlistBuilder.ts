@@ -1026,23 +1026,85 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
   return false;
 }
 
+/** Index of a card's last token that is not a `param=value`: a device's model or a subcircuit's name. */
+function lastNameIndex(t: readonly string[]): number {
+  for (let i = t.length - 1; i > 0; i--) if (!t[i]!.includes('=')) return i;
+  return -1;
+}
+
+/**
+ * The nodes a netlist card joins by a DC path, read by the syntax of its
+ * element letter, whatever the nodes are called. A part's internal node (a
+ * supply's or a battery's `<id>_int`, an ammeter's `amm_<id>_mid`, an LED's
+ * `<id>_sense_mid`) is a node like any other: the walk used to read a card's
+ * nodes only while they were canvas nets, so one of those ended the card,
+ * and every net reached only through such a part got a pull-down it did not
+ * need. Two ammeters in one loop then disagreed and a MOSFET gate drew
+ * 100 nA through its 100 MOhm (velxio/velxio-prod#99).
+ *
+ *   - R, L, V, I, B, F, H, W: their two nodes. A current source (I, F, a B
+ *     written as I = ...) holds no voltage; it has always counted as a path.
+ *   - E, G: their two output nodes. S: the switch's two nodes (Ron or Roff
+ *     between them). The control nodes of these are only sensed.
+ *   - D: anode and cathode. Q: collector, base and emitter. J, Z: drain,
+ *     gate and source. SPICE stamps GMIN across every pn junction, so a node
+ *     reached only through a junction is never singular and needs no
+ *     pull-down: an LED held off by a transistor carried 35 nA through one.
+ *   - M: drain and source (the channel, and a VDMOS's body diode), with the
+ *     bulk when the card has one (its junctions). The gate is insulated.
+ *   - X: every node before the subcircuit's name (optimistic: a subcircuit
+ *     is taken to join its pins).
+ *   - C and anything else: none. A capacitor is open at DC.
+ */
+function dcPathNodes(card: string): string[] {
+  const t = card.trim().split(/\s+/);
+  if (t.length < 3) return [];
+  switch (t[0]!.charAt(0).toUpperCase()) {
+    case 'R':
+    case 'L':
+    case 'V':
+    case 'I':
+    case 'B':
+    case 'F':
+    case 'H':
+    case 'W':
+    case 'E':
+    case 'G':
+    case 'S':
+    case 'D':
+      return [t[1]!, t[2]!];
+    case 'Q':
+    case 'J':
+    case 'Z':
+      return t.length >= 5 ? [t[1]!, t[2]!, t[3]!] : [];
+    case 'M': {
+      const model = lastNameIndex(t);
+      if (model < 4) return [];
+      return model >= 5 ? [t[1]!, t[3]!, t[4]!] : [t[1]!, t[3]!];
+    }
+    case 'X': {
+      const name = lastNameIndex(t);
+      return name > 1 ? t.slice(1, name) : [];
+    }
+    default:
+      return [];
+  }
+}
+
 /**
  * Detect nets that lack a DC path to ground.
  *
  * Does a graph walk starting from node "0" and "vcc_rail" (both have a
- * hard-wired source in every circuit that references them), traversing only
- * DC-conducting cards:
- *   - resistor (R...)
- *   - voltage source (V...)           — V-source is a DC short for connectivity
- *   - current source (I...)
- *   - inductor (L... — treated as DC short)
- *   - switch (S...)
- *   - behavioral source (B...)         — also connects output to ground via its KCL stamp
- *   - MNA-controlled source (E..., G..., F..., H...)
- *   - subckt instance (X...)           — optimistic: assume any X instance exposes DC paths
+ * hard-wired source in every circuit that references them), traversing the
+ * DC paths of every card (dcPathNodes): resistors, inductors, sources,
+ * switches, junctions, a MOSFET's channel, subcircuits. A part's internal
+ * nodes join the walk like any other node, but only canvas nets are ever
+ * reported.
  *
  * Capacitors (C...) are intentionally NOT conductive in this walk — they are
- * OPEN at DC, so a net connected only via a C to another node is still floating.
+ * OPEN at DC, so a net connected only via a C to another node is still
+ * floating; and so is one reached only through a MOSFET's gate or the
+ * control input of a controlled source.
  *
  * An older version of this function used a "touched-by-R" heuristic: a net
  * was marked safe if ANY resistor terminal referenced it. That was wrong for
@@ -1062,11 +1124,8 @@ function detectFloatingNets(
   // like any net, so a load reached through one is not floating.
   const nets = new Set([...netNames.values(), ...internalNodes]);
 
-  // Build an undirected adjacency list over DC-conducting elements.
-  // For a 2-terminal element the two nets on it become connected.
-  // For 3+ terminal (E/G/F/H, S, X) we connect every pair of listed nets —
-  // this is conservative (over-connects), which is the safe side for a
-  // "does this net have SOME DC path to ground" question.
+  // Build an undirected adjacency list over the DC paths of every card: the
+  // nodes a card joins (dcPathNodes) are all connected to one another.
   const adj = new Map<string, Set<string>>();
   function ensure(n: string) {
     if (!adj.has(n)) adj.set(n, new Set());
@@ -1078,37 +1137,9 @@ function detectFloatingNets(
     ensure(b).add(a);
   }
 
-  // Cards that define a DC path between their listed nets. Capacitor ('C')
-  // is deliberately excluded.
-  const DC_PREFIXES = 'RLVISBEGFHX';
-  const TWO_NODE_PREFIXES = 'RLVB';
-
   for (const line of cards) {
-    const prefix = line[0];
-    if (DC_PREFIXES.indexOf(prefix) < 0) continue;
-    const tokens = line.split(/\s+/);
-    // tokens[0] is the element name (e.g. "R_r1", "V_VCC_RAIL"). The nets
-    // appear next; stop at the first token that isn't a valid net name.
-    // Two-terminal elements always list exactly two nodes, so theirs are
-    // taken whatever they are called: a part's internal node (an ammeter's
-    // shunt, a relay coil's R-L midpoint) then joins the walk, and a pin
-    // whose only DC path runs through one is not taken for floating.
-    const pinNets: string[] = [];
-    if (TWO_NODE_PREFIXES.indexOf(prefix) >= 0 && tokens.length >= 3) {
-      pinNets.push(tokens[1]!, tokens[2]!);
-    } else {
-      for (let i = 1; i < tokens.length; i++) {
-        const t = tokens[i];
-        if (!nets.has(t) && t !== '0' && t !== 'vcc_rail') break;
-        pinNets.push(t);
-      }
-    }
-    // Connect every pair of pins — handles both 2-terminal and N-terminal.
-    for (let i = 0; i < pinNets.length; i++) {
-      for (let j = i + 1; j < pinNets.length; j++) {
-        link(pinNets[i], pinNets[j]);
-      }
-    }
+    const nodes = dcPathNodes(line);
+    for (let i = 1; i < nodes.length; i++) link(nodes[0]!, nodes[i]!);
   }
 
   // BFS from node "0" plus every present rail ("vcc_rail" / "aux_rail_*" —

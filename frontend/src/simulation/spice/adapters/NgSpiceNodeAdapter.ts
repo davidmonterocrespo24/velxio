@@ -140,14 +140,29 @@ export class NgSpiceNodeAdapter implements SolverPort {
     //   SendData(vecvaluesall*, int, int, void*) → iiiii
     //   SendInitData(vecinfoall*, int, void*)   → iiii
     //   BGThreadRunning(bool, int, void*)       → iiii
-    const noop = () => 0;
+    // A function of its own for each callback: emscripten's addFunction
+    // hands back the slot it already gave the same JS function, whatever
+    // the signature, and ngspice then traps calling ControlledExit through
+    // a slot typed for SendChar.
+    const noop = () => () => 0;
+    // ngspice prints through SendChar, each line prefixed with its stream.
+    // With no callback it prints nothing at all, so a transient it abandoned
+    // ("Timestep too small") came back with warnings: [] here, while the
+    // browser's worker reported it (velxio/velxio-prod#145). Its stderr is
+    // the warnings, as in the worker; its stdout (progress, plot listings)
+    // is not, and is dropped.
+    const print = (messagePtr: unknown): number => {
+      const text = M.UTF8ToString(messagePtr as number);
+      if (text.startsWith('stderr ')) this.stderrBuffer.push(text.slice(7));
+      return 0;
+    };
     this.callbackPointers = [
-      M.addFunction(noop, 'iiii'),    // print
-      M.addFunction(noop, 'iiii'),    // status
-      M.addFunction(noop, 'iiiiii'),  // exit
-      M.addFunction(noop, 'iiiii'),   // data
-      M.addFunction(noop, 'iiii'),    // dataInit
-      M.addFunction(noop, 'iiii'),    // bg
+      M.addFunction(print, 'iiii'),     // print
+      M.addFunction(noop(), 'iiii'),    // status
+      M.addFunction(noop(), 'iiiiii'),  // exit
+      M.addFunction(noop(), 'iiiii'),   // data
+      M.addFunction(noop(), 'iiii'),    // dataInit
+      M.addFunction(noop(), 'iiii'),    // bg
     ];
   }
 
@@ -180,7 +195,11 @@ export class NgSpiceNodeAdapter implements SolverPort {
   private initialiseNgspice(): void {
     if (!this.api) throw new Error('API not ready');
     this.api.nospiceinit();
-    const rc = this.api.init(0, 0, 0, 0, 0, 0, 0);
+    // Print, status and exit callbacks, as the worker registers them. The
+    // data callbacks stay off: vectors are read after each analysis, and
+    // ngspice would call into JS at every time point for nothing.
+    const [print, status, exit] = this.callbackPointers;
+    const rc = this.api.init(print!, status!, exit!, 0, 0, 0, 0);
     if (rc !== 0) throw new Error(`ngSpice_Init returned ${rc}`);
     this.api.setInputPath('/');
     this.api.command('set xspice_enabled');
@@ -262,7 +281,10 @@ export class NgSpiceNodeAdapter implements SolverPort {
       vectors,
       timeAxis,
       solveMs,
-      warnings: [...this.stderrBuffer, ...this.stdoutBuffer.map((s) => `stdout: ${s}`)],
+      warnings: [
+        ...this.stderrBuffer.filter((l) => l.trim().length > 0),
+        ...this.stdoutBuffer.map((s) => `stdout: ${s}`),
+      ],
     };
   }
 
