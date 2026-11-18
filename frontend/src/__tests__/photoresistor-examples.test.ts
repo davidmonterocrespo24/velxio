@@ -142,7 +142,8 @@ describe('night lights light in the dark and not in daylight (#103)', () => {
     };
     const dark = await at(10);
     const dusk = await at(20);
-    const half = await at(31);
+    // Mid-switch: 3.7 mA, 3.0 mA with release 8's 2N2222 (velxio/velxio-prod#136).
+    const half = await at(30);
     const day = await at(60);
     const sun = await at(300);
     expect(dark.ao).toBeGreaterThan(dusk.ao);

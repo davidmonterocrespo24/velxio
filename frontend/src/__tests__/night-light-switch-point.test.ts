@@ -13,7 +13,9 @@
  * Two changes, both checked here:
  * - Rbe, 10 kOhm from Q2's base to its emitter, the usual bias of such a
  *   pair: Q2 stays off until Q1 passes it about 60 uA, so the current falls
- *   twice as fast with the light (13 mA at 25 lux, 2.3 mA at 31, 18 uA at 42);
+ *   twice as fast with the light (13 mA at 25 lux, 3.0 to 3.7 mA at 30, under
+ *   20 uA from 42; the spread is the 2N2222's model, which release 8 fitted
+ *   to its datasheet, velxio/velxio-prod#136);
  * - the LED part draws an LED lit from a thousandth of its full brightness
  *   (20 uA for a 20 mA LED) on every path. A publish window and the hold
  *   after a solve already did; a single solve used 1 uA.
@@ -92,14 +94,15 @@ describe('analog-night-light lights below about 30 lux and is out by about 40 (#
     }
   });
 
-  it('Rbe makes the switch: the pair without it still glows at 60 lux', { timeout: 60_000 }, async () => {
+  it('Rbe makes the switch: the pair without it still glows at 50 lux', { timeout: 60_000 }, async () => {
     expect(NIGHT_LIGHT.components.find((c) => c.id === 'rbe')?.properties.value).toBe('10000');
     // The currents the text quotes, with Rbe.
     expect(await ledAmps(nightLight(25))).toBeGreaterThan(0.012);
-    expect(await ledAmps(nightLight(31))).toBeGreaterThan(0.002);
+    expect(await ledAmps(nightLight(30))).toBeGreaterThan(0.0025);
     expect(await ledAmps(nightLight(42))).toBeLessThan(20e-6);
-    // Without it, 26 uA at 60 lux: drawn lit.
-    const without = await ledAmps(nightLight(60, false));
+    expect(await ledAmps(nightLight(50))).toBeLessThan(20e-6);
+    // Without it, about 0.1 mA at 50 lux: drawn lit.
+    const without = await ledAmps(nightLight(50, false));
     expect(without).toBeGreaterThan(20e-6);
     expect(drawnAt(without).value).toBe(true);
     expect(await ledAmps(nightLight(70, false))).toBeLessThan(20e-6);
