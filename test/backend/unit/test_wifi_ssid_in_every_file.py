@@ -180,6 +180,25 @@ class TheNameWiFiBeginIsGiven(_Build):
         )}])
         self.assertIn('if (net == "MyHome")', self.text('sketch.ino.cpp'))
 
+    def test_a_name_in_a_printed_string_is_text(self):
+        """`"ssid = " + ssid` holds the name inside a string literal: rewriting
+        from there would cut the line's strings apart."""
+        self.build([{'name': 'sketch.ino', 'content': (
+            '#include <WiFi.h>\nString ssid = "MyHome";\n'
+            'void setup(){ Serial.println("Joining ssid = " + ssid + " now"); '
+            'WiFi.begin(ssid.c_str(), "pw"); }\nvoid loop(){}\n'
+        )}])
+        out = self.text('sketch.ino.cpp')
+        self.assertIn('Serial.println("Joining ssid = " + ssid + " now");', out)
+        self.assertIn('String ssid = "Velxio-GUEST";', out)
+
+    def test_a_commented_out_definition_is_not_followed(self):
+        self.build([{'name': 'sketch.ino', 'content': (
+            '#include <WiFi.h>\n#define LAB_NET "MasseyWifi"\nconst char* net = LAB_NET;\n'
+            '// net = OTHER_NET;\nvoid setup(){ WiFi.begin(net, ""); }\nvoid loop(){}\n'
+        )}])
+        self.assertIn('WiFi.begin(net, "", 10)', self.text('sketch.ino.cpp'))
+
     def test_an_access_points_own_name_is_not_touched(self):
         """WiFi.softAP() names the network the board creates: not ours to swap."""
         self.build([{'name': 'sketch.ino', 'content': (

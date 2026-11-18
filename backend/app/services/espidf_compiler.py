@@ -1664,20 +1664,28 @@ _SSID_ARG_NAME = re.compile(r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?')
 _WIFI_SOURCE_SUFFIXES = ('.h', '.hh', '.hpp', '.hxx', '.c', '.cc', '.cpp', '.cxx', '.inc', '.ipp', '.tpp')
 
 
-def _ssid_value_patterns(name: str, value: str) -> list[re.Pattern[str]]:
-    """Where `name` is given `value` (a regex with one group): a #define, or a
+def _ssid_value_patterns(name: str, value: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Where `name` is given `value` (a regex with one group): a #define, and a
     declaration or assignment (`const char* NAME =`, `char NAME[32] =`,
     `static constexpr char NAME[] =`, `String NAME =`, `NAME =`). Not a
     comparison (`NAME == ...`), not a member of something else (`cfg.NAME =`).
     Group 1 is everything before the value, group 2 the name, group 3 the
-    value's group."""
+    value's group. The second can also match inside a string literal
+    ("ssid = " + ssid): check that its name is code (_name_is_code)."""
     n = re.escape(name)
-    return [
+    return (
         re.compile(r'(^[ \t]*#[ \t]*define[ \t]+(' + n + r')[ \t]+)' + value, re.MULTILINE),
         re.compile(
             r'((?<![\w.])(?<!->)(' + n + r')\s*(?:\[[^\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)\s*)' + value,
         ),
-    ]
+    )
+
+
+def _name_is_code(blanked: str, m: re.Match) -> bool:
+    """The name a _ssid_value_patterns match found (group 2) is code, not text
+    in a string literal or a comment. `blanked` is _blank_noncode of the text
+    the match was made in."""
+    return blanked[m.start(2):m.end(2)] == m.group(2)
 
 
 # A string literal, and another name (what `char ssid[] = SECRET_SSID;` or
@@ -2578,15 +2586,17 @@ class ESPIDFCompiler:
                     if name is not None:
                         names.add(name)
         defined_from: dict[str, set[str]] = {}
+        blanked = [_blank_noncode(src) for src in sources]
         frontier = set(names)
         for _ in range(4):
             found: set[str] = set()
             for name in frontier:
-                for pattern in _ssid_value_patterns(name, _SSID_NAME_VALUE):
-                    for src in sources:
-                        for m in pattern.finditer(src):
-                            defined_from.setdefault(name, set()).add(m.group(3))
-                            found.add(m.group(3))
+                define_re, assign_re = _ssid_value_patterns(name, _SSID_NAME_VALUE)
+                for src, blank in zip(sources, blanked):
+                    for m in [*define_re.finditer(src),
+                              *(m for m in assign_re.finditer(src) if _name_is_code(blank, m))]:
+                        defined_from.setdefault(name, set()).add(m.group(3))
+                        found.add(m.group(3))
             frontier = found - names
             if not frontier:
                 break
@@ -2627,8 +2637,12 @@ class ESPIDFCompiler:
                 flags=re.IGNORECASE
             )
             for name in sorted(names):
-                for pattern in _ssid_value_patterns(name, _SSID_LITERAL_VALUE):
-                    code = pattern.sub(_ssid_literal, code)
+                define_re, assign_re = _ssid_value_patterns(name, _SSID_LITERAL_VALUE)
+                code = define_re.sub(_ssid_literal, code)
+                blank = _blank_noncode(code)
+                code = assign_re.sub(
+                    lambda m: _ssid_literal(m) if _name_is_code(blank, m) else m.group(0), code,
+                )
             return code
 
         sources = [_definitions(src) for src in sources]
