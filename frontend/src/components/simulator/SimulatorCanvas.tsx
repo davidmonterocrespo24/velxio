@@ -20,7 +20,6 @@ import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
 import { PartInspectorDialog, type InspectorAction } from './PartInspectorDialog';
 import { CustomChipDialog } from '../customChips/CustomChipDialog';
@@ -1738,7 +1737,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     });
   }, [boards]);
 
-  // ESP32 input components: forward button presses and potentiometer values to QEMU
+  // ESP32 input components: forward button presses to the bridge (boards that opt out of
+  // the electrical solve only; see below)
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 
@@ -1752,7 +1752,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       // in-browser engine through the same sensor channel.
       connectedWires.forEach((wire) => {
         const isStartSelf = wire.start.componentId === component.id;
-        const selfEndpoint = isStartSelf ? wire.start : wire.end;
         const otherEndpoint = isStartSelf ? wire.end : wire.start;
 
         if (!isBoardComponent(otherEndpoint.componentId)) return;
@@ -1803,21 +1802,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               el.removeEventListener('button-release', onRelease);
             });
           }
-
-          // Potentiometer: forward analog value as ADC millivolts
-          if (tag === 'wokwi-potentiometer' && selfEndpoint.pinName === 'SIG') {
-            // Per CHIP: the S3's ADC pins are absent from the classic map (knob did
-            // nothing) and the C3/C6 would have pushed GPIO0 to channel 9 instead of 0.
-            const adcInfo = adcPinMapFor(lookupKey)[gpioPin];
-            if (adcInfo) {
-              const onInput = (e: Event) => {
-                const pct = parseFloat((e.target as any).value ?? '0'); // 0–100
-                bridge.setAdc(adcInfo.chn, Math.round((pct / 100) * 3300));
-              };
-              el.addEventListener('input', onInput);
-              cleanups.push(() => el.removeEventListener('input', onInput));
-            }
-          }
+          // A potentiometer is not handled here: its part writes the ADC
+          // (value / 1023 * 3.3 V, simulation/parts/ComplexParts.ts) and the
+          // circuit's solve feeds the pad. A second listener here read the
+          // knob's 0..1023 as a percentage and wrote ten times the voltage
+          // over the part's, through old QEMU ADC2 indices
+          // (velxio/velxio-prod#175).
         }, 300);
 
         cleanups.push(() => clearTimeout(timeout));

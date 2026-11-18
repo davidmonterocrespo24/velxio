@@ -20,6 +20,7 @@ import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
 import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
 import { flagProperty } from '../../utils/flagProperty';
+import { RGB_LED_CHANNELS, rgbLedCommon, rgbLedSenseSource, type RgbLedChannel } from '../rgbLed';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -354,6 +355,18 @@ export function relayCoilOf(metadataId: string): RelayCoil | null {
 /** Colours already reported as missing from LED_MODELS (one warning each). */
 const unknownLedColours = new Set<string>();
 
+// The three dies of an RGB LED, fitted to the Young Sun YSL-R596CR3G4B5C-C10
+// (the common-cathode RGB LED SparkFun sells as COM-00105): VF at IF = 20 mA is
+// 2.0 V red, 3.2 V green and 3.2 V blue (typ; 1.8-2.2 / 3.0-3.4 / 3.0-3.4 V).
+// An RGB LED's green die is InGaN like its blue one, a volt above a single
+// green (GaP) LED. Forward voltage at 10 mA / 20 mA: red 1.97 / 2.00 V, green
+// and blue 3.16 / 3.20 V (Is held at ngspice's 1e-28 floor, see above).
+const RGB_LED_DIES: Record<RgbLedChannel['pin'], { name: string; Is: string; n: string }> = {
+  R: { name: 'LED_RGB_RED', Is: '3.5e-22', n: '1.7' },
+  G: { name: 'LED_RGB_GREEN', Is: '1e-28', n: '2.043' },
+  B: { name: 'LED_RGB_BLUE', Is: '1e-28', n: '2.043' },
+};
+
 // ── NTC β-model ────────────────────────────────────────────────────────────
 function ntcResistance(Tc: number, R0 = 10_000, T0 = 298.15, beta = 3950): number {
   const T = Tc + 273.15;
@@ -488,6 +501,37 @@ const MAPPERS: Record<string, Mapper> = {
       ],
       modelsUsed: new Set([`.model ${model.name} D(Is=${model.Is} N=${model.n})`]),
     };
+  },
+
+  // RGB LED: three LED dies joined at COM, each with its own 0 V sense source
+  // (`i(v_<id>_r_sense)` ...), which the part reads for each colour's
+  // brightness and the Run check for each colour's current (velxio/velxio-prod
+  // #174). Which end COM is comes from the `common` property; 'auto' reads it
+  // off the wiring: COM on a supply rail is a common anode, anywhere else a
+  // common cathode (see simulation/rgbLed.ts). A colour whose pin is not wired
+  // gets no card, and without COM nothing can conduct.
+  'rgb-led': (comp, netLookup) => {
+    const com = netLookup('COM');
+    if (!com) return null;
+    const common = rgbLedCommon(comp.properties);
+    const anode = common === 'anode' || (common === 'auto' && (com === 'vcc_rail' || isAuxRailNet(com)));
+    const cards: string[] = [];
+    const modelsUsed = new Set<string>();
+    for (const ch of RGB_LED_CHANNELS) {
+      const net = netLookup(ch.pin);
+      if (!net) continue;
+      const die = RGB_LED_DIES[ch.pin];
+      const tag = ch.pin.toLowerCase();
+      const mid = `${comp.id}_${tag}_mid`;
+      const sense = rgbLedSenseSource(comp.id, ch.pin);
+      if (anode) {
+        cards.push(`${sense} ${com} ${mid} DC 0`, `D_${comp.id}_${tag} ${mid} ${net} ${die.name}`);
+      } else {
+        cards.push(`${sense} ${net} ${mid} DC 0`, `D_${comp.id}_${tag} ${mid} ${com} ${die.name}`);
+      }
+      modelsUsed.add(`.model ${die.name} D(Is=${die.Is} N=${die.n})`);
+    }
+    return cards.length > 0 ? { cards, modelsUsed } : null;
   },
 
   // Generic diode

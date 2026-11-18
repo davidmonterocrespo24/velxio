@@ -28,7 +28,12 @@ const int LED = 2;
 
 WiFiClient net;
 PubSubClient mqtt(net);
-String topic;  // unique per board so two ESP32s don't collide
+// A public broker is shared by everyone: the client ID and the topic carry a
+// random word drawn at boot, so two boards (or two users) never take each
+// other's session or messages. A MAC-based ID is the same on every simulated
+// board.
+String id;
+String topic;
 
 void onMessage(char* t, byte* payload, unsigned int len) {
   String m;
@@ -52,7 +57,7 @@ void connectMQTT() {
   mqtt.setServer(MQTT_BROKER, MQTT_PORT);
   mqtt.setCallback(onMessage);
   while (!mqtt.connected()) {
-    String cid = "velxio-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+    String cid = "velxio-" + id;
     Serial.printf("MQTT: connecting to %s as %s ...\\n", MQTT_BROKER, cid.c_str());
     if (mqtt.connect(cid.c_str())) {
       Serial.println("MQTT connected");
@@ -72,7 +77,8 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED, OUTPUT);
   delay(500);
-  topic = "velxio/demo/" + String((uint32_t)ESP.getEfuseMac(), HEX);
+  id = String(esp_random(), HEX);
+  topic = "velxio/demo/" + id;
   connectWiFi();
   connectMQTT();
 }

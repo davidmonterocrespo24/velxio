@@ -435,7 +435,7 @@ El canvas del simulador muestra íconos de estado para WiFi y BLE junto al board
 | Gateway | `192.168.4.2` |
 | DNS | Proporcionado por slirp |
 | BSSID | `42:13:37:55:aa:01` |
-| MAC ESP32 | `24:0a:c4:00:01:10` (default) |
+| MAC ESP32 | `24:0a:c4:00:01:10`, la misma en QEMU y en el motor del navegador |
 
 ### Redes adicionales visibles en scan
 
@@ -465,7 +465,7 @@ El canvas del simulador muestra íconos de estado para WiFi y BLE junto al board
 | **SSID fijo** | Debes usar `"Velxio-GUEST"` (sin contraseña). No puedes crear tu propio AP ni usar otro SSID para conectar. |
 | **Sin WPA/WPA2** | La red es abierta. El firmware puede intentar cifrado pero no se verificará. |
 | **Sin ICMP (ping)** | `ping` no funciona — es una limitación de slirp. Usa TCP/HTTP para verificar conectividad. |
-| **MAC fija** | Todas las instancias usan `24:0a:c4:00:01:10` por defecto. Configurable vía eFuse emulado pero no expuesto en UI. |
+| **MAC fija** | Todas las instancias, de todos los usuarios, usan `24:0a:c4:00:01:10`. El worker de QEMU carga una imagen de eFuse con esa MAC (la del motor del navegador); el eFuse por defecto del fork daría `10:01:00:c4:0a:24`, los mismos bytes al revés. Un identificador derivado de la MAC (un client ID de MQTT, un tema) es igual para todos: añádele algo propio en un broker público. No se configura desde la UI. |
 | **Sin modo AP** | El ESP32 no puede crear su propio Access Point — solo modo Station (STA). |
 | **Sin ESP-NOW** | Comunicación peer-to-peer entre ESP32s no soportada. |
 | **Sin mDNS funcional** | `mDNS.begin("esp32")` puede compilar pero no resuelve nombres en la red emulada. |

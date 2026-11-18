@@ -12,6 +12,7 @@ import type { BoardKind } from '../../types/board';
 import { boardDisplayName, isPiBoardKind } from '../../types/board';
 import { PiTerminal } from '../raspberry-pi/PiTerminal';
 import { serialMonitorText } from '../../store/serialMonitorText';
+import { baudLabelTitle } from '../../store/serialWire';
 
 // Short labels for tabs
 const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {
@@ -242,7 +243,10 @@ export const SerialMonitor: React.FC = () => {
             activeBoard.serialBaudRate > 0 &&
             activeBoard.serialLink?.source !== 'usb-cdc' &&
             !isMicroPython && (
-              <span style={styles.baudRate} title="The rate the board is clocking Serial at.">
+              <span
+                style={styles.baudRate}
+                title={baudLabelTitle(activeBoard.serialLink?.baud ?? activeBoard.serialBaudRate)}
+              >
                 {activeBoard.serialBaudRate.toLocaleString()} baud
               </span>
             )}

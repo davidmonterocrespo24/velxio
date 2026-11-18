@@ -36,6 +36,8 @@ import { readSpan, spanStats, subtract } from '../spice/waveformStats';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { isRatedResistor, resistorPowerRating } from '../parts/resistorRating';
+import { RGB_LED_CHANNELS, rgbLedSenseKey, rgbLedSenseSource } from '../rgbLed';
+import { gpioOverVoltages } from './gpioOverVoltage';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -1136,6 +1138,54 @@ export async function verifyCircuit(
       }
     }
   }
+  // An RGB LED is three dies, one sense source each (`V_<id>_r_sense` ...):
+  // the same rules, per colour (velxio/velxio-prod#174). A colour whose pin is
+  // not wired has no source and is skipped.
+  for (const rgb of input.components.filter((c) => c.metadataId === 'rgb-led')) {
+    // A common anode (COM on the supply) lights a colour when its pin goes
+    // LOW, and this check drives every wired pin HIGH: its colours are dark
+    // here by construction, so "carrying almost no current" says nothing.
+    const comNet = pinNetMap.get(`${rgb.id}:COM`);
+    const commonAnode =
+      comNet !== undefined &&
+      RGB_LED_CHANNELS.some((c) => netlist.includes(`\n${rgbLedSenseSource(rgb.id, c.pin)} ${comNet} `));
+    for (const ch of RGB_LED_CHANNELS) {
+      const key = rgbLedSenseKey(rgb.id, ch.pin);
+      const what = `RGB LED ${rgb.id}'s ${ch.colour} channel`;
+      if (nonFiniteBranches.has(key)) {
+        errors.push({
+          severity: 'error',
+          code: 'unstable-solve',
+          componentId: rgb.id,
+          message: `${what} could not be solved — its forward current has no stable value. This almost always means that colour is wired with no series resistor. Add a series resistor to its pin.`,
+        });
+        continue;
+      }
+      const raw = branchCurrents[key];
+      if (raw === undefined) continue;
+      const i = Math.abs(raw);
+      if (i > config.ledMaxAmps) {
+        errors.push({
+          severity: 'error',
+          code: 'led-overcurrent',
+          componentId: rgb.id,
+          message:
+            i > LED_UNLIMITED_AMPS
+              ? `${what} has nothing limiting its current (no series resistor) — a real LED would burn out at once. Add a series resistor to its pin.`
+              : `${what} is carrying ${formatAmps(i)} — above its 20 mA absolute maximum. Add or increase its series resistor.`,
+          metric: i,
+        });
+      } else if (!commonAnode && i > 0 && i < config.ledMinAmps) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-no-current',
+          componentId: rgb.id,
+          message: `${what} appears wired but is carrying almost no current (${formatAmps(i)}). It will not light visibly.`,
+          metric: i,
+        });
+      }
+    }
+  }
 
   // ── Rule 3: resistor power above its rating ────────────────────────────
   // Resistors don't have a built-in sense source, so we recover their
@@ -1220,6 +1270,35 @@ export async function verifyCircuit(
         break; // one over-voltage warning per part is enough
       }
     }
+  }
+
+  // ── 5 V on an ESP32 pin (velxio/velxio-prod#175) ──────────────────────
+  // The solve above forces every wired GPIO to the board's 3.3 V, so it cannot
+  // show what the circuit puts on one: gpioOverVoltage reads the wiring, and a
+  // solve of its own with no pad driven. Non-blocking, like the other
+  // over-voltage warnings; a failure there never takes the check down.
+  try {
+    const overs = await gpioOverVoltages(input, sourceInfo, async (deck) => {
+      const cooked = await runSpice(deck);
+      const voltagesOf: Record<string, number> = {};
+      for (const name of cooked.variableNames) {
+        if (!name.startsWith('v(')) continue;
+        const v = cooked.dcValue(name);
+        if (Number.isFinite(v)) voltagesOf[name.slice(2, -1)] = v;
+      }
+      return voltagesOf;
+    });
+    for (const o of overs) {
+      warnings.push({
+        severity: 'warning',
+        code: 'over-voltage',
+        componentId: o.boardId,
+        message: o.message,
+        metric: o.volts,
+      });
+    }
+  } catch {
+    /* the rest of the check stands */
   }
 
   // ── Rule 6: electrolytic capacitor over-voltage / reverse polarity ─────
