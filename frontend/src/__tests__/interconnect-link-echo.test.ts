@@ -129,6 +129,16 @@ function run(boards: Board[], seconds: number): void {
   for (let k = 1; k <= frames; k++) boards.forEach((b, i) => b.runTo(base[i] + k * FRAME_US * PER_US));
 }
 
+/** The frame loop with `slow` below real time: a frame of `fast`'s guest time, then a `share`-th of one of `slow`'s, `seconds` of `fast`'s. */
+function runSlow(fast: Board, slow: Board, share: number, seconds: number): void {
+  const frames = Math.round((seconds * 1_000_000) / FRAME_US);
+  const [f0, s0] = [fast.cycles, slow.cycles];
+  for (let k = 1; k <= frames; k++) {
+    fast.runTo(f0 + k * FRAME_US * PER_US);
+    slow.runTo(s0 + Math.round((k * FRAME_US * PER_US) / share));
+  }
+}
+
 const levels = (b: Board) => b.reports.map(([, level]) => (level ? 'H' : 'L')).join('');
 
 afterEach(() => resetInterconnect());
@@ -208,5 +218,47 @@ describe('a level a wire hands a board is not handed back (#74)', () => {
     run([a, b], 1);
     expect(levels(b)).toBe('LHLH');
     expect(levels(a)).toBe('LHLH');
+  });
+});
+
+// A pad has an edge for as long as the edge can come back to it. The first
+// version of this bookkeeping kept a pad's edges a second of its board's
+// clock: a receiver that ran an edge later than that, in the sender's time
+// (stopped, or far below real time), handed it back to a sender that no longer
+// knew it, and the sender's pad made a pulse its guest never made (#74's
+// review: three of them after a Stop of 2 s on two real Unos, six on a
+// receiver at a sixtieth of real time). Stop on an AVR resets it (the store's
+// stopBoard): its clock starts over at 0, and the levels a wire hands it wait
+// there until it runs again.
+describe('a sender’s edges do not come back to it, however late the receiver runs them (#74)', () => {
+  for (const stopS of [2, 10]) {
+    it(`a receiver stopped for ${stopS} s while the other board pulses hears every pulse once when it runs again, and hands none back`, () => {
+      const a = new Board('a');
+      const b = new Board('b');
+      wireUp([a, b], [['a', 'b']]);
+      // A pulse every 500 ms from 100 ms, all of them while B is stopped.
+      const pulses = 2 * stopS;
+      for (let k = 0; k < pulses; k++) a.pulse(100_000 + k * 500_000, 1_000);
+      run([a, b], 0.064);
+      b.reset();
+      run([a], stopS);
+      expect(levels(b), 'B heard nothing while stopped').toBe('');
+      run([a, b], 2);
+      expect(b.reports.length / 2, `pulses B heard: ${levels(b)}`).toBe(pulses);
+      expect(a.reports.length / 2, `pulses on A, its own and any that came back: ${levels(a)}`).toBe(pulses);
+      expect([levels(a), levels(b)]).toEqual(['LH'.repeat(pulses), 'LH'.repeat(pulses)]);
+    });
+  }
+
+  it('a receiver at a sixtieth of real time hears every pulse once, and hands none back', () => {
+    const a = new Board('a');
+    const b = new Board('b');
+    wireUp([a, b], [['a', 'b']]);
+    // Eight pulses, 500 ms apart; B runs 16/60 ms a frame, and the last lands at about 80 ms of B's time.
+    for (let k = 0; k < 8; k++) a.pulse(100_000 + k * 500_000, 1_000);
+    runSlow(a, b, 60, 6.4);
+    expect(b.reports.length / 2, `pulses B heard: ${levels(b)}`).toBe(8);
+    expect(a.reports.length / 2, `pulses on A, its own and any that came back: ${levels(a)}`).toBe(8);
+    expect([levels(a), levels(b)]).toEqual(['LH'.repeat(8), 'LH'.repeat(8)]);
   });
 });
