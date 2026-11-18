@@ -75,7 +75,11 @@ def parse_wifi_line(line: str) -> WifiEvent | None:
         return WifiEvent(status='initializing')
 
     if _RE_WIFI_CONNECTING.search(line):
-        return WifiEvent(status='connected', ssid='Velxio-GUEST')
+        # The sketch's own "Connecting to WiFi" says it has started joining a
+        # network: not which one, nor that it got there. It used to report
+        # 'connected' to Velxio-GUEST, whatever the sketch joined
+        # (velxio/velxio-prod#178).
+        return WifiEvent(status='initializing')
 
     if _RE_WIFI_DISCONNECT.search(line):
         return WifiEvent(status='disconnected')

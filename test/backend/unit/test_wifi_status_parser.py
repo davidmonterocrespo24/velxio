@@ -56,6 +56,29 @@ class TestWifiLineParser(unittest.TestCase):
         self.assertIsNone(result)
 
 
+
+class TestTheSketchsOwnWords(unittest.TestCase):
+    """A sketch that prints "Connecting to WiFi" has started joining a network.
+    It does not say which one, nor that it got there: the parser used to
+    report 'connected' to Velxio-GUEST, whatever the sketch joined
+    (velxio/velxio-prod#178). Only the firmware's own lines name a network."""
+
+    def test_connecting_to_wifi_is_no_connection(self):
+        for line in ('Connecting to WiFi', 'Connecting to WiFi....',
+                     'Connecting to WiFi... Connected!', 'connecting to wifi'):
+            with self.subTest(line=line):
+                self.assertEqual(parse_wifi_line(line), {'status': 'initializing'})
+
+    def test_it_names_no_network(self):
+        for line in ('Connecting to WiFi', 'Connecting to WiFi....'):
+            with self.subTest(line=line):
+                self.assertNotIn('ssid', parse_wifi_line(line))
+
+    def test_the_firmware_names_the_network_it_joined(self):
+        result = parse_wifi_line('I (800) wifi:connected with MasseyWifi, aid = 1, channel 10')
+        self.assertEqual(result, {'status': 'connected', 'ssid': 'MasseyWifi'})
+
+
 class TestBleLineParser(unittest.TestCase):
 
     def test_ble_init(self):
