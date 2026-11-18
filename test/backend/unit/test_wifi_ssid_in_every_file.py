@@ -192,6 +192,18 @@ class TheNameWiFiBeginIsGiven(_Build):
         self.assertIn('Serial.println("Joining ssid = " + ssid + " now");', out)
         self.assertIn('String ssid = "Velxio-GUEST";', out)
 
+    def test_a_name_in_a_printed_string_hides_no_definition_after_it(self):
+        """`ssid = "` in a string is text, and the match it starts must not
+        swallow the assignment that follows it on the line."""
+        self.build([{'name': 'sketch.ino', 'content': (
+            '#include <WiFi.h>\nconst char* ssid;\n'
+            'void setup(){ Serial.println("ssid = "); ssid = "MyHome"; WiFi.begin(ssid, "pw"); }\n'
+            'void loop(){}\n'
+        )}])
+        out = self.text('sketch.ino.cpp')
+        self.assertIn('Serial.println("ssid = "); ssid = "Velxio-GUEST";', out)
+        self.assertIn('WiFi.begin(ssid, "", 6)', out)
+
     def test_a_commented_out_definition_is_not_followed(self):
         self.build([{'name': 'sketch.ino', 'content': (
             '#include <WiFi.h>\n#define LAB_NET "MasseyWifi"\nconst char* net = LAB_NET;\n'

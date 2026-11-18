@@ -1214,60 +1214,116 @@ _INO_FUNC_RE = re.compile(
 )
 
 
+# _blank_noncode's scanner: where a directive line starts (only spaces and
+# tabs before its '#'), and where a string or char literal stops (its closing
+# quote, or a backslash whose next character it skips).
+_DIRECTIVE_START = re.compile(r'[ \t]*#')
+_LITERAL_STOP = {'"': re.compile(r'["\\]'), "'": re.compile(r"['\\]")}
+_NOT_NEWLINE = re.compile(r'[^\n]')
+
+
 def _blank_noncode(source: str) -> str:
     """Return a same-length copy with comments, string/char literals and
     preprocessor lines replaced by spaces (newlines preserved), so brace
-    counting and signature matching never trip on their contents."""
-    out = list(source)
-    i, n = 0, len(source)
-    line_start = True
-    while i < n:
-        c = source[i]
-        if line_start and source[i:].lstrip(' \t')[:1] == '#':
-            # blank the whole preprocessor line (incl. continuations)
-            while i < n:
-                if source[i] == '\n' and source[i - 1] != '\\':
-                    break
-                if source[i] != '\n':
-                    out[i] = ' '
-                i += 1
-            line_start = True
-            i += 1
+    counting and signature matching never trip on their contents.
+
+    One pass, linear in the source: the code between two delimiters is
+    skipped with str.find (the next '/', quote and '#' are each found once and
+    kept until the scan passes them), and each comment, literal or directive
+    is blanked as one slice. A literal keeps its quotes; a backslash in it
+    skips the character after it; a directive runs to the first newline no
+    backslash escapes. The scan used to copy the rest of the source at every
+    line start to see whether the line was a directive: quadratic, up to 20 s
+    for a 2.5 MB project once the WiFi rewrite blanked every file of it, on
+    the backend's event loop (velxio/velxio-prod#191).
+    """
+    n = len(source)
+    find = source.find
+    spans: list[tuple[int, int]] = []   # the [start, end) ranges to blank, in order
+    i = 0                               # the scan is in code from here
+    slash = dquote = squote = hash_ = -1  # next '/', '"', "'", '#' at or after i; n: none
+    directive = 0 if _DIRECTIVE_START.match(source) else -1  # a directive line starts here
+    while True:
+        if directive >= 0:
+            end = find('\n', directive)
+            while end > 0 and source[end - 1] == '\\':
+                end = find('\n', end + 1)
+            if end < 0:
+                spans.append((directive, n))
+                break
+            spans.append((directive, end))
+            i = end + 1
+            directive = i if _DIRECTIVE_START.match(source, i) else -1
             continue
-        line_start = c == '\n'
-        if c == '/' and i + 1 < n and source[i + 1] == '/':
-            while i < n and source[i] != '\n':
-                out[i] = ' '
-                i += 1
+        if slash < i:
+            slash = find('/', i)
+            if slash < 0:
+                slash = n
+        if dquote < i:
+            dquote = find('"', i)
+            if dquote < 0:
+                dquote = n
+        if squote < i:
+            squote = find("'", i)
+            if squote < 0:
+                squote = n
+        k = min(slash, dquote, squote)
+        # A '#' in the code before k, with only spaces and tabs before it on
+        # its line, starts a directive.
+        if hash_ < i:
+            hash_ = find('#', i)
+            if hash_ < 0:
+                hash_ = n
+        while hash_ < k:
+            j = hash_ - 1
+            while j >= 0 and source[j] in ' \t':
+                j -= 1
+            if j < 0 or source[j] == '\n':
+                directive = j + 1
+                break
+            hash_ = find('#', hash_ + 1)
+            if hash_ < 0:
+                hash_ = n
+        if directive >= 0:
             continue
-        if c == '/' and i + 1 < n and source[i + 1] == '*':
-            out[i] = out[i + 1] = ' '
-            i += 2
-            while i < n and not (source[i] == '*' and i + 1 < n and source[i + 1] == '/'):
-                if source[i] != '\n':
-                    out[i] = ' '
-                i += 1
-            if i < n:
-                out[i] = out[i + 1] = ' '
-                i += 2
+        if k == n:
+            break
+        if k == slash:
+            after = source[k + 1:k + 2]
+            if after == '/':          # a line comment, up to its newline
+                end = find('\n', k + 2)
+                i = n if end < 0 else end
+                spans.append((k, i))
+            elif after == '*':        # a block comment, through its */
+                end = find('*/', k + 2)
+                i = n if end < 0 else end + 2
+                spans.append((k, i))
+            else:
+                i = k + 1
             continue
-        if c in ('"', "'"):
-            quote = c
-            i += 1
-            while i < n and source[i] != quote:
-                if source[i] == '\\':
-                    out[i] = ' '
-                    i += 1
-                    if i < n and source[i] != '\n':
-                        out[i] = ' '
-                    i += 1
-                    continue
-                if source[i] != '\n':
-                    out[i] = ' '
-                i += 1
-            i += 1
-            continue
-        i += 1
+        stop = _LITERAL_STOP[source[k]].search   # a literal, up to its closing quote
+        j = k + 1
+        while True:
+            m = stop(source, j)
+            if m is None:
+                spans.append((k + 1, n))
+                i = n
+                break
+            j = m.start()
+            if source[j] == '\\':
+                j += 2
+                continue
+            spans.append((k + 1, j))
+            i = j + 1
+            break
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        out.append(source[pos:start])
+        part = source[start:end]
+        out.append(_NOT_NEWLINE.sub(' ', part) if '\n' in part else ' ' * len(part))
+        pos = end
+    out.append(source[pos:])
     return ''.join(out)
 
 
@@ -1664,34 +1720,145 @@ _SSID_ARG_NAME = re.compile(r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?')
 _WIFI_SOURCE_SUFFIXES = ('.h', '.hh', '.hpp', '.hxx', '.c', '.cc', '.cpp', '.cxx', '.inc', '.ipp', '.tpp')
 
 
-def _ssid_value_patterns(name: str, value: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    """Where `name` is given `value` (a regex with one group): a #define, and a
-    declaration or assignment (`const char* NAME =`, `char NAME[32] =`,
-    `static constexpr char NAME[] =`, `String NAME =`, `NAME =`). Not a
-    comparison (`NAME == ...`), not a member of something else (`cfg.NAME =`).
-    Group 1 is everything before the value, group 2 the name, group 3 the
-    value's group. The second can also match inside a string literal
-    ("ssid = " + ssid): check that its name is code (_name_is_code)."""
-    n = re.escape(name)
-    return (
-        re.compile(r'(^[ \t]*#[ \t]*define[ \t]+(' + n + r')[ \t]+)' + value, re.MULTILINE),
-        re.compile(
-            r'((?<![\w.])(?<!->)(' + n + r')\s*(?:\[[^\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)\s*)' + value,
-        ),
-    )
-
-
-def _name_is_code(blanked: str, m: re.Match) -> bool:
-    """The name a _ssid_value_patterns match found (group 2) is code, not text
-    in a string literal or a comment. `blanked` is _blank_noncode of the text
-    the match was made in."""
-    return blanked[m.start(2):m.end(2)] == m.group(2)
-
-
 # A string literal, and another name (what `char ssid[] = SECRET_SSID;` or
 # `#define WIFI_SSID SECRET_SSID` defines a name from).
 _SSID_LITERAL_VALUE = r'"([^"\n]*)"'
 _SSID_NAME_VALUE = r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?(?=[ \t]*(?:;|,|\)|//|/\*|$))'
+
+# The two forms rewritten wherever they are, as before velxio/velxio-prod#191:
+# a char variable named `ssid` and a #define with SSID in its name, in any
+# case. The first begins with [cC], the two forms re.IGNORECASE gives a 'c',
+# and only the rest ignores case: with a set of first characters the regex
+# engine skips to the next c instead of trying every position of every file,
+# five times faster.
+_SSID_CHAR_VARIABLE = re.compile(
+    r'([cC](?:(?i:onst)\s+[cC])?(?i:har)\s*\*?\s*((?i:ssid))\s*\[?\]?\s*=\s*)"([^"]*)"',
+)
+_SSID_DEFINE = re.compile(r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"', re.IGNORECASE)
+
+# What follows a name a value is assigned to: `NAME =`, `NAME[32] =`,
+# `NAME[] PROGMEM =`. Not a comparison (`NAME == ...`), and the whole name
+# (`ssid2 =` assigns no `ssid`).
+_ASSIGNED_TO = r'(?!\w)\s*(?:\[[^\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)'
+
+
+def _definition_patterns(value: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """Where a name is given `value` (a regex with one group): a #define, and a
+    declaration or assignment (`const char* NAME =`, `char NAME[32] =`,
+    `static constexpr char NAME[] =`, `String NAME =`, `NAME =`), not to a
+    member of something else (`cfg.NAME =`). _Definitions matches them where
+    a name starts, so they need not search. Group 1 is everything before the
+    value, group 2 the name, group 3 the value's group."""
+    return (
+        re.compile(r'(^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]+)' + value, re.MULTILINE),
+        re.compile(r'((?<![\w.])(?<!->)([A-Za-z_]\w*)' + _ASSIGNED_TO + r'\s*)' + value),
+    )
+
+
+_NAME_DEFINITIONS = _definition_patterns(_SSID_NAME_VALUE)
+_LITERAL_DEFINITIONS = _definition_patterns(_SSID_LITERAL_VALUE)
+
+# A #define and the name it defines; a directive only with nothing but spaces
+# and tabs before the '#' on its line (_Definitions checks).
+_DEFINE_NAME = re.compile(r'#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]')
+# Any whole name a value is assigned to, not inside another word, not after
+# `.` or `->`. The pattern starts with the name's first letter, so the regex
+# engine skips to the next letter instead of trying every position.
+_ASSIGNED_NAME = re.compile(r'[A-Za-z_](?<![\w.].)(?<!->.)\w*(?=' + _ASSIGNED_TO + r')')
+
+
+class _Definitions:
+    """Where one source gives names a value, for the names the SSID rewrite
+    follows: each #define is found once, by one scan for '#'; the assignments
+    of a name by a scan for that name, which the regex engine runs as a fast
+    substring search, or, once more than _NAME_SCANS names have been asked
+    for, by one scan for every assigned name. The source is blanked
+    (_blank_noncode) once, and only when a name the rewrite follows is
+    assigned in it. The rewrite's cost is linear in the project's size, for
+    any number of names: it used to blank and search every source again for
+    every name it followed (velxio/velxio-prod#191).
+    """
+
+    _NAME_SCANS = 32
+
+    def __init__(self, source: str):
+        self.source = source
+        self._defines: dict[str, list[int]] | None = None
+        self._assigned: dict[str, list[int]] = {}
+        self._every_assigned: dict[str, list[int]] | None = None
+        self._blank: str | None = None
+
+    def _define_lines(self, name: str) -> list[int]:
+        """The starts of the lines that #define `name`."""
+        if self._defines is None:
+            self._defines = {}
+            source = self.source
+            for m in _DEFINE_NAME.finditer(source):
+                j = m.start() - 1
+                while j >= 0 and source[j] in ' \t':
+                    j -= 1
+                if j < 0 or source[j] == '\n':
+                    self._defines.setdefault(m.group(1), []).append(j + 1)
+        return self._defines.get(name, [])
+
+    def _assignments(self, name: str) -> list[int]:
+        """Where `name` starts with a value assigned to it, in order."""
+        if self._every_assigned is None and name not in self._assigned:
+            if len(self._assigned) < self._NAME_SCANS:
+                n = re.escape(name)
+                found = re.finditer(
+                    n + r'(?<![\w.]' + n + r')(?<!->' + n + r')(?=' + _ASSIGNED_TO + r')',
+                    self.source,
+                )
+                self._assigned[name] = [m.start() for m in found]
+            else:
+                self._every_assigned = {}
+                for m in _ASSIGNED_NAME.finditer(self.source):
+                    self._every_assigned.setdefault(m.group(), []).append(m.start())
+        if self._every_assigned is not None:
+            return self._every_assigned.get(name, [])
+        return self._assigned[name]
+
+    def _is_code(self, start: int, name: str) -> bool:
+        """The name at `start` is code, not text in a string literal or a
+        comment ("Joining ssid = " + ssid)."""
+        if self._blank is None:
+            self._blank = _blank_noncode(self.source)
+        return self._blank.startswith(name, start)
+
+    def of(self, name: str, patterns: tuple[re.Pattern[str], re.Pattern[str]]) -> list[re.Match[str]]:
+        """The places `name` is given a value _definition_patterns match, in
+        this order: its #defines, then its assignments, each past the end of
+        the one before. An assignment counts where the name is code; text in
+        a string (`Serial.println("ssid = "); ssid = "MyHome";`) neither
+        counts nor hides the assignment after it, as its match used to."""
+        define_re, assign_re = patterns
+        found: list[re.Match[str]] = []
+        for start in self._define_lines(name):
+            m = define_re.match(self.source, start)
+            if m is not None:
+                found.append(m)
+        end = 0
+        for start in self._assignments(name):
+            if start < end:
+                continue
+            m = assign_re.match(self.source, start)
+            if m is not None and self._is_code(start, name):
+                found.append(m)
+                end = m.end()
+        return found
+
+
+def _with_edits(code: str, edits: list[tuple[int, int, str]]) -> str:
+    """`code` with each [start, end) of `edits` replaced by its text."""
+    out: list[str] = []
+    pos = 0
+    for start, end, text in sorted(edits):
+        out.append(code[pos:start])
+        out.append(text)
+        pos = end
+    out.append(code[pos:])
+    return ''.join(out)
 
 
 def effective_scope(allowed: set[str] | None, scope: tuple | None) -> set[str] | None:
@@ -2566,10 +2733,15 @@ class ESPIDFCompiler:
         if not self._detect_wifi_usage(joined):
             return list(sources)
         # WiFiMulti's addAP(ssid, pass) is a WiFi.begin() the library makes
-        # later, for the strongest network of the list.
+        # later, for the strongest network of the list. Its pattern begins with
+        # any word (the WiFiMulti object), which the regex engine tries at
+        # every letter: a source that never says addAP is not searched for it.
         station_calls = [r'WiFi\.begin']
         if re.search(r'#include\s*[<"]WiFiMulti\.h[">]', joined):
             station_calls.append(r'\b\w+\s*\.\s*addAP')
+
+        def _station_calls(src: str) -> list[str]:
+            return station_calls if 'addAP' in src else station_calls[:1]
 
         def _arg_name(args: str) -> str | None:
             """The name a call's first argument is, or None."""
@@ -2580,21 +2752,19 @@ class ESPIDFCompiler:
         #    of those is defined from, followed back a few steps.
         names: set[str] = set()
         for src in sources:
-            for call in station_calls:
+            for call in _station_calls(src):
                 for args in _call_args(src, call):
                     name = _arg_name(args)
                     if name is not None:
                         names.add(name)
+        definitions = [_Definitions(src) for src in sources]
         defined_from: dict[str, set[str]] = {}
-        blanked = [_blank_noncode(src) for src in sources]
         frontier = set(names)
         for _ in range(4):
             found: set[str] = set()
             for name in frontier:
-                define_re, assign_re = _ssid_value_patterns(name, _SSID_NAME_VALUE)
-                for src, blank in zip(sources, blanked):
-                    for m in [*define_re.finditer(src),
-                              *(m for m in assign_re.finditer(src) if _name_is_code(blank, m))]:
+                for defs in definitions:
+                    for m in defs.of(name, _NAME_DEFINITIONS):
                         defined_from.setdefault(name, set()).add(m.group(3))
                         found.add(m.group(3))
             frontier = found - names
@@ -2616,36 +2786,36 @@ class ESPIDFCompiler:
         #    so WiFi.begin(name, ...) can hint the channel of its network.
         networks_of_name: dict[str, set[str]] = {}
 
-        def _ssid_literal(m: re.Match) -> str:
+        def _ssid_literal(m: re.Match) -> str | None:
+            """The literal that replaces m's value (group 3), or None to keep
+            it: the name of the board's own access point."""
             if m.group(2) in ap_only:
-                return m.group(0)
+                return None
             ssid, _ = _replacing_virtual_ssid(m.group(3), replaced)
             networks_of_name.setdefault(m.group(2), set()).add(ssid)
-            return f'{m.group(1)}"{ssid}"'
+            return f'"{ssid}"'
 
-        def _definitions(code: str) -> str:
-            code = re.sub(
-                r'((?:const\s+)?char\s*\*?\s*(ssid)\s*\[?\]?\s*=\s*)"([^"]*)"',
-                _ssid_literal,
-                code,
-                flags=re.IGNORECASE
-            )
-            code = re.sub(
-                r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"',
-                _ssid_literal,
-                code,
-                flags=re.IGNORECASE
-            )
+        def _rewritten(m: re.Match) -> str:
+            literal = _ssid_literal(m)
+            return m.group(0) if literal is None else m.group(1) + literal
+
+        def _definitions(code: str, defs: _Definitions) -> str:
+            code = _SSID_CHAR_VARIABLE.sub(_rewritten, code)
+            code = _SSID_DEFINE.sub(_rewritten, code)
+            if code != defs.source:
+                defs = _Definitions(code)
+            # Each name's #defines, then its assignments, name after name,
+            # every match made in the same text: a rewrite only changes the
+            # literal it matched.
+            edits: list[tuple[int, int, str]] = []
             for name in sorted(names):
-                define_re, assign_re = _ssid_value_patterns(name, _SSID_LITERAL_VALUE)
-                code = define_re.sub(_ssid_literal, code)
-                blank = _blank_noncode(code)
-                code = assign_re.sub(
-                    lambda m: _ssid_literal(m) if _name_is_code(blank, m) else m.group(0), code,
-                )
-            return code
+                for m in defs.of(name, _LITERAL_DEFINITIONS):
+                    literal = _ssid_literal(m)
+                    if literal is not None:
+                        edits.append((m.end(1), m.end(), literal))
+            return _with_edits(code, edits)
 
-        sources = [_definitions(src) for src in sources]
+        sources = [_definitions(src, defs) for src, defs in zip(sources, definitions)]
 
         def _network_of(name: str) -> str | None:
             """The one network `name` names, followed through the names it is
@@ -2701,8 +2871,8 @@ class ESPIDFCompiler:
         out = []
         for src in sources:
             src = _rewrite_calls(src, r'WiFi\.begin', _rewrite_wifi_begin)
-            if len(station_calls) > 1:
-                src = _rewrite_call_args(src, station_calls[1], _rewrite_add_ap)
+            for call in _station_calls(src)[1:]:
+                src = _rewrite_call_args(src, call, _rewrite_add_ap)
             out.append(src)
 
         logger.info('[espidf] WiFi normalized: unknown SSIDs→%s (channel %d), virtual ones kept, open auth', _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL)
