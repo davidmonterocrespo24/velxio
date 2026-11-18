@@ -147,6 +147,50 @@ _HEAD_RE = re.compile(rb'<head[^>]*>', re.IGNORECASE)
 _HTML_RE = re.compile(rb'<html[^>]*>', re.IGNORECASE)
 
 
+# ── What a board's reply may set in the browser ─────────────────────────────
+# The page is served on this site's own origin, so a response header the
+# board sends is applied to the site for whoever follows the link, and that
+# visitor need not be the board's owner: cookies, the session cookie
+# included; a service worker's scope widened past the board's path; the
+# site's stored data cleared; CORS grants to other origins; transport,
+# reporting and isolation policy for the origin; instructions to the proxy
+# in front of the app. As on the request side (_BOARD_REQUEST_HEADERS below),
+# the browser gets an allow-list: what the body is, how it may be cached and
+# revalidated, where a redirect or a refresh goes, the HTTP authentication
+# challenge, and Allow / Retry-After. Every other header is dropped, whatever
+# its name: new ones that act on a whole origin keep being added to browsers.
+_BOARD_RESPONSE_HEADERS = frozenset({
+    'content-type',
+    'content-length',
+    'content-encoding',
+    'content-language',
+    'content-disposition',
+    'content-range',
+    'accept-ranges',
+    'cache-control',
+    'expires',
+    'pragma',
+    'etag',
+    'last-modified',
+    'age',
+    'vary',
+    'location',
+    'content-location',
+    'refresh',
+    'www-authenticate',
+    'allow',
+    'retry-after',
+})
+
+
+def _board_headers_only(resp: Response) -> Response:
+    """Drop every header of a board's reply that the browser is not given.
+    Changed in place."""
+    for name in {k.lower() for k in resp.headers.keys()} - _BOARD_RESPONSE_HEADERS:
+        del resp.headers[name]
+    return resp
+
+
 # ── Saying "there is no server here" so the user can read it ────────────────
 # Two things ate every word of the old answer.
 #
@@ -253,8 +297,11 @@ def _gateway_prefix(request: Request, path: str) -> str:
 
 
 def _rewrite_html(resp: Response, prefix: str) -> Response:
-    """Inject the shim into an HTML response. Any other content type, or a
-    body we cannot decode, is passed through untouched."""
+    """A board's reply as the browser gets it, on either lane: only the
+    headers in _BOARD_RESPONSE_HEADERS, and the shim injected into an HTML
+    page. The body of any other content type, or one we cannot decode, is
+    passed through untouched."""
+    _board_headers_only(resp)
     ctype = resp.media_type or resp.headers.get('content-type') or ''
     if 'html' not in ctype.lower():
         return resp
