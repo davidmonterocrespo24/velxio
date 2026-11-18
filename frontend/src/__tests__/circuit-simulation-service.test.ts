@@ -122,6 +122,12 @@ const simpleBoardWithBoard = {
   boards: [{ id: 'uno', boardKind: 'arduino-uno' }],
 };
 
+// Waits until a check passes: the solve is async and lands on a later tick.
+// A fixed 10-20 ms sleep failed the deploy gate three times under load
+// (2026-11-06, 2026-11-10, 2026-11-18). A negative check ("does NOT
+// re-solve") keeps its fixed wait.
+const until = (check: () => void) => vi.waitFor(check, { timeout: 2000, interval: 2 });
+
 describe('CircuitSimulationService — orchestration', () => {
   it('runs an initial solve when started', async () => {
     const fake = new FakeSolverAdapter({ vectors: { 'v(vcc_rail)': 5 } });
@@ -135,11 +141,10 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({ '5V': { type: 'digital', v: 5 } }) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => expect(elec.snapshots.length).toBe(1));
 
     expect(fake.calls.loadCircuit.length).toBe(1);
     expect(fake.calls.solve.length).toBe(1);
-    expect(elec.snapshots.length).toBe(1);
     expect(elec.snapshots[0]?.analysisMode).toBe('op');
     expect(elec.snapshots[0]?.nodeVoltages.vcc_rail).toBeCloseTo(5);
   });
@@ -158,7 +163,7 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({ '5V': { type: 'digital', v: 5 } }) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => expect(elec.snapshots[0]).toBeDefined());
 
     const snap = elec.snapshots[0];
     expect(snap?.branchCurrents.v_vcc_rail).toBeCloseTo(-0.005);
@@ -176,12 +181,10 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({ '5V': { type: 'digital', v: 5 } }) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(fake.calls.solve.length).toBe(1);
+    await until(() => expect(fake.calls.solve.length).toBe(1));
 
     sim.set({ components: [...simpleBoardWithBoard.components, { id: 'r2', metadataId: 'resistor', properties: {} }] });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(fake.calls.solve.length).toBe(2);
+    await until(() => expect(fake.calls.solve.length).toBe(2));
   });
 
   it('does NOT re-solve when an unrelated field changes', async () => {
@@ -196,7 +199,7 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({}) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 10));
+    await until(() => expect(fake.calls.solve.length).toBe(1));
     sim.set({}); // same arrays — should NOT trigger a re-solve
     await new Promise((r) => setTimeout(r, 10));
     expect(fake.calls.solve.length).toBe(1);
@@ -218,8 +221,7 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({}) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(service.rebuildCount).toBe(1);
+    await until(() => expect(service.rebuildCount).toBe(1));
 
     sim.set({ boards: [{ id: 'uno', boardKind: 'arduino-uno', serialOutput: 'H\n' } as never] });
     sim.set({ boards: [{ id: 'uno', boardKind: 'arduino-uno', serialOutput: 'H\nL\n' } as never] });
@@ -229,12 +231,10 @@ describe('CircuitSimulationService — orchestration', () => {
 
     // Stop resets every pin, so a running flip must still rebuild.
     sim.set({ boards: [{ id: 'uno', boardKind: 'arduino-uno', running: true } as never] });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(service.rebuildCount).toBe(2);
+    await until(() => expect(service.rebuildCount).toBe(2));
     // A kind change rebuilds too.
     sim.set({ boards: [{ id: 'uno', boardKind: 'arduino-nano', running: true } as never] });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(service.rebuildCount).toBe(3);
+    await until(() => expect(service.rebuildCount).toBe(3));
   });
 
   it('coalesces solves when one is in flight', async () => {
@@ -289,7 +289,7 @@ describe('CircuitSimulationService — orchestration', () => {
       { collectBoardPinStates: () => ({}) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => expect(elec.snapshots[0]).toBeDefined());
 
     const snap = elec.snapshots[0];
     expect(snap?.analysisMode).toBe('tran');
@@ -374,7 +374,7 @@ describe('handleMcuEdge (Phase 1c D1)', () => {
       { collectBoardPinStates: () => ({ '9': { type: 'digital', v: 0 } }) },
     );
     startTracked(service);
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => expect(fake.calls.solve.length).toBe(1));
     const initialSolves = fake.calls.solve.length;
     const initialSnapshots = elec.snapshots.length;
     expect(initialSolves).toBe(1); // initial full solve
