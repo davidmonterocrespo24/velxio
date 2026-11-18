@@ -74,7 +74,11 @@ export interface PinDrive {
  * family's output impedance in LogicFamilies.
  */
 const atmegaDrive = (chip: string): PinDrive => ({
-  ohms: FAMILIES.AVR_HC.output_impedance_ohm,
+  // Read when used, not when this table is built: LogicFamilies reads this
+  // module's boardPinGroupFor, so either can be imported first.
+  get ohms() {
+    return FAMILIES.AVR_HC.output_impedance_ohm;
+  },
   ratedA: 0.02,
   absMaxA: 0.04,
   supplyMaxA: 0.2,
