@@ -27,11 +27,11 @@ class TestWifiLineParser(unittest.TestCase):
         self.assertEqual(result['ssid'], 'Velxio-GUEST')
 
     def test_wifi_got_ip(self):
-        line = 'I (2345) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0'
+        line = 'I (2345) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2'
         result = parse_wifi_line(line)
         self.assertIsNotNone(result)
         self.assertEqual(result['status'], 'got_ip')
-        self.assertEqual(result['ip'], '192.168.4.2')
+        self.assertEqual(result['ip'], '192.168.4.15')
 
     def test_wifi_disconnect(self):
         line = 'I (9999) wifi:state: run -> init (0)'
@@ -79,6 +79,24 @@ class TestTheSketchsOwnWords(unittest.TestCase):
         self.assertEqual(result, {'status': 'connected', 'ssid': 'MasseyWifi'})
 
 
+
+class TestTheNotesGiveTheStationItsAddress(unittest.TestCase):
+    """On the QEMU lane the station holds 192.168.4.15, the first lease slirp's
+    DHCP server hands out on the radio's network, and the address the IoT
+    gateway's host forward targets; 192.168.4.2 is slirp's own address, the
+    gateway. The parser's notes gave the station .2 (velxio/velxio-prod#183)."""
+
+    def test_the_example_got_ip_line_names_the_station(self):
+        import re
+        from app.services import wifi_status_parser
+        from app.services.esp32_worker import wifi_nic_arg
+        nic = wifi_nic_arg('esp32-picsimlab', True, 18080)
+        station = re.search(r'hostfwd=tcp:[^-]*-([\d.]+):80', nic).group(1)
+        self.assertEqual(station, '192.168.4.15')
+        noted = re.search(r'sta ip: ([\d.]+)', wifi_status_parser.__doc__).group(1)
+        self.assertEqual(noted, station)
+
+
 class TestBleLineParser(unittest.TestCase):
 
     def test_ble_init(self):
@@ -110,7 +128,7 @@ class TestParseSerialText(unittest.TestCase):
         text = """I (432) wifi:wifi sta start
 I (500) wifi:new:Velxio-GUEST, old:
 I (800) wifi:connected with Velxio-GUEST, aid = 1
-I (1200) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0
+I (1200) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2
 I (300) BT_INIT: BT controller compile version [abc]
 I (500) GATTS: advertising started
 """
@@ -118,7 +136,7 @@ I (500) GATTS: advertising started
         self.assertGreaterEqual(len(wifi_events), 3)
         self.assertEqual(wifi_events[0]['status'], 'initializing')
         self.assertEqual(wifi_events[-1]['status'], 'got_ip')
-        self.assertEqual(wifi_events[-1]['ip'], '192.168.4.2')
+        self.assertEqual(wifi_events[-1]['ip'], '192.168.4.15')
         self.assertGreaterEqual(len(ble_events), 2)
         self.assertEqual(ble_events[0]['status'], 'initialized')
         self.assertEqual(ble_events[1]['status'], 'advertising')

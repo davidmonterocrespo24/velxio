@@ -92,7 +92,7 @@ class TestEsp32C3WifiSerialParser(unittest.TestCase):
     C3_SERIAL_OUTPUT = """I (432) wifi:wifi sta start
 I (500) wifi:new:Velxio-GUEST, old: , ASSOC
 I (800) wifi:connected with Velxio-GUEST, aid = 1, channel 6
-I (1200) esp_netif_handlers: sta ip: 192.168.4.2, mask: 255.255.255.0
+I (1200) esp_netif_handlers: sta ip: 192.168.4.15, mask: 255.255.255.0, gw: 192.168.4.2
 """
 
     C3_BLE_OUTPUT = """I (300) BT_INIT: BT controller compile version [abcd1234]
@@ -121,7 +121,7 @@ I (500) GATTS: advertising started
         wifi_events, _ = parse_serial_text(self.C3_SERIAL_OUTPUT)
         got_ip = [e for e in wifi_events if e['status'] == 'got_ip']
         self.assertEqual(len(got_ip), 1)
-        self.assertEqual(got_ip[0]['ip'], '192.168.4.2')
+        self.assertEqual(got_ip[0]['ip'], '192.168.4.15')
 
     def test_c3_ble_events_parsed(self):
         from app.services.wifi_status_parser import parse_serial_text

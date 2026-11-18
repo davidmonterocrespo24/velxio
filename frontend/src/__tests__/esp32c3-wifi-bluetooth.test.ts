@@ -214,13 +214,13 @@ describe('Esp32Bridge — WiFi/BLE status events (ESP32-C3)', () => {
 
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(received).toHaveLength(1);
     expect(received[0].status).toBe('got_ip');
     expect(received[0].ssid).toBe('Velxio-GUEST');
-    expect(received[0].ip).toBe('192.168.4.2');
+    expect(received[0].ip).toBe('192.168.4.15');
   });
 
   it('dispatches wifi_status initializing event', () => {
@@ -270,14 +270,14 @@ describe('Esp32Bridge — WiFi/BLE status events (ESP32-C3)', () => {
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(received).toHaveLength(3);
     expect(received[0].status).toBe('initializing');
     expect(received[1].status).toBe('connected');
     expect(received[2].status).toBe('got_ip');
-    expect(received[2].ip).toBe('192.168.4.2');
+    expect(received[2].ip).toBe('192.168.4.15');
   });
 
   it('does not crash when callbacks are not set', () => {
@@ -391,11 +391,11 @@ describe('ESP32-C3 QEMU NIC configuration', () => {
     const hostfwdPort = 54321;
     const nicModel = machine.includes('c3') ? 'esp32c3_wifi' : 'esp32_wifi';
     let nicArg = `user,model=${nicModel},net=192.168.4.0/24`;
-    nicArg += `,hostfwd=tcp::${hostfwdPort}-192.168.4.2:80`;
+    nicArg += `,hostfwd=tcp::${hostfwdPort}-192.168.4.15:80`;
 
     expect(nicArg).toContain('model=esp32c3_wifi');
     expect(nicArg).toContain('net=192.168.4.0/24');
-    expect(nicArg).toContain('hostfwd=tcp::54321-192.168.4.2:80');
+    expect(nicArg).toContain('hostfwd=tcp::54321-192.168.4.15:80');
   });
 
   it('C3 uses qemu-system-riscv32 (not qemu-system-xtensa)', () => {
