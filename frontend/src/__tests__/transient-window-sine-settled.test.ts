@@ -81,7 +81,7 @@ describe('a sine-driven filter slower than its window is read settled', () => {
     ['10k', '1u', 1000, 'pk 26.88 mV, DC 10.59 mV, RMS 15.40 mV'],
     ['10k', '10u', 50, 'pk 50.39 mV, DC 17.42 mV, RMS 28.38 mV'],
     ['10k', '100n', 1000, 'pk 160.20 mV, DC 3.28 mV, RMS 110.34 mV'],
-  ] as const)('%s / %s at %d Hz reads its steady state (it read %s)', { timeout: 60_000 }, async (r, c, f) => {
+  ] as const)('%s / %s at %d Hz reads its steady state (it read %s)', { timeout: 60_000 }, async (r, c, f, _was) => {
     const R = Number(r.replace('k', 'e3'));
     const C = Number(c.replace('u', 'e-6').replace('n', 'e-9'));
     const A = amplitude(R, C, f);
