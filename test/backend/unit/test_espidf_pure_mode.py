@@ -160,7 +160,8 @@ class WifiNormalizationArduinoTests(unittest.TestCase):
     def test_nested_call_in_the_ssid_argument_survives(self):
         code = '#include <WiFi.h>\nString net = "Velxio-GUEST";\nvoid setup(){ WiFi.begin(net.c_str(), "pw"); }'
         out = self.norm(code)
-        self.assertIn('WiFi.begin(net.c_str(), "")', out)
+        # The String's network is followed to its channel too (velxio/velxio-prod#191).
+        self.assertIn('WiFi.begin(net.c_str(), "", 6)', out)
 
     def test_reconnect_without_arguments_is_untouched(self):
         code = '#include <WiFi.h>\nvoid loop(){ if (WiFi.status() != WL_CONNECTED) WiFi.begin(); }'

@@ -1623,6 +1623,69 @@ def _rewrite_calls(code: str, name_pattern: str, rewrite) -> str:
     return ''.join(out)
 
 
+def _rewrite_call_args(code: str, name_pattern: str, rewrite) -> str:
+    """Replace the arguments of every `name(args)` call with rewrite(args)
+    (None keeps them). The callee stays as written: `wifiMulti.addAP(`."""
+    out: list[str] = []
+    pos = 0
+    for m in re.finditer(name_pattern + r'\s*\(', code):
+        if m.start() < pos:
+            continue
+        close = _matching_paren(code, m.end() - 1)
+        if close < 0:
+            break
+        replacement = rewrite(code[m.end():close])
+        if replacement is None:
+            continue
+        out.append(code[pos:m.end()])
+        out.append(replacement)
+        pos = close
+    out.append(code[pos:])
+    return ''.join(out)
+
+
+def _call_args(code: str, name_pattern: str) -> list[str]:
+    """The argument text of every `name(args)` call in `code`."""
+    found: list[str] = []
+    for m in re.finditer(name_pattern + r'\s*\(', code):
+        close = _matching_paren(code, m.end() - 1)
+        if close >= 0:
+            found.append(code[m.end():close])
+    return found
+
+
+# The SSID argument of WiFi.begin() or WiFiMulti's addAP() when it is a name:
+# `ssid`, `SECRET_SSID`, or a String passed as `net.c_str()`.
+_SSID_ARG_NAME = re.compile(r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?')
+
+# The C/C++ files of an Arduino project the SSID rewrite reads, besides the
+# .ino tabs: where a sketch keeps its credentials (secrets.h) and joins the
+# network (a .cpp of its own).
+_WIFI_SOURCE_SUFFIXES = ('.h', '.hh', '.hpp', '.hxx', '.c', '.cc', '.cpp', '.cxx', '.inc', '.ipp', '.tpp')
+
+
+def _ssid_value_patterns(name: str, value: str) -> list[re.Pattern[str]]:
+    """Where `name` is given `value` (a regex with one group): a #define, or a
+    declaration or assignment (`const char* NAME =`, `char NAME[32] =`,
+    `static constexpr char NAME[] =`, `String NAME =`, `NAME =`). Not a
+    comparison (`NAME == ...`), not a member of something else (`cfg.NAME =`).
+    Group 1 is everything before the value, group 2 the name, group 3 the
+    value's group."""
+    n = re.escape(name)
+    return [
+        re.compile(r'(^[ \t]*#[ \t]*define[ \t]+(' + n + r')[ \t]+)' + value, re.MULTILINE),
+        re.compile(
+            r'((?<![\w.])(?<!->)(' + n + r')\s*(?:\[[^\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)\s*)' + value,
+        ),
+    ]
+
+
+# A string literal, and another name (what `char ssid[] = SECRET_SSID;` or
+# `#define WIFI_SSID SECRET_SSID` defines a name from).
+_SSID_LITERAL_VALUE = r'"([^"\n]*)"'
+_SSID_NAME_VALUE = r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?(?=[ \t]*(?:;|,|\)|//|/\*|$))'
+
+
 def effective_scope(allowed: set[str] | None, scope: tuple | None) -> set[str] | None:
     """The allow-list the merge filters by, given the manifest and what the
     overlay materialised for it.
@@ -2410,8 +2473,9 @@ class ESPIDFCompiler:
         return bool(re.search(r'#include\s*[<"]esp_camera\.h[">]', code))
 
     def _detect_wifi_usage(self, code: str) -> bool:
-        """Check if sketch uses WiFi."""
-        return bool(re.search(r'#include\s*[<"]WiFi\.h[">]|WiFi\.begin\(', code))
+        """Check if sketch uses WiFi. WiFiMulti.h includes WiFi.h: a sketch
+        that joins through WiFiMulti alone is a WiFi sketch too."""
+        return bool(re.search(r'#include\s*[<"]WiFi(?:Multi)?\.h[">]|WiFi\.begin\(', code))
 
     def _detect_idf_wifi_usage(self, code: str) -> bool:
         """Pure ESP-IDF mode: does the project use the esp_wifi stack?"""
@@ -2456,53 +2520,141 @@ class ESPIDFCompiler:
         ))
 
     def _normalize_wifi_for_qemu(self, code: str, replaced: list[str] | None = None) -> str:
+        """_normalize_wifi_sources for a project of one source."""
+        return self._normalize_wifi_sources([code], replaced)[0]
+
+    def _normalize_wifi_sources(self, sources: list[str], replaced: list[str] | None = None) -> list[str]:
         """
-        Normalize WiFi SSID/password/channel in Arduino sketches for QEMU.
+        Normalize WiFi SSID/password/channel in an Arduino project for the
+        simulator, every source at once (the .ino tabs, headers, .c/.cpp files).
 
         The simulated radios (the QEMU fork and the in-browser engines) beacon
-        the open networks in _VIRTUAL_WIFI_NETWORKS. This method rewrites the
-        user's sketch so that:
+        the open networks in _VIRTUAL_WIFI_NETWORKS. The project is rewritten
+        so that:
           - An SSID literal naming one of them is kept (WiFi.SSID() stays true)
           - Any other SSID literal → _QEMU_WIFI_SSID
           - Password → "" (open auth)
           - Channel → the network's channel when the SSID is known here
+        The SSID literal is found through the name the station is given it
+        by: WiFi.begin(NAME, ...) and WiFiMulti's addAP(NAME, ...), where NAME
+        is defined in any file of the project, directly or through other names:
+        `#define SECRET_SSID "MyHome"` in secrets.h, `char ssid[] =
+        SECRET_SSID;`, `const char* WIFI_SSID = "MyHome";`, `char ssid[32] =
+        ...`, `String net = "MyHome";` passed as net.c_str(), `net = "MyHome";`.
+        A char variable named `ssid` and a #define with SSID in its name are
+        rewritten wherever they are, as before, unless they name the access
+        point the board itself creates (WiFi.softAP()).
+
+        Until velxio/velxio-prod#191 only the .ino tabs were read, and only
+        those last two forms: the secrets header the book recommends, and
+        Arduino's own examples use, reached the build with the home SSID, and
+        the board hunted for a network no radio beacons.
+
         The user's editor still shows their original code; only the compiled
         binary is modified. `replaced` collects the SSIDs that were swapped
         for the default network, for the compile log.
         """
-        if not self._detect_wifi_usage(code):
-            return code
+        joined = '\n'.join(sources)
+        if not self._detect_wifi_usage(joined):
+            return list(sources)
+        # WiFiMulti's addAP(ssid, pass) is a WiFi.begin() the library makes
+        # later, for the strongest network of the list.
+        station_calls = [r'WiFi\.begin']
+        if re.search(r'#include\s*[<"]WiFiMulti\.h[">]', joined):
+            station_calls.append(r'\b\w+\s*\.\s*addAP')
 
-        # 1) Replace SSID variable definitions:
-        #    const char* ssid = "anything" → _QEMU_WIFI_SSID
-        #    char ssid[] = "anything"      → _QEMU_WIFI_SSID
-        #    #define WIFI_SSID "anything"   → _QEMU_WIFI_SSID
-        # The SSID each rewritten name now carries, so WiFi.begin(name, ...)
-        # can hint the channel of that network below.
-        ssid_of_name: dict[str, str] = {}
+        def _arg_name(args: str) -> str | None:
+            """The name a call's first argument is, or None."""
+            m = _SSID_ARG_NAME.fullmatch(_split_call_args(args)[0])
+            return m.group(1) if m else None
+
+        # 1) The names the station is given its SSID by, and the names each
+        #    of those is defined from, followed back a few steps.
+        names: set[str] = set()
+        for src in sources:
+            for call in station_calls:
+                for args in _call_args(src, call):
+                    name = _arg_name(args)
+                    if name is not None:
+                        names.add(name)
+        defined_from: dict[str, set[str]] = {}
+        frontier = set(names)
+        for _ in range(4):
+            found: set[str] = set()
+            for name in frontier:
+                for pattern in _ssid_value_patterns(name, _SSID_NAME_VALUE):
+                    for src in sources:
+                        for m in pattern.finditer(src):
+                            defined_from.setdefault(name, set()).add(m.group(3))
+                            found.add(m.group(3))
+            frontier = found - names
+            if not frontier:
+                break
+            names |= frontier
+        # The access point the board creates is named by WiFi.softAP(NAME, ...):
+        # its name is the sketch's to choose, not a network to join.
+        ap_names: set[str] = set()
+        for src in sources:
+            for args in _call_args(src, r'WiFi\.softAP'):
+                name = _arg_name(args)
+                if name is not None:
+                    ap_names.add(name)
+        ap_only = ap_names - names
+
+        # 2) Rewrite the SSID literals those names are defined with, and the
+        #    two forms always rewritten. The networks each name now carries,
+        #    so WiFi.begin(name, ...) can hint the channel of its network.
+        networks_of_name: dict[str, set[str]] = {}
 
         def _ssid_literal(m: re.Match) -> str:
+            if m.group(2) in ap_only:
+                return m.group(0)
             ssid, _ = _replacing_virtual_ssid(m.group(3), replaced)
-            ssid_of_name[m.group(2)] = ssid
+            networks_of_name.setdefault(m.group(2), set()).add(ssid)
             return f'{m.group(1)}"{ssid}"'
-        code = re.sub(
-            r'((?:const\s+)?char\s*\*?\s*(ssid)\s*\[?\]?\s*=\s*)"([^"]*)"',
-            _ssid_literal,
-            code,
-            flags=re.IGNORECASE
-        )
-        code = re.sub(
-            r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"',
-            _ssid_literal,
-            code,
-            flags=re.IGNORECASE
-        )
 
-        # 2) Normalize WiFi.begin() calls:
+        def _definitions(code: str) -> str:
+            code = re.sub(
+                r'((?:const\s+)?char\s*\*?\s*(ssid)\s*\[?\]?\s*=\s*)"([^"]*)"',
+                _ssid_literal,
+                code,
+                flags=re.IGNORECASE
+            )
+            code = re.sub(
+                r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"',
+                _ssid_literal,
+                code,
+                flags=re.IGNORECASE
+            )
+            for name in sorted(names):
+                for pattern in _ssid_value_patterns(name, _SSID_LITERAL_VALUE):
+                    code = pattern.sub(_ssid_literal, code)
+            return code
+
+        sources = [_definitions(src) for src in sources]
+
+        def _network_of(name: str) -> str | None:
+            """The one network `name` names, followed through the names it is
+            defined from; None when there is none or more than one (a wrong
+            channel hint would hide the network from the scan)."""
+            networks: set[str] = set()
+            seen: set[str] = set()
+            todo = [name]
+            while todo:
+                n = todo.pop()
+                if n in seen:
+                    continue
+                seen.add(n)
+                networks |= networks_of_name.get(n, set())
+                todo.extend(defined_from.get(n, ()))
+            return next(iter(networks)) if len(networks) == 1 else None
+
+        # 3) Normalize the calls:
         #    WiFi.begin("X")           → WiFi.begin(_QEMU_WIFI_SSID, "", _QEMU_WIFI_CHANNEL)
         #    WiFi.begin("X", "pass")   → WiFi.begin(_QEMU_WIFI_SSID, "", _QEMU_WIFI_CHANNEL)
-        #    WiFi.begin(ssid, pass, N) → WiFi.begin(ssid, "", _QEMU_WIFI_CHANNEL)
-        #    WiFi.begin(ssid)          → WiFi.begin(ssid, "", _QEMU_WIFI_CHANNEL)
+        #    WiFi.begin(ssid, pass, N) → WiFi.begin(ssid, "", <ssid's channel>)
+        #    WiFi.begin(ssid)          → WiFi.begin(ssid, "", <ssid's channel>)
+        #    multi.addAP("X", "pass")  → multi.addAP(_QEMU_WIFI_SSID, "")
 
         def _rewrite_wifi_begin(args: str) -> str | None:
             if not args.strip():
@@ -2511,21 +2663,36 @@ class ESPIDFCompiler:
             # A string literal becomes the virtual network it names (or the
             # default one), with that network's channel as the scan hint. A
             # name whose definition was rewritten above hints the same way; any
-            # other expression (net.c_str(), a struct field) keeps its value and
-            # gets no hint: the station finds the channel by scanning, as on
-            # real hardware.
+            # other expression (a struct field, a function's parameter) keeps
+            # its value and gets no hint: the station finds the channel by
+            # scanning, as on real hardware.
             if ssid_arg.startswith('"') and ssid_arg.endswith('"'):
                 ssid, channel = _replacing_virtual_ssid(ssid_arg[1:-1], replaced)
                 return f'WiFi.begin("{ssid}", "", {channel})'
-            ssid = ssid_of_name.get(ssid_arg)
+            name = _arg_name(args)
+            ssid = _network_of(name) if name is not None else None
             if ssid is not None:
                 return f'WiFi.begin({ssid_arg}, "", {_VIRTUAL_WIFI_NETWORKS[ssid]})'
             return f'WiFi.begin({ssid_arg}, "")'
 
-        code = _rewrite_calls(code, r'WiFi\.begin', _rewrite_wifi_begin)
+        def _rewrite_add_ap(args: str) -> str | None:
+            parts = _split_call_args(args)
+            if not parts[0]:
+                return None
+            ssid_arg = parts[0]
+            if ssid_arg.startswith('"') and ssid_arg.endswith('"'):
+                ssid_arg = f'"{_replacing_virtual_ssid(ssid_arg[1:-1], replaced)[0]}"'
+            return f'{ssid_arg}, ""'
+
+        out = []
+        for src in sources:
+            src = _rewrite_calls(src, r'WiFi\.begin', _rewrite_wifi_begin)
+            if len(station_calls) > 1:
+                src = _rewrite_call_args(src, station_calls[1], _rewrite_add_ap)
+            out.append(src)
 
         logger.info('[espidf] WiFi normalized: unknown SSIDs→%s (channel %d), virtual ones kept, open auth', _QEMU_WIFI_SSID, _QEMU_WIFI_CHANNEL)
-        return code
+        return out
 
     def _translate_sketch_to_espidf(self, sketch_code: str) -> str:
         """
@@ -6574,11 +6741,28 @@ class ESPIDFCompiler:
             # The pure-IDF branch above always read every file; this one had
             # been reading only main_content.
             has_wifi = self._detect_wifi_usage(_all_text)
-            # Normalization still rewrites only the entry sketch: it edits
-            # string literals in place, and the SSID that matters is the one
-            # WiFi.begin() is called with.
+            # Normalization reads every source the build compiles, rewritten
+            # together: the .ino tabs (main_content) and the headers and
+            # .c/.cpp files written beside them. The SSID WiFi.begin() is
+            # given is often defined in another file (a secrets.h); reading
+            # the tabs alone left it untouched (velxio/velxio-prod#191).
             if not custom_wifi_ssids:
-                main_content = self._normalize_wifi_for_qemu(main_content, wifi_replaced)
+                user_sources = [
+                    f for f in files
+                    if not str(f.get('name') or '').endswith('.ino')
+                    and str(f.get('name') or '').lower().endswith(_WIFI_SOURCE_SUFFIXES)
+                ]
+                rewritten = self._normalize_wifi_sources(
+                    [main_content] + [str(f.get('content', '')) for f in user_sources],
+                    wifi_replaced,
+                )
+                main_content = rewritten[0]
+                copies = {
+                    id(f): {**f, 'content': content}
+                    for f, content in zip(user_sources, rewritten[1:])
+                }
+                files = [copies.get(id(f), f) for f in files]
+                entry_file = copies.get(id(entry_file), entry_file)
 
         # Arduino-as-component only when compile() decided so: the core must
         # support the target (esp32c6 needs an arduino-esp32 3.x core the
