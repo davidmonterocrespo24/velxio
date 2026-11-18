@@ -14,7 +14,10 @@
  *    707.11 mV and 0;
  *  - a 1 kHz, 0-5 V square wave into 100 Ω, 10 mH and 470 µF: the start-up
  *    went from 0.329 s (seven time constants) to 0.1 s, and the capacitor
- *    read DC 2.229 V for 2.5 V (1.619 V with 1000 µF).
+ *    read DC 2.229 V for 2.5 V (1.619 V with 1000 µF);
+ *  - a sine-driven LC low-pass whose seven time constants fit 10 000 plain
+ *    steps but not 10 000 of its finer ones ran no start-up at all: the rule
+ *    for sine-driven decks (#120) called it too slow.
  * Both budgets now count the plain step, and only the integration runs at the
  * finer one. A diode's finer step (DIODE_STEP_DIVISOR) counts from the plain
  * step too: a resonant deck is already finer than that.
@@ -81,6 +84,31 @@ function squareRlc(cap: string, { inductor = true, diode = false } = {}) {
   ];
   const wires: Wire[] = [
     ...(diode ? [w('w0', ['g', 'SIG'], ['d', 'A']), w('w1', ['d', 'C'], ['r', '1'])] : [w('w1', ['g', 'SIG'], ['r', '1'])]),
+    ...(inductor
+      ? [w('w2', ['r', '2'], ['l', '1']), w('w3', ['l', '2'], ['c', '1'])]
+      : [w('w2', ['r', '2'], ['c', '1'])]),
+    w('w4', ['c', '2'], ['g', 'GND']),
+    w('w5', ['vm', 'V+'], ['c', '1']),
+    w('w6', ['vm', 'V-'], ['g', 'GND']),
+  ];
+  return { components, wires };
+}
+
+/**
+ * A 1 kHz, 1 V sine into 10 kΩ, 1 mH and 4.7 µF in series (with
+ * `inductor: false`, the same RC), a voltmeter across the capacitor: a
+ * low-pass whose time constant (47 ms) outlasts its 5 ms window.
+ */
+function sineLowPass({ inductor = true } = {}) {
+  const components: Comp[] = [
+    { id: 'g', metadataId: 'signal-generator', properties: { waveform: 'sine', frequency: 1000, amplitude: 1, offset: 0 } },
+    { id: 'r', metadataId: 'resistor', properties: { value: '10k' } },
+    ...(inductor ? [{ id: 'l', metadataId: 'inductor', properties: { value: '1m' } }] : []),
+    { id: 'c', metadataId: 'capacitor', properties: { value: '4.7u' } },
+    { id: 'vm', metadataId: 'instr-voltmeter', properties: {} },
+  ];
+  const wires: Wire[] = [
+    w('w1', ['g', 'SIG'], ['r', '1']),
     ...(inductor
       ? [w('w2', ['r', '2'], ['l', '1']), w('w3', ['l', '2'], ['c', '1'])]
       : [w('w2', ['r', '2'], ['c', '1'])]),
@@ -165,6 +193,26 @@ describe('a resonant deck keeps the start-up a plain deck gets', () => {
       expect(card.start).toBeCloseTo(rcCard.start, 9);
     },
   );
+
+  it('a sine-driven LC filter settles as long as the same RC (10 kΩ, 1 mH, 4.7 µF at 1 kHz)', { timeout: 120_000 }, async () => {
+    // Seven time constants are 0.329 s: within 10 000 plain steps (0.5 s),
+    // not within 10 000 of the deck's finer ones (0.1 s), which the rule for
+    // sine-driven decks (velxio/velxio-prod#120) would call too slow to run.
+    const lc = sineLowPass();
+    const ac = await meterReading(lc.components, lc.wires);
+    // |H| = 1 / |1 - ω²LC + jωRC| at 1 kHz: 3.386 mV peak.
+    const omega = 2 * Math.PI * 1000;
+    const A = 1 / Math.hypot(1 - omega * omega * 1e-3 * 4.7e-6, omega * 10e3 * 4.7e-6);
+    expect(Math.abs(ac.dc), `DC ${ac.dc}`).toBeLessThan(A * 0.01);
+    expect(Math.abs(ac.rms - A * Math.SQRT1_2) / (A * Math.SQRT1_2), `RMS ${ac.rms}`).toBeLessThan(0.015);
+
+    const card = tranCard(lc.components, lc.wires);
+    const rc = sineLowPass({ inductor: false });
+    const rcCard = tranCard(rc.components, rc.wires);
+    expect(card.step).toBeCloseTo(1 / (1000 * 100), 12);
+    expect(rcCard.start).toBeGreaterThanOrEqual(0.329 - 1e-9);
+    expect(card.start).toBeCloseTo(rcCard.start, 9);
+  });
 
   it('a resonant deck that holds a diode runs at the resonant step, not half of it', () => {
     // A diode's conduction pulses want half the plain step (T/40); a resonant

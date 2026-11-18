@@ -142,8 +142,9 @@ export function startsAwayFromSteadyState(cards: readonly string[]): boolean {
 /**
  * The start-up a transient runs before the window it stores, in seconds (0
  * for none), for a deck whose cards are `cards`, whose window is `windowS`
- * long at a step of `stepS`, and whose slowest source has the period
- * `periodS`. See the module comment.
+ * long, whose budget counts steps of `stepS` (the plain step, not a resonant
+ * deck's finer one: MAX_SETTLE_STEPS), and whose slowest source has the
+ * period `periodS`. See the module comment.
  */
 export function startUpSeconds(
   cards: readonly string[],
