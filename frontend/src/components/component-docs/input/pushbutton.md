@@ -3,9 +3,7 @@ brand: Generic tactile switch
 buy: https://www.amazon.com/s?k=tactile+pushbutton+momentary+switch
 ---
 Momentary tactile pushbutton. Bridges its two contact pairs while held, then
-springs open. A real button bounces for a few milliseconds on press and
-release; Velxio's switches cleanly, once per press, so debounce code is never
-exercised here. Keep it anyway: on hardware, debounce in code or with an RC.
+springs open.
 
 | Pin | Role |
 | --- | --- |
@@ -14,5 +12,8 @@ exercised here. Keep it anyway: on hardware, debounce in code or with an RC.
 
 - Pair with a **pull-up** or **pull-down** so the pin has a defined idle level.
 - On AVR use the internal pull-up: `pinMode(pin, INPUT_PULLUP)`.
+- A real button bounces for a few milliseconds on press and release;
+  Velxio's switches cleanly, once per press, so debounce code is never
+  exercised here. Keep it anyway: on hardware, debounce in code or with an RC.
 
 **Tip:** `pin → button → GND` with `INPUT_PULLUP` reads LOW when pressed.
