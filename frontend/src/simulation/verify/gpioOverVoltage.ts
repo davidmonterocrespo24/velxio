@@ -1,13 +1,19 @@
 /**
- * A GPIO of a 3.3 V ESP32 that the circuit takes above what its pad takes
- * (velxio/velxio-prod#175).
+ * A GPIO that the circuit takes above what its pad takes: an ESP32's
+ * (velxio/velxio-prod#175), and any other board's whose pin data says what
+ * its pads take (velxio/velxio-prod#225).
  *
  * An ESP32 input takes at most VDD + 0.3 V (ESP32 datasheet v5.3, Table 5-3,
  * VIH max; the ESP32-S3 and ESP32-C3 datasheets give the same), 3.6 V on a
- * 3.3 V board. The pre-flight's own solve cannot show what reaches a GPIO: it
- * forces every wired GPIO HIGH at the board's 3.3 V (the worst case for an LED),
- * so a 5 V supply through 1 kOhm into GPIO4 solves at 3.3 V there. This check
- * reads the canvas twice over:
+ * 3.3 V board. Other boards declare their limit (boardPinGroups, gpioMax):
+ * VCC + 0.5 V on an ATmega or the ATtiny85, IOVDD + 0.5 V on the RP2040. A
+ * board that declares none is not checked: an STM32's 5 V-tolerant (FT) pads
+ * sit beside pads that are not, which takes per-pin data.
+ *
+ * The pre-flight's own solve cannot show what reaches a GPIO: it forces every
+ * wired GPIO HIGH at the board's own level (the worst case for an LED), so a
+ * 5 V supply through 1 kOhm into an ESP32's GPIO4 solves at 3.3 V there. This
+ * check reads the canvas twice over:
  *
  *  - the WIRING: a supply pin above the limit on the pad's own wire group (another
  *    board's 5V, the ESP32's own VIN / 5V, a battery's or a bench supply's +),
@@ -30,6 +36,7 @@ import { breadboardGroupKey, hasInternalNets } from '../../utils/breadboardNets'
 import { esp32ChipOf } from '../../types/boardOptions';
 import { isInputOnlyPad } from '../../utils/boardPinMapping';
 import { getBoardLogicFamily } from '../LogicFamilies';
+import { boardPinGroupFor } from '../spice/boardPinGroups';
 import type { BoardKind } from '../../types/board';
 
 type Board = BuildNetlistInput['boards'][number];
@@ -53,16 +60,33 @@ const CHIP_LABEL: Record<string, string> = {
   'esp32-p4': 'ESP32-P4',
 };
 
-/** Above this an ESP32 GPIO is past its rating; null for a board not checked this way. */
-export function gpioInputLimit(board: Board): { volts: number; label: string } | null {
+/** What a board's GPIO takes at most, and the chip and datasheet rule a message names. */
+export interface GpioInputLimit {
+  volts: number;
+  label: string;
+  rule: string;
+}
+
+/**
+ * Above this a GPIO of the board is past its rating; null for a board not
+ * checked this way. An Espressif chip takes VDD + 0.3 V (to the millivolt, so
+ * 3.6 V on a 3.3 V board is not over); any other board what its pin data
+ * declares (boardPinGroups: gpioMax, or an overlay board's power.gpioMax).
+ */
+export function gpioInputLimit(board: Board): GpioInputLimit | null {
   if (!board.boardKind) return null;
   const chip = esp32ChipOf(board.boardKind as BoardKind);
-  if (!chip) return null;
-  return { volts: board.vcc + 0.3, label: CHIP_LABEL[chip] ?? 'ESP32' };
+  if (chip) {
+    return { volts: Math.round((board.vcc + 0.3) * 1000) / 1000, label: CHIP_LABEL[chip] ?? 'ESP32', rule: 'VDD + 0.3 V' };
+  }
+  const declared = boardPinGroupFor(board.boardKind).gpioMax;
+  return declared ? { volts: declared.volts, label: declared.chip, rule: declared.rule } : null;
 }
 
 const volts = (v: number) => `${v.toFixed(1)} V`;
-const padName = (pin: string) => (/^\d+$/.test(pin) ? `GPIO${pin}` : pin);
+/** An ESP32's pad by its GPIO number, any other board's by its pin name. */
+const padName = (board: Board, pin: string) =>
+  esp32ChipOf((board.boardKind ?? '') as BoardKind) ? (/^\d+$/.test(pin) ? `GPIO${pin}` : pin) : `pin ${pin}`;
 const isGpio = (board: Board, pin: string) =>
   !!board.boardKind && pinNameToArduinoPin(pin, board.boardKind as BoardKind) >= 0;
 /** A pad the pre-flight would drive HIGH: not one picked by its analog name (an
@@ -123,7 +147,7 @@ export async function gpioOverVoltages(
 ): Promise<GpioOverVoltage[]> {
   const limited = input.boards
     .map((board) => ({ board, limit: gpioInputLimit(board) }))
-    .filter((x): x is { board: Board; limit: { volts: number; label: string } } => x.limit !== null);
+    .filter((x): x is { board: Board; limit: GpioInputLimit } => x.limit !== null);
   if (limited.length === 0) return [];
 
   const wired = wiredPins(input);
@@ -146,9 +170,11 @@ export async function gpioOverVoltages(
         addDrive(`${board.id}:${pin}`, { volts: board.vcc, what: `${pin} of ${board.id}`, link: false });
       } else if (board.auxVolts !== undefined && board.auxPinNames?.includes(pin)) {
         addDrive(`${board.id}:${pin}`, { volts: board.auxVolts, what: `${pin} of ${board.id}`, link: false });
-      } else if (gpioInputLimit(board) === null && isGpio(board, pin) && canDrive(board, pin)) {
+      } else if (isGpio(board, pin) && canDrive(board, pin)) {
         // The level its pins drive, which is not always its supply: a
-        // Raspberry Pi takes 5 V in and drives 3.3 V.
+        // Raspberry Pi takes 5 V in and drives 3.3 V. Every board's: one
+        // checked itself still drives the others (an Uno's pin on a Pico's),
+        // and its own level never passes what its own pads take.
         const logic = board.boardKind ? getBoardLogicFamily(board.boardKind).vcc : board.vcc;
         addDrive(`${board.id}:${pin}`, {
           volts: logic,
@@ -174,14 +200,14 @@ export async function gpioOverVoltages(
       const over = (drives.get(group(`${board.id}:${pin}`)) ?? []).filter((d) => d.volts > limit.volts);
       if (over.length === 0) continue;
       const worst = over.reduce((a, b) => (b.volts > a.volts || (b.volts === a.volts && a.link && !b.link) ? b : a));
-      const pad = padName(pin);
+      const pad = padName(board, pin);
       found.set(`${board.id}:${pin}`, {
         boardId: board.id,
         pinName: pin,
         volts: worst.volts,
         message: worst.link
-          ? `${limit.label} ${board.id}'s ${pad} is wired to ${worst.what}: when that pin drives HIGH it puts ${volts(worst.volts)} on ${pad}, above the ${volts(limit.volts)} an ${limit.label} pin takes (VDD + 0.3 V). Put a level shifter or a divider (for example 1 kΩ over 2 kΩ) between them.`
-          : `${limit.label} ${board.id}'s ${pad} is wired to ${worst.what} (${volts(worst.volts)}) — above the ${volts(limit.volts)} an ${limit.label} pin takes (VDD + 0.3 V). Real hardware would likely be damaged; this voltage is not emulated accurately. Use a level shifter or a voltage divider.`,
+          ? `${limit.label} ${board.id}'s ${pad} is wired to ${worst.what}: when that pin drives HIGH it puts ${volts(worst.volts)} on ${pad}, above the ${volts(limit.volts)} an ${limit.label} pin takes (${limit.rule}). Put a level shifter or a divider (for example 1 kΩ over 2 kΩ) between them.`
+          : `${limit.label} ${board.id}'s ${pad} is wired to ${worst.what} (${volts(worst.volts)}) — above the ${volts(limit.volts)} an ${limit.label} pin takes (${limit.rule}). Real hardware would likely be damaged; this voltage is not emulated accurately. Use a level shifter or a voltage divider.`,
       });
     }
   }
@@ -214,12 +240,12 @@ export async function gpioOverVoltages(
           if (net === undefined || net === '0') continue;
           const v = nodeVoltages[net];
           if (v === undefined || !Number.isFinite(v) || v <= limit.volts + 0.01) continue;
-          const pad = padName(pin);
+          const pad = padName(board, pin);
           found.set(key, {
             boardId: board.id,
             pinName: pin,
             volts: v,
-            message: `The circuit holds ${limit.label} ${board.id}'s ${pad} at ${volts(v)} — above the ${volts(limit.volts)} an ${limit.label} pin takes (VDD + 0.3 V). Real hardware would likely be damaged; this voltage is not emulated accurately. Use a level shifter or a voltage divider.`,
+            message: `The circuit holds ${limit.label} ${board.id}'s ${pad} at ${volts(v)} — above the ${volts(limit.volts)} an ${limit.label} pin takes (${limit.rule}). Real hardware would likely be damaged; this voltage is not emulated accurately. Use a level shifter or a voltage divider.`,
           });
         }
       }
