@@ -12,7 +12,10 @@ whose network lives in the browser. Their responses meet in the gateway
 route, which now points the URL headers under the prefix, by the shim's rules.
 """
 
+import random
+import re
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -146,3 +149,45 @@ async def test_content_location_and_refresh_follow():
 )
 def test_the_rules(given, expected):
     assert iot_gateway.board_url_under_prefix(given, PREFIX) == expected
+
+
+# ── Refresh's url=, read once ──────────────────────────────────────────────
+
+# The pattern the gateway read a Refresh header's URL with. It read the rest
+# of the header again after every `; url=` it tried, so its time grew with
+# the square of the header (80 KB: 30 s, on the server's only event loop).
+_REFRESH_URL_RE = re.compile(r'(;\s*url\s*=\s*)(["\']?)([^"\']*)\2\s*$', re.IGNORECASE)
+
+
+def _as_the_pattern_read_it(value: str):
+    m = _REFRESH_URL_RE.search(value)
+    return None if m is None else (m.start(), m.group(1), m.group(2), m.group(3))
+
+
+@pytest.mark.asyncio
+async def test_a_quoted_refresh_url_follows():
+    resp = await _through_qemu("", httpx.Response(
+        200, text="saved", headers={"refresh": "0; URL='/next' "}))
+    assert resp.headers["refresh"] == "0; URL='" + PREFIX + "next'"
+
+
+def test_refresh_is_read_as_the_pattern_read_it():
+    pieces = [";", " ", "\t", "\n", "\r", "\x0b", "\x0c", "\x1c", "\x85", "\xa0", "url", "URL", "uRl", "ur", "l",
+              "=", '"', "'", "x", "/", "0", "; url=", ';url="', "; URL='", "3", "http://192.168.4.1/", "/next"]
+    rng = random.Random(1201)
+    matched = 0
+    for _ in range(20000):
+        value = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 30)))
+        expected = _as_the_pattern_read_it(value)
+        matched += expected is not None
+        assert iot_gateway._refresh_url(value) == expected, repr(value)
+    assert matched > 2000
+
+
+def test_a_long_refresh_header_is_read_in_linear_time():
+    value = ";url=" * 8000 + '"x'  # 40 KB: 7.6 s with the pattern
+    resp = Response(status_code=200, headers={"refresh": value})
+    t = time.process_time()
+    iot_gateway._rewrite_url_headers(resp, PREFIX)
+    assert time.process_time() - t < 0.5
+    assert resp.headers["refresh"] == value
