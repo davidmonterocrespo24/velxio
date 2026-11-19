@@ -161,7 +161,7 @@ _HTML_RE = re.compile(rb'<html[^>]*>', re.IGNORECASE)
 # slirp, the Pico W and the in-browser ESP32 engines via the virtual net.
 _BOARD_HOST_RE = re.compile(r'^(?:192\.168\.4\.\d{1,3}|10\.13\.37\.\d{1,3})$')
 _URL_SCHEME_RE = re.compile(r'^[a-z][a-z0-9+.-]*:', re.IGNORECASE)
-_REFRESH_URL_RE = re.compile(r'(;\s*url\s*=\s*)(["\']?)([^"\']*)\2\s*$', re.IGNORECASE)
+_REFRESH_URL_HEAD_RE = re.compile(r';\s*url\s*=\s*', re.IGNORECASE)
 
 
 def board_url_under_prefix(value: str, prefix: str) -> str:
@@ -193,6 +193,31 @@ def board_url_under_prefix(value: str, prefix: str) -> str:
     return prefix + url[1:]
 
 
+def _refresh_url(value: str) -> tuple[int, str, str, str] | None:
+    r"""Where the URL of a Refresh header ("3; url=/next") is: (start of
+    the `; url=` head, the head, the quote around the URL or '', the URL),
+    or None. The same as re.search(r'(;\s*url\s*=\s*)(["\']?)([^"\']*)\2\s*$',
+    value, re.IGNORECASE) gives (its start and groups 1 to 3), read in time
+    linear in the value.
+
+    The URL runs to the end of the value: after the head comes either no
+    quote at all, and the URL is the rest, or the second-to-last quote of
+    the value, and the URL ends at the last one, the same quote, with
+    nothing but spaces after it. So the first head followed by one of those
+    is the match. The regex itself read the rest of the value again after
+    every `; url=` it tried."""
+    last = max(value.rfind('"'), value.rfind("'"))
+    before = max(value.rfind('"', 0, last), value.rfind("'", 0, last)) if last > 0 else -1
+    quoted = before >= 0 and value[before] == value[last] and not value[last + 1:].strip()
+    for head in _REFRESH_URL_HEAD_RE.finditer(value):
+        url_at = head.end()
+        if url_at > last:
+            return head.start(), head.group(), '', value[url_at:]
+        if quoted and url_at == before:
+            return head.start(), head.group(), value[before], value[before + 1:last]
+    return None
+
+
 def _rewrite_url_headers(resp: Response, prefix: str) -> Response:
     """Point the board response's URL headers (Location, Content-Location,
     and Refresh's url=) under the prefix. Changed in place."""
@@ -204,13 +229,12 @@ def _rewrite_url_headers(resp: Response, prefix: str) -> Response:
                 resp.headers[name] = moved
     refresh = resp.headers.get('refresh')
     if refresh is not None:
-        m = _REFRESH_URL_RE.search(refresh)
-        if m:
-            moved = board_url_under_prefix(m.group(3), prefix)
-            if moved != m.group(3):
-                resp.headers['refresh'] = (
-                    refresh[: m.start()] + m.group(1) + m.group(2) + moved + m.group(2)
-                )
+        found = _refresh_url(refresh)
+        if found:
+            start, head, quote, url = found
+            moved = board_url_under_prefix(url, prefix)
+            if moved != url:
+                resp.headers['refresh'] = refresh[:start] + head + quote + moved + quote
     return resp
 
 
