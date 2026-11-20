@@ -40,6 +40,7 @@ from app.services.symbol_extract import (
     _entry_version_key,
     _read_props,
     find_cache_entry,
+    library_headers,
     norm_name,
     norm_version,
     parse_spec,
@@ -324,8 +325,32 @@ def _type_index(src: _Source) -> dict[str, str]:
     return types
 
 
+@router.get("/catalog")
+def get_catalog() -> JSONResponse:
+    """Installed library names, versions and headers for include completion."""
+    libraries = []
+    seen: set[tuple[str, str]] = set()
+    for source in _sources():
+        for entry in _entries(source):
+            if not (entry / "library.properties").is_file():
+                continue
+            props = _read_props(entry)
+            name = props.get("name") or entry.name
+            version = props.get("version", "")
+            key = norm_name(name), norm_version(version)
+            if key in seen:
+                continue
+            seen.add(key)
+            architectures = [value.strip() for value in props.get("architectures", "*").split(",")]
+            libraries.append({
+                "name": name, "version": version, "headers": library_headers(entry),
+                "architectures": architectures,
+            })
+    return JSONResponse({"libraries": libraries}, headers={"Cache-Control": "no-cache"})
+
+
 @router.get("/type/{name}")
-def get_type_members(name: str) -> JSONResponse:
+def get_type_members(name: str, library: str | None = None) -> JSONResponse:
     """Members of one class/struct, whichever library declares it.
 
     This is the long-tail path that is safe for completion quality: the
@@ -343,14 +368,17 @@ def get_type_members(name: str) -> JSONResponse:
         raise HTTPException(status_code=400, detail="not a type name")
 
     for src in sources:
-        types = _type_index(src)
-        entry_name = types.get(name)
-        if entry_name is None:
-            continue
-        entry = src.root / entry_name
-        if not entry.is_dir():
+        types = None if library else _type_index(src)
+        if library:
+            entry = _find_entry(src, *parse_spec(library))
+        else:
+            entry_name = types.get(name)
+            entry = src.root / entry_name if entry_name else None
+        if entry is None or not entry.is_dir():
             continue  # stale index for this source; try the next
         payload = _payload_for(src, entry)
+        if library and not any(s.get("name") == name or s.get("owner") == name for s in payload.get("symbols", [])):
+            continue
         break
     else:
         raise HTTPException(status_code=404, detail=f"no installed library declares {name}")
@@ -387,6 +415,8 @@ def get_type_members(name: str) -> JSONResponse:
             if base in visited:
                 continue
             visited.add(base)
+            if types is None:
+                types = _type_index(src)
             base_entry = types.get(base)
             if base_entry and (src.root / base_entry).is_dir():
                 queue.append((base, _payload_for(src, src.root / base_entry)))

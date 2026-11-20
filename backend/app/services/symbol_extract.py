@@ -539,17 +539,8 @@ def _iter_headers(lib_dir: Path):
                 yield Path(dirpath) / fn
 
 
-def scan_library(lib_dir: Path) -> dict:
-    """Scan one library tree into an intellisense payload:
-
-        {"id": <display name>, "triggers": [<header basenames>], "symbols": [...]}
-
-    Symbol dicts use the ApiSymbol field names exactly: name, kind, signature,
-    detail, doc, insertText, owner, params — optional fields are simply
-    omitted when unknown. `detail` is always the library display name."""
-    props = _read_props(lib_dir)
-    display = props.get("name") or lib_dir.name
-
+def library_headers(lib_dir: Path) -> list[str]:
+    """Public include candidates, without parsing the library's source."""
     triggers: list[str] = []
     for root in (lib_dir, lib_dir / "src"):
         if not root.is_dir():
@@ -562,6 +553,14 @@ def scan_library(lib_dir: Path) -> dict:
             if child.is_file() and child.suffix.lower() in _HEADER_SUFFIXES:
                 if child.name not in triggers:
                     triggers.append(child.name)
+    return triggers
+
+
+def scan_library(lib_dir: Path) -> dict:
+    """Scan public headers and symbols for IntelliSense."""
+    props = _read_props(lib_dir)
+    display = props.get("name") or lib_dir.name
+    triggers = library_headers(lib_dir)
 
     symbols: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
