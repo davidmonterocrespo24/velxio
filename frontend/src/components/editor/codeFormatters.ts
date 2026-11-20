@@ -110,7 +110,18 @@ export const PYTHON_FORMAT_CONFIG = {
   magic_trailing_comma: 'respect',
 } as const;
 
-type FormatFn = (source: string, filename: string, eol: '\n' | '\r\n') => string;
+interface FormatIndentation {
+  insertSpaces: boolean;
+  indentSize: number;
+  tabSize: number;
+}
+
+type FormatFn = (
+  source: string,
+  filename: string,
+  eol: '\n' | '\r\n',
+  indentation?: FormatIndentation,
+) => string;
 
 // Each engine is loaded once per page and memoised as a promise so that a
 // burst of format requests shares one download. A failed load is forgotten
@@ -132,16 +143,32 @@ async function loadEngine(language: FormatterLanguage): Promise<FormatFn> {
 async function loadClangFormat(): Promise<FormatFn> {
   const mod = await import('@wasm-fmt/clang-format/vite');
   await mod.default();
-  const style = JSON.stringify(ARDUINO_CLANG_FORMAT_STYLE);
-  return (source, filename) => mod.format(source, filename, style);
+  return (source, filename, _eol, indentation) => {
+    const style = indentation
+      ? {
+          ...ARDUINO_CLANG_FORMAT_STYLE,
+          IndentWidth: indentation.indentSize,
+          TabWidth: indentation.tabSize,
+          ContinuationIndentWidth: indentation.indentSize,
+          ConstructorInitializerIndentWidth: indentation.indentSize,
+          AccessModifierOffset: -indentation.indentSize,
+          UseTab: indentation.insertSpaces ? 'Never' : 'ForIndentation',
+        }
+      : ARDUINO_CLANG_FORMAT_STYLE;
+    return mod.format(source, filename, JSON.stringify(style));
+  };
 }
 
 async function loadRuff(): Promise<FormatFn> {
   const mod = await import('@wasm-fmt/ruff_fmt/vite');
   await mod.default();
-  return (source, filename, eol) =>
+  return (source, filename, eol, indentation) =>
     mod.format(source, filename, {
       ...PYTHON_FORMAT_CONFIG,
+      ...(indentation && {
+        indent_style: indentation.insertSpaces ? 'space' : 'tab',
+        indent_width: indentation.indentSize,
+      }),
       line_ending: eol === '\r\n' ? 'crlf' : 'lf',
     });
 }
@@ -170,9 +197,10 @@ export async function formatSource(
   filename: string,
   source: string,
   eol: '\n' | '\r\n' = '\n',
+  indentation?: FormatIndentation,
 ): Promise<string> {
   const format = await loadEngine(language);
-  return format(source, formatterFilename(language, filename), eol);
+  return format(source, formatterFilename(language, filename), eol, indentation);
 }
 
 /** Half-open line ranges: replace old[aStart, aEnd) with new[bStart, bEnd). */
@@ -370,7 +398,7 @@ export function registerCodeFormatters(monaco: typeof Monaco): void {
       const source = model.getValue();
       let formatted: string;
       try {
-        formatted = await formatSource(language, filename, source, eol);
+        formatted = await formatSource(language, filename, source, eol, model.getOptions());
       } catch (err) {
         // ruff rejects code it cannot parse (an unclosed bracket, a stray
         // indent); say so with the parser's own position instead of doing
@@ -381,7 +409,7 @@ export function registerCodeFormatters(monaco: typeof Monaco): void {
         });
         return [];
       }
-      if (model.isDisposed()) return [];
+      if (model.isDisposed() || model.getValue() !== source) return [];
       return computeFormatEdits(model, formatted);
     },
   });
