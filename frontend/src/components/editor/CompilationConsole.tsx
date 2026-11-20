@@ -6,6 +6,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { compileErrorCount, type CompilationLog, type CompileTarget } from '../../utils/compilationLogger';
+import { revealWorkspaceFile } from '../../lib/workspaceNavigation';
 
 /** One contiguous run of log lines for the same target (or none). */
 interface LogGroup {
@@ -239,15 +240,26 @@ const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
 
 // Memoized: a log entry is immutable once appended, so a line never needs to
 // re-render — appends only mount NEW lines instead of re-rendering all.
-const LogLine = React.memo<{ log: CompilationLog }>(({ log }) => (
-  <div style={styles.logLine}>
-    <span style={styles.timestamp}>{TIME_FORMAT.format(log.timestamp)}</span>
-    <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
-      {log.type === 'core-install' && <span style={styles.coreTag}>CORE </span>}
-      {log.message}
-    </span>
-  </div>
-));
+const LogLine = React.memo<{ log: CompilationLog }>(({ log }) => {
+  const { location } = log;
+  return (
+    <div style={styles.logLine}>
+      <span style={styles.timestamp}>{TIME_FORMAT.format(log.timestamp)}</span>
+      <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
+        {log.type === 'core-install' && <span style={styles.coreTag}>CORE </span>}
+        {location ? (
+          <button
+            type="button"
+            className="compile-source-link"
+            onClick={() => revealWorkspaceFile(location.groupId, location.fileId, location.position)}
+          >
+            {log.message}
+          </button>
+        ) : log.message}
+      </span>
+    </div>
+  );
+});
 LogLine.displayName = 'LogLine';
 
 function statusColor(status: 'error' | 'success' | 'running'): string {
@@ -273,7 +285,7 @@ function logColor(type: CompilationLog['type']): string {
     case 'core-install':
       return '#4fc3f7';
     default:
-      return 'var(--wb-12)';
+      return 'var(--workspace-console-foreground, var(--wb-12))';
   }
 }
 
@@ -283,7 +295,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--wb-2)',
+    background: 'var(--workspace-console-background, var(--wb-2))',
     borderTop: '1px solid var(--wb-6)',
     fontSize: 12,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
