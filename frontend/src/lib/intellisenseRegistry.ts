@@ -2,9 +2,8 @@
  * Intellisense registry.
  *
  * Seam between the OSS editor and the pro overlay's code-completion engine
- * (the private `velxio-intellisense` package). OSS ships no completion
- * engine of its own, so without an overlay this registry is inert and the
- * editor behaves exactly as before.
+ * (the private `velxio-intellisense` package). The built-in providers defer
+ * completion and hover to that engine when an overlay registers one.
  *
  * Two-sided handshake, because arrival order is not guaranteed:
  *
@@ -33,6 +32,10 @@ export function installIntellisenseImpl(impl: IntellisenseImpl | null): void {
 export function attachIntellisenseMonaco(monaco: unknown): void {
   _monaco = monaco;
   if (_impl) run(_impl, monaco);
+}
+
+export function hasIntellisenseImpl(): boolean {
+  return _impl !== null;
 }
 
 function run(impl: IntellisenseImpl, monaco: unknown): void {

@@ -1,5 +1,10 @@
 import { getApiBase } from '../lib/apiBase';
 const apiBase = () => `${getApiBase()}/libraries`;
+export const ARDUINO_LIBRARIES_CHANGED = 'velxio-arduino-libraries-changed';
+
+function librariesChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(ARDUINO_LIBRARIES_CHANGED));
+}
 
 export interface ArduinoLibrary {
   name: string;
@@ -53,6 +58,7 @@ export async function installLibrary(name: string, version?: string): Promise<{ 
     body: JSON.stringify({ name, version: version ?? null }),
   });
   const data = await res.json();
+  if (res.ok && data.success) librariesChanged();
   return data;
 }
 
@@ -63,6 +69,7 @@ export async function uninstallLibrary(name: string): Promise<{ success: boolean
     body: JSON.stringify({ name }),
   });
   const data = await res.json();
+  if (res.ok && data.success) librariesChanged();
   return data;
 }
 
@@ -106,6 +113,7 @@ export async function deleteCustomLibrary(
       const err = await res.json().catch(() => ({ detail: 'Failed to remove' }));
       return { success: false, error: err.detail || 'Failed to remove' };
     }
+    librariesChanged();
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'network error' };
