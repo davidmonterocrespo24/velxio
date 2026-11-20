@@ -100,7 +100,9 @@ function seedChipProgramGroups(example: ExampleProject): {
 export async function loadExample(
   example: ExampleProject,
   onLibraryProgress?: (progress: LibraryInstallProgress | null) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) return;
   trackOpenExample(example.title);
 
   // CRITICAL — clear currentProject FIRST, before touching any other store.
@@ -151,6 +153,7 @@ export async function loadExample(
   // The wire corners made for this example offline (fixed data, nothing is
   // routed here), read before the canvas changes for the same reason.
   const storedCorners = await exampleWireCorners(example);
+  if (signal?.aborted) return;
 
   const {
     setComponents,

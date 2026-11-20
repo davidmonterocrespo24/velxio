@@ -10,6 +10,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { exampleProjects } from '../data/examples';
 import { loadExample, type LibraryInstallProgress } from '../utils/loadExample';
+import { keepWorkspaceLocationState } from '../lib/localWorkspace';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useLocalizedHref } from '../i18n/useLocalizedNavigate';
 
@@ -36,7 +37,10 @@ export const ExampleLoaderPage: React.FC = () => {
     let cancelled = false;
     (async () => {
       await loadExample(example, setInstalling);
-      if (!cancelled) navigate(localize('/editor'), { replace: true });
+      if (!cancelled) navigate(localize('/editor'), {
+        replace: true,
+        state: keepWorkspaceLocationState(),
+      });
     })();
 
     return () => {

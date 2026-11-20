@@ -22,6 +22,7 @@
 import { importVlxFile, VlxParseError } from './vlxFile';
 import { importFromWokwiZip } from './wokwiZip';
 import type { ImportResult } from './wokwiZip';
+import { useProjectStore } from '../store/useProjectStore';
 
 /**
  * Common result shape: `kind` tells callers which path ran, so they can
@@ -64,6 +65,7 @@ export async function importProjectFile(file: File): Promise<ProjectImportResult
 
   if (lower.endsWith('.zip')) {
     const result = await importFromWokwiZip(file);
+    useProjectStore.getState().clearCurrentProject();
     return { kind: 'zip', ...result };
   }
 
