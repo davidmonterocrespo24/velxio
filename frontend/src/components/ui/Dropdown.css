@@ -1,0 +1,89 @@
+/* Share the popup treatment while each control owns its size and placement. */
+.dropdown-panel {
+  padding: 4px;
+  border: 1px solid var(--wb-7);
+  border-radius: 8px;
+  background: var(--workspace-menu-background, var(--wb-5));
+  color: var(--wb-13);
+  box-shadow: var(--shadow-2);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
+}
+
+.dropdown-panel :where(button:enabled):focus-visible {
+  background: var(--color-accent-soft-strong);
+  outline: none;
+}
+
+select:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+select option {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}
+
+@supports (appearance: base-select) and selector(::picker(select)) {
+  select:where(:not([multiple]):is(:not([size]), [size='1'])),
+  select:where(:not([multiple]):is(:not([size]), [size='1']))::picker(select) {
+    appearance: base-select;
+  }
+
+  select::picker-icon {
+    color: var(--wb-11);
+  }
+
+  select::picker(select) {
+    inline-size: max-content;
+    min-inline-size: anchor-size(width);
+    max-inline-size: min(360px, calc(100dvw - 16px));
+    max-block-size: min(320px, 55dvh);
+    margin-block: 4px;
+    padding: 4px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scrollbar-thumb) transparent;
+    border: 1px solid var(--wb-7);
+    border-radius: 8px;
+    background: var(--workspace-menu-background, var(--wb-5));
+    color: var(--workspace-menu-foreground, var(--wb-13));
+    box-shadow: var(--shadow-2);
+    font-size: 12px;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+
+  select option {
+    min-block-size: 32px;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  select option:enabled {
+    cursor: pointer;
+  }
+
+  select option::checkmark {
+    order: 1;
+    color: var(--color-accent-fg);
+  }
+
+  select option:checked {
+    background: var(--color-accent-soft);
+  }
+
+  select option:enabled:hover,
+  select option:focus-visible {
+    outline: none;
+    background: var(--color-accent-soft-strong);
+    color: inherit;
+  }
+}

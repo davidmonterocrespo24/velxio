@@ -236,12 +236,6 @@
 
 .property-edit-select:focus {
   border-color: var(--color-action-primary);
-  box-shadow: 0 0 0 2px var(--color-accent-soft-strong);
-}
-
-.property-edit-select option {
-  background-color: var(--wb-5);
-  color: var(--wb-13);
 }
 
 .property-edit-input {

@@ -47,9 +47,7 @@
 }
 
 .examples-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 9px 30px 9px 14px;
+  padding: 9px 14px;
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
@@ -57,12 +55,7 @@
   font-family: var(--font);
   font-size: 13px;
   cursor: pointer;
-  outline: none;
   transition: background 0.15s, border-color 0.15s;
-  /* chevron */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
 }
 
 .examples-select:hover {
