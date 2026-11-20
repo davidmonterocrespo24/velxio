@@ -9,9 +9,10 @@
  * - Click to select and add component
  */
 
-import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 import { ComponentRegistry } from '../services/ComponentRegistry';
 import type { ComponentMetadata, ComponentCategory } from '../types/component-metadata';
 import { ComponentInfoPanel, HOVER_DELAY, type HoverTarget, type PanelData } from './ComponentInfoPanel';
@@ -262,6 +263,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   onSelectBoard,
 }) => {
   const { t } = useTranslation();
+  const titleId = useId();
   const [searchQuery, setSearchQuery] = useState('');
   // Which branch of the left rail is active. 'all' / 'boards' / 'recent', or
   // 'cat:<category>' / 'cat:<category>/<subgroup>'.
@@ -721,11 +723,10 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   // stacking context can pin it below floating panels (e.g. the AI chat).
   return createPortal(
     <div className="component-picker-overlay" onClick={onClose}>
-      <div className="component-picker-modal" onClick={(e) => e.stopPropagation()}>
-        {/* Header: title + inline search + category filter + close, all on
-            one row to maximise the space left for the components grid. */}
-        <div className="modal-header">
-          <h2>{t('editor.componentPicker.title')}</h2>
+      <div className="component-picker-modal" role="dialog" aria-modal="true"
+        aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+        <div className="component-picker-header" onMouseEnter={clearHover}>
+          <h2 id={titleId}>{t('editor.componentPicker.title')}</h2>
 
           <div className="header-search-wrapper">
             <svg
@@ -765,8 +766,13 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             )}
           </div>
 
-          <button className="close-btn" onClick={onClose} aria-label={t('editor.componentPicker.close')}>
-            X
+          <button
+            type="button"
+            className="component-picker-close"
+            onClick={onClose}
+            aria-label={t('editor.componentPicker.close')}
+          >
+            <X size={18} aria-hidden />
           </button>
         </div>
 

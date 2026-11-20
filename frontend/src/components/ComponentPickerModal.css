@@ -53,51 +53,61 @@
   }
 }
 
-/* Header — title, search and category filter share one compact row */
-.modal-header {
-  display: flex;
+/* Keep the close button in its own column even when the search wraps. */
+.component-picker-header {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  grid-template-areas: 'title search close';
   align-items: center;
   gap: 14px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--wb-7);
 }
 
-.modal-header h2 {
+.component-picker-header h2 {
+  grid-area: title;
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--wb-13);
-  white-space: nowrap;
-  flex-shrink: 0;
+  overflow-wrap: anywhere;
 }
 
-.close-btn {
-  background: none;
+.component-picker-close {
+  grid-area: close;
+  display: grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  padding: 0;
   border: none;
-  font-size: 20px;
-  color: var(--wb-9);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-11);
   cursor: pointer;
-  padding: 2px 8px;
-  line-height: 1;
-  border-radius: 4px;
-  flex-shrink: 0;
-  transition:
-    background 0.2s,
-    color 0.2s;
 }
 
-.close-btn:hover {
+.component-picker-close:hover {
   background: var(--color-wash-hover);
   color: var(--wb-13);
 }
 
 /* Inline search (lives in the header row) */
 .header-search-wrapper {
+  grid-area: search;
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1 1 auto;
-  min-width: 140px;
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .component-picker-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'title close' 'search search';
+    gap: 6px 12px;
+    padding: 8px 12px 12px;
+  }
 }
 
 .search-icon {
