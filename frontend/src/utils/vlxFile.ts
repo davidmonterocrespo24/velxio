@@ -30,11 +30,12 @@
  */
 
 import type { BoardInstance } from '../types/board';
-import type { Component } from '../types/component';
 import type { Wire } from '../types/wire';
 import { useEditorStore, chipFileGroupId } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useProjectStore } from '../store/useProjectStore';
+
+type Component = ReturnType<typeof useSimulatorStore.getState>['components'][number];
 
 const VLX_FORMAT = 'velxio-project';
 const VLX_VERSION = 1;
@@ -53,6 +54,8 @@ export interface VlxPayload {
     activeFileGroupId: string;
     languageMode?: string;
     serialBaudRate?: number;
+    boardOptions?: BoardInstance['boardOptions'];
+    spiffsFiles?: BoardInstance['spiffsFiles'];
     /** Quarter turns; absent when unrotated. */
     rotation?: number;
     /** Breadboard component id the board is plugged into, and the drawing
@@ -94,6 +97,8 @@ function serialisableBoard(b: BoardInstance) {
     activeFileGroupId: b.activeFileGroupId,
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,
+    boardOptions: b.boardOptions,
+    spiffsFiles: b.spiffsFiles,
     // Built-in SD slot uploads (XIAO Sense etc.) travel with the project,
     // exactly like a microsd-card component's properties.sdFiles do.
     sdFiles: b.sdFiles,
@@ -268,6 +273,11 @@ export async function parseVlxFile(file: File): Promise<VlxPayload> {
  */
 export async function importVlxFile(file: File): Promise<VlxPayload> {
   const payload = await parseVlxFile(file);
+  loadVlxPayload(payload);
+  return payload;
+}
+
+export function loadVlxPayload(payload: VlxPayload): void {
   // CRITICAL — sever the current project identity BEFORE mutating any store
   // (same guard as loadExample.ts). With a saved project open, the auto-save
   // hook would otherwise see the imported content as dirty edits on the OLD
@@ -282,5 +292,4 @@ export async function importVlxFile(file: File): Promise<VlxPayload> {
     wires: payload.wires,
     activeBoardId: payload.activeBoardId,
   });
-  return payload;
 }

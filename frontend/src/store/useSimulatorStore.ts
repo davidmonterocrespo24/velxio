@@ -3723,6 +3723,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // Apply the rest of the saved fields that addBoard doesn't set.
         const patch: Partial<BoardInstance> = {};
         if (b.languageMode && b.languageMode !== 'arduino') patch.languageMode = b.languageMode;
+        if (Number.isFinite(b.serialBaudRate) && b.serialBaudRate > 0) patch.serialBaudRate = b.serialBaudRate;
         if (b.name && b.name.trim()) patch.name = b.name;
         if (b.rotation) patch.rotation = normalizeRotation(b.rotation);
         // A board plugged into a breadboard: its seat wires ride in `wires`,
