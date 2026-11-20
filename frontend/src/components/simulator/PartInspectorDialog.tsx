@@ -20,7 +20,7 @@
  * undo, colors and running-state gating.
  */
 
-import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type { ComponentMetadata } from '../../types/component-metadata';
@@ -117,7 +117,6 @@ interface PartInspectorDialogProps {
   componentMetadata: ComponentMetadata;
   componentProperties: Record<string, any>;
   /** Anchor point in VIEWPORT coordinates (both open gestures now agree). */
-  position: { x: number; y: number };
   pinInfo: Array<{ name: string; x: number; y: number; signals?: any[]; description?: string }>;
   onClose: () => void;
   /** Omitted for boards, which do not rotate. */
@@ -162,7 +161,6 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
   componentId,
   componentMetadata,
   componentProperties,
-  position,
   pinInfo,
   onClose,
   onRotate,
@@ -183,7 +181,6 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
   // Header thumbnail of a part with no SVG art: a second, small instance of
   // the live element (filled in by the preview effect once it has measured).
   const thumbHostRef = useRef<HTMLDivElement>(null);
-  const [dialogPos, setDialogPos] = useState<{ x: number; y: number } | null>(null);
   const [tab, setTab] = useState<'properties' | 'datasheet'>('properties');
   // The pin the pointer is on — its leader line and dot light up together, so
   // a name in the gutter can be traced to the pad it belongs to.
@@ -398,43 +395,6 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metaKey, propsKey, pinsKey, previewTagName]);
 
-  // ── Position: viewport coords, clamped, portaled to body ─────────────────
-  // NOTE the guard inside place(): setDialogPos only fires on a real move.
-  // Without it the ResizeObserver below and this effect feed each other and
-  // the dialog jitters.
-  // Re-run on every SIZE change, not just on the inputs we can name. The
-  // datasheet arrives asynchronously (loadDoc) and the markdown can be long,
-  // so a one-shot measure placed the dialog while it was still short and it
-  // then grew off the bottom of the screen — the user only saw it corrected
-  // when some other event happened to re-render and re-measure it.
-  useLayoutEffect(() => {
-    const el = dialogRef.current;
-    if (!el) return;
-    const place = () => {
-      const margin = 12;
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let x = position.x + 16;
-      let y = position.y;
-      if (x + w > vw - margin) x = Math.max(margin, position.x - w - 16);
-      x = Math.max(margin, Math.min(x, vw - w - margin));
-      y = Math.max(margin, Math.min(y, vh - h - margin));
-      setDialogPos((prev) =>
-        prev && Math.abs(prev.x - x) < 0.5 && Math.abs(prev.y - y) < 0.5 ? prev : { x, y },
-      );
-    };
-    place();
-    const ro = new ResizeObserver(place);
-    ro.observe(el);
-    window.addEventListener('resize', place);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', place);
-    };
-  }, [position]);
-
   // ── Delete goes through the global confirm modal ─────────────────────────
   // Same pattern as FileExplorer / BoardOptionsModal. The old inline
   // confirmation swapped the action bar's contents in place, which made the
@@ -543,11 +503,8 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
     <div
       ref={dialogRef}
       className="part-inspector-dialog"
-      style={{
-        left: `${dialogPos?.x ?? position.x}px`,
-        top: `${dialogPos?.y ?? position.y}px`,
-        opacity: dialogPos ? 1 : 0,
-      }}
+      role="dialog"
+      aria-label={componentMetadata.name}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >

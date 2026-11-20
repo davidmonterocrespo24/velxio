@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
-import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
-import type { AutoSaveState } from '../../hooks/useAutoSaveProject';
+import { Ellipsis } from 'lucide-react';
+import { useEditorStore, chipFileGroupId, normalizeFolderPath } from '../../store/useEditorStore';
 import type { WorkspaceFile } from '../../store/useEditorStore';
 import { useSimulatorStore, keepWireShapes } from '../../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
@@ -14,8 +13,11 @@ import { boardDisplayName, isKnownBoardKind, isPiBoardKind } from '../../types/b
 import { importProjectFile, PROJECT_FILE_ACCEPT } from '../../utils/importProject';
 import { retargetBoardWires } from '../../utils/wokwiZip';
 import { showMessageDialog, showConfirmDialog } from '../../store/useMessageDialogStore';
-import { registerEditorCommand } from '../../lib/editorCommands';
+import { registerEditorCommand, runEditorCommand } from '../../lib/editorCommands';
+import { FileTimeline } from './FileTimeline';
 import './FileExplorer.css';
+
+const CHIP_IMAGE_MAX_BYTES = 256 * 1024;
 
 /** Neutral chip glyph for overlay-registered boards without a bespoke icon. */
 const PRO_FALLBACK_ICON = (
@@ -76,79 +78,6 @@ const IcoNewFile = () => (
     <polyline points="14 2 14 8 20 8" />
     <line x1="12" y1="18" x2="12" y2="12" />
     <line x1="9" y1="15" x2="15" y2="15" />
-  </svg>
-);
-
-const IcoNewWorkspace = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    <line x1="12" y1="11" x2="12" y2="17" />
-    <line x1="9" y1="14" x2="15" y2="14" />
-  </svg>
-);
-
-/** Tooltip for the Save button: the plain action when no project is
- *  loaded, otherwise the auto-save status and the last save time. */
-function saveButtonTitle(t: TFunction, autoSave?: AutoSaveState): string {
-  const base = t('editor.fileExplorer.saveProject');
-  if (!autoSave) return base;
-  const when = autoSave.lastSavedAt
-    ? ` — ${t('editor.fileExplorer.lastSaved', 'last saved')} ${new Date(autoSave.lastSavedAt).toLocaleTimeString()}`
-    : '';
-  switch (autoSave.status) {
-    case 'dirty':
-      return `${base} — ${t('editor.fileExplorer.unsavedChanges')}${when}`;
-    case 'saving':
-      return `${base} — ${t('editor.fileExplorer.saving', 'saving…')}`;
-    case 'error':
-      return `${base} — ${t('editor.fileExplorer.saveFailed', 'save failed')}${autoSave.errorMessage ? `: ${autoSave.errorMessage}` : ''}`;
-    default:
-      return `${base} — ${t('editor.fileExplorer.saved', 'saved')}${when}`;
-  }
-}
-
-const IcoSave = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-    <polyline points="17 21 17 13 7 13 7 21" />
-    <polyline points="7 3 7 8 15 8" />
-  </svg>
-);
-
-const IcoOpen = () => (
-  // Folder with an "open / upload arrow" — matches Save visually (both
-  // are project-IO actions) but points the opposite way to signal load.
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    <polyline points="12 11 12 17" />
-    <polyline points="9 14 12 11 15 14" />
   </svg>
 );
 
@@ -301,7 +230,7 @@ const IcoChip = () => (
 );
 
 // Board emoji icons — mirrors BoardPickerModal
-const BOARD_ICON: Record<BoardKind, string> = {
+const BOARD_ICON: Partial<Record<BoardKind, string>> = {
   'arduino-uno': '⬤',
   'arduino-nano': '▪',
   'arduino-mega': '▬',
@@ -321,7 +250,7 @@ const BOARD_ICON: Record<BoardKind, string> = {
 };
 
 // Color accent per board family
-const BOARD_COLOR: Record<BoardKind, string> = {
+const BOARD_COLOR: Partial<Record<BoardKind, string>> = {
   'arduino-uno': '#4fc3f7',
   'arduino-nano': '#4fc3f7',
   'arduino-mega': '#4fc3f7',
@@ -412,11 +341,9 @@ function buildTreeRows(
   }
   for (const p of emptyFolders) if (p) addWithAncestors(p);
 
-  const parentOf = (p: string) => {
-    const idx = p.lastIndexOf('/');
-    return idx === -1 ? '' : p.slice(0, idx);
-  };
   const rows: TreeRow[] = [];
+  // Keep the main sketch first and sort the remaining files in this view.
+  const ordered = [files[0], ...files.slice(1).sort((a, b) => a.name.localeCompare(b.name))];
   const walk = (parent: string, depth: number) => {
     const childFolders = [...folderSet].filter((p) => parentOf(p) === parent).sort();
     for (const p of childFolders) {
@@ -424,8 +351,8 @@ function buildTreeRows(
       rows.push({ kind: 'folder', path: p, name: p.slice(p.lastIndexOf('/') + 1), depth, open });
       if (open) walk(p, depth + 1);
     }
-    // Files keep their group order (the first file is the main sketch).
-    for (const f of files) {
+    for (const f of ordered) {
+      if (!f) continue;
       if (parentOf(f.name) === parent) rows.push({ kind: 'file', file: f, depth });
     }
   };
@@ -435,33 +362,21 @@ function buildTreeRows(
 
 /** Display name of a possibly-nested file: its basename. */
 const fileBasename = (name: string) => name.slice(name.lastIndexOf('/') + 1);
+const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 
 interface ContextMenu {
-  fileId: string;
+  kind: 'file' | 'folder';
+  item: string;
   boardGroupId: string;
   x: number;
   y: number;
 }
 
 interface FileExplorerProps {
-  onSaveClick: () => void;
-  onNewClick: () => void;
-  /** Auto-save state of the loaded project. When present, the Save button
-   *  is the save indicator: green = saved, orange = unsaved changes,
-   *  pulsing = saving, red = save failed. Replaces the text pill the header
-   *  used to render ("Unsaved changes"), which ate toolbar width. */
-  autoSave?: AutoSaveState;
+  onShowExplorer: () => void;
 }
 
-const SAVE_STATUS_CLASS: Record<AutoSaveState['status'], string> = {
-  idle: 'is-saved',
-  saved: 'is-saved',
-  dirty: 'is-dirty',
-  saving: 'is-saving',
-  error: 'is-error',
-};
-
-export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewClick, autoSave }) => {
+export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) => {
   const { t } = useTranslation();
   // Hidden <input type="file"> we trigger via ref when the user clicks
   // the Open project button.  Accepts both .vlx (Velxio native) and .zip
@@ -564,7 +479,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     openFile,
     createFile,
     deleteFile,
-    renameFile,
+    moveWorkspacePath,
     createFolder,
     deleteFolder,
     setActiveGroup,
@@ -606,7 +521,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     chipImageInputRef.current?.click();
   }, []);
 
-  const CHIP_IMAGE_MAX_BYTES = 256 * 1024;
 
   const onChipImageChosen = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -659,8 +573,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
   }, []);
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{
+    groupId: string;
+    path: string;
+    fileId?: string;
+  } | null>(null);
+  const renamingId = renameTarget?.fileId;
   const [renameValue, setRenameValue] = useState('');
+  const renameCancelled = useRef(false);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const contextRef = useRef<HTMLDivElement>(null);
+  const contextOrigin = useRef<HTMLElement | null>(null);
   // Inline rename of a SECTION header (a board or a chip). Kept separate from
   // file rename (renamingId) so the two never collide.
   const [renamingSection, setRenamingSection] = useState<{
@@ -681,6 +604,70 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Collapsed folders, keyed `${groupId}:${folderPath}`
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+  const dragSource = useRef<{ groupId: string; path: string; folder: boolean } | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  const expandFolder = (groupId: string, path: string) => {
+    if (path) setCollapsedFolders((previous) => ({ ...previous, [`${groupId}:${path}`]: false }));
+  };
+
+  const endDrag = () => {
+    dragSource.current = null;
+    setDropTarget(null);
+  };
+
+  const draggablePath = (groupId: string, path: string, folder: boolean) => ({
+    draggable: !renameTarget,
+    onDragStart: (event: React.DragEvent) => {
+      event.stopPropagation();
+      dragSource.current = { groupId, path, folder };
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', path);
+    },
+    onDragEnd: endDrag,
+  });
+
+  const folderDropTarget = (groupId: string, folder: string, targetPath = folder) => {
+    const key = JSON.stringify([groupId, targetPath]);
+    const destination = () => {
+      const source = dragSource.current;
+      if (!source || source.groupId !== groupId || parentOf(source.path) === folder) return null;
+      if (source.folder && (folder === source.path || folder.startsWith(source.path + '/'))) return null;
+      return folder ? `${folder}/${fileBasename(source.path)}` : fileBasename(source.path);
+    };
+    return {
+      'data-drop-target': dropTarget === key ? 'true' : undefined,
+      onDragOver: (event: React.DragEvent) => {
+        if (!destination()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+        setDropTarget(key);
+      },
+      onDragLeave: (event: React.DragEvent) => {
+        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+        setDropTarget((target) => target === key ? null : target);
+      },
+      onDrop: (event: React.DragEvent) => {
+        const source = dragSource.current;
+        const path = destination();
+        if (!source || !path) return;
+        event.preventDefault();
+        event.stopPropagation();
+        endDrag();
+        if (moveWorkspacePath(groupId, source.path, path, source.folder)) {
+          expandFolder(groupId, folder);
+          const board = boards.find((item) => item.activeFileGroupId === groupId);
+          if (board) setCollapsed((previous) => ({ ...previous, [board.id]: false }));
+        } else {
+          showMessageDialog(
+            t('editor.fileExplorer.moveConflict', 'That path is already in use or cannot be moved there.'),
+            { kind: 'error' },
+          );
+        }
+      },
+    };
+  };
 
   const renameInputRef = useRef<HTMLInputElement>(null);
   const sectionRenameInputRef = useRef<HTMLInputElement>(null);
@@ -694,14 +681,14 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     if (creatingFolderInGroup && newFolderInputRef.current) {
       newFolderInputRef.current.focus();
     }
-  }, [creatingFolderInGroup]);
+  }, [creatingFolderInGroup, creatingFolderParent]);
 
   useEffect(() => {
-    if (renamingId && renameInputRef.current) {
+    if (renameTarget && renameInputRef.current) {
       renameInputRef.current.focus();
       renameInputRef.current.select();
     }
-  }, [renamingId]);
+  }, [renameTarget]);
 
   useEffect(() => {
     if (renamingSection && sectionRenameInputRef.current) {
@@ -755,11 +742,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     if (creatingInGroup && newFileInputRef.current) {
       newFileInputRef.current.focus();
     }
-  }, [creatingInGroup]);
+  }, [creatingInGroup, creatingParentPath]);
 
   // Close context menu on click outside
   useEffect(() => {
     if (!contextMenu) return;
+    contextRef.current?.querySelector('button')?.focus();
     const handler = () => setContextMenu(null);
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
@@ -777,12 +765,12 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
 
   const handleFileClick = useCallback(
     (fileId: string, boardId: string, groupId: string) => {
-      if (boardId !== activeBoardId) {
+      if (boardId !== activeBoardId || groupId !== activeGroupId) {
         switchToBoard(boardId, groupId);
       }
       openFile(fileId);
     },
-    [activeBoardId, switchToBoard, openFile],
+    [activeBoardId, activeGroupId, switchToBoard, openFile],
   );
 
   // Chip program groups aren't tied to a board — switching to one just makes
@@ -802,27 +790,91 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     [activeGroupId, switchToChip, openFile],
   );
 
-  const handleContextMenu = (e: React.MouseEvent, fileId: string, boardGroupId: string) => {
+  const handleContextMenu = (e: React.MouseEvent<HTMLElement>, kind: ContextMenu['kind'], item: string, boardGroupId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ fileId, boardGroupId, x: e.clientX, y: e.clientY });
+    contextOrigin.current = e.currentTarget;
+    setContextMenu({ kind, item, boardGroupId, x: e.clientX, y: e.clientY });
   };
 
-  const startRename = (fileId: string, groupId: string) => {
-    const files = fileGroups[groupId] ?? [];
-    const file = files.find((f) => f.id === fileId);
-    if (!file) return;
-    setRenamingId(fileId);
-    setRenameValue(file.name);
+  const startRename = (kind: ContextMenu['kind'], item: string, groupId: string) => {
+    const file = kind === 'file' ? fileGroups[groupId]?.find((f) => f.id === item) : undefined;
+    const path = kind === 'folder' ? item : file?.name;
+    if (path === undefined) return;
+    renameCancelled.current = false;
+    setRenameTarget({ groupId, path, fileId: file?.id });
+    setRenameValue(path);
     setContextMenu(null);
   };
 
   const commitRename = useCallback(() => {
-    if (renamingId && renameValue.trim()) {
-      renameFile(renamingId, renameValue.trim());
+    if (renameTarget && !renameCancelled.current && renameValue.trim()) {
+      const { groupId, path, fileId } = renameTarget;
+      if (!moveWorkspacePath(groupId, path, renameValue, !fileId)) {
+        showMessageDialog(t('editor.fileExplorer.moveConflict', 'That path is already in use or cannot be moved there.'), { kind: 'error' });
+      } else {
+        const destination = normalizeFolderPath(renameValue);
+        setCollapsedFolders((previous) => {
+          const next = { ...previous };
+          const segments = destination.split('/');
+          for (let i = 1; i < segments.length; i++) {
+            delete next[`${groupId}:${segments.slice(0, i).join('/')}`];
+          }
+          return next;
+        });
+      }
     }
-    setRenamingId(null);
-  }, [renamingId, renameValue, renameFile]);
+    renameCancelled.current = true;
+    setRenameTarget(null);
+  }, [renameTarget, renameValue, moveWorkspacePath, t]);
+
+  const renameInput = () => (
+    <input
+      ref={renameInputRef}
+      className="file-explorer-rename-input"
+      aria-label={t('editor.fileExplorer.newPath', 'New workspace-relative path')}
+      value={renameValue}
+      onChange={(e) => setRenameValue(e.target.value)}
+      onBlur={commitRename}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commitRename();
+        if (e.key === 'Escape') {
+          renameCancelled.current = true;
+          setRenameTarget(null);
+          contextOrigin.current?.focus();
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+
+  const treeKey = (
+    event: React.KeyboardEvent<HTMLElement>,
+    activate: () => void,
+    options?: { kind: ContextMenu['kind']; item: string; boardGroupId: string },
+  ) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      activate();
+    } else if (event.key === 'F2' && options) {
+      event.preventDefault();
+      contextOrigin.current = event.currentTarget;
+      startRename(options.kind, options.item, options.boardGroupId);
+    } else if ((event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) && options) {
+      event.preventDefault();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      contextOrigin.current = event.currentTarget;
+      setContextMenu({ ...options, x: bounds.left, y: bounds.bottom });
+    } else if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const rows = Array.from(treeRef.current?.querySelectorAll<HTMLElement>('[data-workspace-row]') ?? []);
+      const index = rows.indexOf(event.currentTarget);
+      if (event.key === 'Home') rows[0]?.focus();
+      else if (event.key === 'End') rows.at(-1)?.focus();
+      else rows[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
+    }
+  };
 
   const handleDelete = async (fileId: string, groupId: string) => {
     setContextMenu(null);
@@ -836,6 +888,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
       danger: true,
     });
     if (!confirmed) return;
+    const board = useSimulatorStore.getState().boards.find((item) => item.activeFileGroupId === groupId);
+    if (!board) return;
+    switchToBoard(board.id, groupId);
     deleteFile(fileId);
   };
 
@@ -847,20 +902,24 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
       const st = useSimulatorStore.getState();
       const board = st.boards.find((b) => b.id === st.activeBoardId) ?? st.boards[0];
       if (!board) return;
+      onShowExplorer();
       switchToBoard(board.id, board.activeFileGroupId);
+      setCollapsed((previous) => ({ ...previous, [board.id]: false }));
       setCreatingInGroup(board.activeFileGroupId);
+      setCreatingParentPath('');
       setNewFileName('');
     });
     return () => {
       offOpen();
       offNewFile();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleOpenProjectClick]);
+  }, [handleOpenProjectClick, onShowExplorer, switchToBoard]);
 
   const startCreateFile = (boardId: string, groupId: string, parentPath = '') => {
     // Switch to this board first so createFile targets the right group
     switchToBoard(boardId, groupId);
+    setCollapsed((previous) => ({ ...previous, [boardId]: false }));
+    expandFolder(groupId, parentPath);
     setCreatingInGroup(groupId);
     setCreatingParentPath(parentPath);
     setNewFileName('');
@@ -870,6 +929,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
 
   const startCreateFolder = (boardId: string, groupId: string, parentPath = '') => {
     switchToBoard(boardId, groupId);
+    setCollapsed((previous) => ({ ...previous, [boardId]: false }));
+    expandFolder(groupId, parentPath);
     setCreatingFolderInGroup(groupId);
     setCreatingFolderParent(parentPath);
     setNewFolderName('');
@@ -924,56 +985,100 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
     setCollapsed((prev) => ({ ...prev, [boardId]: !prev[boardId] }));
   };
 
+  const renderCreationRows = (groupId: string, parentPath: string) => {
+    const file = creatingInGroup === groupId && creatingParentPath === parentPath;
+    const folder = creatingFolderInGroup === groupId && creatingFolderParent === parentPath;
+    if (!file && !folder) return null;
+    const commit = file ? commitCreateFile : commitCreateFolder;
+    return (
+      <div className="file-explorer-item file-explorer-item-new fe-file-item"
+        style={{ '--fe-depth': parentPath ? parentPath.split('/').length : 0 } as React.CSSProperties}>
+        <span className="file-explorer-icon" aria-hidden>
+          {file ? <IcoFile /> : <IcoFolder open />}
+        </span>
+        <input
+          ref={file ? newFileInputRef : newFolderInputRef}
+          className="file-explorer-rename-input"
+          aria-label={file ? t('editor.fileExplorer.fileName', 'File name') : t('editor.fileExplorer.folderNamePlaceholder', 'Folder name')}
+          value={file ? newFileName : newFolderName}
+          placeholder={file ? 'filename.ino' : t('editor.fileExplorer.folderNamePlaceholder', 'Folder name')}
+          onChange={(event) => (file ? setNewFileName : setNewFolderName)(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit();
+            if (event.key === 'Escape') {
+              (file ? setCreatingInGroup : setCreatingFolderInGroup)(null);
+              (file ? setNewFileName : setNewFolderName)('');
+            }
+          }}
+        />
+      </div>
+    );
+  };
+
+  const activeFile = fileGroups[activeGroupId]?.find((file) => file.id === activeFileId);
+  const revealActiveFile = () => {
+    if (!activeFile) return;
+    const board = boards.find((item) => item.activeFileGroupId === activeGroupId);
+    const section = board?.id ?? customChipComponents.find((chip) => chipFileGroupId(chip.id) === activeGroupId)?.id;
+    if (section) setCollapsed((previous) => ({ ...previous, [section]: false }));
+    setCollapsedFolders((previous) => {
+      const next = { ...previous };
+      const segments = activeFile.name.split('/');
+      for (let i = 1; i < segments.length; i++) {
+        delete next[`${activeGroupId}:${segments.slice(0, i).join('/')}`];
+      }
+      return next;
+    });
+    requestAnimationFrame(() => {
+      const rows = treeRef.current?.querySelectorAll<HTMLElement>('[data-workspace-file]');
+      const row = Array.from(rows ?? []).find((element) =>
+        element.dataset.workspaceFile === activeFile.id && element.dataset.workspaceGroup === activeGroupId,
+      );
+      row?.focus();
+      row?.scrollIntoView({ block: 'nearest' });
+    });
+  };
+
   return (
     <div className="file-explorer">
-      {/* Stacked, not side by side: the title owns the first line and the
-          actions the second. Side by side, the three buttons and the word
-          set the pane's minimum width between them — and every px the
-          explorer does not need goes to the code editor. Vertical room is
-          what this panel has to spare. */}
       <div className="file-explorer-header">
-        <span className="file-explorer-title">{t('editor.fileExplorer.workspace')}</span>
-        <div className="file-explorer-header-actions">
-          <button
-            className="file-explorer-new-btn"
-            title={t('editor.fileExplorer.newWorkspace')}
-            onClick={onNewClick}
-          >
-            <IcoNewWorkspace />
-          </button>
-          <button
-            className="file-explorer-save-btn"
-            title="Open project (.vlx Velxio or .zip Wokwi)"
-            onClick={handleOpenProjectClick}
-          >
-            <IcoOpen />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={PROJECT_FILE_ACCEPT}
-            onChange={handleProjectFilePicked}
-            style={{ display: 'none' }}
-          />
-          <input
-            ref={chipImageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/svg+xml"
-            style={{ display: 'none' }}
-            onChange={onChipImageChosen}
-          />
-          <button
-            className={`file-explorer-save-btn${autoSave ? ` ${SAVE_STATUS_CLASS[autoSave.status]}` : ''}`}
-            title={saveButtonTitle(t, autoSave)}
-            aria-label={saveButtonTitle(t, autoSave)}
-            onClick={onSaveClick}
-          >
-            <IcoSave />
-          </button>
-        </div>
+        <span className="file-explorer-title">{t('editor.activity.explorer', 'Explorer')}</span>
+        <details className="file-explorer-overflow" onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+        }}>
+          <summary title={t('editor.fileExplorer.moreActions', 'Explorer actions')}
+            aria-label={t('editor.fileExplorer.moreActions', 'Explorer actions')}>
+            <Ellipsis size={16} aria-hidden />
+          </summary>
+          <div className="file-explorer-overflow-menu dropdown-panel"
+            onClick={(event) => {
+              if (event.target instanceof HTMLButtonElement) event.currentTarget.closest('details')?.removeAttribute('open');
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              const menu = event.currentTarget.closest('details');
+              menu?.removeAttribute('open');
+              menu?.querySelector('summary')?.focus();
+            }}>
+            <button type="button" onClick={() => runEditorCommand('project.openLocal')}>
+              {t('editor.menu.openLocal', 'Open local project…')}
+            </button>
+            <button type="button" onClick={revealActiveFile} disabled={!activeFile}>
+              {t('editor.fileExplorer.revealActive', 'Reveal active file')}
+            </button>
+            <button type="button" onClick={() => setCollapsed(Object.fromEntries(
+              [...boards, ...customChipComponents].map(({ id }) => [id, true]),
+            ))}>
+              {t('editor.fileExplorer.collapseAll', 'Collapse all')}
+            </button>
+          </div>
+        </details>
       </div>
+      <input ref={fileInputRef} type="file" accept={PROJECT_FILE_ACCEPT} onChange={handleProjectFilePicked} hidden />
+      <input ref={chipImageInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml" onChange={onChipImageChosen} hidden />
 
-      <div className="file-explorer-list">
+      <div className="file-explorer-list" ref={treeRef}>
         {boards.map((board) => {
           const groupId = board.activeFileGroupId;
           const groupFiles = fileGroups[groupId] ?? [];
@@ -981,43 +1086,25 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
           const isOpen = !collapsed[board.id];
           const color = BOARD_COLOR[board.boardKind] ?? '#8b5cf6';
 
-          // Status dot color
-          const statusColor = board.running
-            ? 'var(--color-feedback-success)'
-            : board.compiledProgram
-              ? 'var(--color-feedback-warning)'
-              : 'var(--wb-9)';
-
           return (
             <div key={board.id} className="fe-board-section">
               {/* Board section header */}
               <div
-                className={`fe-board-header${isActiveBoard ? ' fe-board-header-active' : ''}`}
+                className={`fe-board-header fe-board-header--board${isActiveBoard ? ' fe-board-header-active' : ''}`}
+                {...folderDropTarget(groupId, '')}
+                tabIndex={0}
+                data-workspace-row
+                onKeyDown={(e) => treeKey(e, () => {
+                  switchToBoard(board.id, groupId);
+                  toggleCollapse(board.id);
+                })}
                 onClick={() => {
                   switchToBoard(board.id, groupId);
                   if (!isOpen) toggleCollapse(board.id);
                 }}
                 title={`${boardDisplayName(board)} — ${t('editor.fileExplorer.clickToEdit')}`}
               >
-                {/* Actions ride ABOVE the name, not beside it: sharing the
-                    line, three buttons plus the status dot left a board name
-                    like "M5 Cardputer ADV" a stub of the row and set a floor
-                    under the pane's width. */}
                 <div className="fe-board-actions-row">
-                  {/* The run/compile dot rides here too: on the name row it
-                      cost the name another 11px, and it is not hover-gated,
-                      so this row is never empty. */}
-                  <span
-                    className="fe-status-dot"
-                    style={{ background: statusColor }}
-                    title={
-                      board.running
-                        ? t('editor.fileExplorer.status.running')
-                        : board.compiledProgram
-                          ? t('editor.fileExplorer.status.compiled')
-                          : t('editor.fileExplorer.status.idle')
-                    }
-                  />
                   <span className="fe-board-actions-spacer" />
                   <button
                     className="fe-board-new-btn"
@@ -1099,6 +1186,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
               {/* Files under this board, as a folder tree */}
               {isOpen && (
                 <div className="fe-board-files">
+                  {renderCreationRows(groupId, '')}
                   {buildTreeRows(
                     groupFiles,
                     folderGroups[groupId] ?? [],
@@ -1106,11 +1194,27 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                   ).map((row) => {
                     if (row.kind === 'folder') {
                       return (
+                        <React.Fragment key={`folder:${row.path}`}>
                         <div
-                          key={`folder:${row.path}`}
                           className="file-explorer-item fe-file-item fe-folder-item"
+                          {...draggablePath(groupId, row.path, true)}
+                          {...folderDropTarget(groupId, row.path)}
                           style={{ '--fe-depth': row.depth } as React.CSSProperties}
                           onClick={() => toggleFolder(groupId, row.path)}
+                          tabIndex={0}
+                          role="group"
+                          aria-label={row.path}
+                          data-workspace-row
+                          onContextMenu={(e) => handleContextMenu(e, 'folder', row.path, groupId)}
+                          onKeyDown={(e) => {
+                            if (e.target === e.currentTarget &&
+                                ((e.key === 'ArrowRight' && !row.open) || (e.key === 'ArrowLeft' && row.open))) {
+                              e.preventDefault();
+                              toggleFolder(groupId, row.path);
+                              return;
+                            }
+                            treeKey(e, () => toggleFolder(groupId, row.path), { kind: 'folder', item: row.path, boardGroupId: groupId });
+                          }}
                           title={row.path}
                         >
                           <span className="fe-folder-chevron">
@@ -1119,7 +1223,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                           <span className="file-explorer-icon fe-folder-icon">
                             <IcoFolder open={row.open} />
                           </span>
-                          <span className="file-explorer-name">{row.name}</span>
+                          {renameTarget?.groupId === groupId && !renamingId && renameTarget.path === row.path
+                            ? renameInput()
+                            : <span className="file-explorer-name">{row.name}</span>}
                           <span className="fe-folder-actions">
                             <button
                               title={t('editor.fileExplorer.newFileInFolder', 'New file here')}
@@ -1151,20 +1257,33 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                             </button>
                           </span>
                         </div>
+                        {row.open && renderCreationRows(groupId, row.path)}
+                        </React.Fragment>
                       );
                     }
                     const file = row.file;
-                    const isActiveFile = isActiveBoard && file.id === activeFileId;
+                    const isActiveFile = !manifestViewBoardId && activeGroupId === groupId && file.id === activeFileId;
                     return (
                       <div
                         key={file.id}
                         className={`file-explorer-item fe-file-item${isActiveFile ? ' file-explorer-item-active' : ''}`}
+                        {...draggablePath(groupId, file.name, false)}
+                        {...folderDropTarget(groupId, parentOf(file.name), file.name)}
                         style={{ '--fe-depth': row.depth } as React.CSSProperties}
                         onClick={() => handleFileClick(file.id, board.id, groupId)}
-                        onContextMenu={(e) => handleContextMenu(e, file.id, groupId)}
+                        role="button"
+                        tabIndex={0}
+                        aria-current={isActiveFile ? 'true' : undefined}
+                        data-workspace-row
+                        data-workspace-file={file.id}
+                        data-workspace-group={groupId}
+                        onKeyDown={(e) => treeKey(e, () => handleFileClick(file.id, board.id, groupId), {
+                          kind: 'file', item: file.id, boardGroupId: groupId,
+                        })}
+                        onContextMenu={(e) => handleContextMenu(e, 'file', file.id, groupId)}
                         onDoubleClick={() => {
                           switchToBoard(board.id, groupId);
-                          startRename(file.id, groupId);
+                          startRename('file', file.id, groupId);
                         }}
                         title={`${file.name}${file.modified ? ` (${t('editor.fileExplorer.unsavedSuffix')})` : ''}`}
                       >
@@ -1172,20 +1291,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                           <FileIcon name={file.name} />
                         </span>
 
-                        {renamingId === file.id ? (
-                          <input
-                            ref={renameInputRef}
-                            className="file-explorer-rename-input"
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onBlur={commitRename}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitRename();
-                              if (e.key === 'Escape') setRenamingId(null);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
+                        {renameTarget?.groupId === groupId && renamingId === file.id ? renameInput() : (
                           <span className="file-explorer-name">{fileBasename(file.name)}</span>
                         )}
 
@@ -1195,73 +1301,6 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                       </div>
                     );
                   })}
-
-                  {/* Inline new-file input for this group */}
-                  {creatingInGroup === groupId && (
-                    <div
-                      className="file-explorer-item file-explorer-item-new fe-file-item"
-                      style={
-                        creatingParentPath
-                          ? ({ '--fe-depth': creatingParentPath.split('/').length } as React.CSSProperties)
-                          : undefined
-                      }
-                    >
-                      <span className="file-explorer-icon">
-                        <IcoFile />
-                      </span>
-                      <input
-                        ref={newFileInputRef}
-                        className="file-explorer-rename-input"
-                        value={newFileName}
-                        placeholder={
-                          creatingParentPath ? `${creatingParentPath}/…` : 'filename.ino'
-                        }
-                        onChange={(e) => setNewFileName(e.target.value)}
-                        onBlur={commitCreateFile}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitCreateFile();
-                          if (e.key === 'Escape') {
-                            setCreatingInGroup(null);
-                            setCreatingParentPath('');
-                            setNewFileName('');
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  )}
-
-                  {/* Inline new-folder input for this group */}
-                  {creatingFolderInGroup === groupId && (
-                    <div
-                      className="file-explorer-item file-explorer-item-new fe-file-item"
-                      style={
-                        creatingFolderParent
-                          ? ({ '--fe-depth': creatingFolderParent.split('/').length } as React.CSSProperties)
-                          : undefined
-                      }
-                    >
-                      <span className="file-explorer-icon fe-folder-icon">
-                        <IcoFolder open={true} />
-                      </span>
-                      <input
-                        ref={newFolderInputRef}
-                        className="file-explorer-rename-input"
-                        value={newFolderName}
-                        placeholder={t('editor.fileExplorer.folderNamePlaceholder', 'folder name')}
-                        onChange={(e) => setNewFolderName(e.target.value)}
-                        onBlur={commitCreateFolder}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitCreateFolder();
-                          if (e.key === 'Escape') {
-                            setCreatingFolderInGroup(null);
-                            setNewFolderName('');
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                  )}
 
                   {/* velxio.json — THIS board's declared library manifest
                       (compile scope), grouped with the board's code so it is
@@ -1274,6 +1313,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                     className={`file-explorer-item fe-file-item${
                       manifestViewBoardId === board.id ? ' file-explorer-item-active' : ''
                     }`}
+                    role="button"
+                    tabIndex={0}
+                    data-workspace-row
+                    onKeyDown={(e) => treeKey(e, () => {
+                      switchToBoard(board.id, groupId);
+                      setManifestView(board.id);
+                    })}
                     onClick={() => {
                       switchToBoard(board.id, groupId);
                       // Open the READ-ONLY libraries.json view (not the modal).
@@ -1466,6 +1512,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
                         key={file.id}
                         className={`file-explorer-item fe-file-item${isActiveFile ? ' file-explorer-item-active' : ''}`}
                         onClick={() => handleChipFileClick(file.id, groupId)}
+                        role="button"
+                        tabIndex={0}
+                        aria-current={isActiveFile ? 'true' : undefined}
+                        data-workspace-row
+                        data-workspace-file={file.id}
+                        data-workspace-group={groupId}
+                        onKeyDown={(e) => treeKey(e, () => handleChipFileClick(file.id, groupId))}
                         title={`${file.name}${file.modified ? ` (${t('editor.fileExplorer.unsavedSuffix')})` : ''}`}
                       >
                         <span className="file-explorer-icon">
@@ -1492,22 +1545,37 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onSaveClick, onNewCl
         )}
       </div>
 
+      <FileTimeline groupId={activeGroupId} file={manifestViewBoardId ? undefined : activeFile} />
+
       {contextMenu && (
         <div
-          className="file-explorer-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          ref={contextRef}
+          className="file-explorer-context-menu dropdown-panel"
+          style={{ top: Math.min(contextMenu.y, window.innerHeight - 90), left: Math.min(contextMenu.x, window.innerWidth - 170) }}
           onClick={(e) => e.stopPropagation()}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) setContextMenu(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            setContextMenu(null);
+            contextOrigin.current?.focus();
+          }}
         >
-          <button onClick={() => startRename(contextMenu.fileId, contextMenu.boardGroupId)}>
-            {t('editor.fileExplorer.contextMenu.rename')}
+          <button type="button" onClick={() => startRename(contextMenu.kind, contextMenu.item, contextMenu.boardGroupId)}>
+            {t('editor.fileExplorer.moveOrRename', 'Move or rename…')}
           </button>
-          <button
-            className="ctx-delete"
-            onClick={() => handleDelete(contextMenu.fileId, contextMenu.boardGroupId)}
-            disabled={(fileGroups[contextMenu.boardGroupId] ?? []).length <= 1}
-          >
-            {t('editor.fileExplorer.contextMenu.delete')}
-          </button>
+          {contextMenu.kind === 'file' && (
+            <button
+              type="button"
+              className="ctx-delete"
+              onClick={() => void handleDelete(contextMenu.item, contextMenu.boardGroupId)}
+              disabled={(fileGroups[contextMenu.boardGroupId] ?? []).length <= 1}
+            >
+              {t('editor.fileExplorer.contextMenu.delete')}
+            </button>
+          )}
         </div>
       )}
     </div>

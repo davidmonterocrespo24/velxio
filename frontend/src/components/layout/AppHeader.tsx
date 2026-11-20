@@ -73,7 +73,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
     const left = content?.querySelector<HTMLElement>(':scope > .header-left');
     const host = content?.querySelector<HTMLElement>(':scope > .header-editor-toolbar');
     const strip = host?.firstElementChild;
-    for (const el of [left, host, ...(strip ? Array.from(strip.children) : [])]) {
+    const toolbarZones = () =>
+      strip?.querySelectorAll('.unified-toolbar-editor, .unified-toolbar-canvas, .unified-toolbar-add') ?? [];
+    for (const el of [left, host, ...(strip ? Array.from(strip.children) : []), ...toolbarZones()]) {
       if (el) ro.observe(el);
     }
     // Zones mount their controls later (the canvas side is a portal) —
@@ -81,6 +83,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
     const mo = strip
       ? new MutationObserver(() => {
           for (const z of Array.from(strip.children)) ro.observe(z);
+          for (const zone of toolbarZones()) ro.observe(zone);
           schedule();
         })
       : null;
@@ -111,7 +114,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
   if (import.meta.env.VITE_DESKTOP) {
     if (!editorToolbar) return null;
     return (
-      <header ref={headerRef} className="app-header app-header--with-toolbar app-header--desktop">
+      <header ref={headerRef} className="app-header app-header--with-toolbar app-header--editor app-header--desktop">
         <div className="header-content">
           <div className="header-left" />
           <div className="header-editor-toolbar">{editorToolbar}</div>
@@ -127,13 +130,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
   const isActive = (path: string) =>
     samePath(location.pathname, localize(path)) ? ' header-nav-link-active' : '';
 
-  return (
-    <header ref={headerRef} className={"app-header" + (editorToolbar ? ' app-header--with-toolbar' : '')}>
-      <div className="header-content">
-        <div className="header-left">
-          {/* Brand */}
-          <div className="header-brand">
-            <svg
+  const brandIcon = (
+    <svg
               width="20"
               height="20"
               viewBox="0 0 24 24"
@@ -142,15 +140,31 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden
             >
               <rect x="5" y="5" width="14" height="14" rx="2" />
               <rect x="9" y="9" width="6" height="6" />
               <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
-            </svg>
-            <Link to={localize('/')} style={{ textDecoration: 'none', color: 'inherit' }}>
+    </svg>
+  );
+
+  return (
+    <header ref={headerRef} className={`app-header${editorMenu ? ' app-header--editor' : ''}${editorToolbar ? ' app-header--with-toolbar' : ''}`}>
+      <div className="header-content">
+        <div className="header-left">
+          {editorMenu ? (
+            <span className="header-brand" role="img" aria-label="Velxio">{brandIcon}</span>
+          ) : (
+            <Link
+              className="header-brand"
+              to={localize('/')}
+              aria-label={t('header.homeLabel', 'Velxio home')}
+              style={{ textDecoration: 'none', color: 'inherit' }}
+            >
+              {brandIcon}
               <span className="header-title">Velxio</span>
             </Link>
-          </div>
+          )}
 
           {/* Main nav links (web only). The Tauri desktop build hides
               this nav and surfaces the equivalent actions via the
@@ -245,20 +259,15 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
         {/* Editor toolbar strip — fills the middle the nav vacated. */}
         {editorToolbar && <div className="header-editor-toolbar">{editorToolbar}</div>}
 
-        {/* Right: language + share + auth + mobile hamburger. In the
-            desktop-editor variant this block does not render at all: the
-            language switcher and the account button move to the corner box
-            below (bottom-left), Share lives in File > Share/Embed, and the
-            autosave dot rides next to the menus — every pixel of the row
-            goes to the toolbar, which is what lets 1440px-with-chat keep
-            the single-row layout. */}
+        {/* The editor menu owns account, language, and share commands when
+            the desktop toolbar uses the rest of the header. */}
         {!editorToolbar && (
         <div className="header-right">
           {/* Hidden on the marketing pages, which pin themselves to dark
               (pro DarkSurface) — offering a switch that visibly does nothing
               would be worse than not offering one. */}
-          <ThemeToggle className="header-theme-toggle" />
-          <LanguageSwitcher />
+          {!editorMenu && <ThemeToggle className="header-theme-toggle" />}
+          {!editorMenu && <LanguageSwitcher />}
 
           {/* Share button — visible when a project is loaded */}
           {currentProject && samePath(location.pathname, localize('/editor')) && (
@@ -323,10 +332,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
         </div>
         )}
       </div>
-
-      {/* The account + language block lives in the file-explorer footer now
-          (EditorPage renders it) — fused so a long file tree never scrolls
-          underneath a floating box. */}
 
       {showShareModal && <ShareModal onClose={() => setShowShareModal(false)} />}
     </header>

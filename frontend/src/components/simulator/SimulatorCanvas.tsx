@@ -19,6 +19,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { ChevronDown, LocateFixed } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
@@ -36,8 +37,9 @@ import { ComponentCameraToggles } from './ComponentCameraToggles';
 import { WireLayer } from './WireLayer';
 import type { SegmentHandle, WaypointHandle, AlignmentGuide } from './WireLayer';
 import { ElectricalOverlay } from '../analog-ui/ElectricalOverlay';
+import { CanvasDiagnostics } from './CanvasDiagnostics';
 import { BoardOnCanvas } from './BoardOnCanvas';
-import { boardSize, normalizeRotation, normalizeScale } from '../../utils/boardGeometry';
+import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../../utils/boardGeometry';
 import { BoardDock } from './BoardDock';
 import { PartSimulationRegistry } from '../../simulation/parts';
 import { PROPERTY_CHANGE_EVENT, type PropertyChangeDetail } from '../../simulation/parts/partUtils';
@@ -51,7 +53,7 @@ import { calculatePinPosition } from '../../utils/pinPositionCalculator';
 import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping';
 import { isBreadboard } from '../../utils/breadboardNets';
 import { pickDropSlot } from '../../utils/dropSlot';
-import { registerEditorCommand } from '../../lib/editorCommands';
+import { registerEditorCommand, setEditingPane } from '../../lib/editorCommands';
 import {
   autoWireColor,
   railWireColor,
@@ -105,7 +107,6 @@ import {
   trackSelectBoard,
   trackAddComponent,
   trackCreateWire,
-  trackToggleSerialMonitor,
 } from '../../utils/analytics';
 import { SelectionActionBar } from './SelectionActionBar';
 import { WireModeBanner } from './WireModeBanner';
@@ -274,16 +275,13 @@ function isEsp32Kind(kind: BoardKind): boolean {
 
 interface SimulatorCanvasProps {
   /**
-   * Optional DOM element to portal the canvas header (board selector,
-   * Serial/Scope toggles, zoom controls, Add component button) into. When
-   * provided, the header renders into the slot instead of in place — used by
-   * EditorPage to merge it with the editor toolbar into a single full-width
-   * top bar that doesn't reflow when the editor/canvas splitter moves.
+   * Optional slot for the canvas header in the unified desktop toolbar.
    */
   headerSlot?: HTMLElement | null;
+  addComponentSlot?: HTMLElement | null;
 }
 
-export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
+export const SimulatorCanvas = ({ headerSlot, addComponentSlot }: SimulatorCanvasProps = {}) => {
   const { t } = useTranslation();
   const isTouchDevice = useIsCoarsePointer();
   // Mirror to a ref so the long-lived touch handler effect (deps deliberately
@@ -306,8 +304,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     removeBoard,
     updateBoard,
     updateComponent,
-    serialMonitorOpen,
-    toggleSerialMonitor,
   } = useSimulatorStore();
   // `addComponent` / `removeComponent` / `removeWire` are no longer used here —
   // every user-initiated mutation routes through the record* actions below
@@ -398,12 +394,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Undo/redo now live in the Edit menu (EditorMenuBar) — no buttons here.
 
   // Oscilloscope
-  const oscilloscopeOpen = useOscilloscopeStore((s) => s.open);
-  const toggleOscilloscope = useOscilloscopeStore((s) => s.toggleOscilloscope);
-
-  // ESP32 crash notification
-  const esp32CrashBoardId = useSimulatorStore((s) => s.esp32CrashBoardId);
-  const dismissEsp32Crash = useSimulatorStore((s) => s.dismissEsp32Crash);
 
   // Component picker modal
   const [showComponentPicker, setShowComponentPicker] = useState(false);
@@ -507,6 +497,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // whose code the editor shows) and so must never be what a key deletes.
   // Selecting a component or a wire, or clicking empty canvas, clears it.
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
+  useEffect(() => {
+    setSelectedBoardId((selected) => selected === activeBoardId ? selected : null);
+  }, [activeBoardId]);
   const selectBoard = (boardId: string) => {
     setSelectedBoardId(boardId);
     setSelectedComponentId(null);
@@ -538,7 +531,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   const [propertyDialogComponentId, setPropertyDialogComponentId] = useState<string | null>(null);
   /** When non-null, the Custom Chip examples gallery is open for this component. */
   const [customChipComponentId, setCustomChipComponentId] = useState<string | null>(null);
-  const [propertyDialogPosition, setPropertyDialogPosition] = useState({ x: 0, y: 0 });
 
   /** Focus a custom chip's file group in the editor and open its chip.c. */
   const openChipInEditor = useCallback((chipId: string) => {
@@ -560,11 +552,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   const [boardLedStates, setBoardLedStates] = useState<Record<string, BoardLedVisuals>>({});
 
   // Board context menu (right-click)
-  const [boardContextMenu, setBoardContextMenu] = useState<{
-    boardId: string;
-    x: number;
-    y: number;
-  } | null>(null);
+  const [boardInspectorId, setBoardInspectorId] = useState<string | null>(null);
   // Right-click context menu for a wire (add node + color swatches + delete).
   const [wireContextMenu, setWireContextMenu] = useState<{
     wireId: string;
@@ -677,16 +665,15 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   }, [interactionRunning, setSelectedWire]);
 
   /**
-   * Open the part inspector on a component, at a VIEWPORT anchor. Shared by
+   * Open the part inspector on a component. Shared by
    * the right-click and the on-canvas shortcut some parts show (the microSD
    * card's "SD files" chip). Works while the simulation runs too: the dialog
    * is read-only then, and the edit selection (marching ants) is not touched
    * because the canvas is interact-only.
    */
-  const openComponentInspector = (componentId: string, at: { x: number; y: number }) => {
+  const openComponentInspector = (componentId: string) => {
     if (!interactionRunningRef.current) setSelectedComponentId(componentId);
     setPropertyDialogComponentId(componentId);
-    setPropertyDialogPosition(at);
     setShowPropertyDialog(true);
   };
 
@@ -936,9 +923,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       // Identify what element was touched
       const target = document.elementFromPoint(touch.clientX, touch.clientY);
 
-      // A board dock button (camera, SD, settings...) is a plain button: let
-      // the tap reach it instead of starting a pan / drag under it.
-      if (target?.closest('[data-board-dock]')) return;
+      // Let dock and canvas controls receive the tap without starting a gesture.
+      if (target?.closest('[data-board-dock], [data-canvas-control]')) return;
 
       // ── 1. Pin overlay → let pin's onTouchEnd React handler call handlePinClick ──
       if (target?.closest('[data-pin-overlay]')) {
@@ -1030,8 +1016,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           // to start a drag, ends touch quickly, or starts a pinch.
           longPressFiredRef.current = false;
           cancelLongPress();
-          const pressX = touch.clientX;
-          const pressY = touch.clientY;
           const targetBoardId = boardInstance.id;
           longPressTimerRef.current = setTimeout(() => {
             longPressFiredRef.current = true;
@@ -1043,7 +1027,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               !carriedSocketRef.current?.sockId,
             );
             touchDraggedComponentIdRef.current = null;
-            setBoardContextMenu({ boardId: targetBoardId, x: pressX, y: pressY });
+            setBoardInspectorId(targetBoardId);
           }, LONG_PRESS_MS);
         } else {
           // Fallback to legacy single board
@@ -1430,26 +1414,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   setSensorControlMetadataId(component.metadataId);
                 }
               } else {
-                setPropertyDialogComponentId(touchId);
-                // The inspector positions itself in VIEWPORT coordinates (it
-                // is portaled to body), so convert the component's canvas
-                // position through the canvas-content rect. The right-click
-                // path passes e.clientX/Y, which is already viewport space —
-                // the two gestures used to disagree on this.
-                const canvasRect = document
-                  .querySelector('.canvas-content')
-                  ?.getBoundingClientRect();
-                setPropertyDialogPosition({
-                  x:
-                    component.x * zoomRef.current +
-                    panRef.current.x +
-                    (canvasRect?.left ?? 0),
-                  y:
-                    component.y * zoomRef.current +
-                    panRef.current.y +
-                    (canvasRect?.top ?? 0),
-                });
-                setShowPropertyDialog(true);
+                openComponentInspector(touchId);
               }
             }
           }
@@ -1853,6 +1818,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!editable) return;
       if (!mod && !e.altKey && (e.key === 'r' || e.key === 'R')) {
+        if (!canvasRef.current?.contains(document.activeElement)) return;
         // A board being dragged takes R, whatever is selected: it is the
         // thing in the user's hand (flips a seat preview end for end).
         const dragging = boardIdOfDrag(boardGestureRef.current);
@@ -2714,6 +2680,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         cancelWireCreation();
         return;
       }
+      if (e.key === 'Escape' && e.target instanceof Node && canvasRef.current?.contains(e.target)) {
+        setSelectedBoardId(null);
+      }
       // Skip the rest when the user is typing in an input/textarea/select/
       // contenteditable — otherwise Backspace in a text field (e.g. the AI chat)
       // would delete the selected wire, and the color-shortcut keys below would
@@ -2781,96 +2750,73 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     return () => clearTimeout(t);
   }, [wires, recalculateAllWirePositions]);
 
-  // Auto-pan/zoom to keep the board and all components visible after a project
-  // import/load. We track the previous component count and only re-center when
-  // the count jumps (indicating the user loaded a new circuit, not just added
-  // one part).
-  //
-  // On touch-primary devices we also auto-fit the zoom — projects authored on
-  // a desktop with a wide canvas otherwise show up cramped at zoom 1 on a
-  // ~400px-wide phone, with everything piled into the top-left corner.
+  const centerCircuit = useCallback((fitOnTouch = false) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    const include = (x1: number, y1: number, x2: number, y2: number) => {
+      left = Math.min(left, x1);
+      top = Math.min(top, y1);
+      right = Math.max(right, x2);
+      bottom = Math.max(bottom, y2);
+    };
+    for (const board of boardsRef.current) {
+      const box = boardBox(board);
+      include(box.left, box.top, box.left + box.w, box.top + box.h);
+    }
+    for (const component of componentsRef.current) {
+      const part = canvas.querySelector<HTMLElement>(
+        `[data-component-id="${CSS.escape(component.id)}"]`,
+      )?.getBoundingClientRect();
+      if (!part) continue;
+      include(
+        (part.left - rect.left - currentPan.x) / currentZoom,
+        (part.top - rect.top - currentPan.y) / currentZoom,
+        (part.right - rect.left - currentPan.x) / currentZoom,
+        (part.bottom - rect.top - currentPan.y) / currentZoom,
+      );
+    }
+
+    if (!Number.isFinite(left)) {
+      if (!fitOnTouch) {
+        panRef.current = { x: 0, y: 0 };
+        setPan(panRef.current);
+      }
+      return;
+    }
+    const zoom = fitOnTouch && isTouchDeviceRef.current
+      ? Math.max(0.2, Math.min(
+          1,
+          Math.max(50, rect.width - 64) / Math.max(1, right - left),
+          Math.max(50, rect.height - 64) / Math.max(1, bottom - top),
+        ))
+      : currentZoom;
+    const pan = {
+      x: rect.width / 2 - ((left + right) / 2) * zoom,
+      y: rect.height / 2 - ((top + bottom) / 2) * zoom,
+    };
+    zoomRef.current = zoom;
+    panRef.current = pan;
+    setZoom(zoom);
+    setPan(pan);
+  }, []);
+
+  // Recenter after a populated project loads, while keeping desktop zoom.
   const prevComponentCountRef = useRef(-1);
   useEffect(() => {
     const prev = prevComponentCountRef.current;
     const curr = components.length;
     prevComponentCountRef.current = curr;
-
-    // Only re-fit when the component list transitions from empty/different
-    // project to a populated one (i.e., a load/import event).
-    const isLoad = curr > 0 && (prev <= 0 || Math.abs(curr - prev) > 2);
-    if (!isLoad) return;
-
-    const timer = setTimeout(() => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-
-      // Read actual rendered sizes from the DOM so the fit accounts for each
-      // board/component's true footprint, not a guessed bounding box.
-      const z = zoomRef.current;
-      const p = panRef.current;
-      const toWorldRect = (r: DOMRect) => ({
-        x1: (r.left - rect.left - p.x) / z,
-        y1: (r.top - rect.top - p.y) / z,
-        x2: (r.right - rect.left - p.x) / z,
-        y2: (r.bottom - rect.top - p.y) / z,
-      });
-
-      const targets: HTMLElement[] = [];
-      boardsRef.current.forEach((b) => {
-        const el = canvas.querySelector<HTMLElement>(`[data-board-id="${b.id}"]`);
-        if (el) targets.push(el);
-      });
-      componentsRef.current.forEach((c) => {
-        const el = canvas.querySelector<HTMLElement>(`[data-component-id="${c.id}"]`);
-        if (el) targets.push(el);
-      });
-
-      if (targets.length === 0) return;
-
-      let minX = Infinity;
-      let minY = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      targets.forEach((el) => {
-        const wr = toWorldRect(el.getBoundingClientRect());
-        if (wr.x1 < minX) minX = wr.x1;
-        if (wr.y1 < minY) minY = wr.y1;
-        if (wr.x2 > maxX) maxX = wr.x2;
-        if (wr.y2 > maxY) maxY = wr.y2;
-      });
-      if (!isFinite(minX)) return;
-
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
-      const worldW = Math.max(1, maxX - minX);
-      const worldH = Math.max(1, maxY - minY);
-
-      // On touch-primary viewports, also adjust zoom so everything fits with
-      // padding. On desktop, keep the existing behavior (pan only) so users
-      // who set a custom zoom don't lose it on every load.
-      let nextZoom = z;
-      if (isTouchDeviceRef.current) {
-        const PADDING = 32;
-        const availW = Math.max(50, rect.width - PADDING * 2);
-        const availH = Math.max(50, rect.height - PADDING * 2);
-        // Never zoom *in* past 1× — small projects shouldn't get magnified.
-        const fit = Math.min(availW / worldW, availH / worldH, 1);
-        nextZoom = Math.max(0.2, fit);
-      }
-
-      const newPan = {
-        x: rect.width / 2 - centerX * nextZoom,
-        y: rect.height / 2 - centerY * nextZoom,
-      };
-      zoomRef.current = nextZoom;
-      panRef.current = newPan;
-      setZoom(nextZoom);
-      setPan(newPan);
-    }, 200);
-
+    if (curr <= 0 || (prev > 0 && Math.abs(curr - prev) <= 2)) return;
+    const timer = setTimeout(() => centerCircuit(true), 200);
     return () => clearTimeout(timer);
-  }, [components.length]);
+  }, [centerCircuit, components.length]);
 
   // Which pins of each component are plugged into a breadboard hole. Seating
   // is an invisible `bb` wire (component pin = start, hole = end), so one pass
@@ -3040,7 +2986,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              openComponentInspector(component.id, { x: e.clientX, y: e.clientY });
+              openComponentInspector(component.id);
             }}
           >
             <DynamicComponent
@@ -3063,12 +3009,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 // exactly what a running circuit makes you want to look at.
                 e.preventDefault();
                 e.stopPropagation();
-                openComponentInspector(component.id, { x: e.clientX, y: e.clientY });
+                openComponentInspector(component.id);
               }}
               onOpenInspector={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                openComponentInspector(component.id, { x: e.clientX, y: e.clientY });
+                openComponentInspector(component.id);
               }}
             />
 
@@ -3103,49 +3049,34 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
   return (
     <div className="simulator-canvas-container">
-      {/* ESP32 crash notification */}
-      {esp32CrashBoardId && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 1000,
-            background: 'var(--color-feedback-error)',
-            color: 'var(--color-fg-on-action)',
-            padding: '8px 16px',
-            borderRadius: 6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            fontSize: 13,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-          }}
-        >
-          <span>
-            ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong> — cache error (IDF
-            incompatibility)
-          </span>
-          <button
-            onClick={dismissEsp32Crash}
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.6)',
-              color: 'var(--color-fg-on-action)',
-              borderRadius: 4,
-              padding: '2px 8px',
-              cursor: 'pointer',
-            }}
-          >
-            {t('editor.canvas.dismiss')}
-          </button>
-        </div>
-      )}
-
       {/* Main Canvas */}
       <div className="simulator-canvas">
         {(() => {
+          const addComponentButton = (
+            <button
+              type="button"
+              className="add-component-btn"
+              onClick={() => setShowComponentPicker(true)}
+              title={t('editor.canvas.addComponentTitle')}
+              disabled={running}
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              {t('editor.canvas.addComponents', 'Add components')}
+            </button>
+          );
           const headerJsx = (
             <div className={`canvas-header${headerSlot ? ' canvas-header--portaled' : ''}`}>
               <div className="canvas-header-left">
@@ -3157,31 +3088,36 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   }
                 />
 
-                {/* Active board selector (multi-board) — hidden when no boards */}
-                {boards.length > 0 ? (
-                  <select
-                    className="board-selector"
-                    value={activeBoardId ?? ''}
-                    onChange={(e) => useSimulatorStore.getState().setActiveBoardId(e.target.value)}
-                    disabled={running}
-                    title={t('editor.canvas.activeBoard')}
-                  >
-                    {boards.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {boardDisplayName(b)}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span
-                    className="board-selector"
-                    style={{ opacity: 0.55, fontStyle: 'italic', cursor: 'default' }}
-                    title={t('editor.canvas.noBoardHint')}
-                  >
-                    {t('editor.canvas.noBoard')}
-                  </span>
-                )}
-
+                <div className="canvas-board-select">
+                  {boards.length === 0 ? (
+                    <span className="board-selector board-selector--empty" title={t('editor.canvas.noBoardHint')}>
+                      {t('editor.canvas.noBoard')}
+                    </span>
+                  ) : (
+                    <>
+                      <select
+                        className="board-selector"
+                        value={activeBoardId ?? ''}
+                        onChange={(e) => useSimulatorStore.getState().setActiveBoardId(e.target.value)}
+                        aria-label={t('editor.canvas.activeBoard')}
+                        title={activeBoard ? boardDisplayName(activeBoard) : t('editor.canvas.activeBoard')}
+                      >
+                        {boards.map((board) => {
+                          const name = boardDisplayName(board);
+                          const duplicate = boards.some(
+                            (other) => other.id !== board.id && boardDisplayName(other) === name,
+                          );
+                          return (
+                            <option key={board.id} value={board.id}>
+                              {duplicate ? `${name} (${board.id})` : name}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown size={12} aria-hidden />
+                    </>
+                  )}
+                </div>
                 {/* Overlay slot for board status next to the selector (e.g.
                     which engine a run will use). Empty in the OSS build. */}
                 <span data-velxio-slot="board-status" />
@@ -3189,31 +3125,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 {/* Undo / Redo moved to the Edit menu in the header
                     (Ctrl+Z / Ctrl+Y still work) — two fewer buttons in a
                     row that measurably overlapped at laptop widths. */}
-
-                {/* Serial Monitor toggle */}
-                <button
-                  onClick={() => {
-                    toggleSerialMonitor();
-                    trackToggleSerialMonitor(!serialMonitorOpen);
-                  }}
-                  className={`canvas-serial-btn${serialMonitorOpen ? ' canvas-serial-btn-active' : ''}`}
-                  title={t('editor.canvas.toggleSerialMonitor')}
-                >
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="2" y="3" width="20" height="14" rx="2" />
-                    <path d="M8 21h8M12 17v4" />
-                  </svg>
-                  {t('editor.canvas.serial')}
-                </button>
 
                 {/* Header toggles for COMPONENT-owned webcams (vision sensors
                     that capture the webcam themselves — see
@@ -3385,84 +3296,39 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   </span>
                 )}
 
-                {/* Oscilloscope toggle */}
-                <button
-                  onClick={toggleOscilloscope}
-                  className={`canvas-serial-btn${oscilloscopeOpen ? ' canvas-serial-btn-active' : ''}`}
-                  title={t('editor.canvas.toggleScope')}
-                >
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="2 14 6 8 10 14 14 6 18 14 22 10" />
-                  </svg>
-                  {t('editor.canvas.scope')}
-                </button>
               </div>
 
-              <div className="canvas-header-right">
-                {/* Zoom moved to a floating cluster on the canvas'
-                    bottom-right corner — the header gets too tight when the
-                    AI chat panel is docked. */}
-
-                {/* Component count */}
-                <span
-                  className="component-count"
-                  title={t('editor.canvas.componentCount', { count: components.length })}
-                >
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="2" y="7" width="20" height="14" rx="2" />
-                    <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-                  </svg>
-                  {components.length}
-                </span>
-
-                {/* Add Component */}
-                <button
-                  className="add-component-btn"
-                  onClick={() => setShowComponentPicker(true)}
-                  title={t('editor.canvas.addComponentTitle')}
-                  disabled={running}
-                >
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  {t('editor.canvas.add')}
-                </button>
-              </div>
+              {!addComponentSlot && (
+                <div className="canvas-header-right">{addComponentButton}</div>
+              )}
             </div>
           );
-          return headerSlot ? createPortal(headerJsx, headerSlot) : headerJsx;
+          return (
+            <>
+              {headerSlot ? createPortal(headerJsx, headerSlot) : headerJsx}
+              {addComponentSlot && createPortal(addComponentButton, addComponentSlot)}
+            </>
+          );
         })()}
         <div
           ref={canvasRef}
           className="canvas-content"
+          role="region"
+          aria-label={t('editor.canvas.circuitCanvas', 'Circuit canvas')}
+          tabIndex={0}
+          onFocus={() => setEditingPane('circuit')}
+          onMouseDownCapture={(event) => {
+            // Parts and drag handles can stop the mouse event before it
+            // reaches the canvas. Focus the canvas without interrupting inputs.
+            const target = event.target;
+            if (
+              target instanceof Element &&
+              target.closest('button, input, textarea, select, a[href], [contenteditable]')
+            ) {
+              return;
+            }
+            event.currentTarget.focus({ preventScroll: true });
+          }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
@@ -3633,6 +3499,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             className="canvas-world"
             style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
           >
+            <div className="canvas-objects">
             {/* Wire Layer - Renders below all components */}
             <WireLayer
               hoveredWireId={hoveredWireId}
@@ -3660,15 +3527,16 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               // Suppressed while a dialog is open. Hidden entirely on touch
               // since the PinPickerDialog (tap board to open list) replaces
               // the overlays — fingers can't reliably hit a 12px pin anyway.
-              const showPins = !dialogOpen && !isTouchDevice && (wireInProgress || isHovered);
+              const showPins = !dialogOpen && !isTouchDevice && (Boolean(wireInProgress) || isHovered);
               return (
                 <BoardOnCanvas
                   key={board.id}
                   board={board}
                   running={running}
                   isActive={isActive}
+                  isSelected={board.id === selectedBoardId}
                   showPins={showPins}
-                  wiring={wireInProgress}
+                  wiring={Boolean(wireInProgress)}
                   onboardLeds={board.running ? boardLedStates[board.id] : undefined}
                   onMouseEnter={() => setHoveredBoardId(board.id)}
                   onMouseLeave={() =>
@@ -3688,7 +3556,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setBoardContextMenu({ boardId: board.id, x: e.clientX, y: e.clientY });
+                    setBoardInspectorId(board.id);
                   }}
                   onPinClick={handlePinClick}
                   zoom={zoom}
@@ -3701,10 +3569,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               {registryLoaded && components.map(renderComponent)}
             </div>
 
-            {/* Per-board control rows (BoardDock): above components and wires
-                so nothing placed under a board can cover them. Edit actions
-                belong to the selected (active) board only: tied to hover they
-                vanished the moment the pointer left the board for them. */}
+            {/* Board actions appear only after explicit canvas selection. */}
             <div className="board-docks-layer">
               {boards.map((board) => (
                 <BoardDock
@@ -3712,8 +3577,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   board={board}
                   zoom={zoom}
                   running={interactionRunning}
-                  showEdit={!wireInProgress && board.id === activeBoardId}
-                  onOpenInspector={(x, y) => setBoardContextMenu({ boardId: board.id, x, y })}
+                  showEdit={!wireInProgress && board.id === selectedBoardId}
+                  onOpenInspector={() => setBoardInspectorId(board.id)}
                   onRotate={() => rotateBoard(board.id)}
                   onCopy={() => copyBoard(board.id)}
                   onPaste={
@@ -3729,9 +3594,9 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 />
               ))}
             </div>
+            </div>
 
-            {/* Electrical simulation overlay (voltages / warnings).
-                Voltage pills are hover-gated — see ElectricalOverlay. */}
+            {/* Voltage labels follow the wires as the canvas pans and zooms. */}
             <ElectricalOverlay
               hoveredWireId={hoveredWireId}
               hoveredComponentId={hoveredComponentId}
@@ -3800,9 +3665,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               return null;
             })()}
 
-          {/* Floating zoom controls — pinned to the canvas' bottom-right
-              corner (they lived in the canvas header, which gets too tight
-              when the AI chat panel is docked; the corner is always free).
+          {/* Floating zoom controls in the bottom-left corner.
               stopPropagation so a click never starts a canvas pan/selection. */}
           <div
             className="zoom-controls zoom-controls--floating"
@@ -3866,7 +3729,22 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               </svg>
             </button>
           </div>
+          <button
+            type="button"
+            className="zoom-btn canvas-center-btn"
+            data-canvas-control
+            title={t('editor.canvas.centerCircuit', 'Center circuit')}
+            aria-label={t('editor.canvas.centerCircuit', 'Center circuit')}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              centerCircuit();
+            }}
+          >
+            <LocateFixed size={16} aria-hidden />
+          </button>
         </div>
+        <CanvasDiagnostics />
       </div>
 
       {/* Touch-friendly pin picker — used to pick a pin from a list when the
@@ -3980,7 +3858,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               componentId={propertyDialogComponentId}
               componentMetadata={metadata}
               componentProperties={component.properties}
-              position={propertyDialogPosition}
               pinInfo={pinInfo || []}
               wireInProgress={Boolean(wireInProgress)}
               readOnly={interactionRunning}
@@ -4029,12 +3906,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       {/* Board inspector — the same dialog components use: Rotate, Board
           Options / Flash and a "Remove board" delete in the actions column.
           It replaces the small context menu that used to live here. */}
-      {boardContextMenu &&
+      {boardInspectorId &&
         (() => {
-          const board = boards.find((b) => b.id === boardContextMenu.boardId);
+          const board = boards.find((b) => b.id === boardInspectorId);
           if (!board) return null;
           const name = boardDisplayName(board);
-          const element = document.getElementById(boardContextMenu.boardId);
+          const element = document.getElementById(boardInspectorId);
           const boardPins = element ? (element as any).pinInfo : [];
           const actions: InspectorAction[] = [];
           if (isEsp32Family(board.boardKind)) {
@@ -4042,8 +3919,8 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               id: 'board-options',
               label: t('editor.canvas.boardOptions'),
               onSelect: () => {
-                setBoardOptionsModalFor(boardContextMenu.boardId);
-                setBoardContextMenu(null);
+                setBoardOptionsModalFor(boardInspectorId);
+                setBoardInspectorId(null);
               },
             });
           }
@@ -4075,14 +3952,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                     ? t('editor.canvas.flashHint.ready')
                     : t('editor.canvas.flashHint.willCompile'),
               onSelect: () => {
-                requestFlashDialog(boardContextMenu.boardId, 'context_menu');
-                setBoardContextMenu(null);
+                requestFlashDialog(boardInspectorId, 'context_menu');
+                setBoardInspectorId(null);
               },
             });
           }
           return (
             <PartInspectorDialog
-              componentId={boardContextMenu.boardId}
+              componentId={boardInspectorId}
               componentMetadata={
                 {
                   id: board.boardKind,
@@ -4106,7 +3983,6 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 } as unknown as ComponentMetadata
               }
               componentProperties={{ sdFiles: board.sdFiles }}
-              position={{ x: boardContextMenu.x, y: boardContextMenu.y }}
               pinInfo={boardPins || []}
               previewTagName={element?.tagName.toLowerCase()}
               previewAttributes={{ 'board-kind': board.boardKind }}
@@ -4118,7 +3994,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
               skipDeleteConfirm
               wireInProgress={Boolean(wireInProgress)}
               readOnly={interactionRunning}
-              onClose={() => setBoardContextMenu(null)}
+              onClose={() => setBoardInspectorId(null)}
               onPropertyChange={(id, propName, value) => {
                 // The board dialog's only editable "property" is the SD
                 // slot's upload list; it lives on the board, not in a
@@ -4128,7 +4004,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 }
               }}
               onDelete={(id) => {
-                setBoardContextMenu(null);
+                setBoardInspectorId(null);
                 setBoardToRemove(id);
               }}
               onPinSelect={interactionRunning ? undefined : (id, pinName) => {
@@ -4137,7 +4013,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   (p: { name: string }) => p.name === pinName,
                 );
                 if (!b || !pin) return;
-                setBoardContextMenu(null);
+                setBoardInspectorId(null);
                 const pos = calculatePinPosition(
                   id,
                   pinName,
@@ -4232,17 +4108,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 }}
               />
               <div
+                className="dropdown-panel"
                 style={{
                   position: 'fixed',
                   left: wireContextMenu.x,
                   top: wireContextMenu.y,
-                  background: 'var(--wb-3)',
-                  border: '1px solid var(--wb-7)',
-                  borderRadius: 6,
                   padding: 8,
                   zIndex: 9999,
                   width: 188,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
                   fontSize: 13,
                 }}
               >

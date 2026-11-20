@@ -1,40 +1,33 @@
 /* NewProjectDialog — starter-template picker (dark, matches the picker/modals) */
 
-.new-project-overlay {
+.new-project-dialog {
   position: fixed;
   inset: 0;
-  background: var(--color-bg-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Above every floating panel, including the pro AI chat (8000/8001). */
-  z-index: 9000;
-  animation: newProjectFadeIn 0.15s ease;
-}
-
-@keyframes newProjectFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.new-project-dialog {
+  margin: auto;
+  padding: 0;
   background: var(--wb-2);
+  color: var(--wb-12);
   border: 1px solid var(--wb-7);
   border-radius: 10px;
-  width: min(840px, 94vw);
-  max-height: 86vh;
-  display: flex;
-  flex-direction: column;
+  width: min(840px, calc(100% - 24px));
+  max-height: 86dvh;
   overflow: hidden;
   box-shadow: var(--shadow-3);
 }
 
+.new-project-dialog::backdrop {
+  background: var(--color-bg-overlay);
+}
+
+.new-project-content {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
 .new-project-head {
-  padding: 20px 24px 10px;
+  padding: 18px 24px 13px;
+  border-bottom: 1px solid var(--wb-6);
   flex-shrink: 0;
 }
 
@@ -52,9 +45,45 @@
   line-height: 1.45;
 }
 
+.new-project-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.new-project-heading button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.new-project-name {
+  display: grid;
+  gap: 4px;
+  width: min(100%, 320px);
+  margin-block-start: 12px;
+  font-size: 13px;
+}
+
+.new-project-name input {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--wb-7);
+  border-radius: 5px;
+  background: var(--wb-3);
+  color: var(--wb-13);
+  font: inherit;
+}
+
 .new-project-body {
-  padding: 4px 24px 16px;
+  padding: 13px 24px 16px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
 
 .new-project-section-title {
@@ -88,9 +117,14 @@
   transition: background 0.1s ease, border-color 0.1s ease;
 }
 
-.new-project-card:hover {
+.new-project-card:hover:enabled {
   background: var(--wb-6);
   border-color: var(--wb-8);
+}
+
+.new-project-dialog button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Circuit thumbnail — same 300x180 (5:3) frame as the gallery cards. */
@@ -120,18 +154,36 @@
 
 .new-project-card-blank {
   border-style: dashed;
-  border-color: var(--wb-7);
-  margin-top: 12px;
 }
 
 .new-project-card-thumb-blank {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 64px;
-  font-weight: 300;
-  color: var(--color-accent-fg);
+  display: grid;
+  place-items: center;
   background: transparent;
+}
+
+.new-project-blank-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 7px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-fg);
+}
+
+.new-project-blank-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.new-project-card-blank .new-project-card-name {
+  padding-inline-end: 0;
+}
+
+.new-project-dialog :is(button, input):focus-visible {
+  outline: 2px solid var(--color-action-primary);
+  outline-offset: 1px;
 }
 
 .new-project-card-name {
@@ -168,7 +220,11 @@
   border-top: 1px solid var(--wb-6);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   flex-shrink: 0;
+  font-size: 12px;
 }
 
 .new-project-cancel {
@@ -184,4 +240,16 @@
 .new-project-cancel:hover {
   color: var(--wb-12);
   border-color: var(--wb-9);
+}
+
+@media (max-width: 440px) {
+  .new-project-head,
+  .new-project-body,
+  .new-project-foot {
+    padding-inline: 14px;
+  }
+
+  .new-project-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 135px), 1fr));
+  }
 }

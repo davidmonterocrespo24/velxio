@@ -186,14 +186,13 @@ body {
   container-name: unified-toolbar;
 }
 
-/* Collapse the Code/Both/Circuit labels to icon-only first (biggest fixed
-   block in the bar) as the shared bar narrows. */
+/* At intermediate widths the selected layout keeps its label. */
 .view-mode-toggle {
   display: flex;
 }
 
 @container unified-toolbar (max-width: 1140px) {
-  .view-mode-toggle .vm-label {
+  .view-mode-button[aria-pressed='false'] .vm-label {
     display: none;
   }
 }
@@ -290,20 +289,65 @@ body {
   color: var(--wb-12);
 }
 
-/* Resize handle for the file explorer sidebar */
-.explorer-resize-handle {
-  width: 4px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: var(--wb-4);
-  transition: background 0.15s;
+/* Keep the full drag target while drawing a thin seam at rest. */
+.explorer-resize-handle,
+.resize-handle,
+.bottom-panel-resize-handle {
   position: relative;
+  flex-shrink: 0;
+  border: 0;
+}
+
+:is(.explorer-resize-handle, .resize-handle, .bottom-panel-resize-handle)::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  background: var(--wb-6);
+}
+
+.explorer-resize-handle::before,
+.resize-handle::before {
+  inset-block: 0;
+  inset-inline-end: 0;
+  inline-size: 1px;
+}
+
+.bottom-panel-resize-handle::before {
+  inset-block-end: -1px;
+  inset-inline: 0;
+  block-size: 1px;
+}
+
+:is(.explorer-resize-handle, .resize-handle, .bottom-panel-resize-handle):hover::before {
+  background: color-mix(in srgb, var(--color-action-primary) 35%, var(--wb-6));
+}
+
+:is(.explorer-resize-handle, .resize-handle, .bottom-panel-resize-handle):is(:focus-visible, [data-resizing])::before {
+  background: var(--color-action-primary);
+}
+
+.explorer-resize-handle {
+  background: var(--workspace-sidebar-background, var(--wb-3));
+  cursor: ew-resize;
   z-index: 5;
 }
 
-.explorer-resize-handle:hover,
-.explorer-resize-handle:active {
-  background: var(--color-action-primary);
+.explorer-resize-handle:focus-visible {
+  outline: none;
+}
+
+.explorer-resize-handle--collapsed {
+  background: var(--wb-3);
+}
+
+.explorer-resize-handle--collapsed::before {
+  inset-inline: 0 auto;
+}
+
+@media (min-width: 769px) {
+  .editor-workspace .workspace-sidebar .file-explorer {
+    border-right: 0;
+  }
 }
 
 .editor-wrapper {
@@ -321,34 +365,20 @@ body {
 
 /* ── Resize handle ──────────────────────────────── */
 .resize-handle {
-  width: 5px;
-  flex-shrink: 0;
-  background: var(--wb-4);
-  cursor: col-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s;
-  position: relative;
+  background: var(--wb-1);
+  cursor: ew-resize;
   z-index: 10;
 }
 
-.resize-handle:hover,
-.resize-handle:active {
-  background: var(--color-action-primary);
+.resize-handle::before {
+  inset-inline: 0 auto;
 }
 
-.resize-handle-grip {
-  width: 2px;
-  height: 32px;
-  background: var(--wb-7);
-  border-radius: 2px;
-  transition: background 0.15s;
-}
-
-.resize-handle:hover .resize-handle-grip,
-.resize-handle:active .resize-handle-grip {
-  background: var(--wb-9);
+.bottom-panel-resize-handle {
+  height: 2px;
+  background: var(--wb-3);
+  cursor: ns-resize;
+  z-index: 1;
 }
 
 /* ── Responsive ─────────────────────────────────── */
@@ -519,6 +549,20 @@ body {
   min-height: 44px;
 }
 
+.app-header--editor {
+  --editor-header-inline-padding: 6px;
+  min-height: var(--workspace-toolbar-height, 32px);
+  padding: 2px var(--editor-header-inline-padding);
+}
+
+.app-header--editor:not(.app-header--with-toolbar) {
+  height: var(--workspace-toolbar-height, 32px);
+}
+
+.app-header--editor .header-left {
+  gap: 6px;
+}
+
 .header-editor-toolbar {
   flex: 1 1 auto;
   min-width: 0;
@@ -574,6 +618,21 @@ body {
   height: 44px;
 }
 
+.app-header--editor .header-left,
+.app-header--editor .header-editor-toolbar .unified-toolbar {
+  min-height: var(--workspace-toolbar-height, 32px);
+}
+
+.app-header--editor .header-editor-toolbar .unified-toolbar {
+  padding-inline-start: 6px;
+}
+
+.app-header--editor .header-editor-toolbar .editor-toolbar,
+.app-header--editor .header-editor-toolbar .unified-toolbar-editor .editor-toolbar,
+.app-header--editor .header-editor-toolbar .canvas-header--portaled {
+  height: var(--workspace-toolbar-height, 32px);
+}
+
 /* ── Fallback for the in-header strip: its own full-width bar ───────────
    Between "fits in one row" and "phone" there is an awkward middle (e.g.
    1440px with the chat docked) where flex-wrap produced an orphan group of
@@ -600,69 +659,18 @@ body {
 .app-header--with-toolbar.app-header--strip-below .header-editor-toolbar .unified-toolbar {
   background: var(--wb-3);
   border-top: 1px solid var(--wb-6);
-  min-height: 38px;
+  min-height: var(--workspace-toolbar-height, 38px);
 }
 
-/* ── Editor corner box (bottom-left) ─────────────────────────────────────
-   Language switcher + account button, IDE style. Moving them out of the
-   header is what buys the toolbar the last ~150px it needed to keep the
-   single-row layout on 1440px screens with the chat docked. */
-.editor-corner-box {
-  position: fixed;
-  left: 8px;
-  bottom: 8px;
-  z-index: 7000; /* above the canvas, below the chat (8000) and modals */
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  background: var(--wb-1);
-  border: 1px solid var(--wb-5);
-  border-radius: 8px;
-  box-shadow: var(--shadow-2);
+.app-header--editor.app-header--strip-below .header-editor-toolbar {
+  margin-inline: calc(0px - var(--editor-header-inline-padding));
 }
 
 /* With the chat rising to the very top (agent CSS sets the header's
    padding-right), the strip must NOT also pad itself — that would double
    the reservation and squeeze the toolbar by another panel-width. */
 .app-header--with-toolbar .header-editor-toolbar .unified-toolbar {
-  padding-right: 6px !important;
-}
-
-/* ── Explorer account footer ─────────────────────────────────────────────
-   The account + language block fused to the bottom of the file explorer:
-   a long tree scrolls above it instead of hiding under a floating box.
-   (.editor-corner-box remains as the fallback when the explorer is
-   collapsed.) The standalone globe is a logged-out affordance only — once
-   the pro auth slot renders its signed-in marker, language moves inside
-   the account menu and the globe hides. */
-.explorer-account-footer {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-top: 1px solid var(--wb-5);
-  background: var(--wb-1);
-}
-
-.explorer-account-footer {
-  container-type: inline-size;
-}
-
-/* Tight footer (narrow explorer): the avatar alone identifies the account;
-   the name is a luxury that costs exactly the width we do not have. The
-   threshold sits under the explorer's 150px default so the first name shows
-   out of the box and only goes when the user drags the pane narrower. */
-@container (max-width: 135px) {
-  .explorer-account-footer .header-username-text {
-    display: none;
-  }
-}
-
-/* Collapsed explorer: the floating fallback box shows the circle only. */
-.editor-corner-box .header-username-text {
-  display: none;
+  padding-inline-end: 6px !important;
 }
 
 /* Flash dialog: indeterminate bar while the sketch compiles before a flash. */

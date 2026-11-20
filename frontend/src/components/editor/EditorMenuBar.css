@@ -6,7 +6,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: 2px;
+  margin-left: -4px;
 }
 
 .emb-root {
@@ -18,7 +18,7 @@
   border: none;
   color: var(--wb-12);
   font: 400 13px system-ui, sans-serif;
-  padding: 4px 10px;
+  padding: 3px 6px;
   border-radius: 4px;
   cursor: pointer;
 }
@@ -30,16 +30,48 @@
 }
 
 .emb-menu {
+  --wb-12: var(--workspace-menu-foreground, var(--workspace-base-text));
+  --wb-13: var(--workspace-menu-foreground, var(--workspace-base-strong-text));
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   min-width: 230px;
-  background: var(--wb-3);
-  border: 1px solid var(--wb-7);
-  border-radius: 6px;
-  padding: 4px;
   z-index: 9500; /* above the toolbar and the canvas, below modals (10000) */
-  box-shadow: var(--shadow-3);
+  max-height: min(75dvh, 600px);
+  max-width: calc(100vw - 18px);
+  overflow: auto;
+}
+
+.emb-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--wb-7);
+}
+
+.emb-categories button {
+  padding: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--wb-12);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.emb-categories button:hover,
+.emb-categories button[aria-pressed='true'] {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}
+
+@media (max-width: 768px) {
+  .editor-menubar .emb-menu {
+    position: fixed;
+    inset: var(--workspace-toolbar-height, 32px) auto auto 8px;
+  }
 }
 
 .emb-item {
@@ -59,9 +91,8 @@
   white-space: nowrap;
 }
 
-.emb-item:hover:not(:disabled) {
-  background: var(--color-action-primary);
-  color: var(--color-fg-on-action);
+.emb-item:hover:enabled {
+  background: var(--color-accent-soft);
 }
 
 .emb-item:disabled {
@@ -74,14 +105,17 @@
   font-size: 11px;
 }
 
-.emb-item:hover:not(:disabled) .emb-shortcut {
-  color: var(--color-accent-fg);
-}
-
 .emb-separator {
   height: 1px;
   background: var(--wb-7);
   margin: 4px 6px;
+}
+
+.emb-account-empty {
+  margin: 0;
+  padding: 7px 8px;
+  color: var(--wb-11);
+  font-size: 12px;
 }
 
 /* Small uppercase section header inside a menu (the Account menu groups
