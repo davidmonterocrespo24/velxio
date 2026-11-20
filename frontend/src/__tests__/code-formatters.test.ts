@@ -361,12 +361,13 @@ describe('registerCodeFormatters', () => {
       ...fakeModel(before),
       uri: { path: '/1' },
       isDisposed: () => false,
+      getOptions: () => ({ insertSpaces: true, tabSize: 4, indentSize: 4 }),
     } as unknown as Monaco.editor.ITextModel;
     const edits = await provider.provideDocumentFormattingEdits(
       model,
       { tabSize: 2, insertSpaces: true },
       {} as Monaco.CancellationToken,
     );
-    expect(applyEdits(before, edits ?? [])).toBe('void loop() {\n  int x = 1;\n}\n');
+    expect(applyEdits(before, edits ?? [])).toBe('void loop() {\n    int x = 1;\n}\n');
   });
 });
