@@ -67,7 +67,7 @@ export const LanguageSwitcher: React.FC = () => {
       </button>
       {open && (
         <ul
-          className="velxio-language-menu"
+          className="velxio-language-menu dropdown-panel"
           role="listbox"
           aria-label="Language"
         >

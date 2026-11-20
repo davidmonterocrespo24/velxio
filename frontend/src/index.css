@@ -7,6 +7,8 @@
  */
 
 @import './tokens/index.css';
+@import './components/ui/Dropdown.css';
+@import './components/ui/Checkbox.css';
 
 :root {
   font-family: var(--font-sans);

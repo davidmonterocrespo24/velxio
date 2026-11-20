@@ -172,7 +172,6 @@
   accent-color: var(--color-action-primary);
 }
 
-.i2c-field select:focus,
 .i2c-field input:focus {
   outline: none;
   box-shadow: var(--color-focus-ring, 0 0 0 2px #0071e3);
