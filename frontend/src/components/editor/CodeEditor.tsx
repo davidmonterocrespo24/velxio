@@ -1,8 +1,9 @@
 import Editor, { type Monaco } from '@monaco-editor/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { editor as MonacoEditor } from 'monaco-editor';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useCompileLogsStore } from '../../store/useCompileLogsStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { registerRetroAsm, LANGUAGE_ID as RETRO_ASM_ID } from './retroAsmLanguage';
 import { attachIntellisenseMonaco } from '../../lib/intellisenseRegistry';
@@ -33,7 +34,7 @@ function getLanguage(filename: string): string {
 }
 
 export const CodeEditor = () => {
-  const { files, activeFileId, setFileContent, fontSize, manifestViewBoardId } =
+  const { files, activeFileId, activeGroupId, setFileContent, fontSize, manifestViewBoardId, revealLocation } =
     useEditorStore();
   const boards = useSimulatorStore((s) => s.boards);
   // App-wide light/dark, not an editor-only setting: the editor sits flush
@@ -58,6 +59,42 @@ export const CodeEditor = () => {
       void instance.getAction('editor.action.formatDocument')?.run();
     });
   }, [instance, language, manifestViewBoardId]);
+  const monacoRef = useRef<Monaco | null>(null);
+  const compileLogs = useCompileLogsStore((state) => state.logs);
+  useEffect(() => {
+    const model = instance?.getModel();
+    const monaco = monacoRef.current;
+    if (!model || !monaco) return;
+    const markers: MonacoEditor.IMarkerData[] = [];
+    if (activeFile && !manifestViewBoardId) {
+      for (const { location } of compileLogs) {
+        if (location?.groupId !== activeGroupId || location.fileId !== activeFile.id ||
+            location.name !== activeFile.name || location.content !== activeFile.content) continue;
+        const position = model.validatePosition(location.position);
+        markers.push({
+          severity: location.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+          source: 'Compiler',
+          message: location.message,
+          startLineNumber: position.lineNumber,
+          startColumn: position.column,
+          endLineNumber: position.lineNumber,
+          endColumn: model.getWordAtPosition(position)?.endColumn ?? position.column + 1,
+        });
+      }
+    }
+    monaco.editor.setModelMarkers(model, 'velxio-compiler', markers);
+  }, [instance, compileLogs, activeGroupId, activeFile, manifestViewBoardId]);
+  useEffect(() => {
+    if (!instance || manifestViewBoardId || !revealLocation ||
+        revealLocation.fileId !== activeFileId || revealLocation.groupId !== activeGroupId) return;
+    const position = instance.getModel()?.validatePosition(revealLocation.position);
+    if (!position) return;
+    instance.setPosition(position);
+    instance.revealPositionInCenter(position);
+    instance.focus();
+    useEditorStore.getState().setRevealLocation(null);
+  }, [instance, activeFileId, activeGroupId, manifestViewBoardId, revealLocation]);
+
   useEffect(() => {
     setFormatterMessages({
       failedTitle: () => t('editor.format.failed', 'Could not format the file'),
@@ -111,6 +148,7 @@ export const CodeEditor = () => {
           ? { path: `velxio-ws/${useEditorStore.getState().activeGroupId}/${activeFile.name}` }
           : {})}
         beforeMount={(monaco: Monaco) => {
+          monacoRef.current = monaco;
           // Both velxio themes have to exist before Monaco is asked to use
           // one, or it silently falls back to stock vs-dark.
           defineVelxioThemes(monaco);

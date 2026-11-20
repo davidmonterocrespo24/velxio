@@ -513,14 +513,56 @@
 
 /* ── Error detail bar (for long compiler errors) ── */
 .toolbar-error-detail {
-  background: var(--color-feedback-error-soft);
-  border-bottom: 1px solid var(--color-feedback-error-border);
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  inline-size: min(25rem, 100%);
+  padding: 8px;
+  border: 1px solid var(--color-feedback-error-border);
+  border-radius: 8px;
+  background: var(--wb-3);
   color: var(--color-feedback-error);
-  font-size: 11px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  padding: 4px 12px;
-  max-height: 80px;
-  overflow-y: auto;
+  box-shadow: var(--shadow-2);
+}
+
+.toolbar-error-detail > svg {
+  margin-block-start: 2px;
+}
+
+.toolbar-error-detail p {
+  max-block-size: min(12rem, 35dvh);
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--wb-13);
+  font: 12px/1.45 var(--font-mono);
   white-space: pre-wrap;
-  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toolbar-error-detail button {
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wb-11);
+  cursor: pointer;
+}
+
+.toolbar-error-detail button:hover {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}
+
+.editor-toolbar-wrapper {
+  position: relative;
 }

@@ -48,7 +48,8 @@
         "title": "Auf ein echtes Board per USB flashen",
         "pick": "Welches Board flashen?",
         "active": "aktiv"
-      }
+      },
+      "dismissError": "Fehler schließen"
     },
     "fileExplorer": {
       "workspace": "ARBEITSBEREICH",

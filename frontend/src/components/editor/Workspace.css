@@ -1,0 +1,13 @@
+.compile-source-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}

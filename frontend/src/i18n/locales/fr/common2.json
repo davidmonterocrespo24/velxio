@@ -48,7 +48,8 @@
         "title": "Flasher sur une vraie carte via USB",
         "pick": "Quelle carte flasher ?",
         "active": "active"
-      }
+      },
+      "dismissError": "Fermer l’erreur"
     },
     "fileExplorer": {
       "workspace": "ESPACE DE TRAVAIL",
