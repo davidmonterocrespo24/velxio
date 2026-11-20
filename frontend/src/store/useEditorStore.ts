@@ -139,6 +139,12 @@ export const CHIP_GROUP_PREFIX = 'group-chip-';
  */
 export type EditorViewMode = 'code' | 'circuit' | 'both';
 
+interface RevealLocation {
+  groupId: string;
+  fileId: string;
+  position: { lineNumber: number; column: number };
+}
+
 interface EditorState {
   files: WorkspaceFile[];
   activeFileId: string;
@@ -149,6 +155,8 @@ interface EditorState {
    *  libraries.json entry; the Library Manager modal is what edits the manifest. */
   manifestViewBoardId: string | null;
   setManifestView: (boardId: string | null) => void;
+  revealLocation: RevealLocation | null;
+  setRevealLocation: (location: RevealLocation | null) => void;
   fontSize: number;
   viewMode: EditorViewMode;
   setViewMode: (mode: EditorViewMode) => void;
@@ -190,6 +198,8 @@ interface EditorState {
   renameFile: (id: string, newName: string) => void;
   setFileContent: (id: string, content: string) => void;
   markFileSaved: (id: string) => void;
+  markWorkspaceFilesSaved: (snapshot: Record<string, WorkspaceFile[]>) => void;
+  moveWorkspacePath: (groupId: string, from: string, to: string, folder: boolean) => boolean;
   openFile: (id: string) => void;
   closeFile: (id: string) => void;
   setActiveFile: (id: string) => void;
@@ -245,6 +255,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFileIds: [MAIN_ID],
   manifestViewBoardId: null,
   setManifestView: (boardId: string | null) => set({ manifestViewBoardId: boardId }),
+  revealLocation: null,
+  setRevealLocation: (revealLocation) => set({ revealLocation }),
   fontSize: 14,
   viewMode: 'both',
   setViewMode: (mode) => set({ viewMode: mode }),
@@ -396,6 +408,55 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
       };
     });
+  },
+
+  markWorkspaceFilesSaved: (snapshot) => {
+    set((s) => {
+      const fileGroups = { ...s.fileGroups };
+      let changed = false;
+      for (const [groupId, files] of Object.entries(s.fileGroups)) {
+        const savedFiles = new Set(snapshot[groupId]);
+        if (!files.some((file) => file.modified && savedFiles.has(file))) continue;
+        fileGroups[groupId] = files.map((file) =>
+          file.modified && savedFiles.has(file) ? { ...file, modified: false } : file,
+        );
+        changed = true;
+      }
+      return changed ? { fileGroups, files: fileGroups[s.activeGroupId] ?? s.files } : s;
+    });
+  },
+
+  moveWorkspacePath: (groupId, from, destination, folder) => {
+    const to = normalizeFolderPath(destination);
+    if (!to) return false;
+    if (from === to) return true;
+    if (folder && to.startsWith(from + '/')) return false;
+    const state = get();
+    const files = state.fileGroups[groupId] ?? [];
+    const folders = state.folderGroups[groupId] ?? [];
+    const contains = (path: string) => path === from || (folder && path.startsWith(from + '/'));
+    const inside = (path: string, parent: string) => path.startsWith(parent + '/');
+    if (!files.some((file) => contains(file.name)) && !(folder && folders.some(contains))) return false;
+    if (files.some(({ name }) => !contains(name) && (
+      name === to || inside(name, to) || inside(to, name)
+    ))) return false;
+    if (folders.some((path) => !contains(path) && (path === to || inside(path, to)))) return false;
+
+    const groupFiles = files.map((file) => (
+      contains(file.name)
+        ? { ...file, name: to + file.name.slice(from.length), modified: true }
+        : file
+    ));
+    const groupFolders = folders
+      .map((path) => folder && contains(path) ? to + path.slice(from.length) : path)
+      .filter((path) => !groupFiles.some((file) => inside(file.name, path)));
+    set({
+      fileGroups: { ...state.fileGroups, [groupId]: groupFiles },
+      folderGroups: { ...state.folderGroups, [groupId]: groupFolders },
+      ...(state.activeGroupId === groupId && { files: groupFiles }),
+      codeChangedSinceLastCompile: true,
+    });
+    return true;
   },
 
   openFile: (id: string) => {
