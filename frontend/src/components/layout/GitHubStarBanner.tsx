@@ -6,8 +6,8 @@ const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
 
 interface Props {
   onClose: () => void;
-  // Fired when the user clicks through to the repo (distinct from a plain
-  // dismiss) — lets the caller never prompt that user again.
+  // Fired when the user clicks through to the repo (distinct from a plain dismiss) ->
+  // lets the caller never prompt that user again.
   onStarClick: () => void;
   // 1 = first ask; 2 = follow-up ask for someone who dismissed the first one.
   round?: 1 | 2;
