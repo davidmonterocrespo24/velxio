@@ -2,6 +2,10 @@ import { useSyncExternalStore } from 'react';
 import {
   getMode,
   getResolvedTheme,
+  getThemeRevision,
+  getActiveWorkspaceTheme,
+  getWorkspaceThemes,
+  EMPTY_WORKSPACE_THEMES,
   setThemeMode,
   subscribeTheme,
   type ResolvedTheme,
@@ -26,4 +30,16 @@ export function useThemeMode(): [ThemeMode, (mode: ThemeMode) => void] {
  *  2D contexts, the serial terminal. */
 export function useResolvedTheme(): ResolvedTheme {
   return useSyncExternalStore(subscribeTheme, getResolvedTheme, serverResolved);
+}
+
+export function useThemeRevision(): number {
+  return useSyncExternalStore(subscribeTheme, getThemeRevision, () => 0);
+}
+
+export function useActiveWorkspaceTheme() {
+  return useSyncExternalStore(subscribeTheme, getActiveWorkspaceTheme, () => null);
+}
+
+export function useWorkspaceThemes() {
+  return useSyncExternalStore(subscribeTheme, getWorkspaceThemes, () => EMPTY_WORKSPACE_THEMES);
 }
