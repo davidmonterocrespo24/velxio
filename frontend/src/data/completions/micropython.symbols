@@ -1,0 +1,182 @@
+# MicroPython v1.20.0 documentation symbol inventory, Damien P. George and contributors (MIT).
+# https://docs.micropython.org/en/v1.20.0/objects.inv
+	Class	ADC ADCBlock AssertionError AttributeError Exception ImportError IndexError KeyError KeyboardInterrupt MemoryError NameError NotImplementedError OSError RuntimeError StopIteration SyntaxError SystemExit TypeError ValueError WM8960 ZeroDivisionError bool bytearray bytes complex dict float frozenset int list memoryview object set slice str tuple
+	Function	abs all any bin callable chr classmethod compile delattr dir divmod enumerate eval exec filter freeze freeze_as_mpy freeze_as_str freeze_mpy getattr globals hasattr hash hex id include input isinstance issubclass iter len locals main map max metadata min mkfs module mount next oct open ord package pow print property range repr require reversed round setattr sorted staticmethod sum super type unmount zip
+	Method	read_u16 write
+	Module	_thread array binascii bluetooth btree cmath collections cryptolib errno esp esp32 framebuf gc hashlib heapq io json lcd160cr machine math micropython neopixel network os pyb random re rp2 select socket ssl stm struct sys time uasyncio uctypes wipy zephyr zlib zsensor
+ADC	Method	atten read read_uv width
+ADCBlock	Method	connect
+Timer	Constant	A B MATCH NEGATIVE POSITIVE PWM TIMEOUT
+WM8960	Method	alc_gain alc_mode alc_time deemphasis deinit disable_module enable_module expand_3d mono mute set_data_route set_left_input set_module set_right_input volume
+array	Class	array
+array.array	Method	__add__ __getitem__ __iadd__ __len__ __repr__ __setitem__ append extend
+binascii	Function	a2b_base64 b2a_base64 hexlify unhexlify
+bluetooth	Class	BLE UUID
+bluetooth.BLE	Method	active config gap_advertise gap_connect gap_disconnect gap_pair gap_passkey gap_scan gattc_discover_characteristics gattc_discover_descriptors gattc_discover_services gattc_exchange_mtu gattc_read gattc_write gatts_indicate gatts_notify gatts_read gatts_register_services gatts_set_buffer gatts_write irq l2cap_connect l2cap_disconnect l2cap_listen l2cap_recvinto l2cap_send
+btree	Constant	DESC INCL
+btree	Function	open
+btree.btree	Method	__contains__ __delitem__ __getitem__ __iter__ __setitem__ close flush get items keys values
+cmath	Constant	e pi
+cmath	Function	cos exp log log10 phase polar rect sin sqrt
+collections	Class	OrderedDict deque
+collections	Function	namedtuple
+collections.deque	Method	append popleft
+cryptolib	Class	aes
+cryptolib.aes	Method	__init__ decrypt encrypt
+errno	Constant	errorcode
+esp	Function	deepsleep flash_erase flash_id flash_read flash_size flash_user_start flash_write osdebug set_native_code_location sleep_type
+esp32	Class	NVS Partition RMT ULP
+esp32	Constant	HEAP_DATA HEAP_EXEC
+esp32	Function	gpio_deep_sleep_hold hall_sensor idf_heap_info raw_temperature wake_on_ext0 wake_on_ext1 wake_on_touch wake_on_ulp
+esp32.NVS	Method	commit erase_key get_blob get_i32 set_blob set_i32
+esp32.Partition	Constant	BOOT RUNNING TYPE_APP TYPE_DATA
+esp32.Partition	Method	find get_next_update info ioctl mark_app_valid_cancel_rollback readblocks set_boot writeblocks
+esp32.RMT	Method	bitstream_channel clock_div loop source_freq wait_done write_pulses
+esp32.ULP	Method	load_binary run set_wakeup_period
+esp32.esp32	Constant	WAKEUP_ALL_LOW WAKEUP_ANY_HIGH
+framebuf	Class	FrameBuffer
+framebuf.FrameBuffer	Method	blit ellipse fill hline line pixel poly rect scroll text vline
+framebuf.framebuf	Constant	GS2_HMSB GS4_HMSB GS8 MONO_HLSB MONO_HMSB MONO_VLSB RGB565
+gc	Function	collect disable enable mem_alloc mem_free threshold
+hashlib.hash	Method	digest hexdigest update
+hashlib.hashlib	Class	md5 sha1 sha256
+heapq	Function	heapify heappop heappush
+int	Method	from_bytes to_bytes
+io	Class	BytesIO FileIO StringIO TextIOWrapper
+io	Function	open
+io.BytesIO	Method	getvalue
+json	Function	dump dumps load loads
+lcd160cr	Class	LCD160CR
+lcd160cr.LCD160CR	Constant	h w
+lcd160cr.LCD160CR	Method	dot dot_no_clip erase fast_spi feed_wdt get_line get_pixel get_touch is_touched jpeg jpeg_data jpeg_start line line_no_clip poly_dot poly_line rect rect_interior rect_interior_no_clip rect_no_clip rect_outline rect_outline_no_clip reset rgb save_to_flash screen_dump screen_load set_brightness set_font set_i2c_addr set_orient set_pen set_pixel set_pos set_power set_scroll set_scroll_buf set_scroll_win set_scroll_win_param set_spi_win set_startup_deco set_text_color set_uart_baudrate show_framebuf touch_config write
+lcd160cr.lcd160cr	Constant	LANDSCAPE LANDSCAPE_UPSIDEDOWN PORTRAIT PORTRAIT_UPSIDEDOWN STARTUP_DECO_INFO STARTUP_DECO_MLOGO STARTUP_DECO_NONE
+machine	Class	ADC ADCBlock ADCWiPy I2C I2S PWM Pin RTC SD SDCard SPI Signal SoftI2C SoftSPI Timer TimerWiPy UART WDT
+machine	Constant	mem16 mem32 mem8
+machine	Function	bitstream bootloader deepsleep disable_irq enable_irq freq idle lightsleep reset reset_cause rng sleep soft_reset time_pulse_us unique_id wake_reason
+machine	Method	adcchannel
+machine.ADC	Method	block init read_u16 read_uv
+machine.ADCBlock	Method	connect init
+machine.ADCWiPy	Method	channel deinit init
+machine.I2C	Method	deinit init readfrom readfrom_into readfrom_mem readfrom_mem_into readinto scan start stop write writeto writeto_mem writevto
+machine.I2S	Constant	MONO RX STEREO TX
+machine.I2S	Method	deinit init irq readinto shift write
+machine.PWM	Method	deinit duty_ns duty_u16 freq init
+machine.Pin	Constant	ALT ALT_OPEN_DRAIN ANALOG DRIVE_0 DRIVE_1 DRIVE_2 IN IRQ_FALLING IRQ_HIGH_LEVEL IRQ_LOW_LEVEL IRQ_RISING OPEN_DRAIN OUT PULL_DOWN PULL_HOLD PULL_UP
+machine.Pin	Method	__call__ alt_list drive high init irq low mode off on pull value
+machine.RTC	Constant	ALARM0
+machine.RTC	Method	alarm alarm_left cancel datetime deinit init irq now
+machine.SD	Method	deinit init
+machine.SPI	Constant	CONTROLLER LSB MSB
+machine.SPI	Method	deinit init read readinto write write_readinto
+machine.Signal	Method	off on value
+machine.SoftSPI	Constant	LSB MSB
+machine.Timer	Constant	ONE_SHOT PERIODIC
+machine.Timer	Method	deinit init
+machine.TimerWiPy	Constant	ONE_SHOT PERIODIC
+machine.TimerWiPy	Method	channel deinit init
+machine.UART	Constant	RX_ANY
+machine.UART	Method	any deinit flush init irq read readinto readline sendbreak txdone write
+machine.WDT	Method	feed
+machine.adcchannel	Method	deinit init value
+machine.machine	Constant	DEEPSLEEP DEEPSLEEP_RESET HARD_RESET IDLE PIN_WAKE PWRON_RESET RTC_WAKE SLEEP SOFT_RESET WDT_RESET WLAN_WAKE
+machine.timerchannel	Method	duty_cycle freq irq period
+math	Constant	e pi
+math	Function	acos acosh asin asinh atan atan2 atanh ceil copysign cos cosh degrees erf erfc exp expm1 fabs floor fmod frexp gamma isfinite isinf isnan ldexp lgamma log log10 log2 modf pow radians sin sinh sqrt tan tanh trunc
+micropython	Function	alloc_emergency_exception_buf const heap_lock heap_locked heap_unlock kbd_intr mem_info opt_level qstr_info schedule stack_use
+neopixel	Class	NeoPixel
+neopixel.NeoPixel	Method	__getitem__ __len__ __setitem__ fill write
+network	Class	AbstractNIC LAN Server WIZNET5K WLAN WLANWiPy
+network	Function	country hostname phy_mode
+network.AbstractNIC	Method	active config connect disconnect ifconfig isconnected scan status
+network.LAN	Method	active config ifconfig isconnected status
+network.WIZNET5K	Method	ifconfig isconnected regs
+network.WLAN	Method	active config connect disconnect ifconfig isconnected scan status
+network.WLANWiPy	Constant	AP EXT_ANT INT_ANT STA WEP WPA WPA2
+network.WLANWiPy	Method	antenna auth channel connect disconnect ifconfig init irq isconnected mac mode scan ssid
+os	Class	AbstractBlockDev VfsFat VfsLfs1 VfsLfs2
+os	Function	chdir dupterm getcwd ilistdir listdir mkdir mount remove rename rmdir stat statvfs sync umount uname urandom
+os.AbstractBlockDev	Method	ioctl readblocks writeblocks
+os.VfsFat	Method	mkfs
+os.VfsLfs1	Method	mkfs
+os.VfsLfs2	Method	mkfs
+pyb	Class	ADC Accel CAN DAC ExtInt Flash I2C LCD LED Pin RTC SPI Servo Switch Timer UART USB_HID USB_VCP
+pyb	Function	bootloader delay disable_irq elapsed_micros elapsed_millis enable_irq fault_debug freq hard_reset have_cdc hid info main micros millis mount repl_uart rng standby stop sync udelay unique_id usb_mode wfi
+pyb.ADC	Method	read read_timed read_timed_multi
+pyb.Accel	Method	filtered_xyz tilt x y z
+pyb.CAN	Constant	BUS_OFF DUAL ERROR_ACTIVE ERROR_PASSIVE ERROR_WARNING LIST16 LIST32 LOOPBACK MASK MASK16 MASK32 NORMAL RANGE SILENT SILENT_LOOPBACK STOPPED
+pyb.CAN	Method	any clearfilter deinit info recv restart rxcallback send setfilter state
+pyb.DAC	Constant	CIRCULAR NORMAL
+pyb.DAC	Method	deinit init noise triangle write write_timed
+pyb.ExtInt	Constant	IRQ_FALLING IRQ_RISING IRQ_RISING_FALLING
+pyb.ExtInt	Method	disable enable line regs swint
+pyb.Flash	Method	ioctl readblocks writeblocks
+pyb.I2C	Constant	CONTROLLER PERIPHERAL
+pyb.I2C	Method	deinit init is_ready mem_read mem_write recv scan send
+pyb.LCD	Method	command contrast fill get light pixel show text write
+pyb.LED	Method	intensity off on toggle
+pyb.Pin	Constant	AF_OD AF_PP ALT ANALOG IN OUT_OD OUT_PP PULL_DOWN PULL_NONE PULL_UP
+pyb.Pin	Method	__str__ af af_list debug dict gpio init mapper mode name names pin port pull value
+pyb.RTC	Method	calibration datetime info wakeup
+pyb.SPI	Constant	CONTROLLER LSB MSB PERIPHERAL
+pyb.SPI	Method	deinit init recv send send_recv
+pyb.Servo	Method	angle calibration pulse_width speed
+pyb.Switch	Method	__call__ callback value
+pyb.Timer	Constant	BRK_HIGH BRK_LOW BRK_OFF CENTER DOWN UP
+pyb.Timer	Method	callback channel counter deinit freq init period prescaler source_freq
+pyb.UART	Constant	CTS RTS
+pyb.UART	Method	any deinit init read readchar readinto readline sendbreak write writechar
+pyb.USB_HID	Method	recv send
+pyb.USB_VCP	Constant	CTS IRQ_RX RTS
+pyb.USB_VCP	Method	any close init irq isconnected read readinto readline readlines recv send setinterrupt write
+pyb.pinaf	Method	__str__ index name reg
+pyb.pyb	Constant	hid_keyboard hid_mouse
+pyb.timerchannel	Method	callback capture compare pulse_width pulse_width_percent
+random	Function	choice getrandbits randint random randrange seed uniform
+re	Constant	DEBUG
+re	Function	compile match search sub
+re.match	Method	end group groups span start
+re.regex	Method	match search split sub
+rp2	Class	Flash PIO PIOASMError StateMachine
+rp2	Function	asm_pio asm_pio_encode bootsel_button
+rp2.Flash	Method	ioctl readblocks writeblocks
+rp2.PIO	Constant	IN_HIGH IN_LOW IRQ_SM0 IRQ_SM1 IRQ_SM2 IRQ_SM3 JOIN_NONE JOIN_RX JOIN_TX OUT_HIGH OUT_LOW SHIFT_LEFT SHIFT_RIGHT
+rp2.PIO	Method	add_program irq remove_program state_machine
+rp2.StateMachine	Method	active exec get init irq put restart rx_fifo tx_fifo
+select	Function	poll select
+select.poll	Method	ipoll modify poll register unregister
+server	Method	deinit init isrunning timeout
+socket	Class	socket
+socket	Constant	AF_INET AF_INET6 IPPROTO_SEC IPPROTO_TCP IPPROTO_UDP SOCK_DGRAM SOCK_STREAM
+socket	Function	getaddrinfo inet_ntop inet_pton
+socket.socket	Class	error
+socket.socket	Method	accept bind close connect listen makefile read readinto readline recv recvfrom send sendall sendto setblocking setsockopt settimeout write
+ssl.ssl	Constant	CERT_NONE CERT_OPTIONAL CERT_REQUIRED SSLError
+ssl.ssl	Function	wrap_socket
+stm	Constant	GPIOA GPIOB GPIO_BSRR GPIO_IDR GPIO_ODR mem16 mem32 mem8
+stm	Function	rfcore_fw_version rfcore_status rfcore_sys_hci
+struct	Function	calcsize pack pack_into unpack unpack_from
+sys	Constant	argv byteorder implementation maxsize modules path platform ps1 ps2 stderr stdin stdout tracebacklimit version version_info
+sys	Function	atexit exit print_exception settrace
+time	Function	gmtime localtime mktime sleep sleep_ms sleep_us ticks_add ticks_cpu ticks_diff ticks_ms ticks_us time time_ns
+uasyncio	Class	Event Lock Loop Server Stream Task ThreadSafeFlag
+uasyncio	Function	create_task current_task gather get_event_loop new_event_loop open_connection run sleep sleep_ms start_server wait_for wait_for_ms
+uasyncio.Event	Method	clear is_set set wait
+uasyncio.Lock	Method	acquire locked release
+uasyncio.Loop	Method	call_exception_handler close create_task default_exception_handler get_exception_handler run_forever run_until_complete set_exception_handler stop
+uasyncio.Server	Method	close wait_closed
+uasyncio.Stream	Method	close drain get_extra_info read readexactly readinto readline wait_closed write
+uasyncio.Task	Method	cancel
+uasyncio.ThreadSafeFlag	Method	clear set wait
+uctypes	Class	struct
+uctypes	Constant	ARRAY BIG_ENDIAN FLOAT32 FLOAT64 INT16 INT32 INT64 INT8 LITTLE_ENDIAN NATIVE PTR UINT16 UINT32 UINT64 UINT8 VOID
+uctypes	Function	addressof bytearray_at bytes_at sizeof
+wipy	Function	heartbeat
+zephyr	Class	DiskAccess FlashArea
+zephyr	Function	current_tid is_preempt_thread shell_exec thread_analyze
+zephyr.DiskAccess	Method	ioctl readblocks writeblocks
+zephyr.FlashArea	Method	ioctl readblocks writeblocks
+zlib	Class	DecompIO
+zlib	Function	decompress
+zsensor	Class	Sensor
+zsensor	Constant	ACCEL_X ACCEL_Y ACCEL_Z ALTITUDE DIE_TEMP GYRO_X GYRO_Y GYRO_Z HUMIDITY LIGHT MAGN_X MAGN_Y MAGN_Z PRESS PROX
+zsensor.Sensor	Method	get_float get_int get_micros get_millis measure
