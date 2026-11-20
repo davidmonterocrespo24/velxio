@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import compile, compile_chip, compile_rom, flash, intellisense, libraries, micropython_libs
+from app.api.routes import compile, compile_chip, compile_rom, flash, intellisense, libraries, micropython_libs, semantic
 from app.core.config import settings
 from app.core.hooks import run_lifespan_startup
 from app.core.hooks import health_detail, health_probe
@@ -102,6 +102,7 @@ app.include_router(
     micropython_libs.router, prefix="/api/micropython-libs", tags=["micropython-libraries"]
 )
 app.include_router(intellisense.router, prefix="/api/intellisense", tags=["intellisense"])
+app.include_router(semantic.router, prefix="/api/intellisense/semantic", tags=["intellisense"])
 # Hardware flash: subprocesses arduino-cli upload to write a compiled
 # sketch to a real USB-attached board. Desktop-only in practice (the
 # web build has no access to local serial ports without WebSerial),
