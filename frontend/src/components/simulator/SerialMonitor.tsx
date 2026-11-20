@@ -4,11 +4,11 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { getTabSessionId } from '../../simulation/Esp32Bridge';
 import { openDeviceGateway } from '../../lib/openDeviceGateway';
-import type { BoardKind } from '../../types/board';
 import { boardDisplayName, isPiBoardKind } from '../../types/board';
 import { PiTerminal } from '../raspberry-pi/PiTerminal';
 import { serialMonitorText } from '../../store/serialMonitorText';
@@ -80,7 +80,7 @@ const BOARD_COLOR: Partial<Record<string, string>> = {
   attiny85: 'var(--color-feedback-warning)',
 };
 
-export const SerialMonitor: React.FC = () => {
+export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
   const boards = useSimulatorStore((s) => s.boards);
   const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
@@ -183,11 +183,26 @@ export const SerialMonitor: React.FC = () => {
     }
   };
 
+  const closeLabel = t('editor.serial.close', 'Close Serial Monitor');
+  const closeButton = onClose && (
+    <button
+      type="button"
+      className="workspace-panel-close"
+      aria-label={closeLabel}
+      title={closeLabel}
+      onClick={onClose}
+    >
+      <X size={15} aria-hidden />
+    </button>
+  );
+  const headerClass = onClose ? 'workspace-panel-header--closable' : undefined;
+
   if (boards.length === 0) {
     return (
       <div style={styles.container}>
-        <div style={styles.header}>
+        <div className={headerClass} style={styles.tabStrip}>
           <span style={styles.title}>{t('editor.serial.title')}</span>
+          {closeButton}
         </div>
         <pre style={styles.output}>{t('editor.serial.addBoard')}</pre>
       </div>
@@ -197,7 +212,7 @@ export const SerialMonitor: React.FC = () => {
   return (
     <div style={styles.container}>
       {/* Tab strip */}
-      <div style={styles.tabStrip}>
+      <div className={headerClass} style={styles.tabStrip}>
         {boards.map((board) => {
           const isActive = board.id === resolvedTabId;
           const color = BOARD_COLOR[board.boardKind] ?? 'var(--wb-10)';
@@ -265,6 +280,7 @@ export const SerialMonitor: React.FC = () => {
           {/* Overlay slot for per-board terminal actions (empty in OSS). */}
           <span data-velxio-slot="serial-actions" />
         </div>
+        {closeButton}
       </div>
 
       {/* Overlay slot for a full-width notice about the LINK itself — e.g. the
@@ -487,6 +503,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--wb-12)',
     fontWeight: 600,
     fontSize: 12,
+    paddingInlineStart: 8,
   },
   baudRate: {
     color: 'var(--color-accent-fg)',

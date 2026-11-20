@@ -12,8 +12,9 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo } from 'react';
-import { useResolvedTheme } from '../../hooks/useTheme';
+import { useThemeRevision } from '../../hooks/useTheme';
 import ReactDOM from 'react-dom';
+import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   useOscilloscopeStore,
@@ -173,7 +174,7 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const theme = useResolvedTheme();
+  const theme = useThemeRevision();
   const isAnalog = channel.kind === 'analog';
   const { color, voltsPerDiv, yOffsetV } = channel;
   // What an analog row draws besides its samples: the mean AC coupling takes
@@ -232,7 +233,7 @@ interface RulerCanvasProps {
 const RulerCanvas: React.FC<RulerCanvasProps> = ({ windowEndMs, windowMs, timeDivMs }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const theme = useResolvedTheme();
+  const theme = useThemeRevision();
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -267,7 +268,7 @@ interface ChannelPickerProps {
   activeChannels: OscChannel[];
   onClose: () => void;
   anchorRect: DOMRect;
-  dropdownRef: React.RefObject<HTMLDivElement>;
+  dropdownRef: React.RefObject<HTMLDivElement | null>;
 }
 
 const ChannelPicker: React.FC<ChannelPickerProps> = ({
@@ -308,7 +309,7 @@ const ChannelPicker: React.FC<ChannelPickerProps> = ({
   };
 
   return ReactDOM.createPortal(
-    <div ref={dropdownRef} className="osc-picker-dropdown osc-picker-multiboard" style={style}>
+    <div ref={dropdownRef} className="osc-picker-dropdown osc-picker-multiboard dropdown-panel" style={style}>
       {/* Board tabs */}
       <div className="osc-picker-board-tabs">
         {boards.map((b) => (
@@ -356,8 +357,9 @@ const ChannelPicker: React.FC<ChannelPickerProps> = ({
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export const Oscilloscope: React.FC = () => {
+export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
+  const closeLabel = t('editor.oscilloscope.close', 'Close Scope');
   const {
     running: capturing,
     timeDivMs,
@@ -519,7 +521,7 @@ export const Oscilloscope: React.FC = () => {
   return (
     <div className="osc-container">
       {/* ── Header ── */}
-      <div className="osc-header">
+      <div className={onClose ? 'osc-header workspace-panel-header--closable' : 'osc-header'}>
         <span className="osc-title">{t('editor.oscilloscope.title')}</span>
 
         {/* Add Channel button + portal picker */}
@@ -724,6 +726,17 @@ export const Oscilloscope: React.FC = () => {
         >
           {t('editor.oscilloscope.clear')}
         </button>
+        {onClose && (
+          <button
+            type="button"
+            className="workspace-panel-close"
+            aria-label={closeLabel}
+            title={closeLabel}
+            onClick={onClose}
+          >
+            <X size={15} aria-hidden />
+          </button>
+        )}
       </div>
 
       {/* ── Waveforms ── */}
