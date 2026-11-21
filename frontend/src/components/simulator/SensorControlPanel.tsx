@@ -6,6 +6,7 @@
  * directly into the running simulation via SensorUpdateRegistry.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type SensorControl, type SliderControl, LOG_SLIDER_STEPS, logSliderToValue, logValueToSlider, getSensorControlForComponent, projectSensorValues, sliderInput, nearestOption } from '../../simulation/sensorControlConfig';
@@ -153,18 +154,18 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
           <label className="sensor-control-label-wide" htmlFor={id}>
             {sc.label}
           </label>
-          <select
+          <DropdownSelect
             id={id}
             className="sensor-select"
             value={current ? String(current.value) : ''}
-            onChange={(e) => handleSlider(sc.key, e.target.value)}
+            onValueChange={(value) => handleSlider(sc.key, value)}
           >
             {input.options.map((o) => (
               <option key={o.value} value={String(o.value)}>
                 {o.label}
               </option>
             ))}
-          </select>
+          </DropdownSelect>
         </div>
       );
     }
