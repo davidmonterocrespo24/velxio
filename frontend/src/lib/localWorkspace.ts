@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createStore, entries, get, set } from 'idb-keyval';
 import type { AutoSaveState } from '../hooks/useAutoSaveProject';
 import { flushChipFileSync } from '../services/chipFiles';
+import { resolveMissingLibraryVersions } from '../services/libraryService';
 import {
   deleteLocalProject,
   getLocalProject,
@@ -17,6 +18,7 @@ import { showConfirmDialog, showMessageDialog } from '../store/useMessageDialogS
 import { useProjectStore } from '../store/useProjectStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { generateUUID } from '../utils/uuid';
+import { bareLibName, libraryVersionFromSpec } from '../utils/libraryManifest';
 import { buildVlxPayload, loadVlxPayload, parseVlxFile, type VlxPayload } from '../utils/vlxFile';
 
 interface DiskHandle extends FileSystemFileHandle {
@@ -31,7 +33,7 @@ type PickerWindow = Window & {
 
 type SaveTarget =
   | { kind: 'browser'; id: string; name: string; revision: number }
-  | { kind: 'disk'; id?: string; name: string; handle: DiskHandle; fileVersion: string };
+  | { kind: 'disk'; id?: string; historyId: string; name: string; handle: DiskHandle; fileVersion: string };
 
 const diskProjects = createStore('velxio-disk-projects', 'handles');
 
@@ -42,11 +44,13 @@ export const useLocalWorkspace = create<AutoSaveState & {
   name: string | null;
   browserId: string | null;
   diskId: string | null;
+  diskHistoryId: string | null;
 }>(() => ({
   ...idle,
   name: null,
   browserId: null,
   diskId: null,
+  diskHistoryId: null,
 }));
 
 let target: SaveTarget | null = null;
@@ -85,6 +89,7 @@ function selectTarget(next: SaveTarget, content: string, updatedAt: number): voi
     name: next.name,
     browserId: next.kind === 'browser' ? next.id : null,
     diskId: next.kind === 'disk' ? next.id ?? null : null,
+    diskHistoryId: next.kind === 'disk' ? next.historyId : null,
     status: 'saved',
     lastSavedAt: updatedAt,
     errorMessage: null,
@@ -94,7 +99,7 @@ function selectTarget(next: SaveTarget, content: string, updatedAt: number): voi
 function clearTarget(status: 'idle' | 'dirty' = 'idle'): void {
   target = null;
   savedContent = '';
-  useLocalWorkspace.setState({ ...idle, status, name: null, browserId: null, diskId: null });
+  useLocalWorkspace.setState({ ...idle, status, name: null, browserId: null, diskId: null, diskHistoryId: null });
 }
 
 function loadLocalProject(project: LocalProject): void {
@@ -117,6 +122,41 @@ export function hasUnsavedLocalChanges(): boolean {
       files.some((f) => f.modified),
     )
   );
+}
+
+export async function upgradeWorkspaceLibraryVersions(signal: AbortSignal): Promise<void> {
+  const version = workspaceVersion();
+  const openedTarget = currentTarget();
+  const simulator = useSimulatorStore.getState();
+  if (useProjectStore.getState().currentExampleId) return;
+  const dependencies = simulator.boards.flatMap((board) => board.libraries ?? []);
+  const catalog = await resolveMissingLibraryVersions(dependencies, signal);
+  if (!catalog.size || signal.aborted || workspaceVersion() !== version) return;
+
+  // Write a metadata-only migration even with auto-save disabled, provided the
+  // loaded project is still clean and its existing destination can be written.
+  const writable = openedTarget?.kind === 'browser' || (openedTarget?.kind === 'disk' &&
+    await openedTarget.handle.queryPermission({ mode: 'readwrite' }).catch(() => 'denied') === 'granted');
+  if (signal.aborted || workspaceVersion() !== version) return;
+  const saveMigration = writable && currentTarget() === openedTarget && !pending && !hasUnsavedLocalChanges();
+  let changed = false;
+  useSimulatorStore.setState((state) => {
+    const boards = state.boards.map((board) => {
+      const libraries = board.libraries;
+      if (!libraries?.length) return board;
+      const next = libraries.map((spec) => {
+        if (typeof spec !== 'string' || libraryVersionFromSpec(spec)) return spec;
+        const name = bareLibName(spec).trim();
+        const latest = catalog.get(name.toLowerCase());
+        return latest ? `${name}@${latest}` : spec;
+      });
+      if (next.every((spec, index) => spec === libraries[index])) return board;
+      changed = true;
+      return { ...board, libraries: next };
+    });
+    return changed ? { boards } : state;
+  });
+  if (changed && saveMigration) await saveLocalWorkspace({ manual: false });
 }
 
 export async function openLocalWorkspace(id: string, signal: AbortSignal): Promise<boolean> {
@@ -146,9 +186,9 @@ export async function openLocalWorkspace(id: string, signal: AbortSignal): Promi
     const file = await handle.getFile();
     const payload = await parseVlxFile(file);
     if (!isCurrent()) return false;
-    await cacheDiskTimeline(id, payload, file.lastModified);
+    await cacheDiskTimeline(id, true, payload, file.lastModified);
     if (!isCurrent()) return false;
-    loadDiskWorkspace(handle, file, payload, id);
+    loadDiskWorkspace(handle, file, payload, id, id);
     return true;
   } catch (error) {
     if (isCurrent()) showMessageDialog(String(error), { kind: 'error', title: 'Could not reopen disk project' });
@@ -170,12 +210,13 @@ async function rememberDiskHandle(handle: DiskHandle): Promise<string | undefine
   }
 }
 
-function loadDiskWorkspace(handle: DiskHandle, file: File, payload: VlxPayload, id?: string): void {
+function loadDiskWorkspace(handle: DiskHandle, file: File, payload: VlxPayload, historyId: string, id?: string): void {
   loadVlxPayload(payload);
   selectTarget(
     {
       kind: 'disk',
       id,
+      historyId,
       handle,
       name: payload.name || file.name.replace(/\.vlx$/i, ''),
       fileVersion: diskFileVersion(file),
@@ -185,10 +226,9 @@ function loadDiskWorkspace(handle: DiskHandle, file: File, payload: VlxPayload, 
   );
 }
 
-async function cacheDiskTimeline(id: string | undefined, payload: VlxPayload, savedAt: number): Promise<void> {
-  if (!id) return;
+async function cacheDiskTimeline(id: string, persist: boolean, payload: VlxPayload, savedAt: number): Promise<void> {
   // A history cache failure cannot undo a successful disk read or write.
-  await recordDiskFileVersions(id, payload.fileGroups, savedAt).catch(() => undefined);
+  await recordDiskFileVersions(id, payload.fileGroups, savedAt, persist).catch(() => undefined);
 }
 
 export async function renameBrowserWorkspace(id: string, revision: number, name: string) {
@@ -294,6 +334,7 @@ export async function saveLocalWorkspace(
   if (disk)
     destination = {
       kind: 'disk',
+      historyId: generateUUID(),
       handle: disk,
       name: disk.name.replace(/\.vlx$/i, ''),
       fileVersion: '',
@@ -321,8 +362,9 @@ export async function saveLocalWorkspace(
       if (saveTarget.kind === 'disk') {
         const { target: written, savedAt } = await writeDisk(saveTarget, payload, manual);
         const id = disk ? await rememberDiskHandle(disk) : written.id;
-        next = { ...written, id };
-        await cacheDiskTimeline(id, payload, savedAt);
+        const historyId = id ?? written.historyId;
+        next = { ...written, id, historyId };
+        await cacheDiskTimeline(historyId, !!id, payload, savedAt);
       } else {
         next = { ...saveTarget, revision: saveTarget.revision + 1 };
         await writeLocalProject({ ...next, updatedAt, payload });
@@ -381,9 +423,10 @@ export async function openProjectFile(): Promise<void> {
     if (version !== workspaceVersion()) return;
     const id = await rememberDiskHandle(handle);
     if (version !== workspaceVersion()) return;
-    await cacheDiskTimeline(id, payload, file.lastModified);
+    const historyId = id ?? generateUUID();
+    await cacheDiskTimeline(historyId, !!id, payload, file.lastModified);
     if (version !== workspaceVersion()) return;
-    loadDiskWorkspace(handle, file, payload, id);
+    loadDiskWorkspace(handle, file, payload, historyId, id);
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
       showMessageDialog(String(error), { kind: 'error', title: 'Could not open project' });
@@ -406,6 +449,7 @@ export async function saveProjectFileAs(): Promise<void> {
 }
 
 export function watchLocalWorkspace(): () => void {
+  let disposed = false;
   let checkTimer: ReturnType<typeof setTimeout> | undefined;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let dirtyContent = '';
@@ -433,6 +477,13 @@ export function watchLocalWorkspace(): () => void {
     }, 120);
   };
   const editor = useEditorStore.subscribe((state, previous) => {
+    if (state.renameRevision !== previous.renameRevision && hasLocalWorkspace()) {
+      const version = workspaceVersion();
+      queueMicrotask(() => {
+        if (!disposed && workspaceVersion() === version) void saveLocalWorkspace({ manual: false });
+      });
+      return;
+    }
     if (state.fileGroups !== previous.fileGroups || state.folderGroups !== previous.folderGroups)
       scheduleCheck();
   });
@@ -478,6 +529,7 @@ export function watchLocalWorkspace(): () => void {
   window.addEventListener('beforeunload', beforeUnload);
   scheduleCheck();
   return () => {
+    disposed = true;
     clearTimeout(checkTimer);
     clearTimeout(saveTimer);
     editor();
