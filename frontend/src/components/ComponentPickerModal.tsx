@@ -264,7 +264,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   onSelectBoard,
 }) => {
   const { t } = useTranslation();
-  const titleId = useId();
+  const categoriesLabelId = useId();
   const [searchQuery, setSearchQuery] = useState('');
   // Which branch of the left rail is active. 'all' / 'boards' / 'recent', or
   // 'cat:<category>' / 'cat:<category>/<subgroup>'.
@@ -725,43 +725,41 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   return createPortal(
     <div className="component-picker-overlay" onClick={onClose}>
       <div className="component-picker-modal" role="dialog" aria-modal="true"
-        aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
-        <div className="component-picker-header" onMouseEnter={clearHover}>
-          {/* The title was taking up too much horizontal space and pushing the search bar down on smaller screens. It was also redundant with the modal's aria-labelledby, so it was removed. */}
-          {/* <h2 id={titleId}>{t('editor.componentPicker.title')}</h2> */}
-
-          <SearchBar
-            className="header-search-wrapper"
-            placeholder={t('editor.componentPicker.searchPlaceholder')}
-            value={searchQuery}
-            clearLabel={t('editor.componentPicker.clearSearch')}
-            onValueChange={(next) => {
-              setSearchQuery(next);
-              clearHover();
-            }}
-            autoFocus
-          />
-
-          <button
-            type="button"
-            className="component-picker-close"
-            onClick={onClose}
-            aria-label={t('editor.componentPicker.close')}
-          >
-            <X size={18} aria-hidden />
-          </button>
-        </div>
-
+        aria-label={t('editor.componentPicker.title')} onClick={(e) => e.stopPropagation()}>
         <div className="picker-body">
-          <ComponentTree
-            nodes={treeNodes}
-            selected={selectedKey}
-            onSelect={selectBranch}
-            expanded={expandedKeys}
-            onToggle={toggleBranch}
-            label={t('editor.componentPicker.categoriesTree', 'Component categories')}
-          />
-
+          <div className="picker-sidebar">
+            <h3 id={categoriesLabelId} className="picker-tree-label">
+              {t('editor.componentPicker.categoriesTree', 'Categories')}
+            </h3>
+            <ComponentTree
+              nodes={treeNodes}
+              selected={selectedKey}
+              onSelect={selectBranch}
+              expanded={expandedKeys}
+              onToggle={toggleBranch}
+              labelId={categoriesLabelId}
+            />
+          </div>
+          <div className="component-picker-header" onMouseEnter={clearHover}>
+            <SearchBar
+              placeholder={t('editor.componentPicker.searchPlaceholder')}
+              value={searchQuery}
+              clearLabel={t('editor.componentPicker.clearSearch')}
+              onValueChange={(next) => {
+                setSearchQuery(next);
+                clearHover();
+              }}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="component-picker-close"
+              onClick={onClose}
+              aria-label={t('editor.componentPicker.close')}
+            >
+              <X size={18} aria-hidden />
+            </button>
+          </div>
           <div className="picker-results">
             {(activeBranchLabel || searchQuery) && (
               <div className="picker-chips">
@@ -873,14 +871,12 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                 </>
               )}
             </div>
+            <div className="modal-footer">
+              <span className="component-count">
+                {shownCount} {shownCount === 1 ? 'item' : 'items'}
+              </span>
+            </div>
           </div>
-        </div>
-
-        {/* Footer Info */}
-        <div className="modal-footer">
-          <span className="component-count">
-            {shownCount} {shownCount === 1 ? 'item' : 'items'}
-          </span>
         </div>
       </div>
 
