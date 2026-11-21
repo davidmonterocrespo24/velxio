@@ -875,8 +875,10 @@ const PaidGateView = () => {
 const BuildNotice = ({ status }: { status: 'none' | 'stale' }) => {
   const { t } = useTranslation();
   return (
-    <div className="workspace-flash-feedback workspace-flash-feedback--warning">
-      {status === 'stale' ? t('editor.flash.recompileRequired') : t('editor.flash.compileRequired')}
+    <div className="workspace-flash-feedback workspace-flash-feedback--warning" role="status">
+      {status === 'stale'
+        ? t('editor.flash.recompileRequired')
+        : t('editor.flash.compileRequired')}
     </div>
   );
 };

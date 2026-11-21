@@ -5,7 +5,7 @@ import { hardwareFlashAllowed, onWebFlashImplChange } from '../../lib/proWebFlas
 import { hasSelectedBrowserFlashPort, subscribeBrowserFlashSelection } from '../../lib/browserFlashSerial';
 import { useProjectStore } from '../../store/useProjectStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import { boardDisplayName, fqbnForLanguage } from '../../types/board';
+import { boardDisplayName, fqbnForLanguage, type BoardInstance } from '../../types/board';
 import { isEsp32Family } from '../../types/boardOptions';
 import { currentSourceFingerprint } from '../../utils/boardCompile';
 import { BoardOptionsModal } from '../simulator/BoardOptionsModal';
@@ -44,10 +44,11 @@ export function WorkspaceFlash({ active, onOpen, onShowOutput }: {
   }, [busy, onOpen]);
 
   const supportedBoards = boards.filter((board) => !boardFlashSupport(board).disabled);
+  const activeBoard = boards.find((item) => item.id === activeBoardId);
   const board = boards.find((item) => item.id === targetId)
     ?? supportedBoards.find((item) => item.id === activeBoardId)
     ?? supportedBoards[0]
-    ?? boards.find((item) => item.id === activeBoardId)
+    ?? activeBoard
     ?? boards[0];
   const support = boardFlashSupport(board);
   const fqbn = board && fqbnForLanguage(board.boardKind, board.languageMode);
@@ -68,6 +69,13 @@ export function WorkspaceFlash({ active, onOpen, onShowOutput }: {
   }, [board, support.disabled]);
 
   if (!active && !visited) return null;
+
+  const boardLabel = (item: BoardInstance) => {
+    const name = boardDisplayName(item);
+    return boards.some((other) => other.id !== item.id && boardDisplayName(other) === name)
+      ? `${name} (${item.id})`
+      : name;
+  };
 
   return (
     <section className="workspace-sidebar-view workspace-flash" hidden={!active}>
@@ -90,9 +98,16 @@ export function WorkspaceFlash({ active, onOpen, onShowOutput }: {
             <span id={boardLabelId}>{t('editor.flash.targetBoard', 'Board')}</span>
             <DropdownSelect aria-labelledby={boardLabelId} value={board.id} disabled={busy}
               onValueChange={(id) => { setTargetId(id); setEditingOptions(false); }}>
-              {boards.map((item) => <option key={item.id} value={item.id}>{boardDisplayName(item)}</option>)}
+              {boards.map((item) => <option key={item.id} value={item.id}>{boardLabel(item)}</option>)}
             </DropdownSelect>
           </div>
+          {activeBoard && activeBoard.id !== board.id && (
+            <div className="workspace-flash-feedback workspace-flash-feedback--warning" role="status">
+              {t('editor.flash.differentActiveBoard', 'Toolbar Compile targets {{activeBoard}}. Flash targets {{targetBoard}}.', {
+                activeBoard: boardLabel(activeBoard), targetBoard: boardLabel(board),
+              })}
+            </div>
+          )}
           {fqbn && !support.disabled ? (
             <FlashControls key={board.id} board={board} fqbn={fqbn} hasSelectedPort={portSelected}
               editingOptions={editingOptions} onBusyChange={reportBusy} onShowOutput={onShowOutput}>
