@@ -1,4 +1,5 @@
 import { createStore, entries, get, promisifyRequest, update } from 'idb-keyval';
+import { savedWorkspaceFileId, type SavedWorkspaceFile } from '../utils/savedWorkspaceFile';
 import type { VlxPayload } from '../utils/vlxFile';
 
 export interface LocalProjectDetails {
@@ -16,9 +17,10 @@ export interface LocalProject extends LocalProjectDetails {
 export interface LocalFileVersion {
   savedAt: number;
   content: string;
+  rename?: { from: string; to: string };
 }
 
-type StoredFileVersion = number | { savedAt: number; content?: string };
+type StoredFileVersion = number | (Omit<LocalFileVersion, 'content'> & { content?: string });
 type StoredProject = Omit<LocalProject, 'createdAt'> & {
   createdAt?: number;
   fileSaveHistory?: Record<string, StoredFileVersion[]>;
@@ -43,34 +45,54 @@ function withCreatedAt(project: StoredProject): LocalProject {
 const fileKey = (groupId: string, path: string) => JSON.stringify([groupId, path]);
 const FILE_HISTORY_LIMIT = 20;
 
+let lastBrowserProject: StoredProject | undefined;
+let lastDiskHistory: { id: string; history: DiskFileHistory } | undefined;
+
+function readableVersions(value: unknown): LocalFileVersion[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is LocalFileVersion =>
+    entry !== null && typeof entry === 'object' && Number.isFinite(entry.savedAt) &&
+    Number.isFinite(new Date(entry.savedAt).getTime()) && typeof entry.content === 'string',
+  );
+}
+
 function fileVersions(project: StoredProject, key: string, currentContent: string): LocalFileVersion[] {
-  const [latest, ...older] = project.fileSaveHistory?.[key] ?? [];
-  const savedAt = typeof latest === 'number' ? latest : latest?.savedAt ?? project.updatedAt;
+  const stored = project.fileSaveHistory?.[key];
+  const [latest, ...older] = Array.isArray(stored) ? stored : [];
+  const time = typeof latest === 'number' ? latest : latest?.savedAt;
+  const savedAt = typeof time === 'number' && Number.isFinite(new Date(time).getTime()) ? time : project.updatedAt;
   // The project payload can recover the latest save from the old timestamp-only format.
   return [
-    { savedAt, content: currentContent },
-    ...older.filter((entry): entry is LocalFileVersion => typeof entry !== 'number' && typeof entry.content === 'string'),
+    { ...(typeof latest === 'object' ? latest : undefined), savedAt, content: currentContent },
+    ...readableVersions(older),
   ];
 }
 
-function recordFileSave(older: LocalFileVersion[], content: string, savedAt: number): LocalFileVersion[] {
-  return older[0]?.content === content
-    ? older
-    : [{ savedAt, content }, ...older].slice(0, FILE_HISTORY_LIMIT);
+function recordFileSave(
+  older: LocalFileVersion[],
+  { name, content }: SavedWorkspaceFile,
+  savedAt: number,
+  previousName?: string,
+): LocalFileVersion[] {
+  const entries: LocalFileVersion[] = [];
+  if (previousName !== undefined && previousName !== name) {
+    entries.push({ savedAt, content, rename: { from: previousName, to: name } });
+  }
+  if (older[0]?.content !== content) entries.push({ savedAt, content });
+  return entries.length ? [...entries, ...older].slice(0, FILE_HISTORY_LIMIT) : older;
 }
 
 function collectFileSaves(project: ProjectSave, previous?: StoredProject): Record<string, LocalFileVersion[]> {
   const history: Record<string, LocalFileVersion[]> = {};
   for (const [groupId, files] of Object.entries(project.payload.fileGroups ?? {})) {
     const previousFiles = new Map(
-      (previous?.payload.fileGroups?.[groupId] ?? []).map((file) => [file.name, file.content]),
+      (previous?.payload.fileGroups?.[groupId] ?? []).map((file) => [savedWorkspaceFileId(file), file]),
     );
     for (const file of files) {
-      const key = fileKey(groupId, file.name);
-      const previousContent = previousFiles.get(file.name);
-      const older = previous && previousContent !== undefined
-        ? fileVersions(previous, key, previousContent) : [];
-      history[key] = recordFileSave(older, file.content, project.updatedAt);
+      const priorFile = previousFiles.get(savedWorkspaceFileId(file));
+      const older = previous && priorFile
+        ? fileVersions(previous, fileKey(groupId, priorFile.name), priorFile.content) : [];
+      history[fileKey(groupId, file.name)] = recordFileSave(older, file, project.updatedAt, priorFile?.name);
     }
   }
   return history;
@@ -78,39 +100,77 @@ function collectFileSaves(project: ProjectSave, previous?: StoredProject): Recor
 
 export async function getLocalProject(id: string): Promise<LocalProject | undefined> {
   const project = await get<StoredProject>(id, projects);
+  if (project) lastBrowserProject = project;
   return project && withCreatedAt(project);
 }
 
-export async function getLocalFileVersions(id: string, groupId: string, path: string): Promise<LocalFileVersion[]> {
-  const project = await get<StoredProject>(id, projects);
-  const file = project?.payload.fileGroups?.[groupId]?.find(({ name }) => name === path);
-  return project && file ? fileVersions(project, fileKey(groupId, path), file.content) : [];
+export async function getLocalFileVersions(
+  id: string, groupId: string, path: string, fileId?: string,
+): Promise<LocalFileVersion[]> {
+  let project: StoredProject | undefined;
+  try {
+    project = await get<StoredProject>(id, projects);
+  } catch (error) {
+    if (lastBrowserProject?.id !== id) throw error;
+    project = lastBrowserProject;
+  }
+  const files = project?.payload?.fileGroups?.[groupId];
+  const file = Array.isArray(files) && files.find((candidate) =>
+    candidate && (fileId === undefined ? candidate.name === path : savedWorkspaceFileId(candidate) === fileId),
+  );
+  return project && file ? fileVersions(project, fileKey(groupId, file.name), file.content) : [];
 }
 
 interface DiskFileHistory {
   savedAt: number;
   files: Record<string, LocalFileVersion[]>;
+  namesById?: Record<string, string>;
 }
 
-export function recordDiskFileVersions(
-  id: string, fileGroups: VlxPayload['fileGroups'], savedAt: number,
+export async function recordDiskFileVersions(
+  id: string, fileGroups: VlxPayload['fileGroups'], savedAt: number, persist = true,
 ): Promise<void> {
-  return update<DiskFileHistory>(id, (previous) => {
+  const cached = () => lastDiskHistory?.id === id ? lastDiskHistory.history : undefined;
+  const record = (previous?: DiskFileHistory) => {
+    const memory = cached();
+    if (memory && (!previous || memory.savedAt > previous.savedAt)) previous = memory;
     if (previous && previous.savedAt > savedAt) return previous;
     const files: DiskFileHistory['files'] = {};
+    const namesById: NonNullable<DiskFileHistory['namesById']> = {};
     for (const [groupId, groupFiles] of Object.entries(fileGroups)) {
       for (const file of groupFiles) {
-        const key = fileKey(groupId, file.name);
-        files[key] = recordFileSave(previous?.files[key] ?? [], file.content, savedAt);
+        const key = fileKey(groupId, savedWorkspaceFileId(file));
+        const priorName = previous?.namesById?.[key];
+        const priorPath = previous?.namesById ? priorName : file.name;
+        const older = priorPath === undefined ? [] : readableVersions(previous?.files?.[fileKey(groupId, priorPath)]);
+        namesById[key] = file.name;
+        files[fileKey(groupId, file.name)] = recordFileSave(older, file, savedAt, priorName);
       }
     }
-    return { savedAt, files };
-  }, diskHistory);
+    return { savedAt, files, namesById };
+  };
+  let history: DiskFileHistory | undefined;
+  if (persist) {
+    try {
+      await update<DiskFileHistory>(id, (previous) => (history = record(previous)), diskHistory);
+    } catch {
+      // The project file has already been read or written. Keep its history in this tab.
+      history ??= record();
+    }
+  } else {
+    history = record();
+  }
+  if (history) lastDiskHistory = { id, history };
 }
 
-export async function getDiskFileVersions(id: string, groupId: string, path: string): Promise<LocalFileVersion[]> {
-  const history = await get<DiskFileHistory>(id, diskHistory);
-  return history?.files[fileKey(groupId, path)] ?? [];
+export async function getDiskFileVersions(
+  id: string, groupId: string, path: string, fileId?: string,
+): Promise<LocalFileVersion[]> {
+  const history = lastDiskHistory?.id === id
+    ? lastDiskHistory.history
+    : await get<DiskFileHistory>(id, diskHistory);
+  const savedPath = fileId && history?.namesById ? history.namesById[fileKey(groupId, fileId)] : path;
+  return savedPath === undefined ? [] : readableVersions(history?.files?.[fileKey(groupId, savedPath)]);
 }
 
 export async function listLocalProjects(): Promise<LocalProjectDetails[]> {
@@ -123,21 +183,24 @@ export async function listLocalProjects(): Promise<LocalProjectDetails[]> {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export function writeLocalProject(project: ProjectSave): Promise<void> {
+export async function writeLocalProject(project: ProjectSave): Promise<void> {
+  let committed: StoredProject | undefined;
   // Read and compare inside the same transaction as the write, so two tabs
   // starting from the same revision cannot both report a successful save.
-  return update<StoredProject>(
+  await update<StoredProject>(
     project.id,
     (previous) => {
       if ((previous?.revision ?? 0) !== project.revision - 1) throw new LocalProjectConflict();
-      return {
+      committed = {
         ...project,
         createdAt: previous ? withCreatedAt(previous).createdAt : project.updatedAt,
         fileSaveHistory: collectFileSaves(project, previous),
       };
+      return committed;
     },
     projects,
   );
+  lastBrowserProject = committed;
 }
 
 export async function renameLocalProject(
@@ -162,6 +225,7 @@ export async function renameLocalProject(
     },
     projects,
   );
+  lastBrowserProject = renamed;
   return withCreatedAt(renamed!);
 }
 
@@ -178,6 +242,9 @@ export function deleteLocalProject(id: string, revision: number): Promise<void> 
       }
       store.delete(id);
     };
-    void promisifyRequest(store.transaction).then(resolve, reject);
+    void promisifyRequest(store.transaction).then(() => {
+      if (lastBrowserProject?.id === id) lastBrowserProject = undefined;
+      resolve();
+    }, reject);
   }));
 }

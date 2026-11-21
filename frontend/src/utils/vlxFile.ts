@@ -12,7 +12,7 @@
  *     "exportedAt": "ISO timestamp",
  *     "name": "project name (optional)",
  *     "boards": [...],
- *     "fileGroups": { "<groupId>": [{ name, content }, ...] },
+ *     "fileGroups": { "<groupId>": [{ id, name, content }, ...] },
  *     "components": [...],
  *     "wires": [...],
  *     "activeBoardId": "..." | null
@@ -34,6 +34,7 @@ import type { Wire } from '../types/wire';
 import { useEditorStore, chipFileGroupId } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useProjectStore } from '../store/useProjectStore';
+import { savedWorkspaceFileId, type SavedWorkspaceFile } from './savedWorkspaceFile';
 
 type Component = ReturnType<typeof useSimulatorStore.getState>['components'][number];
 
@@ -66,7 +67,7 @@ export interface VlxPayload {
     /** Declared library manifest (compile scope). Absent in old files. */
     libraries?: string[];
   }>;
-  fileGroups: Record<string, Array<{ name: string; content: string }>>;
+  fileGroups: Record<string, SavedWorkspaceFile[]>;
   /** EMPTY folders per group (folders holding files exist via name prefixes).
    *  Optional — absent in projects saved before folders shipped. */
   folderGroups?: Record<string, string[]>;
@@ -130,6 +131,7 @@ export function buildVlxPayload(opts: { name?: string } = {}): VlxPayload {
   const folderGroups: NonNullable<VlxPayload['folderGroups']> = {};
   for (const gid of referencedGroupIds) {
     fileGroups[gid] = (editor.fileGroups[gid] ?? []).map((f) => ({
+      id: f.id,
       name: f.name,
       content: f.content,
     }));
@@ -286,7 +288,10 @@ export function loadVlxPayload(payload: VlxPayload): void {
   useProjectStore.getState().clearCurrentProject();
   useSimulatorStore.getState().loadProjectState({
     boards: payload.boards as unknown as BoardInstance[],
-    fileGroups: payload.fileGroups,
+    fileGroups: Object.fromEntries(Object.entries(payload.fileGroups).map(([groupId, files]) => [
+      groupId,
+      files.map((file) => ({ ...file, id: savedWorkspaceFileId(file) })),
+    ])),
     folderGroups: payload.folderGroups,
     components: payload.components,
     wires: payload.wires,

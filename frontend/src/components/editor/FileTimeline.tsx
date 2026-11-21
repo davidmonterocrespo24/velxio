@@ -10,8 +10,9 @@ import { useEditorPreferences } from '../../store/useEditorPreferences';
 import { useEditorStore, type WorkspaceFile } from '../../store/useEditorStore';
 import { defineVelxioThemes, useMonacoTheme } from './monacoThemes';
 
-function relativeSaveTime(formatter: Intl.RelativeTimeFormat, time: number, now: number) {
+function relativeSaveTime(formatter: Intl.RelativeTimeFormat, time: number, now: number, justNow: string) {
   const minutes = Math.floor(Math.max(0, now - time) / 60_000);
+  if (minutes === 0) return justNow;
   if (minutes >= 1_440) return formatter.format(-Math.floor(minutes / 1_440), 'day');
   if (minutes >= 60) return formatter.format(-Math.floor(minutes / 60), 'hour');
   return formatter.format(-minutes, 'minute');
@@ -47,14 +48,15 @@ function positionTooltip(tooltip: HTMLDivElement, anchor: HTMLButtonElement) {
 export function FileTimeline({ groupId, file }: { groupId: string; file?: WorkspaceFile }) {
   const { t, i18n } = useTranslation();
   const filePath = file?.name;
+  const fileId = file?.id;
   const browserId = useLocalWorkspace((state) => state.browserId);
-  const diskId = useLocalWorkspace((state) => state.diskId);
+  const diskId = useLocalWorkspace((state) => state.diskHistoryId);
   const projectId = browserId ?? diskId;
   const lastSavedAt = useLocalWorkspace((state) => state.lastSavedAt);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(Date.now);
   const [result, setResult] = useState<{ key: string; versions: LocalFileVersion[] | null }>();
-  const fileKey = JSON.stringify([projectId, groupId, file?.id, filePath]);
+  const fileKey = JSON.stringify([projectId, groupId, fileId]);
   const key = JSON.stringify([fileKey, lastSavedAt]);
   const [active, setActive] = useState<{ key: string; index: number; row: HTMLButtonElement } | null>(null);
   const [preview, setPreview] = useState<{ fileKey: string; version: LocalFileVersion } | null>(null);
@@ -62,15 +64,19 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
   const tooltipId = useId();
 
   useEffect(() => {
-    if (!open || !projectId || !filePath) return;
+    if (!open || !projectId || !filePath || !fileId) return;
     let cancelled = false;
     const readVersions = diskId ? getDiskFileVersions : getLocalFileVersions;
-    void readVersions(projectId, groupId, filePath).then(
+    void readVersions(projectId, groupId, filePath, fileId).then(
       (versions) => { if (!cancelled) setResult({ key, versions }); },
-      () => { if (!cancelled) setResult({ key, versions: null }); },
+      (error: unknown) => {
+        if (cancelled) return;
+        console.warn('Could not read local file history', error);
+        setResult({ key, versions: null });
+      },
     );
     return () => { cancelled = true; };
-  }, [diskId, filePath, groupId, key, open, projectId]);
+  }, [diskId, fileId, filePath, groupId, key, open, projectId]);
 
   const versions = result?.key === key ? result.versions : undefined;
   const activeEntry = open && active?.key === key && versions?.[active.index] !== undefined
@@ -84,7 +90,9 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
     numeric: 'auto',
     style: 'short',
   });
-  const label = t('editor.timeline.fileSaved', 'File Saved');
+  const entryLabel = (version: LocalFileVersion) => version.rename
+    ? t('editor.timeline.fileRenamed', 'File Renamed')
+    : t('editor.timeline.fileSaved', 'File Saved');
   const message = !filePath
     ? t('editor.timeline.selectFile', 'Select a file to see its save history.')
     : !projectId
@@ -118,14 +126,14 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
     };
   }, [activeEntry]);
 
-  const activeTime = activeEntry ? versions?.[activeEntry.index]?.savedAt : undefined;
+  const activeVersion = activeEntry ? versions?.[activeEntry.index] : undefined;
   const selectedVersion = preview?.fileKey === fileKey ? preview.version : null;
 
   const restoreVersion = (content: string) => {
     const editor = useEditorStore.getState();
     const workspace = useLocalWorkspace.getState();
     if (file && editor.activeGroupId === groupId && editor.activeFileId === file.id &&
-        !editor.manifestViewBoardId && (workspace.browserId ?? workspace.diskId) === projectId) {
+        !editor.manifestViewBoardId && (workspace.browserId ?? workspace.diskHistoryId) === projectId) {
       editor.setFileContent(file.id, content);
     }
     setPreview(null);
@@ -182,16 +190,16 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
                 }}
               >
                 <span className="file-explorer-timeline-dot" aria-hidden="true" />
-                <span>{label}</span>
+                <span>{entryLabel(version)}</span>
                 <time dateTime={new Date(version.savedAt).toISOString()} aria-label={formatter.format(version.savedAt)}>
-                  {relativeSaveTime(relativeFormatter, version.savedAt, now)}
+                  {relativeSaveTime(relativeFormatter, version.savedAt, now, t('editor.timeline.now', 'now'))}
                 </time>
               </button>
             </li>
           ))}
         </ol>
       ) : <p>{message}</p>}
-      {activeTime !== undefined && createPortal(
+      {activeVersion && createPortal(
         <div
           id={tooltipId}
           ref={tooltip}
@@ -202,11 +210,14 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
             if (activeEntry?.row !== document.activeElement) setActive(null);
           }}
         >
-          <time dateTime={new Date(activeTime).toISOString()}>
+          <time dateTime={new Date(activeVersion.savedAt).toISOString()}>
             <History size={13} aria-hidden />
-            {formatter.format(activeTime)}
+            {formatter.format(activeVersion.savedAt)}
           </time>
-          <div>{label}</div>
+          <div>{entryLabel(activeVersion)}</div>
+          {activeVersion.rename && (
+            <div><bdi>{activeVersion.rename.from}</bdi> → <bdi>{activeVersion.rename.to}</bdi></div>
+          )}
         </div>,
         document.body,
       )}
