@@ -5,7 +5,7 @@ import { ChevronRight, History, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getEditorLanguage } from '../../lib/editorLanguages';
 import { useLocalWorkspace } from '../../lib/localWorkspace';
-import { getLocalFileVersions, type LocalFileVersion } from '../../services/localProjects';
+import { getDiskFileVersions, getLocalFileVersions, type LocalFileVersion } from '../../services/localProjects';
 import { useEditorPreferences } from '../../store/useEditorPreferences';
 import { useEditorStore, type WorkspaceFile } from '../../store/useEditorStore';
 import { defineVelxioThemes, useMonacoTheme } from './monacoThemes';
@@ -47,7 +47,9 @@ function positionTooltip(tooltip: HTMLDivElement, anchor: HTMLButtonElement) {
 export function FileTimeline({ groupId, file }: { groupId: string; file?: WorkspaceFile }) {
   const { t, i18n } = useTranslation();
   const filePath = file?.name;
-  const projectId = useLocalWorkspace((state) => state.browserId);
+  const browserId = useLocalWorkspace((state) => state.browserId);
+  const diskId = useLocalWorkspace((state) => state.diskId);
+  const projectId = browserId ?? diskId;
   const lastSavedAt = useLocalWorkspace((state) => state.lastSavedAt);
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(Date.now);
@@ -62,12 +64,13 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
   useEffect(() => {
     if (!open || !projectId || !filePath) return;
     let cancelled = false;
-    void getLocalFileVersions(projectId, groupId, filePath).then(
+    const readVersions = diskId ? getDiskFileVersions : getLocalFileVersions;
+    void readVersions(projectId, groupId, filePath).then(
       (versions) => { if (!cancelled) setResult({ key, versions }); },
       () => { if (!cancelled) setResult({ key, versions: null }); },
     );
     return () => { cancelled = true; };
-  }, [filePath, groupId, key, open, projectId]);
+  }, [diskId, filePath, groupId, key, open, projectId]);
 
   const versions = result?.key === key ? result.versions : undefined;
   const activeEntry = open && active?.key === key && versions?.[active.index] !== undefined
@@ -85,7 +88,7 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
   const message = !filePath
     ? t('editor.timeline.selectFile', 'Select a file to see its save history.')
     : !projectId
-      ? t('editor.timeline.browserOnly', 'Save this project in your browser to start recording file saves.')
+      ? t('editor.timeline.saveProject', 'Save this project to start recording file history.')
       : versions === null
         ? t('editor.timeline.loadFailed', 'Could not read local file history.')
         : versions === undefined
@@ -120,8 +123,9 @@ export function FileTimeline({ groupId, file }: { groupId: string; file?: Worksp
 
   const restoreVersion = (content: string) => {
     const editor = useEditorStore.getState();
+    const workspace = useLocalWorkspace.getState();
     if (file && editor.activeGroupId === groupId && editor.activeFileId === file.id &&
-        !editor.manifestViewBoardId && useLocalWorkspace.getState().browserId === projectId) {
+        !editor.manifestViewBoardId && (workspace.browserId ?? workspace.diskId) === projectId) {
       editor.setFileContent(file.id, content);
     }
     setPreview(null);

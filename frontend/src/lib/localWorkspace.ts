@@ -5,6 +5,7 @@ import { flushChipFileSync } from '../services/chipFiles';
 import {
   deleteLocalProject,
   getLocalProject,
+  recordDiskFileVersions,
   renameLocalProject,
   writeLocalProject,
   type LocalProject,
@@ -145,6 +146,8 @@ export async function openLocalWorkspace(id: string, signal: AbortSignal): Promi
     const file = await handle.getFile();
     const payload = await parseVlxFile(file);
     if (!isCurrent()) return false;
+    await cacheDiskTimeline(id, payload, file.lastModified);
+    if (!isCurrent()) return false;
     loadDiskWorkspace(handle, file, payload, id);
     return true;
   } catch (error) {
@@ -175,11 +178,17 @@ function loadDiskWorkspace(handle: DiskHandle, file: File, payload: VlxPayload, 
       id,
       handle,
       name: payload.name || file.name.replace(/\.vlx$/i, ''),
-      fileVersion: `${file.lastModified}:${file.size}`,
+      fileVersion: diskFileVersion(file),
     },
     fingerprint(),
     file.lastModified,
   );
+}
+
+async function cacheDiskTimeline(id: string | undefined, payload: VlxPayload, savedAt: number): Promise<void> {
+  if (!id) return;
+  // A history cache failure cannot undo a successful disk read or write.
+  await recordDiskFileVersions(id, payload.fileGroups, savedAt).catch(() => undefined);
 }
 
 export async function renameBrowserWorkspace(id: string, revision: number, name: string) {
@@ -222,8 +231,7 @@ function reportSaveError(error: unknown, manual: boolean): void {
   if (manual) showMessageDialog(message, { kind: 'error', title: 'Could not save project' });
 }
 
-async function diskFileVersion(handle: DiskHandle): Promise<string> {
-  const file = await handle.getFile();
+function diskFileVersion(file: File): string {
   return `${file.lastModified}:${file.size}`;
 }
 
@@ -231,13 +239,13 @@ async function writeDisk(
   destination: Extract<SaveTarget, { kind: 'disk' }>,
   payload: VlxPayload,
   manual: boolean,
-): Promise<SaveTarget> {
+): Promise<{ target: typeof destination; savedAt: number }> {
   if (!manual && (await destination.handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
     throw new Error('Choose Save to grant Velxio permission to write this file.');
   }
   if (
     destination.fileVersion &&
-    destination.fileVersion !== (await diskFileVersion(destination.handle))
+    destination.fileVersion !== diskFileVersion(await destination.handle.getFile())
   ) {
     throw new Error('The file changed on disk. Reopen it or use Save As to keep your edits.');
   }
@@ -249,7 +257,11 @@ async function writeDisk(
     await writable.abort().catch(() => undefined);
     throw error;
   }
-  return { ...destination, fileVersion: await diskFileVersion(destination.handle) };
+  const file = await destination.handle.getFile();
+  return {
+    target: { ...destination, fileVersion: diskFileVersion(file) },
+    savedAt: file.lastModified,
+  };
 }
 
 export async function saveLocalWorkspace(
@@ -307,8 +319,10 @@ export async function saveLocalWorkspace(
       useLocalWorkspace.setState({ status: 'saving', errorMessage: null });
       let next: SaveTarget;
       if (saveTarget.kind === 'disk') {
-        next = await writeDisk(saveTarget, payload, manual);
-        if (disk && next.kind === 'disk') next.id = await rememberDiskHandle(disk);
+        const { target: written, savedAt } = await writeDisk(saveTarget, payload, manual);
+        const id = disk ? await rememberDiskHandle(disk) : written.id;
+        next = { ...written, id };
+        await cacheDiskTimeline(id, payload, savedAt);
       } else {
         next = { ...saveTarget, revision: saveTarget.revision + 1 };
         await writeLocalProject({ ...next, updatedAt, payload });
@@ -366,6 +380,8 @@ export async function openProjectFile(): Promise<void> {
       return;
     if (version !== workspaceVersion()) return;
     const id = await rememberDiskHandle(handle);
+    if (version !== workspaceVersion()) return;
+    await cacheDiskTimeline(id, payload, file.lastModified);
     if (version !== workspaceVersion()) return;
     loadDiskWorkspace(handle, file, payload, id);
   } catch (error) {

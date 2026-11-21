@@ -26,6 +26,7 @@ type StoredProject = Omit<LocalProject, 'createdAt'> & {
 type ProjectSave = Omit<LocalProject, 'createdAt'>;
 
 const projects = createStore('velxio-projects', 'projects');
+const diskHistory = createStore('velxio-disk-history', 'file-versions');
 
 export class LocalProjectConflict extends Error {
   constructor() {
@@ -52,6 +53,12 @@ function fileVersions(project: StoredProject, key: string, currentContent: strin
   ];
 }
 
+function recordFileSave(older: LocalFileVersion[], content: string, savedAt: number): LocalFileVersion[] {
+  return older[0]?.content === content
+    ? older
+    : [{ savedAt, content }, ...older].slice(0, FILE_HISTORY_LIMIT);
+}
+
 function collectFileSaves(project: ProjectSave, previous?: StoredProject): Record<string, LocalFileVersion[]> {
   const history: Record<string, LocalFileVersion[]> = {};
   for (const [groupId, files] of Object.entries(project.payload.fileGroups ?? {})) {
@@ -63,9 +70,7 @@ function collectFileSaves(project: ProjectSave, previous?: StoredProject): Recor
       const previousContent = previousFiles.get(file.name);
       const older = previous && previousContent !== undefined
         ? fileVersions(previous, key, previousContent) : [];
-      history[key] = previousContent === file.content
-        ? older
-        : [{ savedAt: project.updatedAt, content: file.content }, ...older].slice(0, FILE_HISTORY_LIMIT);
+      history[key] = recordFileSave(older, file.content, project.updatedAt);
     }
   }
   return history;
@@ -80,6 +85,32 @@ export async function getLocalFileVersions(id: string, groupId: string, path: st
   const project = await get<StoredProject>(id, projects);
   const file = project?.payload.fileGroups?.[groupId]?.find(({ name }) => name === path);
   return project && file ? fileVersions(project, fileKey(groupId, path), file.content) : [];
+}
+
+interface DiskFileHistory {
+  savedAt: number;
+  files: Record<string, LocalFileVersion[]>;
+}
+
+export function recordDiskFileVersions(
+  id: string, fileGroups: VlxPayload['fileGroups'], savedAt: number,
+): Promise<void> {
+  return update<DiskFileHistory>(id, (previous) => {
+    if (previous && previous.savedAt > savedAt) return previous;
+    const files: DiskFileHistory['files'] = {};
+    for (const [groupId, groupFiles] of Object.entries(fileGroups)) {
+      for (const file of groupFiles) {
+        const key = fileKey(groupId, file.name);
+        files[key] = recordFileSave(previous?.files[key] ?? [], file.content, savedAt);
+      }
+    }
+    return { savedAt, files };
+  }, diskHistory);
+}
+
+export async function getDiskFileVersions(id: string, groupId: string, path: string): Promise<LocalFileVersion[]> {
+  const history = await get<DiskFileHistory>(id, diskHistory);
+  return history?.files[fileKey(groupId, path)] ?? [];
 }
 
 export async function listLocalProjects(): Promise<LocalProjectDetails[]> {
