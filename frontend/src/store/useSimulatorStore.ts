@@ -3738,7 +3738,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (b.boardOptions) patch.boardOptions = b.boardOptions;
         if (b.spiffsFiles) patch.spiffsFiles = b.spiffsFiles;
         if (b.sdFiles?.length) patch.sdFiles = b.sdFiles;
-        if (b.libraries && b.libraries.length) patch.libraries = b.libraries;
+        if (Array.isArray(b.libraries)) patch.libraries = b.libraries;
         if (Object.keys(patch).length > 0) {
           set((s) => ({
             boards: s.boards.map((bb) => (bb.id === b.id ? { ...bb, ...patch } : bb)),

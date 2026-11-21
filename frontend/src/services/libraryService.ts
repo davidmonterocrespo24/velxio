@@ -15,14 +15,17 @@ export interface ArduinoLibrary {
   website?: string;
   category?: string;
   types?: string[];
-  releases?: Record<string, { version: string }>;
-  latest?: {
-    version: string;
-    sentence?: string;
-    paragraph?: string;
-    author?: string;
-    website?: string;
-  };
+  releases?: Record<string, ArduinoLibraryRelease>;
+  latest?: ArduinoLibraryRelease;
+}
+
+interface ArduinoLibraryRelease {
+  version?: string;
+  sentence?: string;
+  paragraph?: string;
+  author?: string;
+  website?: string;
+  category?: string;
 }
 
 export interface InstalledLibrary {
@@ -41,6 +44,20 @@ export interface InstalledLibrary {
   custom?: boolean;
 }
 
+/** Match Arduino's library names independently of case and separators. */
+export function normalizeArduinoLibraryName(name: string): string {
+  return name.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function findInstalledArduinoLibrary(libraries: InstalledLibrary[], spec: string): InstalledLibrary | undefined {
+  const name = normalizeArduinoLibraryName(spec);
+  const [, version] = spec.split('@', 2);
+  return libraries.find((library) =>
+    normalizeArduinoLibraryName(library.library?.name || library.name || '') === name
+    && (!version || (library.library?.version || library.version) === version),
+  );
+}
+
 export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> {
   const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`);
   if (!res.ok) {
@@ -49,6 +66,12 @@ export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> 
   }
   const data = await res.json();
   return data.libraries || [];
+}
+
+export async function findArduinoLibrary(name: string): Promise<ArduinoLibrary | null> {
+  const escaped = name.replace(/[\\"]/g, '\\$&');
+  const libraries = await searchLibraries(`name="${escaped}"`);
+  return libraries.find((library) => library.name.toLowerCase() === name.toLowerCase()) ?? null;
 }
 
 export async function installLibrary(name: string, version?: string): Promise<{ success: boolean; error?: string; fallback?: boolean; requested_version?: string }> {

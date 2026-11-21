@@ -215,7 +215,7 @@ export function buildLoadPayload(project: RawProject) {
   // P2.4 migration — projects saved before per-board manifests stored a single
   // project-level manifest (libraries_json). If no board carries its own, seed
   // every board with the project union so it keeps compiling scoped.
-  if (!boards.some((b) => b.libraries && b.libraries.length)) {
+  if (!boards.some((b) => Array.isArray(b.libraries))) {
     try {
       const union = JSON.parse(project.libraries_json || '[]');
       if (Array.isArray(union) && union.length) {

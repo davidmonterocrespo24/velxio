@@ -686,6 +686,18 @@ button.workspace-status-board:hover,
   overflow-wrap: anywhere;
 }
 
+.workspace-library-missing {
+  position: relative;
+  list-style: none;
+}
+
+.workspace-library-missing > svg {
+  position: absolute;
+  inset-inline-start: -17px;
+  inset-block-start: 2px;
+  color: var(--color-feedback-warning);
+}
+
 .workspace-sidebar-view input:not([type='checkbox']),
 .workspace-sidebar-view select,
 .workspace-sidebar-view button,

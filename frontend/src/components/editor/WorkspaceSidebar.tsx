@@ -8,6 +8,7 @@ import {
   Search,
   Settings,
   Terminal,
+  TriangleAlert,
 } from 'lucide-react';
 import { SearchBar } from '../ui/SearchBar';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +16,13 @@ import { chipFileGroupId, useEditorStore, type WorkspaceFile } from '../../store
 import type { EditorPreferences } from '../../store/useEditorPreferences';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
+import {
+  ARDUINO_LIBRARIES_CHANGED,
+  findInstalledArduinoLibrary,
+  getCustomLibraries,
+  getInstalledLibraries,
+  type InstalledLibrary,
+} from '../../services/libraryService';
 import { EditorAccountMenuItems } from './EditorAccountMenuItems';
 
 export type WorkspaceView = EditorPreferences['sidebarView'];
@@ -305,6 +313,31 @@ export function WorkspaceLibraries() {
   const board = useSimulatorStore((state) =>
     state.boards.find((item) => item.id === state.activeBoardId),
   );
+  const hasArduinoLibraries = !!board?.libraries?.length && board.languageMode !== 'micropython';
+  const [inventory, setInventory] = useState<{ installed: InstalledLibrary[]; custom: InstalledLibrary[] } | null>(null);
+  useEffect(() => {
+    if (!hasArduinoLibraries) return;
+    let request = 0;
+    const refresh = async () => {
+      const current = ++request;
+      try {
+        const [installed, custom] = await Promise.all([getInstalledLibraries(), getCustomLibraries()]);
+        if (current === request) setInventory({ installed, custom });
+      } catch {
+        if (current === request) setInventory(null);
+      }
+    };
+    void refresh();
+    window.addEventListener(ARDUINO_LIBRARIES_CHANGED, refresh);
+    window.addEventListener('velxio-custom-library-installed', refresh);
+    return () => {
+      request++;
+      window.removeEventListener(ARDUINO_LIBRARIES_CHANGED, refresh);
+      window.removeEventListener('velxio-custom-library-installed', refresh);
+    };
+  }, [hasArduinoLibraries]);
+  const missingLabel = t('editor.libraryManager.libraryMissing', 'Required by this board and not installed');
+
   return (
     <section
       className="workspace-sidebar-view"
@@ -316,9 +349,17 @@ export function WorkspaceLibraries() {
           <p>{boardDisplayName(board)}</p>
           {board.libraries?.length ? (
             <ul>
-              {board.libraries.map((library) => (
-                <li key={library}>{library}</li>
-              ))}
+              {board.libraries.map((library) => {
+                const missing = hasArduinoLibraries && inventory
+                  && !findInstalledArduinoLibrary(inventory.custom, library.split('@')[0])
+                  && !findInstalledArduinoLibrary(inventory.installed, library);
+                return (
+                  <li key={library} className={missing ? 'workspace-library-missing' : undefined}>
+                    {missing && <TriangleAlert size={13} role="img" aria-label={missingLabel} />}
+                    {library}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p>{t('editor.workspace.noLibraries', 'This board has no declared libraries.')}</p>
