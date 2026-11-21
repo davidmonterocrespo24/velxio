@@ -23,7 +23,7 @@ export type EditorPreferences = z.infer<typeof preferences>;
 
 const defaults: EditorPreferences = {
   fontSize: 14,
-  wordWrap: true,
+  wordWrap: false,
   minimap: true,
   indentation: { insertSpaces: true, tabSize: 4 },
   detectIndentation: true,

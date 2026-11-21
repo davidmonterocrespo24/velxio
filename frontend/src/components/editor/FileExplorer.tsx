@@ -1042,8 +1042,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
 
   return (
     <div className="file-explorer">
-      <div className="file-explorer-header">
-        <span className="file-explorer-title">{t('editor.activity.explorer', 'Explorer')}</span>
+      <div className="file-explorer-header workspace-sidebar-header">
+        <h2 className="workspace-sidebar-title">{t('editor.activity.explorer', 'Explorer')}</h2>
         <details className="file-explorer-overflow" onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
         }}>

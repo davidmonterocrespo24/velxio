@@ -108,20 +108,36 @@
 .canvas-board-select {
   position: relative;
   display: flex;
+  min-inline-size: 0;
 }
 
 .board-selector {
+  box-sizing: border-box;
+  min-inline-size: 0;
   min-height: 0;
   padding-block: 0;
   max-inline-size: 190px;
-  text-overflow: ellipsis;
+  white-space: nowrap;
   align-items: center;
   gap: 4px;
   line-height: normal;
 }
 
+button.board-selector {
+  display: flex;
+  justify-content: space-between;
+  text-align: start;
+}
+
+.board-selector > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .board-selector svg {
-  color: var(--color-accent-fg);
+  flex-shrink: 0;
+  color: var(--wb-11);
 }
 
 .board-selector.board-selector--empty {

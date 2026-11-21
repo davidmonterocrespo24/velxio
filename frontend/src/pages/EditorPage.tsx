@@ -99,6 +99,7 @@ export const EditorPage: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const codeEditorRef = useRef<CodeEditorHandle>(null);
   const [showBoardPicker, setShowBoardPicker] = useState(false);
+  const toggleBoardPicker = useCallback(() => setShowBoardPicker((open) => !open), []);
   const [statusBarHost, setStatusBarHost] = useState<HTMLDivElement | null>(null);
   const localProjectName = useLocalWorkspace((state) => state.name);
   const isBrowserProject = useLocalWorkspace((state) => state.browserId !== null);
@@ -901,6 +902,8 @@ export const EditorPage: React.FC = () => {
             <SimulatorCanvas
               headerSlot={!isMobile ? canvasHeaderSlot : null}
               addComponentSlot={!isMobile ? addComponentSlot : null}
+              boardPickerOpen={showBoardPicker}
+              onToggleBoardPicker={toggleBoardPicker}
             />
             {/* Guarded rather than left to `display: none` on the panel: a
                 hidden copy still keeps its 100ms timer running and duplicates
@@ -989,7 +992,7 @@ export const EditorPage: React.FC = () => {
               title={t('editor.workspace.switchBoard', 'Switch board')}
               aria-haspopup="dialog"
               aria-expanded={showBoardPicker}
-              onClick={() => setShowBoardPicker(true)}
+              onClick={toggleBoardPicker}
             >
               <span>{activeBoardName}</span>
               <ChevronDown size={11} aria-hidden />
@@ -1020,6 +1023,9 @@ export const EditorPage: React.FC = () => {
             items: boardChoices.map((board) => ({
               id: board.id,
               label: boardDisplayName(board),
+              detail: boardChoices.some((other) =>
+                other.id !== board.id && boardDisplayName(other) === boardDisplayName(board),
+              ) ? board.id : undefined,
               selected: board.id === activeBoardId,
               run: () => {
                 useSimulatorStore.getState().setActiveBoardId(board.id);

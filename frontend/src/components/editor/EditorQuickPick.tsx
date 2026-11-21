@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SearchBar } from '../ui/SearchBar';
 
@@ -33,7 +33,7 @@ export function EditorQuickPick({
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = dialog.current;
     element?.showModal();
     input.current?.focus();

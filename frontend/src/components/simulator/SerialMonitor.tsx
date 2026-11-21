@@ -4,6 +4,7 @@
  */
 
 import { DropdownSelect } from '../ui/DropdownSelect';
+import { WorkspaceClearButton } from '../editor/WorkspaceClearButton';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -196,51 +197,11 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
       <X size={15} aria-hidden />
     </button>
   );
-  const headerClass = onClose ? 'workspace-panel-header--closable' : undefined;
-
-  if (boards.length === 0) {
-    return (
-      <div style={styles.container}>
-        <div className={headerClass} style={styles.tabStrip}>
-          <span style={styles.title}>{t('editor.serial.title')}</span>
-          {closeButton}
-        </div>
-        <pre style={styles.output}>{t('editor.serial.addBoard')}</pre>
-      </div>
-    );
-  }
-
-  return (
-    <div style={styles.container}>
-      {/* Tab strip */}
-      <div className={headerClass} style={styles.tabStrip}>
-        {boards.map((board) => {
-          const isActive = board.id === resolvedTabId;
-          const color = BOARD_COLOR[board.boardKind] ?? 'var(--wb-10)';
-          const hasUnread = board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
-          return (
-            <button
-              key={board.id}
-              style={{
-                ...styles.tab,
-                ...(isActive ? { ...styles.tabActive, borderBottomColor: color, color } : {}),
-              }}
-              onClick={() => handleTabClick(board.id)}
-              title={boardDisplayName(board)}
-            >
-              <span
-                style={{ fontSize: 9, marginRight: 3, color: isActive ? color : 'var(--wb-10)' }}
-              >
-                {BOARD_ICON[board.boardKind] ?? '●'}
-              </span>
-              {board.name?.trim() || BOARD_SHORT_LABEL[board.boardKind] || board.boardKind}
-              {hasUnread && !isActive && <span style={styles.unreadDot} />}
-            </button>
-          );
-        })}
-
-        {/* Right-side controls */}
-        <div style={styles.tabControls}>
+  const heading = (
+    <div className={onClose ? 'workspace-serial-heading workspace-panel-header--closable' : 'workspace-serial-heading'}>
+      <span className="workspace-panel-title">{t('editor.serial.title')}</span>
+      {activeBoard && (
+        <div style={styles.headerControls}>
           {isMicroPython && (
             <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>
               MicroPython REPL
@@ -271,17 +232,57 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
             />
             {t('editor.serial.autoscroll')}
           </label>
-          <button
-            onClick={() => resolvedTabId && clearBoardSerialOutput(resolvedTabId)}
-            style={styles.clearBtn}
+          <WorkspaceClearButton
+            onClear={() => resolvedTabId && clearBoardSerialOutput(resolvedTabId)}
             title={t('editor.serial.clearTitle')}
-          >
-            {t('editor.serial.clear')}
-          </button>
+          />
           {/* Overlay slot for per-board terminal actions (empty in OSS). */}
           <span data-velxio-slot="serial-actions" />
         </div>
-        {closeButton}
+      )}
+      {closeButton}
+    </div>
+  );
+
+  if (boards.length === 0) {
+    return (
+      <div style={styles.container}>
+        {heading}
+        <pre style={styles.output}>{t('editor.serial.addBoard')}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.container}>
+      {heading}
+      {/* Tab strip */}
+      <div style={styles.tabStrip}>
+        {boards.map((board) => {
+          const isActive = board.id === resolvedTabId;
+          const color = BOARD_COLOR[board.boardKind] ?? 'var(--wb-10)';
+          const hasUnread = board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
+          return (
+            <button
+              key={board.id}
+              style={{
+                ...styles.tab,
+                ...(isActive ? { ...styles.tabActive, borderBottomColor: color, color } : {}),
+              }}
+              onClick={() => handleTabClick(board.id)}
+              title={boardDisplayName(board)}
+            >
+              <span
+                style={{ fontSize: 9, marginRight: 3, color: isActive ? color : 'var(--wb-10)' }}
+              >
+                {BOARD_ICON[board.boardKind] ?? '●'}
+              </span>
+              {board.name?.trim() || BOARD_SHORT_LABEL[board.boardKind] || board.boardKind}
+              {hasUnread && !isActive && <span style={styles.unreadDot} />}
+            </button>
+          );
+        })}
+
       </div>
 
       {/* Overlay slot for a full-width notice about the LINK itself — e.g. the
@@ -484,13 +485,12 @@ const styles: Record<string, React.CSSProperties> = {
   tabActive: {
     background: 'rgba(255,255,255,0.04)',
   },
-  tabControls: {
+  headerControls: {
     marginLeft: 'auto',
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    paddingRight: 8,
-    flexShrink: 0,
+    flexWrap: 'wrap',
   },
   unreadDot: {
     width: 6,
@@ -499,12 +499,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#4fc3f7',
     flexShrink: 0,
     marginLeft: 3,
-  },
-  title: {
-    color: 'var(--wb-12)',
-    fontWeight: 600,
-    fontSize: 12,
-    paddingInlineStart: 8,
   },
   baudRate: {
     color: 'var(--color-accent-fg)',
@@ -526,15 +520,6 @@ const styles: Record<string, React.CSSProperties> = {
   checkbox: {
     margin: 0,
     cursor: 'pointer',
-  },
-  clearBtn: {
-    background: 'transparent',
-    border: '1px solid var(--wb-8)',
-    color: 'var(--wb-12)',
-    padding: '2px 8px',
-    borderRadius: 3,
-    cursor: 'pointer',
-    fontSize: 11,
   },
   output: {
     flex: 1,
@@ -572,7 +557,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--wb-2)',
     border: '1px solid var(--wb-7)',
     color: 'var(--wb-12)',
-    padding: '4px',
+    paddingBlock: '4px',
+    paddingInlineStart: '8px',
     borderRadius: 3,
     fontSize: 11,
     outline: 'none',

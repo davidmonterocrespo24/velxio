@@ -258,7 +258,9 @@ export function WorkspaceSearch({ onOpen }: { onOpen: () => void }) {
 
   return (
     <section className="workspace-sidebar-view" aria-label={t('editor.activity.search', 'Search')}>
-      <h2>{t('editor.activity.search', 'Search')}</h2>
+      <header className="workspace-sidebar-header">
+        <h2 className="workspace-sidebar-title">{t('editor.activity.search', 'Search')}</h2>
+      </header>
       <SearchBar
         className="workspace-search"
         placeholder={t('editor.search.query', 'Search workspace')}
@@ -346,7 +348,9 @@ export function WorkspaceLibraries() {
       className="workspace-sidebar-view"
       aria-label={t('editor.activity.libraries', 'Libraries')}
     >
-      <h2>{t('editor.activity.libraries', 'Libraries')}</h2>
+      <header className="workspace-sidebar-header">
+        <h2 className="workspace-sidebar-title">{t('editor.activity.libraries', 'Libraries')}</h2>
+      </header>
       {board ? (
         <>
           <p>{boardDisplayName(board)}</p>

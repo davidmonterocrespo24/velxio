@@ -5,6 +5,8 @@ interface DropdownSelectProps extends Pick<ButtonHTMLAttributes<HTMLButtonElemen
   'id' | 'className' | 'disabled' | 'style' | 'title' | 'aria-label' | 'aria-labelledby' | 'aria-describedby'
 > {
   value: string | number;
+  compact?: boolean;
+  align?: 'left' | 'right';
   children: ReactNode;
   onValueChange: (value: string) => void;
 }
@@ -12,7 +14,7 @@ interface DropdownSelectProps extends Pick<ButtonHTMLAttributes<HTMLButtonElemen
 type SelectOption = { value: string | number; children: ReactNode; disabled?: boolean };
 
 export function DropdownSelect({
-  id, value, children, onValueChange, className, disabled, ...attributes
+  id, value, children, onValueChange, className, disabled, compact, align, ...attributes
 }: DropdownSelectProps) {
   const generatedId = useId();
   const controlId = id ?? generatedId;
@@ -20,7 +22,8 @@ export function DropdownSelect({
     .filter((child): child is ReactElement<SelectOption> => isValidElement<SelectOption>(child) && child.type === 'option')
     .map((option) => option.props);
   const selected = options.find((option) => String(option.value) === String(value));
-  const triggerClass = ['dropdown-select', className].filter(Boolean).join(' ');
+  const compactClass = compact ? 'dropdown-select--compact' : '';
+  const triggerClass = ['dropdown-select', compactClass, className].filter(Boolean).join(' ');
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const popup = useRef<HTMLDivElement>(null);
@@ -88,7 +91,7 @@ export function DropdownSelect({
         ref={popup}
         id={listId}
         popover="auto"
-        className="dropdown-select-options dropdown-panel"
+        className={`dropdown-select-options dropdown-panel ${compactClass}`.trimEnd()}
         role="listbox"
         aria-labelledby={attributes['aria-labelledby'] ?? controlId}
         onBeforeToggle={(event) => {
@@ -101,8 +104,10 @@ export function DropdownSelect({
           const leftGap = rect.left - bounds.left - (style ? parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth) : 0);
           const rightGap = bounds.right - rect.right - (style ? parseFloat(style.paddingRight) + parseFloat(style.borderRightWidth) : 0);
           const fillsContainer = leftGap < 1 && rightGap < 1;
-          const width = Math.min(fillsContainer ? rect.width : Math.max(rect.width, 144), window.innerWidth - 16);
-          const left = rightGap + 1 < leftGap ? rect.right - width : rect.left;
+          const preferredWidth = fillsContainer ? rect.width : compact ? 120 : 144;
+          const width = Math.min(Math.max(rect.width, preferredWidth), window.innerWidth - 16);
+          const alignRight = align ? align === 'right' : rightGap + 1 < leftGap;
+          const left = alignRight ? rect.right - width : rect.left;
           const below = window.innerHeight - rect.bottom - 12;
           const above = rect.top - 12;
           const openAbove = below < 48 && above > below;

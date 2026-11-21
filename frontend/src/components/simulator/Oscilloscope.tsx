@@ -12,6 +12,7 @@
  */
 
 import { DropdownSelect } from '../ui/DropdownSelect';
+import { WorkspaceClearButton } from '../editor/WorkspaceClearButton';
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo } from 'react';
 import { useThemeRevision } from '../../hooks/useTheme';
 import ReactDOM from 'react-dom';
@@ -523,7 +524,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
     <div className="osc-container">
       {/* ── Header ── */}
       <div className={onClose ? 'osc-header workspace-panel-header--closable' : 'osc-header'}>
-        <span className="osc-title">{t('editor.oscilloscope.title')}</span>
+        <span className="workspace-panel-title osc-title">{t('editor.oscilloscope.title')}</span>
 
         {/* Add Channel button + portal picker */}
         <button
@@ -551,6 +552,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
         {/* Time / div */}
         <span className="osc-label">{t('editor.oscilloscope.timeDiv')}</span>
         <DropdownSelect
+          compact
           className="osc-select"
           value={timeDivMs}
           onValueChange={(value) => setTimeDivMs(Number(value))}
@@ -571,6 +573,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
             <span className="osc-label">{t('editor.oscilloscope.voltsDiv')}</span>
             {analogChannels.length > 1 && (
               <DropdownSelect
+                compact
                 className="osc-select osc-vchannel"
                 value={vChannel.id}
                 onValueChange={(value) => setVChannelId(value)}
@@ -585,6 +588,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
               </DropdownSelect>
             )}
             <DropdownSelect
+              compact
               className="osc-select osc-vdiv"
               value={vChannel.autoScale === false ? String(vChannel.voltsPerDiv) : 'auto'}
               onValueChange={(value) =>
@@ -644,6 +648,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
             edge — click again to re-arm. */}
         <span className="osc-label" title="Trigger configuration">Trigger</span>
         <DropdownSelect
+          compact
           className="osc-select"
           value={triggerMode}
           onValueChange={(value) => setTriggerMode(value as TriggerMode)}
@@ -657,6 +662,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
         {triggerMode !== 'auto' && (
           <>
             <DropdownSelect
+              compact
               className="osc-select"
               value={triggerChannelId ?? channels[0]?.id ?? ''}
               onValueChange={(value) => setTriggerChannel(value || null)}
@@ -671,6 +677,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
             </DropdownSelect>
 
             <DropdownSelect
+              compact
               className="osc-select"
               value={triggerEdge}
               onValueChange={(value) => setTriggerEdge(value as TriggerEdge)}
@@ -720,13 +727,7 @@ export const Oscilloscope: React.FC<{ onClose?: () => void }> = ({ onClose }) =>
         )}
 
         {/* Clear */}
-        <button
-          className="osc-btn osc-btn-danger"
-          onClick={clearSamples}
-          title={t('editor.oscilloscope.clearTitle')}
-        >
-          {t('editor.oscilloscope.clear')}
-        </button>
+        <WorkspaceClearButton onClear={clearSamples} title={t('editor.oscilloscope.clearTitle')} />
         {onClose && (
           <button
             type="button"

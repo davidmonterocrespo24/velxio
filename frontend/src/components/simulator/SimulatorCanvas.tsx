@@ -1,4 +1,3 @@
-import { DropdownSelect } from '../ui/DropdownSelect';
 import {
   useSimulatorStore,
   getEsp32Bridge,
@@ -20,7 +19,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { LocateFixed } from 'lucide-react';
+import { ChevronDown, LocateFixed } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
@@ -280,9 +279,13 @@ interface SimulatorCanvasProps {
    */
   headerSlot?: HTMLElement | null;
   addComponentSlot?: HTMLElement | null;
+  boardPickerOpen: boolean;
+  onToggleBoardPicker: () => void;
 }
 
-export const SimulatorCanvas = ({ headerSlot, addComponentSlot }: SimulatorCanvasProps = {}) => {
+export const SimulatorCanvas = ({
+  headerSlot, addComponentSlot, boardPickerOpen, onToggleBoardPicker,
+}: SimulatorCanvasProps) => {
   const { t } = useTranslation();
   const isTouchDevice = useIsCoarsePointer();
   // Mirror to a ref so the long-lived touch handler effect (deps deliberately
@@ -3095,25 +3098,18 @@ export const SimulatorCanvas = ({ headerSlot, addComponentSlot }: SimulatorCanva
                       {t('editor.canvas.noBoard')}
                     </span>
                   ) : (
-                    <DropdownSelect
+                    <button
+                      type="button"
                       className="board-selector"
-                      value={activeBoardId ?? ''}
-                      onValueChange={(value) => useSimulatorStore.getState().setActiveBoardId(value)}
+                      aria-haspopup="dialog"
+                      aria-expanded={boardPickerOpen}
+                      onClick={onToggleBoardPicker}
                       aria-label={t('editor.canvas.activeBoard')}
                       title={activeBoard ? boardDisplayName(activeBoard) : t('editor.canvas.activeBoard')}
                     >
-                      {boards.map((board) => {
-                        const name = boardDisplayName(board);
-                        const duplicate = boards.some(
-                          (other) => other.id !== board.id && boardDisplayName(other) === name,
-                        );
-                        return (
-                          <option key={board.id} value={board.id}>
-                            {duplicate ? `${name} (${board.id})` : name}
-                          </option>
-                        );
-                      })}
-                    </DropdownSelect>
+                      <span>{activeBoard ? boardDisplayName(activeBoard) : t('editor.workspace.selectBoard', 'Select board')}</span>
+                      <ChevronDown size={15} aria-hidden />
+                    </button>
                   )}
                 </div>
                 {/* Overlay slot for board status next to the selector (e.g.
