@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
-import { buildVlxBlob, parseVlxFile } from '../utils/vlxFile';
+import { buildVlxBlob, loadVlxPayload, parseVlxFile } from '../utils/vlxFile';
 import { PROJECT_FILE_ACCEPT } from '../utils/importProject';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -71,11 +71,15 @@ describe('the .vlx export command', () => {
   });
 
   it('produces a payload the importer accepts', async () => {
+    const groupId = 'group-arduino-uno';
+    const [sketch] = useEditorStore.getState().getGroupFiles(groupId);
     const blob = buildVlxBlob({ name: 'my-project' });
     const file = new File([await blob.text()], 'my-project.vlx', { type: 'application/json' });
     const payload = await parseVlxFile(file);
     expect(payload.boards[0].boardKind).toBe('arduino-uno');
-    expect(payload.fileGroups['group-arduino-uno'][0].name).toBe('sketch.ino');
+    expect(payload.fileGroups[groupId][0]).toMatchObject({ id: sketch.id, name: 'sketch.ino' });
+    loadVlxPayload(payload);
+    expect(useEditorStore.getState().getGroupFiles(groupId)[0].id).toBe(sketch.id);
   });
 
   it('the open dialog still accepts what the export writes', () => {

@@ -1,21 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getDiskFileVersions,
   getLocalProject,
   getLocalFileVersions,
   listLocalProjects,
   LocalProjectConflict,
+  recordDiskFileVersions,
   renameLocalProject,
   writeLocalProject,
 } from '../services/localProjects';
+import { savedWorkspaceFileId } from '../utils/savedWorkspaceFile';
 import type { VlxPayload } from '../utils/vlxFile';
 
-const { records } = vi.hoisted(() => ({ records: new Map<string, unknown>() }));
+const { records, blocked } = vi.hoisted(() => ({
+  records: new Map<string, unknown>(),
+  blocked: new Set<string>(),
+}));
 
 vi.mock('idb-keyval', () => ({
-  createStore: () => ({}),
+  createStore: (name: string) => name,
   entries: async () => [...records.entries()],
-  get: async (id: string) => records.get(id),
-  update: async (id: string, change: (value: unknown) => unknown) => {
+  get: async (id: string, store: string) => {
+    if (blocked.has(store)) throw new DOMException('Storage is blocked', 'SecurityError');
+    return records.get(id);
+  },
+  update: async (id: string, change: (value: unknown) => unknown, store: string) => {
+    if (blocked.has(store)) throw new DOMException('Storage is blocked', 'SecurityError');
     records.set(id, change(records.get(id)));
   },
 }));
@@ -24,7 +34,10 @@ function project(id: string, name: string, revision: number, updatedAt: number) 
   return { id, name, revision, updatedAt, payload: { name, boards: [] } as unknown as VlxPayload };
 }
 
-beforeEach(() => records.clear());
+beforeEach(() => {
+  records.clear();
+  blocked.clear();
+});
 
 describe('browser project metadata', () => {
   it('records only saves that changed the selected file and keeps the legacy save date', async () => {
@@ -71,6 +84,43 @@ describe('browser project metadata', () => {
     expect(records.get('id')).toMatchObject({ fileSaveHistory: { '["board","main.ino"]': versions } });
   });
 
+  it('carries browser history through the first rename of a legacy file', async () => {
+    const original = project('id', 'Workspace', 1, 100);
+    const file = { name: 'main.ino', content: 'original' };
+    const id = savedWorkspaceFileId(file);
+    original.payload.fileGroups = { board: [file] };
+    records.set('id', original);
+
+    expect(await getLocalFileVersions('id', 'board', 'src/main.ino', id)).toEqual([
+      { savedAt: 100, content: 'original' },
+    ]);
+
+    await writeLocalProject({
+      ...original, revision: 2, updatedAt: 200,
+      payload: { ...original.payload, fileGroups: { board: [{ id, name: 'src/main.ino', content: 'edited' }] } },
+    });
+    expect(await getLocalFileVersions('id', 'board', 'src/main.ino', id)).toEqual([
+      { savedAt: 200, content: 'edited', rename: { from: 'main.ino', to: 'src/main.ino' } },
+      { savedAt: 200, content: 'edited' },
+      { savedAt: 100, content: 'original' },
+    ]);
+    expect(await getLocalFileVersions('id', 'board', 'src/main.ino', 'a-different-file')).toEqual([]);
+  });
+
+  it('keeps readable browser history after a later IndexedDB failure', async () => {
+    const original = project('cached-browser', 'Workspace', 1, 100);
+    original.payload.fileGroups = { board: [{ name: 'main.ino', content: 'saved' }] };
+    records.set(original.id, {
+      ...original,
+      fileSaveHistory: { '["board","main.ino"]': [90, null, { savedAt: 80, content: 'previous' }, {}] },
+    });
+    await getLocalProject(original.id);
+    blocked.add('velxio-projects');
+    expect(await getLocalFileVersions(original.id, 'board', 'main.ino')).toEqual([
+      { savedAt: 90, content: 'saved' }, { savedAt: 80, content: 'previous' },
+    ]);
+  });
+
   it('lists older cached projects by their last save and keeps their IDs', async () => {
     records.set('older-id', project('older-id', 'Original workspace', 3, 100));
     await writeLocalProject(project('other-id', 'Another workspace', 1, 200));
@@ -103,5 +153,46 @@ describe('browser project metadata', () => {
     await expect(renameLocalProject('missing', 1, 'Unknown')).rejects.toBeInstanceOf(
       LocalProjectConflict,
     );
+  });
+});
+
+describe('disk project file history', () => {
+  it('continues recording disk history if the browser blocks its database', async () => {
+    blocked.add('velxio-disk-history');
+    const file = { id: 'stable-id', name: 'main.ino', content: 'first' };
+    await recordDiskFileVersions('blocked-disk', { board: [file] }, 100);
+    await recordDiskFileVersions('blocked-disk', { board: [{ ...file, content: 'second' }] }, 200);
+    expect(await getDiskFileVersions('blocked-disk', 'board', file.name, file.id)).toEqual([
+      { savedAt: 200, content: 'second' }, { savedAt: 100, content: 'first' },
+    ]);
+    expect(records.has('blocked-disk')).toBe(false);
+  });
+
+  it('migrates saved history and keeps it through moving and renaming back', async () => {
+    const original = { name: 'main.ino', content: 'edited' };
+    const id = savedWorkspaceFileId(original);
+    records.set('disk', {
+      savedAt: 200,
+      files: {
+        '["board","main.ino"]': [{ savedAt: 200, content: 'edited' }, { savedAt: 100, content: 'original' }],
+      },
+    });
+
+    await recordDiskFileVersions('disk', { board: [original] }, 200);
+    await recordDiskFileVersions('disk', { board: [{ ...original, id, name: 'src/main.ino' }] }, 300);
+    expect(await getDiskFileVersions('disk', 'board', 'main.ino', id)).toHaveLength(3);
+    await recordDiskFileVersions('disk', { board: [{ ...original, id }] }, 400);
+    expect(await getDiskFileVersions('disk', 'board', 'main.ino')).toEqual([
+      { savedAt: 400, content: 'edited', rename: { from: 'src/main.ino', to: 'main.ino' } },
+      { savedAt: 300, content: 'edited', rename: { from: 'main.ino', to: 'src/main.ino' } },
+      { savedAt: 200, content: 'edited' },
+      { savedAt: 100, content: 'original' },
+    ]);
+
+    await recordDiskFileVersions('disk', { board: [{ ...original, id: 'a-new-file' }] }, 500);
+    expect(await getDiskFileVersions('disk', 'board', 'main.ino', id)).toEqual([]);
+    expect(await getDiskFileVersions('disk', 'board', 'main.ino', 'a-new-file')).toEqual([
+      { savedAt: 500, content: 'edited' },
+    ]);
   });
 });

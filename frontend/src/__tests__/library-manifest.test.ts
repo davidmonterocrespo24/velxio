@@ -102,12 +102,14 @@ describe('mergeSuggestedLibraries', () => {
 });
 
 describe('addLibraryToManifest', () => {
-  it('adds a bare name from a versioned spec', () => {
-    expect(addLibraryToManifest(undefined, 'ESP32Servo@3.2.1')).toEqual(['ESP32Servo']);
+  it('keeps an explicit version or Wokwi reference in the declaration', () => {
+    expect(addLibraryToManifest(undefined, 'ESP32Servo@3.2.1')).toEqual(['ESP32Servo@3.2.1']);
+    expect(addLibraryToManifest(undefined, 'Display@wokwi:hash')).toEqual(['Display@wokwi:hash']);
   });
 
-  it('returns null when already declared (normalized)', () => {
-    expect(addLibraryToManifest(['esp32servo'], 'ESP32Servo@3.2.1')).toBeNull();
+  it('fills a missing version but keeps an existing pin', () => {
+    expect(addLibraryToManifest(['esp32servo'], 'ESP32Servo@3.2.1')).toEqual(['ESP32Servo@3.2.1']);
+    expect(addLibraryToManifest(['esp32servo@3.0.0'], 'ESP32Servo@3.2.1')).toBeNull();
     expect(addLibraryToManifest(['ESP Async WebServer'], 'esp_async_webserver')).toBeNull();
   });
 
@@ -123,7 +125,7 @@ describe('addLibraryToManifest', () => {
 
 describe('removeLibraryFromManifest', () => {
   it('removes by normalized name regardless of version suffix', () => {
-    expect(removeLibraryFromManifest(['ESP32Servo', 'AsyncTCP'], 'esp32servo@3.2.1')).toEqual([
+    expect(removeLibraryFromManifest(['ESP32Servo@3.0.0', 'AsyncTCP'], 'esp32servo@3.2.1')).toEqual([
       'AsyncTCP',
     ]);
   });

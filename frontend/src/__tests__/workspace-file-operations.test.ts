@@ -59,4 +59,59 @@ describe('workspace file operations', () => {
       content: 'newer',
     });
   });
+
+  it('cuts a file into a folder with its original ID and copies it with a new ID', () => {
+    const editor = useEditorStore.getState();
+    const groupId = editor.activeGroupId;
+    const fileId = editor.createFile('driver.h');
+    editor.setFileContent(fileId, '#pragma once');
+    editor.createFolder('include');
+    const source = { groupId, path: 'driver.h', folder: false, fileId };
+
+    expect(editor.pasteWorkspacePath(source, groupId, 'include', false)).toBe(true);
+    expect(editor.pasteWorkspacePath(source, groupId, 'include', true)).toBe(true);
+    const files = useEditorStore.getState().files;
+    expect(files.find((file) => file.id === fileId)?.name).toBe('include/driver.h');
+    const copy = files.find((file) => file.name === 'include/driver copy.h');
+    expect(copy).toMatchObject({ content: '#pragma once', modified: true });
+    expect(copy?.id).not.toBe(fileId);
+  });
+
+  it('moves a folder across boards atomically and keeps its empty subfolders', () => {
+    const editor = useEditorStore.getState();
+    const groupId = editor.activeGroupId;
+    const target = 'another-board';
+    editor.createFileGroup(target, 'arduino');
+    editor.createFolder('src/empty');
+    const fileId = editor.createFile('src/driver.h');
+    editor.setFileContent(fileId, '#pragma once');
+    const source = { groupId, path: 'src', folder: true };
+
+    expect(editor.pasteWorkspacePath(source, groupId, 'src/empty', false)).toBe(false);
+    expect(editor.pasteWorkspacePath(source, target, '', false)).toBe(true);
+    const state = useEditorStore.getState();
+    expect(state.fileGroups[target]).toContainEqual({
+      id: fileId, name: 'src/driver.h', content: '#pragma once', modified: true,
+    });
+    expect(state.folderGroups[target]).toContain('src/empty');
+    expect(state.openFileIds).not.toContain(fileId);
+    expect(state.files).toBe(state.fileGroups[groupId]);
+    expect(state.activeFileId).not.toBe(fileId);
+  });
+
+  it('keeps the source intact when a cut would overwrite a file or empty its board', () => {
+    const editor = useEditorStore.getState();
+    const groupId = editor.activeGroupId;
+    const target = 'another-board';
+    editor.createFileGroup(target, [{ name: 'driver.h', content: 'target content' }]);
+    const [main] = editor.getGroupFiles(groupId);
+    const beforeLastFile = useEditorStore.getState().fileGroups;
+    expect(editor.pasteWorkspacePath({ groupId, path: main.name, folder: false, fileId: main.id }, target, '', false)).toBe(false);
+    expect(useEditorStore.getState().fileGroups).toBe(beforeLastFile);
+
+    const fileId = editor.createFile('driver.h');
+    const beforeConflict = useEditorStore.getState().fileGroups;
+    expect(editor.pasteWorkspacePath({ groupId, path: 'driver.h', folder: false, fileId }, target, '', false)).toBe(false);
+    expect(useEditorStore.getState().fileGroups).toBe(beforeConflict);
+  });
 });
