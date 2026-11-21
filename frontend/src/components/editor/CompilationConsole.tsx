@@ -3,6 +3,7 @@
  * Rendered below the code editor when open. Similar to VS Code's output panel.
  */
 
+import { X } from 'lucide-react';
 import { DropdownSelect } from '../ui/DropdownSelect';
 import { WorkspaceClearButton } from './WorkspaceClearButton';
 import React, { useRef, useEffect, useState } from 'react';
@@ -169,19 +170,7 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
 
           {/* Close */}
           <button onClick={onClose} style={styles.iconBtn} title={t('editor.console.close')}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <X size={14} />
           </button>
         </div>
       </div>

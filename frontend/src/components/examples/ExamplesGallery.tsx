@@ -4,6 +4,8 @@
  * Displays a gallery of example Arduino projects that users can load and run
  */
 
+import { WifiIcon } from '../ui/CustomIcons';
+import { Check, Link as LinkIcon } from 'lucide-react';
 import { DropdownSelect } from '../ui/DropdownSelect';
 import { SearchBar } from '../ui/SearchBar';
 import React, { useState, useCallback, useSyncExternalStore } from 'react';
@@ -251,14 +253,7 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
           <line x1="12" y1="17" x2="12" y2="21" />
         </svg>
       ),
-      communication: (
-        <svg {...svgProps}>
-          <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-          <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-          <circle cx="12" cy="20" r="1" fill="currentColor" />
-        </svg>
-      ),
+      communication: <WifiIcon size={16} style={svgProps.style} filledDot />,
       games: (
         <svg {...svgProps}>
           <line x1="6" y1="11" x2="10" y2="11" />
@@ -540,32 +535,9 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
                     title={t('examples.copyLink')}
                   >
                     {copiedId === example.id ? (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#4ade80"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
+                      <Check size={14} color="#4ade80" />
                     ) : (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                      </svg>
+                      <LinkIcon size={14} />
                     )}
                   </button>
                 </div>

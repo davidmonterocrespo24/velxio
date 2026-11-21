@@ -17,6 +17,7 @@
  * expand, Enter or Space to select.
  */
 
+import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 export interface TreeNode {
@@ -58,20 +59,7 @@ function flatten(nodes: TreeNode[], expanded: Set<string>, level = 1): FlatRow[]
 }
 
 const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
-  <svg
-    className={`tree-chevron${open ? ' tree-chevron--open' : ''}`}
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polyline points="9 6 15 12 9 18" />
-  </svg>
+  <ChevronRight size={12} strokeWidth={2.5} aria-hidden className={`tree-chevron${open ? ' tree-chevron--open' : ''}`} />
 );
 
 export const ComponentTree: React.FC<ComponentTreeProps> = ({

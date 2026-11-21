@@ -841,7 +841,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                               />
                             ))}
                             {section.ads.map((ad) => (
-                              <OnlineOnlyBoardCard key={ad.id} ad={ad} />
+                              <OnlineOnlyCard key={ad.id} ad={ad} board />
                             ))}
                           </>
                         ) : (
@@ -864,7 +864,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                   {visibleComponentAds.length > 0 && (
                     <div className="components-grid components-grid--inline">
                       {visibleComponentAds.map((ad) => (
-                        <OnlineOnlyComponentCard key={ad.id} ad={ad} />
+                        <OnlineOnlyCard key={ad.id} ad={ad} />
                       ))}
                     </div>
                   )}
@@ -922,6 +922,49 @@ function useCardHover(buildData: () => PanelData, api: CardHoverApi) {
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return { onMouseEnter: start, onMouseLeave: end, onFocus: start, onBlur: end };
+}
+
+interface PickerCardProps {
+  name: string;
+  description: string | null;
+  thumbnail: React.ReactNode;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+  onClick: () => void;
+  ref?: React.Ref<HTMLButtonElement>;
+  hover?: ReturnType<typeof useCardHover>;
+  title?: string;
+}
+
+function PickerCard({
+  name,
+  description,
+  thumbnail,
+  badge,
+  children,
+  onClick,
+  ref,
+  hover,
+  title,
+}: PickerCardProps) {
+  return (
+    <button
+      className="component-card"
+      ref={ref}
+      onClick={onClick}
+      style={{ position: 'relative' }}
+      title={title}
+      {...hover}
+    >
+      {badge}
+      <div className="card-thumbnail">{thumbnail}</div>
+      <div className="card-content">
+        <div className="card-name">{name}</div>
+        {description !== null && <div className="card-description">{description}</div>}
+        {children}
+      </div>
+    </button>
+  );
 }
 
 /**
@@ -1100,16 +1143,15 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect, hove
   }, [component.tagName, component.defaultValues, usePresetSvg, boardArt, nearViewport]);
 
   return (
-    <button
-      className="component-card"
+    <PickerCard
       ref={cardRef}
       onClick={onSelect}
-      style={{ position: 'relative' }}
-      {...hover}
-    >
-      {component.custom ? <CustomBadge /> : isProBoardKind(component.id) && <ProBadge />}
-      <div className="card-thumbnail">
-        {boardArt ? (
+      hover={hover}
+      name={component.name}
+      description={component.description || null}
+      badge={component.custom ? <CustomBadge /> : isProBoardKind(component.id) && <ProBadge />}
+      thumbnail={
+        boardArt ? (
           <img
             src={boardArt}
             alt={component.name}
@@ -1122,17 +1164,14 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect, hove
           />
         ) : (
           <div ref={thumbnailRef} className="component-preview" />
-        )}
+        )
+      }
+    >
+      <div className="card-meta">
+        <span className="card-category">{component.category}</span>
+        {component.pinCount > 0 && <span className="card-pins">{component.pinCount} pins</span>}
       </div>
-      <div className="card-content">
-        <div className="card-name">{component.name}</div>
-        {component.description && <div className="card-description">{component.description}</div>}
-        <div className="card-meta">
-          <span className="card-category">{component.category}</span>
-          {component.pinCount > 0 && <span className="card-pins">{component.pinCount} pins</span>}
-        </div>
-      </div>
-    </button>
+    </PickerCard>
   );
 };
 
@@ -1260,22 +1299,15 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect, hoverApi }) => {
     ) : null;
 
   return (
-    <button
-      className="component-card"
+    <PickerCard
       ref={cardRef}
       onClick={onSelect}
-      style={{ position: 'relative' }}
-      {...hover}
-    >
-      {isProBoardKind(kind) && <ProBadge />}
-      <div className="card-thumbnail">
-        {reactThumbnail ? reactThumbnail : <div ref={thumbnailRef} className="component-preview" />}
-      </div>
-      <div className="card-content">
-        <div className="card-name">{BOARD_KIND_LABELS[kind]}</div>
-        <div className="card-description">{BOARD_DESCRIPTIONS[kind] ?? getProBoard(kind)?.description}</div>
-      </div>
-    </button>
+      hover={hover}
+      name={BOARD_KIND_LABELS[kind]}
+      description={BOARD_DESCRIPTIONS[kind] ?? getProBoard(kind)?.description ?? ''}
+      badge={isProBoardKind(kind) && <ProBadge />}
+      thumbnail={reactThumbnail ?? <div ref={thumbnailRef} className="component-preview" />}
+    />
   );
 };
 
@@ -1312,46 +1344,22 @@ const OnlineBadge: React.FC = () => (
   </span>
 );
 
-/** Advertisement card for a component only available in the hosted editor. */
-const OnlineOnlyComponentCard: React.FC<{ ad: OnlineOnlyComponentAd }> = ({ ad }) => (
-  <button
-    className="component-card"
-    style={{ position: 'relative' }}
-    title={`${ad.label}: available in the online editor at velxio.dev`}
+/** Advertisement card for a part only available in the hosted editor. */
+const OnlineOnlyCard: React.FC<{ ad: OnlineOnlyBoardAd | OnlineOnlyComponentAd; board?: boolean }> = ({
+  ad,
+  board,
+}) => (
+  <PickerCard
+    name={ad.label}
+    description={ad.description}
+    badge={<OnlineBadge />}
+    title={`${ad.label}: ${board ? 'free to use' : 'available'} in the online editor at velxio.dev`}
     onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
-  >
-    <OnlineBadge />
-    <div className="card-thumbnail">
+    thumbnail={
       <div
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         dangerouslySetInnerHTML={{ __html: ad.thumbnailSvg }}
       />
-    </div>
-    <div className="card-content">
-      <div className="card-name">{ad.label}</div>
-      <div className="card-description">{ad.description}</div>
-    </div>
-  </button>
-);
-
-/** Advertisement card for a board only available in the hosted editor. */
-const OnlineOnlyBoardCard: React.FC<{ ad: OnlineOnlyBoardAd }> = ({ ad }) => (
-  <button
-    className="component-card"
-    style={{ position: 'relative' }}
-    title={`${ad.label}: free to use in the online editor at velxio.dev`}
-    onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
-  >
-    <OnlineBadge />
-    <div className="card-thumbnail">
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        dangerouslySetInnerHTML={{ __html: ad.thumbnailSvg }}
-      />
-    </div>
-    <div className="card-content">
-      <div className="card-name">{ad.label}</div>
-      <div className="card-description">{ad.description}</div>
-    </div>
-  </button>
+    }
+  />
 );

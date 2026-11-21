@@ -24,6 +24,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { Check } from 'lucide-react';
 import { useProjectStore } from '../../store/useProjectStore';
 import { updateProject } from '../../services/projectService';
 import type { ProjectVisibility } from '../../services/projectService';
@@ -155,12 +156,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
                     <span style={styles.badge}>{opt.badge}</span>
                   )}
                   {isActive && (
-                    <svg
-                      width="14" height="14" viewBox="0 0 24 24" fill="none"
-                      stroke="#4ade80" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
+                    <Check size={14} color="#4ade80" strokeWidth={3} />
                   )}
                 </div>
                 <div style={styles.optionHint}>{opt.hint}</div>
@@ -182,12 +178,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ onClose }) => {
           />
           <button onClick={handleCopy} style={styles.copyBtn}>
             {copied ? (
-              <svg
-                width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <Check size={16} color="#4ade80" />
             ) : (
               t('editor.share.copy')
             )}

@@ -1,3 +1,4 @@
+import { WifiIcon } from '../ui/CustomIcons';
 import {
   useSimulatorStore,
   getEsp32Bridge,
@@ -19,7 +20,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, LocateFixed } from 'lucide-react';
+import { ChevronDown, LocateFixed, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
@@ -3041,20 +3042,7 @@ export const SimulatorCanvas = ({
               title={t('editor.canvas.addComponentTitle')}
               disabled={running}
             >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+              <Plus size={22} strokeWidth={2.5} aria-hidden />
               {t('editor.canvas.addComponents', 'Add components')}
             </button>
           );
@@ -3201,21 +3189,7 @@ export const SimulatorCanvas = ({
                                 : 'WiFi: Disconnected'
                         }
                       >
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-                          <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-                          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-                          <circle cx="12" cy="20" r="1" />
-                        </svg>
+                        <WifiIcon size={18} />
                       </span>
                         {/* Split-button caret: the badge keeps its one-click
                             gateway action; the caret is the WiFi panel's
@@ -3233,9 +3207,7 @@ export const SimulatorCanvas = ({
                               togglePanel();
                             }}
                           >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M6 9l6 6 6-6" />
-                            </svg>
+                            <ChevronDown size={10} strokeWidth={3} />
                           </span>
                         ) : null}
                       </>
@@ -3655,17 +3627,7 @@ export const SimulatorCanvas = ({
               }
               title={t('editor.canvas.zoomOut')}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+              <Minus size={14} strokeWidth={2.5} />
             </button>
             <button
               className="zoom-level"
@@ -3686,18 +3648,7 @@ export const SimulatorCanvas = ({
               }
               title={t('editor.canvas.zoomIn')}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+              <Plus size={14} strokeWidth={2.5} />
             </button>
           </div>
           <button

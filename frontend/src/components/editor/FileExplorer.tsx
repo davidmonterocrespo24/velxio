@@ -1,6 +1,7 @@
+import { BoardFallbackIcon, FileOutlineIcon, TrashCanIcon } from '../ui/CustomIcons';
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Ellipsis } from 'lucide-react';
+import { ChevronRight, Ellipsis } from 'lucide-react';
 import { useEditorStore, chipFileGroupId, normalizeFolderPath } from '../../store/useEditorStore';
 import type { WorkspaceFile, WorkspacePath } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -22,64 +23,27 @@ const CHIP_IMAGE_MAX_BYTES = 256 * 1024;
 
 /** Neutral chip glyph for overlay-registered boards without a bespoke icon. */
 const PRO_FALLBACK_ICON = (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="3" y="3" width="10" height="10" rx="2" fill="#8b5cf6" />
-    <rect x="5.5" y="5.5" width="5" height="5" rx="1" fill="#1e1b2e" />
-  </svg>
+  <BoardFallbackIcon />
 );
 
 
 // SVG icons — same style as EditorToolbar (stroke-based, 16x16)
 const IcoFile = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-  </svg>
+  <FileOutlineIcon size={22} />
 );
 
 const IcoHeader = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
+  <FileOutlineIcon size={22}>
     <line x1="9" y1="13" x2="15" y2="13" />
     <line x1="9" y1="17" x2="13" y2="17" />
-  </svg>
+  </FileOutlineIcon>
 );
 
 const IcoNewFile = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
+  <FileOutlineIcon size={22}>
     <line x1="12" y1="18" x2="12" y2="12" />
     <line x1="9" y1="15" x2="15" y2="15" />
-  </svg>
+  </FileOutlineIcon>
 );
 
 const IcoFolder = ({ open }: { open: boolean }) => (
@@ -119,35 +83,11 @@ const IcoNewFolder = () => (
 );
 
 const IcoTrashSmall = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-  </svg>
+  <TrashCanIcon size={14} showSlats={false} />
 );
 
 const IcoChevron = ({ open }: { open: boolean }) => (
-  <svg
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
-  >
-    <polyline points="9 18 15 12 9 6" />
-  </svg>
+  <ChevronRight size={12} strokeWidth={2.5} style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
 );
 
 // Pencil icon — the rename affordance on a board/chip section header.
@@ -272,21 +212,10 @@ const BOARD_COLOR: Partial<Record<BoardKind, string>> = {
 
 /** A web page: the file outline with a pair of code brackets. */
 const IcoHtml = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
+  <FileOutlineIcon size={22}>
     <polyline points="10 12 8 14.5 10 17" />
     <polyline points="14 12 16 14.5 14 17" />
-  </svg>
+  </FileOutlineIcon>
 );
 
 function FileIcon({ name }: { name: string }) {

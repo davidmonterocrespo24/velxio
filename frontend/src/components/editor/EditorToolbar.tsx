@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CircleAlert, CircuitBoard, Layers, X } from 'lucide-react';
+import { ChevronDown, CircleAlert, CircuitBoard, Layers, LoaderCircle, Wrench, X } from 'lucide-react';
 import { registerEditorCommand } from '../../lib/editorCommands';
 import { publishCompileOutput } from '../../lib/intellisenseRegistry';
 import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
@@ -1787,32 +1787,9 @@ export const EditorToolbar = ({
                 }
               >
                 {compiling ? (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="spin"
-                  >
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
+                  <LoaderCircle size={18} className="spin" />
                 ) : (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                  </svg>
+                  <Wrench size={18} />
                 )}
                 <span className="tb-action-label">{t('editor.toolbar.build', 'Build')}</span>
               </button>
@@ -1827,10 +1804,7 @@ export const EditorToolbar = ({
                   aria-haspopup="menu"
                   aria-expanded={buildMenuOpen}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <ChevronDown size={12} strokeWidth={2.5} aria-hidden />
                 </button>
               )}
               {targetCount > 1 && buildMenuOpen && (
@@ -1887,19 +1861,7 @@ export const EditorToolbar = ({
                 }
               >
                 {verifying || compiling ? (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="spin"
-                  >
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
+                  <LoaderCircle size={18} className="spin" />
                 ) : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
                     <polygon points="5,3 19,12 5,21" />
@@ -1917,18 +1879,7 @@ export const EditorToolbar = ({
                   aria-haspopup="menu"
                   aria-expanded={runMenuOpen}
                 >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <ChevronDown size={12} strokeWidth={2.5} />
                 </button>
               )}
               {isMultiBoard && runMenuOpen && (
@@ -2080,20 +2031,7 @@ export const EditorToolbar = ({
       {/* Missing library hint */}
       {missingLibHint && (
         <div className="tb-lib-hint">
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
+          <CircleAlert size={16} />
           <span>{t('editor.toolbar.libHint.message')}</span>
           <button
             className="tb-lib-hint-btn"
