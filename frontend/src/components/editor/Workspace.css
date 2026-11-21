@@ -698,9 +698,7 @@ button.workspace-status-board:hover,
   color: var(--color-feedback-warning);
 }
 
-.workspace-sidebar-view input:not([type='checkbox']),
-.workspace-sidebar-view select,
-.workspace-sidebar-view button,
+.workspace-sidebar-view > button,
 .local-projects-dialog input,
 .local-projects-dialog button {
   min-width: 0;
@@ -712,45 +710,63 @@ button.workspace-status-board:hover,
   font: inherit;
 }
 
-.workspace-sidebar-view button,
+.workspace-sidebar-view > button,
 .local-projects-dialog button {
   cursor: pointer;
 }
 
-.workspace-sidebar-view button:hover,
+.workspace-sidebar-view > button:hover,
 .local-projects-dialog button:hover:enabled {
   background: var(--wb-5);
 }
 
-.workspace-search-mode {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.workspace-search-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding: 2px;
+  border: 1px solid var(--wb-7);
+  border-radius: 6px;
+  background: var(--wb-2);
+}
+
+.workspace-search-modes label {
+  position: relative;
+  display: grid;
+  place-items: center;
   min-height: 28px;
-  padding: 3px 6px;
+  padding: 3px 4px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--wb-11);
   cursor: pointer;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
-.workspace-search-mode:hover {
+.workspace-search-modes label:hover {
   background: var(--wb-4);
   color: var(--wb-13);
 }
 
-.workspace-search-mode:has(input:checked) {
-  border-color: var(--wb-7);
-  background: var(--wb-4);
+.workspace-search-modes label:has(input:checked) {
+  border-color: color-mix(in srgb, var(--color-action-primary) 38%, var(--wb-7));
+  background: color-mix(in srgb, var(--color-action-primary) 14%, var(--wb-3));
   color: var(--wb-13);
 }
 
-.workspace-search-mode input {
-  flex: 0 0 14px;
-  width: 14px;
-  height: 14px;
+.workspace-search-modes label:has(input:focus-visible) {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+.workspace-search-modes input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   margin: 0;
-  accent-color: var(--color-action-primary);
+  opacity: 0;
   cursor: inherit;
 }
 

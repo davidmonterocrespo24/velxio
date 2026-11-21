@@ -230,7 +230,8 @@ function findMatches(
 export function WorkspaceSearch({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const [contents, setContents] = useState(false);
+  const [contents, setContents] = useState(true);
+  const searchMode = useId();
   const deferred = useDeferredValue(query.trim().toLocaleLowerCase());
   const groups = useEditorStore((state) => state.fileGroups);
   const boards = useSimulatorStore((state) => state.boards);
@@ -267,14 +268,16 @@ export function WorkspaceSearch({ onOpen }: { onOpen: () => void }) {
           if (event.key === 'Enter' && matches[0]) open(matches[0]);
         }}
       />
-      <label className="workspace-search-mode">
-        <input
-          type="checkbox"
-          checked={contents}
-          onChange={(event) => setContents(event.target.checked)}
-        />
-        {t('editor.search.contents', 'Search file contents')}
-      </label>
+      <div className="workspace-search-modes" role="radiogroup" aria-label={t('editor.search.mode', 'Search mode')}>
+        <label>
+          <input type="radio" name={searchMode} checked={contents} onChange={() => setContents(true)} />
+          {t('editor.search.fileContents', 'File contents')}
+        </label>
+        <label>
+          <input type="radio" name={searchMode} checked={!contents} onChange={() => setContents(false)} />
+          {t('editor.search.fileNames', 'File names')}
+        </label>
+      </div>
       {deferred && matches.length === 0 && (
         <p role="status">{t('editor.search.noResults', 'No matches.')}</p>
       )}
