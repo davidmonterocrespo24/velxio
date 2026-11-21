@@ -11,6 +11,7 @@
  *  - Click Clear to wipe all captured samples.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo } from 'react';
 import { useResolvedTheme } from '../../hooks/useTheme';
 import ReactDOM from 'react-dom';
@@ -547,17 +548,17 @@ export const Oscilloscope: React.FC = () => {
 
         {/* Time / div */}
         <span className="osc-label">{t('editor.oscilloscope.timeDiv')}</span>
-        <select
+        <DropdownSelect
           className="osc-select"
           value={timeDivMs}
-          onChange={(e) => setTimeDivMs(Number(e.target.value))}
+          onValueChange={(value) => setTimeDivMs(Number(value))}
         >
           {TIME_DIV_OPTIONS.map(({ label, ms }) => (
             <option key={ms} value={ms}>
               {label}
             </option>
           ))}
-        </select>
+        </DropdownSelect>
 
         {/* ── Vertical: V/div, offset and coupling of an analog channel ──
             Auto fits each capture (with 0 V in view under DC coupling); a
@@ -567,10 +568,10 @@ export const Oscilloscope: React.FC = () => {
           <>
             <span className="osc-label">{t('editor.oscilloscope.voltsDiv')}</span>
             {analogChannels.length > 1 && (
-              <select
+              <DropdownSelect
                 className="osc-select osc-vchannel"
                 value={vChannel.id}
-                onChange={(e) => setVChannelId(e.target.value)}
+                onValueChange={(value) => setVChannelId(value)}
                 title={t('editor.oscilloscope.vChannelTitle')}
                 aria-label={t('editor.oscilloscope.vChannelTitle')}
               >
@@ -579,15 +580,15 @@ export const Oscilloscope: React.FC = () => {
                     {c.label}
                   </option>
                 ))}
-              </select>
+              </DropdownSelect>
             )}
-            <select
+            <DropdownSelect
               className="osc-select osc-vdiv"
               value={vChannel.autoScale === false ? String(vChannel.voltsPerDiv) : 'auto'}
-              onChange={(e) =>
-                e.target.value === 'auto'
+              onValueChange={(value) =>
+                value === 'auto'
                   ? setChannelAutoScale(vChannel.id)
-                  : setChannelVoltsPerDiv(vChannel.id, Number(e.target.value))
+                  : setChannelVoltsPerDiv(vChannel.id, Number(value))
               }
               title={t('editor.oscilloscope.voltsDivTitle')}
               aria-label={t('editor.oscilloscope.voltsDivTitle')}
@@ -604,7 +605,7 @@ export const Oscilloscope: React.FC = () => {
                   {formatVoltsPerDiv(v)}
                 </option>
               ))}
-            </select>
+            </DropdownSelect>
             <span className="osc-label">{t('editor.oscilloscope.offset')}</span>
             <VoltsField
               className="osc-offset"
@@ -640,23 +641,23 @@ export const Oscilloscope: React.FC = () => {
             on every triggering edge.  Single = arm once, freeze on first
             edge — click again to re-arm. */}
         <span className="osc-label" title="Trigger configuration">Trigger</span>
-        <select
+        <DropdownSelect
           className="osc-select"
           value={triggerMode}
-          onChange={(e) => setTriggerMode(e.target.value as TriggerMode)}
+          onValueChange={(value) => setTriggerMode(value as TriggerMode)}
           title="Trigger mode"
         >
           <option value="auto">Auto</option>
           <option value="normal">Normal</option>
           <option value="single">Single</option>
-        </select>
+        </DropdownSelect>
 
         {triggerMode !== 'auto' && (
           <>
-            <select
+            <DropdownSelect
               className="osc-select"
               value={triggerChannelId ?? channels[0]?.id ?? ''}
-              onChange={(e) => setTriggerChannel(e.target.value || null)}
+              onValueChange={(value) => setTriggerChannel(value || null)}
               title="Trigger source"
               disabled={channels.length <= 1}
             >
@@ -665,18 +666,18 @@ export const Oscilloscope: React.FC = () => {
                   {channelSource(c)}:{c.label}
                 </option>
               ))}
-            </select>
+            </DropdownSelect>
 
-            <select
+            <DropdownSelect
               className="osc-select"
               value={triggerEdge}
-              onChange={(e) => setTriggerEdge(e.target.value as TriggerEdge)}
+              onValueChange={(value) => setTriggerEdge(value as TriggerEdge)}
               title="Trigger edge"
             >
               <option value="rising">↑ Rising</option>
               <option value="falling">↓ Falling</option>
               <option value="either">⇅ Either</option>
-            </select>
+            </DropdownSelect>
 
             {/* An analog source crosses a level; empty is the middle of each
                 capture, so any signal that moves triggers. */}

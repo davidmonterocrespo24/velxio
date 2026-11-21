@@ -215,10 +215,10 @@ export const FLASH_MODE_OPTIONS: { value: ESP32FlashMode; label: string }[] = [
   { value: 'dout', label: 'DOUT' },
 ];
 
-export const FLASH_SIZE_OPTIONS: { value: ESP32FlashSize; label: string }[] = [
+export const FLASH_SIZE_OPTIONS: { value: ESP32FlashSize; label: string; experimental?: boolean }[] = [
   { value: '4MB', label: '4MB (32Mb)' },
-  { value: '8MB', label: '8MB (64Mb) - experimental' },
-  { value: '16MB', label: '16MB (128Mb) - experimental' },
+  { value: '8MB', label: '8MB (64Mb)', experimental: true },
+  { value: '16MB', label: '16MB (128Mb)', experimental: true },
 ];
 
 export const FLASH_FREQ_OPTIONS: { value: ESP32FlashFreq; label: string }[] = [

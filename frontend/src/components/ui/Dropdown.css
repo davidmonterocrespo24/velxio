@@ -181,3 +181,32 @@ select option {
   flex-shrink: 0;
   color: var(--color-accent-fg);
 }
+
+.dropdown-select.dropdown-select--compact {
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 2px 8px;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.dropdown-select-trigger.dropdown-select--compact svg,
+.dropdown-select-options.dropdown-select--compact button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.dropdown-select-native.dropdown-select--compact {
+  padding-inline-end: 24px;
+}
+
+.dropdown-select-options.dropdown-select--compact {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.dropdown-select-options.dropdown-select--compact button {
+  min-height: 22px;
+  padding: 3px 8px;
+}

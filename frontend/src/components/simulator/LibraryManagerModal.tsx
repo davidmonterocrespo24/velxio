@@ -1,3 +1,4 @@
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -585,17 +586,17 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                   <div className="lib-item-actions">
                     {row.version && <span className="lib-item-version">{row.version}</span>}
                     {!row.installed && row.releases && Object.keys(row.releases).length > 1 && (
-                      <select
+                      <DropdownSelect
                         className="lib-version-select"
                         value={selectedVersions[row.name] ?? row.version}
-                        onChange={(e) => setSelectedVersions((p) => ({ ...p, [row.name]: e.target.value }))}
+                        onValueChange={(value) => setSelectedVersions((p) => ({ ...p, [row.name]: value }))}
                       >
                         {Object.keys(row.releases).map((ver) => (
                           <option key={ver} value={ver}>
                             {ver}
                           </option>
                         ))}
-                      </select>
+                      </DropdownSelect>
                     )}
                     {inProj ? (
                       <button
