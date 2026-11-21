@@ -9,6 +9,7 @@ import {
   Settings,
   Terminal,
 } from 'lucide-react';
+import { SearchBar } from '../ui/SearchBar';
 import { useTranslation } from 'react-i18next';
 import { chipFileGroupId, useEditorStore, type WorkspaceFile } from '../../store/useEditorStore';
 import type { EditorPreferences } from '../../store/useEditorPreferences';
@@ -249,13 +250,11 @@ export function WorkspaceSearch({ onOpen }: { onOpen: () => void }) {
   return (
     <section className="workspace-sidebar-view" aria-label={t('editor.activity.search', 'Search')}>
       <h2>{t('editor.activity.search', 'Search')}</h2>
-      <input
-        className="workspace-search-input"
-        type="search"
-        aria-label={t('editor.search.query', 'Search workspace')}
+      <SearchBar
+        className="workspace-search"
         placeholder={t('editor.search.query', 'Search workspace')}
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onValueChange={setQuery}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && matches[0]) open(matches[0]);
         }}

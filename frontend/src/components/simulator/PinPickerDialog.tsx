@@ -16,6 +16,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SearchBar } from '../ui/SearchBar';
 
 interface PinInfoLike {
   name: string;
@@ -163,22 +164,10 @@ export const PinPickerDialog: React.FC<PinPickerDialogProps> = ({
         {/* Filter input — handy when boards have 30+ pins */}
         {pins.length > 8 && (
           <div style={{ padding: '8px 12px', flexShrink: 0 }}>
-            <input
-              type="text"
+            <SearchBar
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onValueChange={setFilter}
               placeholder={t('editor.pinPicker.filterPins')}
-              autoFocus={false}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '8px 10px',
-                background: 'var(--wb-2)',
-                color: 'var(--wb-13)',
-                border: '1px solid var(--wb-8)',
-                borderRadius: 6,
-                fontSize: 14,
-              }}
             />
           </div>
         )}

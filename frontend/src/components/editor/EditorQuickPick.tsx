@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SearchBar } from '../ui/SearchBar';
 
 interface QuickPickItem {
   id: string;
@@ -62,7 +63,7 @@ export function EditorQuickPick({
         if (event.target === event.currentTarget) onClose();
       }}
       onKeyDown={(event) => {
-        const choices = Array.from(event.currentTarget.querySelectorAll('button'));
+        const choices = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.editor-quick-pick-options button'));
         if (event.target === input.current && event.key === 'Enter') {
           event.preventDefault();
           const selected = query
@@ -79,14 +80,12 @@ export function EditorQuickPick({
       }}
     >
       <div className="editor-quick-pick-content">
-        <input
+        <SearchBar
           ref={input}
-          type="search"
           value={query}
-          aria-label={label}
           placeholder={label}
-          onChange={(event) => {
-            setQuery(event.target.value);
+          onValueChange={(next) => {
+            setQuery(next);
             onSearch?.();
           }}
         />

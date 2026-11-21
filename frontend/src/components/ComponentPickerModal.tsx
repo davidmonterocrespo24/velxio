@@ -13,6 +13,7 @@ import React, { useState, useEffect, useId, useMemo, useRef, useSyncExternalStor
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
+import { SearchBar } from './ui/SearchBar';
 import { ComponentRegistry } from '../services/ComponentRegistry';
 import type { ComponentMetadata, ComponentCategory } from '../types/component-metadata';
 import { ComponentInfoPanel, HOVER_DELAY, type HoverTarget, type PanelData } from './ComponentInfoPanel';
@@ -726,45 +727,20 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
       <div className="component-picker-modal" role="dialog" aria-modal="true"
         aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <div className="component-picker-header" onMouseEnter={clearHover}>
-          <h2 id={titleId}>{t('editor.componentPicker.title')}</h2>
+          {/* The title was taking up too much horizontal space and pushing the search bar down on smaller screens. It was also redundant with the modal's aria-labelledby, so it was removed. */}
+          {/* <h2 id={titleId}>{t('editor.componentPicker.title')}</h2> */}
 
-          <div className="header-search-wrapper">
-            <svg
-              className="search-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              className="search-input"
-              placeholder={t('editor.componentPicker.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                clearHover();
-              }}
-              autoFocus
-            />
-            {searchQuery && (
-              <button
-                className="clear-search-btn"
-                onClick={() => setSearchQuery('')}
-                aria-label={t('editor.componentPicker.clearSearch')}
-              >
-                X
-              </button>
-            )}
-          </div>
+          <SearchBar
+            className="header-search-wrapper"
+            placeholder={t('editor.componentPicker.searchPlaceholder')}
+            value={searchQuery}
+            clearLabel={t('editor.componentPicker.clearSearch')}
+            onValueChange={(next) => {
+              setSearchQuery(next);
+              clearHover();
+            }}
+            autoFocus
+          />
 
           <button
             type="button"

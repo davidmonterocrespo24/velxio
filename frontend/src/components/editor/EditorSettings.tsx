@@ -17,6 +17,7 @@ import { isLocale, LOCALES, LOCALE_META } from '../../i18n/config';
 import { getLocaleFromPath, switchLocale } from '../../i18n/path';
 import { useEditorPreferences, type EditorPreferences, type Indentation } from '../../store/useEditorPreferences';
 import { DropdownSelect } from '../ui/DropdownSelect';
+import { SearchBar } from '../ui/SearchBar';
 import { WorkspaceThemeSettings } from './WorkspaceThemeSettings';
 import './EditorSettings.css';
 
@@ -335,11 +336,6 @@ export function EditorSettings({ onClose, onIndentationChange }: {
     updateSearch('');
   };
 
-  const clearSearch = () => {
-    updateSearch('');
-    searchInput.current?.focus();
-  };
-
   const closeSettings = () => {
     dialog.current?.close();
     onClose();
@@ -372,33 +368,19 @@ export function EditorSettings({ onClose, onIndentationChange }: {
               <X size={17} aria-hidden />
             </button>
           </div>
-          <div className="editor-settings-search">
-            <Search size={16} aria-hidden />
-            <input
-              ref={searchInput}
-              type="search"
-              aria-label={searchLabel}
-              placeholder={searchLabel}
-              value={query}
-              onChange={(event) => updateSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Escape') return;
-                event.preventDefault();
-                event.stopPropagation();
-                closeSettings();
-              }}
-            />
-            {query && (
-              <button
-                type="button"
-                className="editor-settings-icon-button"
-                onClick={clearSearch}
-                aria-label={t('editor.settings.clearSearch', 'Clear settings search')}
-              >
-                <X size={14} aria-hidden />
-              </button>
-            )}
-          </div>
+          <SearchBar
+            ref={searchInput}
+            placeholder={searchLabel}
+            value={query}
+            clearLabel={t('editor.settings.clearSearch', 'Clear settings search')}
+            onValueChange={updateSearch}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              closeSettings();
+            }}
+          />
         </header>
         <div className="editor-settings-layout">
           <nav

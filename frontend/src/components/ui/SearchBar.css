@@ -1,0 +1,59 @@
+.ui-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+  min-height: 34px;
+  padding-inline: 10px 4px;
+  border: 1px solid var(--wb-7);
+  border-radius: 6px;
+  background: var(--wb-2);
+  color: var(--wb-11);
+}
+
+.ui-search-bar:focus-within {
+  border-color: var(--color-action-primary);
+}
+
+.ui-search-bar > svg {
+  flex-shrink: 0;
+}
+
+.ui-search-bar .ui-search-input {
+  flex: 1;
+  min-inline-size: 0;
+  min-height: 0;
+  padding: 5px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--wb-13);
+  font: inherit;
+}
+
+.ui-search-input::placeholder {
+  color: var(--wb-11);
+}
+
+.ui-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.ui-search-bar .ui-search-clear {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  min-height: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-11);
+  cursor: pointer;
+}
+
+.ui-search-bar .ui-search-clear:hover {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}

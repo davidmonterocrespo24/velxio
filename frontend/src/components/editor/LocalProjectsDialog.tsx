@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
-import { ArrowLeft, FolderOpen, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   deleteBrowserWorkspace,
@@ -9,6 +9,7 @@ import {
   useLocalWorkspace,
 } from '../../lib/localWorkspace';
 import { listLocalProjects, type LocalProjectDetails } from '../../services/localProjects';
+import { SearchBar } from '../ui/SearchBar';
 import { NewProjectTemplates } from './NewProjectDialog';
 
 type LocalProjectsContentProps =
@@ -303,16 +304,12 @@ function LocalProjectsContent(
             <p>{t('editor.localProjects.empty', 'No projects saved in this browser yet.')}</p>
           )}
           {projects && projects.length > 0 && (
-            <label className="local-projects-search">
-              <Search size={16} aria-hidden />
-              <input
-                type="search"
-                value={query}
-                aria-label={t('editor.localProjects.search', 'Search projects')}
-                placeholder={t('editor.localProjects.search', 'Search projects')}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
+            <SearchBar
+              className="local-projects-search"
+              value={query}
+              placeholder={t('editor.localProjects.search', 'Search projects')}
+              onValueChange={setQuery}
+            />
           )}
           {projects && projects.length > 0 && visibleProjects?.length === 0 && (
             <p role="status">

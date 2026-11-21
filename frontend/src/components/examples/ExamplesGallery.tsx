@@ -5,6 +5,7 @@
  */
 
 import { DropdownSelect } from '../ui/DropdownSelect';
+import { SearchBar } from '../ui/SearchBar';
 import React, { useState, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
@@ -372,42 +373,14 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
       {/* Compact toolbar: search + three dropdowns + live count.
           Replaces the old search row + 16 board tabs + two filter rows. */}
       <div className="examples-toolbar">
-        <div className="examples-search-wrap">
-          <svg
-            className="examples-search-icon"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
-          </svg>
-          <input
-            type="search"
-            className="examples-search-input"
-            placeholder={t('examples.searchPlaceholder')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label={t('examples.searchLabel')}
-          />
-          {search && (
-            <button
-              type="button"
-              className="examples-search-clear"
-              onClick={() => setSearch('')}
-              aria-label={t('examples.clearSearch')}
-              title={t('examples.clear')}
-            >
-              ×
-            </button>
-          )}
-        </div>
+        <SearchBar
+          className="examples-search-wrap"
+          aria-label={t('examples.searchLabel')}
+          placeholder={t('examples.searchPlaceholder')}
+          value={search}
+          onValueChange={setSearch}
+          clearLabel={t('examples.clearSearch')}
+        />
 
         <DropdownSelect
           className="examples-select"

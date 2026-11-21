@@ -371,7 +371,7 @@ export const EditorPage: React.FC = () => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'p') return;
       event.preventDefault();
       openWorkspaceView('search');
-      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.workspace-search-input')?.focus());
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.workspace-search input')?.focus());
     };
     window.addEventListener('keydown', openSearch);
     return () => window.removeEventListener('keydown', openSearch);

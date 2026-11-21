@@ -722,11 +722,6 @@ button.workspace-status-board:hover,
   cursor: pointer;
 }
 
-.workspace-sidebar-view .workspace-search-input:focus {
-  border-color: var(--color-action-primary);
-  outline: none;
-}
-
 .workspace-search-mode:hover {
   background: var(--wb-4);
   color: var(--wb-13);
@@ -865,26 +860,6 @@ button.workspace-status-board:hover,
   padding: 6px;
 }
 
-.editor-quick-pick-content > input[type='search'] {
-  box-sizing: border-box;
-  inline-size: 100%;
-  block-size: 26px;
-  min-width: 0;
-  padding: 2px 8px;
-  border: 1px solid var(--wb-7);
-  border-radius: 4px;
-  background: var(--wb-2);
-  color: var(--wb-13);
-  font: inherit;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.editor-quick-pick-content > input[type='search']:focus-visible {
-  border-color: var(--color-action-primary);
-  outline: none;
-}
-
 .editor-quick-pick-options {
   max-height: min(49dvh, 360px);
   overflow: auto;
@@ -1010,28 +985,7 @@ button.workspace-status-board:hover,
 }
 
 .local-projects-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
   margin-top: 12px;
-  padding-inline: 9px;
-  border: 1px solid var(--wb-7);
-  border-radius: 6px;
-  background: var(--wb-3);
-  color: var(--wb-11);
-}
-
-.local-projects-search:focus-within {
-  border-color: var(--color-action-primary);
-}
-
-.local-projects-dialog .local-projects-search input {
-  flex: 1;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
 }
 
 .local-projects-list {

@@ -95,10 +95,6 @@
 /* Inline search (lives in the header row) */
 .header-search-wrapper {
   grid-area: search;
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
 }
 
 @media (max-width: 560px) {
@@ -108,54 +104,6 @@
     gap: 6px 12px;
     padding: 8px 12px 12px;
   }
-}
-
-.search-icon {
-  position: absolute;
-  left: 11px;
-  color: var(--wb-10);
-  pointer-events: none;
-}
-
-.search-input {
-  width: 100%;
-  padding: 8px 34px 8px 34px;
-  font-size: 14px;
-  border: 1.5px solid var(--wb-8);
-  border-radius: 8px;
-  outline: none;
-  transition: border-color 0.2s;
-  background: var(--wb-7);
-  color: var(--wb-13);
-}
-
-.search-input:focus {
-  border-color: var(--color-action-primary);
-}
-
-.search-input::placeholder {
-  color: var(--wb-10);
-}
-
-.clear-search-btn {
-  position: absolute;
-  right: 10px;
-  background: none;
-  border: none;
-  color: var(--wb-10);
-  cursor: pointer;
-  padding: 4px;
-  font-size: 16px;
-  line-height: 1;
-  border-radius: 4px;
-  transition:
-    background 0.2s,
-    color 0.2s;
-}
-
-.clear-search-btn:hover {
-  background: var(--color-wash-hover);
-  color: var(--wb-12);
 }
 
 /* Components Grid */

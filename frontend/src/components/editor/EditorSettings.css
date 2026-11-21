@@ -38,7 +38,6 @@
 }
 
 .editor-settings-heading,
-.editor-settings-search,
 .editor-settings-footer {
   display: flex;
   align-items: center;
@@ -74,34 +73,6 @@
   color: var(--wb-13);
 }
 
-.editor-settings-search {
-  min-height: 34px;
-  padding-inline: 10px 4px;
-  border: 1px solid var(--wb-7);
-  border-radius: 6px;
-  background: var(--wb-2);
-  color: var(--wb-11);
-}
-
-.editor-settings-search:focus-within {
-  border-color: var(--color-action-primary);
-}
-
-.editor-settings-search input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--wb-13);
-  font: inherit;
-}
-
-.editor-settings-search input::-webkit-search-cancel-button {
-  appearance: none;
-}
-
 .editor-settings-layout {
   display: grid;
   grid-template-columns: 164px minmax(0, 1fr);
@@ -135,7 +106,6 @@
 }
 
 .editor-settings-nav svg,
-.editor-settings-search svg,
 .editor-settings-button svg {
   flex-shrink: 0;
 }
