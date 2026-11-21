@@ -85,6 +85,9 @@
         "idle": "Idle"
       },
       "contextMenu": {
+        "cut": "Cut",
+        "copy": "Copy",
+        "paste": "Paste",
         "rename": "Rename",
         "delete": "Delete"
       },
@@ -545,7 +548,8 @@
       "portGranted": "USB port access granted. Add a board that supports browser flashing to continue.",
       "serialUnavailable": "This browser cannot choose a USB serial port.",
       "compileRequired": "Compile the sketch from the editor toolbar before flashing.",
-      "recompileRequired": "Compile again from the editor toolbar to use the latest sketch and board settings.",
+      "recompileRequired": "Compile again from the editor toolbar to include the latest sketch, libraries, and board settings.",
+      "differentActiveBoard": "Toolbar Compile targets {{activeBoard}}. Flash targets {{targetBoard}}.",
       "webIntro": "Flash over USB, right from the browser.",
       "browserPortInstructions": "Plug the board in via USB and click the button. Your browser will ask which serial port to use. Close any other program using the port (serial monitors, IDEs) first.",
       "selectedPortHint": "USB port selected. Flash will reuse this port. Close any other program using the port first.",
