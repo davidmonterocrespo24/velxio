@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CircuitBoard, Layers } from 'lucide-react';
+import { CircleAlert, CircuitBoard, Layers, X } from 'lucide-react';
 import { registerEditorCommand } from '../../lib/editorCommands';
 import { publishCompileOutput } from '../../lib/intellisenseRegistry';
 import { useEditorStore, chipFileGroupId } from '../../store/useEditorStore';
@@ -1791,7 +1791,7 @@ export const EditorToolbar = ({
 
   return (
     <>
-      <div className="editor-toolbar-wrapper" style={{ position: 'relative' }}>
+      <div className="editor-toolbar-wrapper">
         <div className="editor-toolbar" ref={toolbarRef}>
           <div className="toolbar-group">
             <div className={`tb-run-split tb-build-split${targetCount > 1 ? ' tb-split-button' : ''}`} ref={buildMenuRef}>
@@ -2154,12 +2154,20 @@ export const EditorToolbar = ({
             {rightSlot}
           </div>
         </div>
+        {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
+          <div className="toolbar-error-detail">
+            <CircleAlert size={15} aria-hidden />
+            <p role="alert">{message.text}</p>
+            <button
+              type="button"
+              aria-label={t('editor.toolbar.dismissError', 'Dismiss error')}
+              onClick={() => setMessage(null)}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Error detail bar */}
-      {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
-        <div className="toolbar-error-detail">{message.text}</div>
-      )}
 
       {/* Missing library hint */}
       {missingLibHint && (
