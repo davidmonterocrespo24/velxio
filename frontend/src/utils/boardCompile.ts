@@ -105,13 +105,15 @@ export async function compileBoardForFlash(
     return { ok: false, error: `No FQBN for board kind: ${board.boardKind}`, elapsedMs: 0 };
   }
   const files = collectSketchFilesForBoard(board);
+  const sourceHash = currentSourceFingerprint(board);
+  const workspace = useProjectStore.getState();
   onLine(`$ compile ${fqbn} (${files.map((f) => f.name).join(', ')})`);
   let streamed = 0;
   try {
     const result = await compileCode(
       files,
       fqbn,
-      useProjectStore.getState().currentProject?.id ?? null,
+      workspace.currentProject?.id ?? null,
       ({ stdout }) => {
         if (stdout.length <= streamed) return;
         const delta = stdout.slice(streamed);
@@ -137,6 +139,11 @@ export async function compileBoardForFlash(
       return { ok: false, error: 'Compilation produced no program', elapsedMs };
     }
     const uf2 = result.uf2_content ?? null;
+    const currentBoard = useSimulatorStore.getState().boards.find((item) => item.id === board.id);
+    if (useProjectStore.getState().workspaceVersion !== workspace.workspaceVersion ||
+        !currentBoard || currentSourceFingerprint(currentBoard) !== sourceHash) {
+      return { ok: false, error: 'The sketch changed during compilation. Compile it again.', elapsedMs };
+    }
     if (opts.record !== false) {
       const sim = useSimulatorStore.getState();
       sim.compileBoardProgram(board.id, program, { uf2 });
