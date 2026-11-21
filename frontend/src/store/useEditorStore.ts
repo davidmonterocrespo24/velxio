@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { generateUUID } from '../utils/uuid';
 import { isPiBoardKind } from '../types/board';
 import { getProBoard } from '../lib/proBoardRegistry';
+import type { SavedWorkspaceFile } from '../utils/savedWorkspaceFile';
 
 export interface WorkspaceFile {
   id: string;
@@ -10,7 +11,16 @@ export interface WorkspaceFile {
   modified: boolean;
 }
 
+export interface WorkspacePath {
+  groupId: string;
+  path: string;
+  folder: boolean;
+  fileId?: string;
+}
+
 const MAIN_ID = 'main-sketch';
+
+const isInsideFolder = (path: string, folder: string) => path.startsWith(folder + '/');
 
 /** Trim, collapse slashes/backslashes, strip leading/trailing '/' and any
  *  '.'/'..' segments — folder paths are always workspace-relative. */
@@ -193,6 +203,7 @@ interface EditorState {
   deleteFolder: (path: string) => void;
 
   // File operations (operate on active group)
+  renameRevision: number;
   createFile: (name: string) => string;
   deleteFile: (id: string) => void;
   renameFile: (id: string, newName: string) => void;
@@ -200,6 +211,7 @@ interface EditorState {
   markFileSaved: (id: string) => void;
   markWorkspaceFilesSaved: (snapshot: Record<string, WorkspaceFile[]>) => void;
   moveWorkspacePath: (groupId: string, from: string, to: string, folder: boolean) => boolean;
+  pasteWorkspacePath: (source: WorkspacePath, groupId: string, parent: string, copy: boolean) => boolean;
   openFile: (id: string) => void;
   closeFile: (id: string) => void;
   setActiveFile: (id: string) => void;
@@ -232,7 +244,7 @@ interface EditorState {
    *  `folders` restores the tracked EMPTY folders per group (optional —
    *  folders holding files rebuild themselves from the file name prefixes). */
   replaceFileGroups: (
-    groups: Record<string, { name: string; content: string }[]>,
+    groups: Record<string, SavedWorkspaceFile[]>,
     folders?: Record<string, string[]>,
   ) => void;
 
@@ -269,6 +281,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     [DEFAULT_GROUP_ID]: [DEFAULT_FILE],
   },
   folderGroups: {},
+  renameRevision: 0,
   activeGroupId: DEFAULT_GROUP_ID,
   activeGroupFileId: { [DEFAULT_GROUP_ID]: MAIN_ID },
   openGroupFileIds: { [DEFAULT_GROUP_ID]: [MAIN_ID] },
@@ -378,11 +391,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   renameFile: (id: string, newName: string) => {
     set((s) => {
       const groupId = s.activeGroupId;
+      const groupFiles = s.fileGroups[groupId] ?? [];
+      if (!groupFiles.some((file) => file.id === id && file.name !== newName)) return s;
       const mapper = (f: WorkspaceFile) =>
         f.id === id ? { ...f, name: newName, modified: true } : f;
       return {
         files: s.files.map(mapper),
-        fileGroups: { ...s.fileGroups, [groupId]: (s.fileGroups[groupId] ?? []).map(mapper) },
+        fileGroups: { ...s.fileGroups, [groupId]: groupFiles.map(mapper) },
+        renameRevision: s.renameRevision + 1,
       };
     });
   },
@@ -454,6 +470,90 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       fileGroups: { ...state.fileGroups, [groupId]: groupFiles },
       folderGroups: { ...state.folderGroups, [groupId]: groupFolders },
       ...(state.activeGroupId === groupId && { files: groupFiles }),
+      renameRevision: state.renameRevision + 1,
+      codeChangedSinceLastCompile: true,
+    });
+    return true;
+  },
+
+  pasteWorkspacePath: (source, groupId, parent, copy) => {
+    const state = get();
+    const sourceFiles = state.fileGroups[source.groupId];
+    const targetFiles = state.fileGroups[groupId];
+    if (!sourceFiles || !targetFiles) return false;
+    const sourceFolders = state.folderGroups[source.groupId] ?? [];
+    const targetFolders = state.folderGroups[groupId] ?? [];
+    const from = source.fileId ? sourceFiles.find((file) => file.id === source.fileId)?.name : source.path;
+    if (!from) return false;
+
+    const sameGroup = source.groupId === groupId;
+    const inSource = (path: string) => path === from || (source.folder && isInsideFolder(path, from));
+    const movedFiles = sourceFiles.filter(({ name }) => inSource(name));
+    const movedFolders = source.folder ? sourceFolders.filter(inSource) : [];
+    if (!movedFiles.length && !movedFolders.length) return false;
+    if (parent && !targetFolders.some((path) => path === parent || isInsideFolder(path, parent)) &&
+        !targetFiles.some(({ name }) => isInsideFolder(name, parent))) return false;
+    if (sameGroup && source.folder && inSource(parent)) return false;
+    if (!copy && !sameGroup && movedFiles.length && movedFiles.length === sourceFiles.length) return false;
+
+    const name = from.slice(from.lastIndexOf('/') + 1);
+    const underParent = (basename: string) => parent ? `${parent}/${basename}` : basename;
+    let to = underParent(name);
+    if (!copy && sameGroup) return state.moveWorkspacePath(groupId, from, to, source.folder);
+
+    const occupied = (path: string) =>
+      targetFiles.some(({ name }) => name === path || isInsideFolder(name, path)) ||
+      targetFolders.some((folder) => folder === path || isInsideFolder(folder, path));
+    if (copy && occupied(to)) {
+      const dot = source.folder ? -1 : name.lastIndexOf('.');
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const extension = dot > 0 ? name.slice(dot) : '';
+      let copyNumber = 1;
+      do {
+        to = underParent(`${stem} copy${copyNumber > 1 ? ` ${copyNumber}` : ''}${extension}`);
+        copyNumber++;
+      } while (occupied(to));
+    } else if (occupied(to)) {
+      return false;
+    }
+    if (targetFiles.some(({ name }) => isInsideFolder(to, name))) return false;
+
+    const targetIds = new Set(targetFiles.map(({ id }) => id));
+    const pastedFiles = movedFiles.map((file) => ({
+      ...file,
+      id: copy || targetIds.has(file.id) ? generateUUID() : file.id,
+      name: to + file.name.slice(from.length),
+      modified: true,
+    }));
+    const nextTargetFiles = [...targetFiles, ...pastedFiles];
+    const fileGroups = { ...state.fileGroups, [groupId]: nextTargetFiles };
+    const folderGroups = {
+      ...state.folderGroups,
+      [groupId]: [...targetFolders, ...movedFolders.map((path) => to + path.slice(from.length))]
+        .filter((path) => !nextTargetFiles.some(({ name }) => isInsideFolder(name, path))),
+    };
+    const activeGroupFileId = { ...state.activeGroupFileId };
+    const openGroupFileIds = { ...state.openGroupFileIds };
+    if (!copy) {
+      const remainingFiles = sourceFiles.filter(({ name }) => !inSource(name));
+      const remainingIds = new Set(remainingFiles.map(({ id }) => id));
+      const remainingOpen = (openGroupFileIds[source.groupId] ?? []).filter((id) => remainingIds.has(id));
+      fileGroups[source.groupId] = remainingFiles;
+      folderGroups[source.groupId] = sourceFolders.filter((path) => !inSource(path));
+      openGroupFileIds[source.groupId] = remainingOpen;
+      if (!remainingIds.has(activeGroupFileId[source.groupId])) {
+        activeGroupFileId[source.groupId] = remainingOpen[0] ?? remainingFiles[0]?.id ?? '';
+      }
+    }
+    const activeGroup = state.activeGroupId;
+    set({
+      fileGroups,
+      folderGroups,
+      activeGroupFileId,
+      openGroupFileIds,
+      files: fileGroups[activeGroup] ?? [],
+      activeFileId: activeGroupFileId[activeGroup] ?? '',
+      openFileIds: openGroupFileIds[activeGroup] ?? [],
       codeChangedSinceLastCompile: true,
     });
     return true;
@@ -699,12 +799,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const activeGroupFileId: Record<string, string> = {};
     const openGroupFileIds: Record<string, string[]> = {};
     for (const [gid, files] of Object.entries(groups)) {
-      const wsFiles: WorkspaceFile[] = files.map((f, i) => ({
-        id: i === 0 ? `${gid}-main` : generateUUID(),
-        name: f.name,
-        content: f.content,
-        modified: false,
-      }));
+      const usedIds = new Set<string>();
+      const wsFiles: WorkspaceFile[] = files.map((file, index) => {
+        const preferredId = file.id || (index === 0 ? `${gid}-main` : generateUUID());
+        const id = usedIds.has(preferredId) ? generateUUID() : preferredId;
+        usedIds.add(id);
+        return { id, name: file.name, content: file.content, modified: false };
+      });
       fileGroups[gid] = wsFiles;
       const firstId = wsFiles[0]?.id ?? `${gid}-main`;
       activeGroupFileId[gid] = firstId;
