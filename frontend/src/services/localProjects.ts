@@ -1,4 +1,4 @@
-import { createStore, entries, get, update } from 'idb-keyval';
+import { createStore, entries, get, promisifyRequest, update } from 'idb-keyval';
 import type { VlxPayload } from '../utils/vlxFile';
 
 export interface LocalProjectDetails {
@@ -132,4 +132,21 @@ export async function renameLocalProject(
     projects,
   );
   return withCreatedAt(renamed!);
+}
+
+export function deleteLocalProject(id: string, revision: number): Promise<void> {
+  return projects('readwrite', (store) => new Promise<void>((resolve, reject) => {
+    // Check the revision in the same transaction as the delete.
+    const request = store.get(id);
+    request.onsuccess = () => {
+      const project: StoredProject | undefined = request.result;
+      if (!project) return;
+      if (project.revision !== revision) {
+        reject(new LocalProjectConflict());
+        return;
+      }
+      store.delete(id);
+    };
+    void promisifyRequest(store.transaction).then(resolve, reject);
+  }));
 }

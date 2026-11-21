@@ -1,7 +1,8 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
-import { ArrowLeft, FolderOpen, Pencil, Plus, Search } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
+  deleteBrowserWorkspace,
   hasUnsavedLocalChanges,
   renameBrowserWorkspace,
   saveLocalWorkspace,
@@ -11,7 +12,7 @@ import { listLocalProjects, type LocalProjectDetails } from '../../services/loca
 import { NewProjectTemplates } from './NewProjectDialog';
 
 type LocalProjectsContentProps =
-  | { view: 'start'; onNew: () => void; onSaved: () => void; onClose?: () => void }
+  | { view: 'start'; onNew: () => void; onSaved: () => void; onClose: () => void }
   | { view: 'saved'; onOpen: (id: string) => void; onBack?: () => void; onSaveCopy?: () => void; onClose: () => void }
   | { view: 'save'; copy: boolean; onClose: () => void };
 
@@ -25,7 +26,7 @@ type LocalProjectsDialogProps =
     };
 
 /**
- * Creates, opens, and renames projects stored in browser IndexedDB.
+ * Creates, opens, renames, and deletes projects stored in browser IndexedDB.
  * Saved projects can be reopened in the same browser profile.
  */
 export function LocalProjectsDialog(props: LocalProjectsDialogProps) {
@@ -51,6 +52,13 @@ export function LocalProjectsDialog(props: LocalProjectsDialogProps) {
       className={view === 'templates' ? 'new-project-dialog' : 'local-projects-dialog'}
       ref={dialog}
       aria-labelledby="local-projects-title"
+      onClick={(event) => {
+        if (props.view !== 'start' || event.target !== event.currentTarget) return;
+        const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
+          props.onClose();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         content.current?.cancel();
@@ -81,15 +89,31 @@ function LocalProjectsContent(
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<LocalProjectDetails | null>(null);
+  const [confirmation, setConfirmation] = useState<
+    { kind: 'open'; id: string } | { kind: 'delete' | 'rename'; project: LocalProjectDetails } | null
+  >(null);
   const [name, setName] = useState(workspaceName ?? '');
+  const actionDialog = useRef<HTMLDialogElement>(null);
+  const cancelAction = useRef<HTMLButtonElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const element = actionDialog.current;
+    if (!confirmation || !element) return;
+    element.showModal();
+    if (confirmation.kind === 'rename') {
+      nameInput.current?.focus();
+      nameInput.current?.select();
+    } else {
+      cancelAction.current?.focus();
+    }
+    return () => element.close();
+  }, [confirmation]);
 
   useImperativeHandle(ref, () => ({
     cancel: () => {
       if (busy) return;
-      if (confirmId) setConfirmId(null);
-      else if (renaming) setRenaming(null);
+      if (confirmation) setConfirmation(null);
       else if (props.view === 'saved' && props.onBack) props.onBack();
       else onClose?.();
     },
@@ -116,12 +140,34 @@ function LocalProjectsContent(
 
   const open = (id: string) => {
     if (props.view !== 'saved') return;
-    if (browserId !== id && confirmId !== id && hasUnsavedLocalChanges()) {
-      setConfirmId(id);
-      setRenaming(null);
+    const confirmed = confirmation?.kind === 'open' && confirmation.id === id;
+    if (browserId !== id && !confirmed && hasUnsavedLocalChanges()) {
+      setConfirmation({ kind: 'open', id });
       return;
     }
+    setConfirmation(null);
     props.onOpen(id);
+  };
+
+  const refreshProjects = () => listLocalProjects().then(setProjects, () => undefined);
+
+  const removeProject = async (project: LocalProjectDetails) => {
+    setBusy(true);
+    setError('');
+    try {
+      await deleteBrowserWorkspace(project.id, project.revision);
+      setProjects((items) => items?.filter(({ id }) => id !== project.id) ?? null);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t('editor.localProjects.deleteError', 'Could not delete this local copy.'),
+      );
+      await refreshProjects();
+    } finally {
+      setConfirmation(null);
+      setBusy(false);
+    }
   };
 
   const submitName = async () => {
@@ -137,26 +183,23 @@ function LocalProjectsContent(
             useLocalWorkspace.getState().errorMessage ??
               t('editor.localProjects.saveError', 'Could not save this project.'),
           );
-      } else if (renaming) {
+      } else if (confirmation?.kind === 'rename') {
+        const { project } = confirmation;
         const { id, name, createdAt, updatedAt, revision } = await renameBrowserWorkspace(
-          renaming.id,
-          renaming.revision,
+          project.id,
+          project.revision,
           projectName,
         );
         setProjects((items) => [
           { id, name, createdAt, updatedAt, revision },
           ...(items ?? []).filter((item) => item.id !== id),
         ]);
-        setRenaming(null);
+        setConfirmation(null);
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-      try {
-        setProjects(await listLocalProjects());
-      } catch {
-        // Keep the current list if a failing browser store cannot be read.
-      }
-      setRenaming(null);
+      await refreshProjects();
+      setConfirmation(null);
     } finally {
       setBusy(false);
     }
@@ -178,6 +221,23 @@ function LocalProjectsContent(
   const term = query.trim().toLocaleLowerCase(i18n.resolvedLanguage);
   const visibleProjects = projects?.filter((project) =>
     project.name.toLocaleLowerCase(i18n.resolvedLanguage).includes(term),
+  );
+  const nameField = (
+    <>
+      <label htmlFor="local-project-name">
+        {t('editor.localProjects.projectName', 'Project name')}
+      </label>
+      <input
+        ref={nameInput}
+        id="local-project-name"
+        value={name}
+        maxLength={100}
+        required
+        autoFocus={view === 'save'}
+        disabled={busy}
+        onChange={(event) => setName(event.target.value)}
+      />
+    </>
   );
 
   return (
@@ -298,34 +358,113 @@ function LocalProjectsContent(
                       })}
                       title={t('editor.localProjects.rename', 'Rename')}
                       onClick={() => {
-                        setRenaming(project);
                         setName(name);
-                        setConfirmId(null);
+                        setConfirmation({ kind: 'rename', project });
                         setError('');
                       }}
                     >
                       <Pencil size={15} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="local-projects-delete"
+                      aria-label={t('editor.localProjects.deleteProject', 'Delete {{name}}', { name })}
+                      title={t('editor.localProjects.deleteCopy', 'Delete local copy')}
+                      onClick={() => {
+                        setConfirmation({ kind: 'delete', project });
+                        setError('');
+                      }}
+                    >
+                      <Trash2 size={15} aria-hidden />
                     </button>
                   </li>
                 );
               })}
             </ul>
           )}
-          {confirmId && (
-            <div className="local-projects-confirm">
-              <p>{t('editor.localProjects.unsaved', 'This workspace has unsaved changes.')}</p>
-              <button type="button" onClick={() => open(confirmId)}>
-                {t('editor.localProjects.discard', 'Discard changes and open')}
-              </button>
-              <button type="button" onClick={() => setConfirmId(null)}>
-                {t('editor.fileTabs.cancel', 'Cancel')}
-              </button>
-            </div>
+          {confirmation && (
+            <dialog
+              ref={actionDialog}
+              className="local-projects-action-dialog"
+              aria-labelledby="local-projects-action-title"
+              aria-describedby={confirmation.kind === 'rename' ? undefined : 'local-projects-action-description'}
+              onCancel={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!busy) setConfirmation(null);
+              }}
+            >
+              <h3 id="local-projects-action-title">
+                {confirmation.kind === 'rename'
+                  ? t('editor.localProjects.renameTitle', 'Rename local copy')
+                  : confirmation.kind === 'open'
+                    ? t('editor.localProjects.openTitle', 'Open saved project')
+                    : t('editor.localProjects.deleteCopy', 'Delete local copy')}
+              </h3>
+              {confirmation.kind === 'rename' ? (
+                <form
+                  className="local-projects-rename-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void submitName();
+                  }}
+                >
+                  {nameField}
+                  <footer className="local-projects-footer">
+                    <button type="button" disabled={busy} onClick={() => setConfirmation(null)}>
+                      {t('editor.fileTabs.cancel', 'Cancel')}
+                    </button>
+                    <button type="submit" className="local-projects-primary" disabled={!name.trim() || busy}>
+                      {t('editor.localProjects.rename', 'Rename')}
+                    </button>
+                  </footer>
+                </form>
+              ) : (
+                <>
+                  <p id="local-projects-action-description">
+                    {confirmation.kind === 'open'
+                      ? t('editor.localProjects.unsaved', 'This workspace has unsaved changes.')
+                      : t(
+                        'editor.localProjects.confirmDelete',
+                        'Delete the local copy of “{{name}}” and its file history?',
+                        { name: confirmation.project.name },
+                      )}
+                  </p>
+                  {confirmation.kind === 'delete' && browserId === confirmation.project.id && (
+                    <p>
+                      {t(
+                        'editor.localProjects.deleteOpenCopy',
+                        'The open workspace will stay in the editor as an unsaved draft.',
+                      )}
+                    </p>
+                  )}
+                  <footer className="local-projects-footer">
+                    <button ref={cancelAction} type="button" disabled={busy} onClick={() => setConfirmation(null)}>
+                      {t('editor.fileTabs.cancel', 'Cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      className={confirmation.kind === 'open' ? 'local-projects-discard' : 'local-projects-delete'}
+                      disabled={busy}
+                      onClick={() => {
+                        if (confirmation.kind === 'open') open(confirmation.id);
+                        else void removeProject(confirmation.project);
+                      }}
+                    >
+                      {confirmation.kind === 'open'
+                        ? t('editor.localProjects.discard', 'Discard changes and open')
+                        : t('editor.localProjects.deleteCopy', 'Delete')}
+                    </button>
+                  </footer>
+                </>
+              )}
+            </dialog>
           )}
         </>
       )}
 
-      {(view === 'save' || renaming) && (
+      {view === 'save' && (
         <form
           className="local-projects-form"
           onSubmit={(event) => {
@@ -333,28 +472,10 @@ function LocalProjectsContent(
             void submitName();
           }}
         >
-          <label htmlFor="local-project-name">
-            {t('editor.localProjects.projectName', 'Project name')}
-          </label>
-          <input
-            id="local-project-name"
-            value={name}
-            maxLength={100}
-            required
-            autoFocus
-            disabled={busy}
-            onChange={(event) => setName(event.target.value)}
-          />
+          {nameField}
           <button type="submit" className="local-projects-primary" disabled={!name.trim() || busy}>
-            {renaming
-              ? t('editor.localProjects.rename', 'Rename')
-              : t('editor.localProjects.saveTitle', 'Save project')}
+            {t('editor.localProjects.saveTitle', 'Save project')}
           </button>
-          {renaming && (
-            <button type="button" disabled={busy} onClick={() => setRenaming(null)}>
-              {t('editor.fileTabs.cancel', 'Cancel')}
-            </button>
-          )}
         </form>
       )}
 

@@ -3,7 +3,7 @@
  */
 
 import React, { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
-import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, Package, PanelsLeftRight, Plus } from 'lucide-react';
+import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, Package, PanelsLeftRight, Plus, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { startSimulation } from '../simulation/spice/start';
 import { useSEO } from '../utils/useSEO';
@@ -100,8 +100,14 @@ export const EditorPage: React.FC = () => {
   const codeEditorRef = useRef<CodeEditorHandle>(null);
   const [showBoardPicker, setShowBoardPicker] = useState(false);
   const [statusBarHost, setStatusBarHost] = useState<HTMLDivElement | null>(null);
-  const localProjectName = useLocalWorkspace((state) => state.browserId ? state.name : null);
-  const hasLocalProject = useLocalWorkspace((state) => state.name !== null);
+  const localProjectName = useLocalWorkspace((state) => state.name);
+  const isBrowserProject = useLocalWorkspace((state) => state.browserId !== null);
+  const localSaveStatus = useLocalWorkspace((state) => state.status);
+  const hasLocalProject = localProjectName !== null;
+  const hasCloudProject = useProjectStore((state) => state.currentProject !== null);
+  const statusFile = useEditorStore((state) => state.manifestViewBoardId
+    ? undefined
+    : state.files.find(({ id }) => id === state.activeFileId));
   const workspaceVersion = useProjectStore((state) => state.workspaceVersion);
   const emptyCircuit = useSimulatorStore(
     (state) => !state.boards.length && !state.components.length && !state.wires.length,
@@ -111,6 +117,10 @@ export const EditorPage: React.FC = () => {
       !Object.values(state.folderGroups).some((folders) => folders.length),
   );
   const closeProjectDialog = useCallback(() => setProjectDialog(null), []);
+  const dismissProjectStart = () => {
+    setStartupWorkspaceVersion(null);
+    closeProjectDialog();
+  };
   const showProjectStart = useCallback(() => setProjectDialog('start'), []);
   const showStartup = useCallback(() => {
     setStartupWorkspaceVersion(useProjectStore.getState().workspaceVersion);
@@ -637,14 +647,30 @@ export const EditorPage: React.FC = () => {
   const openingProject = projectRoute.openingProject && !projectDialog;
   const awaitingStarterProject = !hasLocalProject && workspaceVersion === startupWorkspaceVersion && emptyCircuit && emptyFiles;
   const showEmptyProjectActions = !projectDialog && !openingProject && awaitingStarterProject;
-  const projectStatus = localProjectName && (
-    <button type="button" className="workspace-status-board workspace-status-project"
-      title={localProjectName}
-      aria-label={t('editor.localProjects.openList', 'Saved projects · {{name}}', { name: localProjectName })}
-      onClick={() => setProjectDialog('saved')}>
-      <span>{localProjectName}</span>
-    </button>
+  const unsavedLocal = !hasCloudProject && (
+    statusFile?.modified || localSaveStatus === 'dirty' || localSaveStatus === 'error'
   );
+  const statusName = localProjectName ?? (unsavedLocal ? statusFile?.name : undefined);
+  const unsavedLabel = t('editor.localProjects.unsavedStatus', 'Unsaved changes');
+  const statusTitle = unsavedLocal ? `${unsavedLabel} · ${statusName}` : statusName;
+  const statusContent = (
+    <>
+      {unsavedLocal && <TriangleAlert size={13} className="workspace-status-unsaved" aria-label={unsavedLabel} role="img" />}
+      <span>{statusName}</span>
+    </>
+  );
+  const projectStatus = statusName && (isBrowserProject ? (
+    <button type="button" className="workspace-status-board workspace-status-project"
+      title={statusTitle}
+      aria-label={t('editor.localProjects.openList', 'Saved projects · {{name}}', { name: statusTitle })}
+      onClick={() => setProjectDialog('saved')}>
+      {statusContent}
+    </button>
+  ) : (
+    <span className="workspace-status-board workspace-status-project" title={statusTitle}>
+      {statusContent}
+    </span>
+  ));
   return (
     <>
     {openingProject && (
@@ -1010,7 +1036,7 @@ export const EditorPage: React.FC = () => {
         />
       )}
       {projectDialog === 'start' ? (
-        <LocalProjectsDialog view="start" onClose={awaitingStarterProject ? undefined : closeProjectDialog}
+        <LocalProjectsDialog view="start" onClose={dismissProjectStart}
           onNew={() => setProjectDialog('templates')} onSaved={() => setProjectDialog('saved-from-start')} />
       ) : projectDialog === 'templates' ? (
         <LocalProjectsDialog view="templates" onClose={closeProjectDialog} onBack={showProjectStart}

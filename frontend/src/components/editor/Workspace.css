@@ -388,6 +388,30 @@
   min-inline-size: 0;
 }
 
+span.workspace-status-project {
+  cursor: default;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-status-unsaved {
+  color: var(--color-feedback-warning);
+  animation: workspace-unsaved-breathe 2s ease-in-out infinite;
+}
+
+@keyframes workspace-unsaved-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-status-unsaved {
+    animation: none;
+  }
+}
+
 .workspace-project-loading {
   position: fixed;
   inset: 0;
@@ -460,11 +484,6 @@
   background: var(--color-action-primary-hover);
 }
 
-.workspace-project-start-actions button:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 2px;
-}
-
 .workspace-component-count {
   display: inline-flex;
   align-items: center;
@@ -499,7 +518,7 @@
 }
 
 .editor-status-bar button:hover:enabled,
-.workspace-status-board:hover,
+button.workspace-status-board:hover,
 .workspace-status-board[aria-expanded='true'],
 .workspace-activity-button:hover {
   background: var(--wb-5);
@@ -728,11 +747,6 @@
   cursor: inherit;
 }
 
-.workspace-search-mode input:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 2px;
-}
-
 .compile-source-link {
   padding: 0;
   border: 0;
@@ -916,8 +930,7 @@
 }
 
 .local-projects-heading,
-.local-projects-footer,
-.local-projects-confirm {
+.local-projects-footer {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -933,11 +946,6 @@
   min-height: 32px;
   padding-inline: 9px;
   border-radius: 5px;
-}
-
-.local-projects-dialog :is(button, input):focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
 }
 
 .local-projects-dialog button:disabled {
@@ -1037,7 +1045,7 @@
 
 .local-projects-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 4px;
   padding-inline-end: 6px;
@@ -1077,13 +1085,18 @@
   outline-offset: -2px;
 }
 
-.local-projects-rename,
 .local-projects-heading button {
   display: grid;
   place-items: center;
 }
 
-.local-projects-list .local-projects-rename {
+.local-projects-list :is(.local-projects-rename, .local-projects-delete) {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
   border-color: transparent;
   background: transparent;
   color: var(--wb-11);
@@ -1092,27 +1105,69 @@
 .local-projects-list .local-projects-rename:hover:enabled {
   color: var(--wb-13);
 }
+
+.local-projects-list .local-projects-delete:hover:enabled,
+.local-projects-action-dialog :is(.local-projects-delete, .local-projects-discard) {
+  border-color: var(--color-feedback-error-border);
+  color: var(--color-feedback-error);
+}
+
+.local-projects-action-dialog {
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 28px));
+  margin: auto;
+  padding: 18px;
+  border: 1px solid var(--wb-7);
+  border-radius: 10px;
+  background: var(--wb-3);
+  color: var(--wb-13);
+  box-shadow: var(--shadow-3);
+}
+
+.local-projects-action-dialog::backdrop {
+  background: rgb(0 0 0 / 50%);
+}
+
+.local-projects-action-dialog h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.local-projects-action-dialog p {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.local-projects-rename-form {
+  display: grid;
+  gap: 8px;
+  margin-block-start: 12px;
+}
+
+.local-projects-dialog :is(.local-projects-form, .local-projects-rename-form) input:focus {
+  outline: none;
+  border-color: var(--color-action-primary);
+}
+
 .local-projects-form {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .local-projects-form label {
   grid-column: 1 / -1;
 }
 
-.local-projects-form .local-projects-primary {
+.local-projects-dialog .local-projects-primary {
   background: var(--color-action-primary);
   color: var(--color-action-primary-fg);
   border-color: transparent;
 }
 
-.local-projects-form .local-projects-primary:hover:enabled {
+.local-projects-dialog .local-projects-primary:hover:enabled {
   background: var(--color-action-primary-hover);
-}
-
-.local-projects-confirm p {
-  flex-basis: 100%;
-  margin: 2px 0 0;
 }
 
 .local-projects-error {

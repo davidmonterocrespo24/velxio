@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { AutoSaveState } from '../hooks/useAutoSaveProject';
 import { flushChipFileSync } from '../services/chipFiles';
 import {
+  deleteLocalProject,
   getLocalProject,
   renameLocalProject,
   writeLocalProject,
@@ -82,6 +83,12 @@ function selectTarget(next: SaveTarget, content: string, updatedAt: number): voi
   });
 }
 
+function clearTarget(status: 'idle' | 'dirty' = 'idle'): void {
+  target = null;
+  savedContent = '';
+  useLocalWorkspace.setState({ ...idle, status, name: null, browserId: null });
+}
+
 function loadLocalProject(project: LocalProject): void {
   loadVlxPayload(project.payload);
   useSimulatorStore.getState().clearHistory();
@@ -96,6 +103,7 @@ function loadLocalProject(project: LocalProject): void {
 export function hasUnsavedLocalChanges(): boolean {
   if (hasLocalWorkspace()) return fingerprint() !== savedContent;
   return (
+    useLocalWorkspace.getState().status === 'dirty' ||
     useSimulatorStore.getState().historyIndex >= 0 ||
     Object.values(useEditorStore.getState().fileGroups).some((files) =>
       files.some((f) => f.modified),
@@ -128,6 +136,21 @@ export async function renameBrowserWorkspace(id: string, revision: number, name:
       useLocalWorkspace.setState({ name: project.name, lastSavedAt: project.updatedAt });
     }
     return project;
+  } finally {
+    if (pending === lock) pending = null;
+  }
+}
+
+export async function deleteBrowserWorkspace(id: string, revision: number): Promise<void> {
+  while (pending) await pending;
+  const selected = currentTarget();
+  const active = selected?.kind === 'browser' && selected.id === id ? selected : null;
+  const deletion = deleteLocalProject(id, active?.revision ?? revision);
+  const lock = deletion.then(() => undefined, () => undefined);
+  pending = lock;
+  try {
+    await deletion;
+    if (active && active === currentTarget()) clearTarget('dirty');
   } finally {
     if (pending === lock) pending = null;
   }
@@ -363,15 +386,14 @@ export function watchLocalWorkspace(): () => void {
     const version = workspaceVersion();
     if (version === observedWorkspaceVersion) return;
     observedWorkspaceVersion = version;
-    target = null;
     dirtyContent = '';
     clearTimeout(saveTimer);
-    useLocalWorkspace.setState({ ...idle, name: null, browserId: null });
+    clearTarget();
   };
   resetTarget();
   const project = useProjectStore.subscribe(resetTarget);
   const storage = useLocalWorkspace.subscribe((state, previous) => {
-    if (state.status === 'saving') {
+    if (state.status === 'saving' || (previous.browserId && !state.browserId)) {
       clearTimeout(saveTimer);
       dirtyContent = '';
     } else if (state.status === 'dirty' && previous.status === 'saved') {
@@ -379,7 +401,8 @@ export function watchLocalWorkspace(): () => void {
     }
   });
   const beforeUnload = (event: BeforeUnloadEvent) => {
-    if (!hasLocalWorkspace() || !hasUnsavedLocalChanges()) return;
+    if (!hasLocalWorkspace() && useLocalWorkspace.getState().status !== 'dirty') return;
+    if (!hasUnsavedLocalChanges()) return;
     event.preventDefault();
     event.returnValue = '';
   };
