@@ -773,7 +773,7 @@ button.workspace-status-board:hover,
   display: none;
 }
 
-.workspace-flash {
+.workspace-flash--has-board {
   gap: 12px;
   padding: 0 12px 14px;
 }
@@ -783,8 +783,12 @@ button.workspace-status-board:hover,
   z-index: 2;
   inset-block-start: 0;
   flex-shrink: 0;
-  margin-inline: -12px;
+  margin-inline: -9px;
   background: var(--wb-3);
+}
+
+.workspace-flash--has-board .workspace-flash-header {
+  margin-inline: -12px;
 }
 
 .workspace-flash-notice {
@@ -996,6 +1000,18 @@ button.workspace-status-board:hover,
 .workspace-sidebar-view ul {
   padding-inline-start: 18px;
   overflow-wrap: anywhere;
+}
+
+.workspace-sidebar-empty {
+  margin: 0;
+  color: var(--wb-12);
+  font: 12px / 1.5 var(--font-sans);
+}
+
+.file-explorer-list > .workspace-sidebar-empty {
+  /* The list already has 2px of vertical padding. */
+  margin-block: 6px 7px;
+  margin-inline: 9px;
 }
 
 .workspace-library-missing {

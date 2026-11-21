@@ -398,7 +398,9 @@ export function WorkspaceLibraries() {
           </button>
         </>
       ) : (
-        <p>{t('editor.workspace.noBoard', 'Select a board to see its libraries.')}</p>
+        <p className="workspace-sidebar-empty">
+          {t('editor.workspace.noBoard', 'Select a board to see its libraries.')}
+        </p>
       )}
     </section>
   );

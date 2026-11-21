@@ -1599,9 +1599,9 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
 
         {/* Fallback: nothing on the canvas yet */}
         {boards.length === 0 && customChipComponents.length === 0 && (
-          <div style={{ color: 'var(--wb-9)', fontSize: 11, padding: '12px 12px', lineHeight: 1.5 }}>
+          <p className="workspace-sidebar-empty">
             {t('editor.fileExplorer.emptyState')}
-          </div>
+          </p>
         )}
       </div>
 

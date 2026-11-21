@@ -78,7 +78,7 @@ export function WorkspaceFlash({ active, onOpen, onShowOutput }: {
   };
 
   return (
-    <section className="workspace-sidebar-view workspace-flash" hidden={!active}>
+    <section className={`workspace-sidebar-view workspace-flash${board ? ' workspace-flash--has-board' : ''}`} hidden={!active}>
       <div className="workspace-flash-header">
         <header className="workspace-sidebar-header">
           <h2 className="workspace-sidebar-title">{t('editor.toolbar.flash.label', 'Flash')}</h2>
@@ -134,7 +134,9 @@ export function WorkspaceFlash({ active, onOpen, onShowOutput }: {
               : t('editor.toolbar.flash.unavailable', 'Flashing is unavailable for this board in this browser')}</p>
           )}
         </>
-      ) : <p>{t('editor.toolbar.flash.noBoard', 'Add a board to use Flash')}</p>}
+      ) : (
+        <p className="workspace-sidebar-empty">{t('editor.toolbar.flash.noBoard', 'Add a board to use Flash')}</p>
+      )}
     </section>
   );
 }
