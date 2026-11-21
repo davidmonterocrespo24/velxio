@@ -451,6 +451,8 @@
     },
     "serial": {
       "title": "Serial Monitor",
+      "source": "Serial source",
+      "simulation": "Simulation",
       "addBoard": "Add a board to start the serial monitor.",
       "autoscroll": "Autoscroll",
       "clearTitle": "Clear output for this board",
@@ -462,7 +464,21 @@
       "startSim": "Start simulation to see serial output.",
       "placeholderText": "Type message to send...",
       "placeholderPython": "Type Python expression... (Ctrl+C to interrupt)",
+      "hardware": {
+        "tab": "Hardware",
+        "baudRate": "Serial baud rate",
+        "baud": "{{rate}} baud",
+        "disconnected": "Connect",
+        "connecting": "Connecting…",
+        "connected": "Disconnect",
+        "disconnecting": "Disconnecting…",
+        "portOpen": "USB serial connected",
+        "connectHint": "Connect a USB serial port to monitor a physical board.",
+        "unavailable": "Hardware serial requires a browser with Web Serial and an HTTPS or localhost connection.",
+        "clear": "Clear hardware serial output"
+      },
       "lineEnd": {
+        "label": "Line ending",
         "none": "No line ending",
         "nl": "Newline",
         "cr": "Carriage return",

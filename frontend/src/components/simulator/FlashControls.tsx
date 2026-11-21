@@ -27,6 +27,7 @@ import {
 import { openExternal } from '../../desktop/tauriBridge';
 import { isFlashPortSelectionCancelled } from '../../lib/flashRequest';
 import { hasSelectedBrowserFlashPort } from '../../lib/browserFlashSerial';
+import { withHardwareSerialFlash } from '../../lib/hardwareSerial';
 import { useEditorStore } from '../../store/useEditorStore';
 import { fingerprintSources } from '../../utils/sourceFingerprint';
 import { useProjectStore } from '../../store/useProjectStore';
@@ -434,12 +435,13 @@ export const FlashControls = ({ board: boardProp, fqbn, hasSelectedPort, editing
   // ── Reboot into the bootloader (pro overlay backend, RP2 boards) ──
   const doEnterBootloader = useCallback(async () => {
     const impl = getWebFlashImpl(board.boardKind);
-    if (!impl?.enterBootloader) return;
+    const enterBootloader = impl?.enterBootloader;
+    if (!enterBootloader) return;
     setBootStatus({ phase: 'busy', message: t('editor.flash.bootloader.rebooting') });
     try {
-      await impl.enterBootloader(board.boardKind, (p) => {
+      await withHardwareSerialFlash(() => enterBootloader.call(impl, board.boardKind, (p) => {
         if (p.line) setBootStatus({ phase: 'busy', message: p.line });
-      });
+      }));
       setBootStatus({ phase: 'done', message: t('editor.flash.bootloader.rebooted') });
     } catch (err) {
       if (isFlashPortSelectionCancelled(err)) {
@@ -535,21 +537,23 @@ export const FlashControls = ({ board: boardProp, fqbn, hasSelectedPort, editing
         signal: ctrl.signal,
         onProgress,
       };
-      const result =
-        isMpy && impl.flashMicroPython
-          ? await impl.flashMicroPython({
-              boardId: board.id,
-              boardKind: board.boardKind,
-              // Same file collection as the MicroPython Run path
-              // (EditorToolbar): the board's workspace group.
-              files: useEditorStore
-                .getState()
-                .getGroupFiles(board.activeFileGroupId)
-                .map((f) => ({ name: f.name, content: f.content })),
-              signal: ctrl.signal,
-              onProgress,
-            })
-          : await (preparedFlash ? preparedFlash(flashRequest) : impl.flash(flashRequest));
+      const result = await withHardwareSerialFlash(() => {
+        ctrl.signal.throwIfAborted();
+        if (isMpy && impl.flashMicroPython) {
+          return impl.flashMicroPython({
+            boardId: board.id,
+            boardKind: board.boardKind,
+            // Match MicroPython Run by uploading the board's workspace group.
+            files: useEditorStore
+              .getState()
+              .getGroupFiles(board.activeFileGroupId)
+              .map((f) => ({ name: f.name, content: f.content })),
+            signal: ctrl.signal,
+            onProgress,
+          });
+        }
+        return preparedFlash ? preparedFlash(flashRequest) : impl.flash(flashRequest);
+      });
       if (ctrl.signal.aborted) return;
       setState({
         kind: 'success',

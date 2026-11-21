@@ -9,8 +9,7 @@
 .compile-card {
   position: absolute;
   top: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%);
+  right: var(--space-6);
   z-index: var(--z-overlay);
 
   width: min(380px, calc(100% - var(--space-8)));
@@ -34,6 +33,7 @@
 @media (max-width: 768px) {
   .compile-card {
     top: calc(42px + var(--space-4));
+    right: var(--space-4);
     width: calc(100% - var(--space-6));
     padding: var(--space-5);
   }
@@ -46,11 +46,11 @@
 @keyframes compile-card-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translateY(0);
   }
 }
 

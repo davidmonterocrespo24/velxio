@@ -5,7 +5,7 @@
 
 import { DropdownSelect } from '../ui/DropdownSelect';
 import { WorkspaceClearButton } from '../editor/WorkspaceClearButton';
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
@@ -14,6 +14,19 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { boardDisplayName, isPiBoardKind } from '../../types/board';
 import { PiTerminal } from '../raspberry-pi/PiTerminal';
 import { serialMonitorText } from '../../store/serialMonitorText';
+import { useHardwareSerial } from '../../hooks/useHardwareSerial';
+
+export type SerialMonitorSource = 'simulation' | 'hardware';
+
+const BAUD_RATES = [300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 74880, 115200, 230400, 250000, 460800, 921600];
+
+function cleanSerialText(text: string) {
+  // A plain log can't render ANSI commands or terminal control bytes.
+  return text
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\x1b[=>]/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+}
 
 // Short labels for tabs
 const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {
@@ -82,8 +95,15 @@ const BOARD_COLOR: Partial<Record<string, string>> = {
   attiny85: 'var(--color-feedback-warning)',
 };
 
-export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
+export const SerialMonitor: React.FC<{
+  onClose?: () => void;
+  source?: SerialMonitorSource;
+  onSourceChange?: (source: SerialMonitorSource) => void;
+}> = ({ onClose, source = 'simulation', onSourceChange }) => {
   const { t } = useTranslation();
+  const hardware = useHardwareSerial();
+  const isHardware = source === 'hardware';
+  const [baudRate, setBaudRate] = useState(115200);
   const boards = useSimulatorStore((s) => s.boards);
   const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
   const serialWriteToBoard = useSimulatorStore((s) => s.serialWriteToBoard);
@@ -94,7 +114,8 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
   // Track last-seen serial output length per board for unread dots
   const [lastSeenLen, setLastSeenLen] = useState<Record<string, number>>({});
 
-  const [inputValue, setInputValue] = useState('');
+  const [drafts, setDrafts] = useState({ simulation: '', hardware: '' });
+  const inputValue = drafts[source];
   const [lineEnding, setLineEnding] = useState<'none' | 'nl' | 'cr' | 'both'>('nl');
   const [autoscroll, setAutoscroll] = useState(true);
   const outputRef = useRef<HTMLPreElement>(null);
@@ -108,6 +129,10 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
   const resolvedTabId =
     (boards.find((b) => b.id === activeTabId) ? activeTabId : boards[0]?.id) ?? null;
   const activeBoard = boards.find((b) => b.id === resolvedTabId);
+  const visibleOutput = isHardware ? hardware.output : activeBoard?.serialOutput;
+  const canSend = isHardware ? hardware.status === 'connected' : !!activeBoard?.running;
+  const showPiTerminal = !isHardware && activeBoard?.running &&
+    activeBoard.engineMode !== 'instant' && isPiBoardKind(activeBoard.boardKind);
 
   // Snapshot the current length the moment a tab becomes active so any
   // future bytes register as unread on *other* tabs. Deliberately omits
@@ -133,10 +158,10 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
     if (autoscroll && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [activeBoard?.serialOutput, autoscroll]);
+  }, [visibleOutput, source, autoscroll]);
 
-  const handleSend = useCallback(() => {
-    if (!resolvedTabId) return;
+  const handleSend = () => {
+    if (!canSend) return;
     if (!inputValue && lineEnding === 'none') return;
     let text = inputValue;
     switch (lineEnding) {
@@ -150,32 +175,30 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
         text += '\r\n';
         break;
     }
-    serialWriteToBoard(resolvedTabId, text);
-    setInputValue('');
-  }, [resolvedTabId, inputValue, lineEnding, serialWriteToBoard]);
+    if (isHardware) void hardware.write(text);
+    else if (resolvedTabId) serialWriteToBoard(resolvedTabId, text);
+    setDrafts((previous) => ({ ...previous, [source]: '' }));
+  };
 
-  const isMicroPython = activeBoard?.languageMode === 'micropython';
+  const isMicroPython = !isHardware && activeBoard?.languageMode === 'micropython';
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+      return;
+    }
+    // MicroPython REPL control characters (works for RP2040 and ESP32)
+    if (resolvedTabId && isMicroPython && e.ctrlKey) {
+      if (e.key === 'c' || e.key === 'C') {
         e.preventDefault();
-        handleSend();
-        return;
+        serialWriteToBoard(resolvedTabId, '\x03'); // Ctrl+C — keyboard interrupt
+      } else if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        serialWriteToBoard(resolvedTabId, '\x04'); // Ctrl+D — soft reset
       }
-      // MicroPython REPL control characters (works for RP2040 and ESP32)
-      if (resolvedTabId && isMicroPython && e.ctrlKey) {
-        if (e.key === 'c' || e.key === 'C') {
-          e.preventDefault();
-          serialWriteToBoard(resolvedTabId, '\x03'); // Ctrl+C — keyboard interrupt
-        } else if (e.key === 'd' || e.key === 'D') {
-          e.preventDefault();
-          serialWriteToBoard(resolvedTabId, '\x04'); // Ctrl+D — soft reset
-        }
-      }
-    },
-    [handleSend, resolvedTabId],
-  );
+    }
+  };
 
   const handleTabClick = (boardId: string) => {
     setActiveTabId(boardId);
@@ -199,55 +222,80 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
   );
   const heading = (
     <div className={onClose ? 'workspace-serial-heading workspace-panel-header--closable' : 'workspace-serial-heading'}>
-      <span className="workspace-panel-title">{t('editor.serial.title')}</span>
-      {activeBoard && (
-        <div style={styles.headerControls}>
-          {isMicroPython && (
-            <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>
-              MicroPython REPL
+      <div style={styles.headerDetails}>
+        <span className="workspace-panel-title">{t('editor.serial.title')}</span>
+        {isMicroPython && (
+          <span style={{ color: '#ce93d8', fontSize: 11, fontWeight: 600 }}>
+            MicroPython REPL
+          </span>
+        )}
+        {!isHardware && !isMicroPython && activeBoard?.serialLink?.source === 'usb-cdc' && (
+          <span
+            style={styles.baudRate}
+            title="This console is a USB device endpoint, not a UART. As on the real board, the terminal's baud setting is ignored."
+          >
+            USB CDC
+          </span>
+        )}
+        {!isHardware && activeBoard?.serialBaudRate != null &&
+          activeBoard.serialBaudRate > 0 &&
+          activeBoard.serialLink?.source !== 'usb-cdc' &&
+          !isMicroPython && (
+            <span style={styles.baudRate} title="The rate the board is clocking Serial at.">
+              {activeBoard.serialBaudRate.toLocaleString()} baud
             </span>
           )}
-          {!isMicroPython && activeBoard?.serialLink?.source === 'usb-cdc' && (
-            <span
-              style={styles.baudRate}
-              title="This console is a USB device endpoint, not a UART. As on the real board, the terminal's baud setting is ignored."
-            >
-              USB CDC
-            </span>
-          )}
-          {activeBoard?.serialBaudRate != null &&
-            activeBoard.serialBaudRate > 0 &&
-            activeBoard.serialLink?.source !== 'usb-cdc' &&
-            !isMicroPython && (
-              <span style={styles.baudRate} title="The rate the board is clocking Serial at.">
-                {activeBoard.serialBaudRate.toLocaleString()} baud
-              </span>
-            )}
-          <label style={styles.autoscrollLabel}>
-            <input
-              type="checkbox"
-              checked={autoscroll}
-              onChange={(e) => setAutoscroll(e.target.checked)}
-              style={styles.checkbox}
-            />
-            {t('editor.serial.autoscroll')}
-          </label>
-          <WorkspaceClearButton
-            onClear={() => resolvedTabId && clearBoardSerialOutput(resolvedTabId)}
-            title={t('editor.serial.clearTitle')}
+        {/* Overlay slot for per-board terminal actions (empty in OSS). */}
+        {!isHardware && activeBoard && <span data-velxio-slot="serial-actions" />}
+      </div>
+      <div style={styles.headerControls}>
+        <label style={styles.autoscrollLabel}>
+          <input
+            type="checkbox"
+            checked={autoscroll}
+            onChange={(e) => setAutoscroll(e.target.checked)}
+            style={styles.checkbox}
           />
-          {/* Overlay slot for per-board terminal actions (empty in OSS). */}
-          <span data-velxio-slot="serial-actions" />
-        </div>
-      )}
+          {t('editor.serial.autoscroll')}
+        </label>
+        <WorkspaceClearButton
+          onClear={isHardware ? hardware.clear : () => resolvedTabId && clearBoardSerialOutput(resolvedTabId)}
+          title={t(isHardware ? 'editor.serial.hardware.clear' : 'editor.serial.clearTitle')}
+          disabled={!isHardware && !activeBoard}
+        />
+      </div>
       {closeButton}
     </div>
   );
 
-  if (boards.length === 0) {
+  const sources = onSourceChange && (
+    <div style={styles.tabStrip} role="group" aria-label={t('editor.serial.source')}>
+      {(['simulation', 'hardware'] as const).map((item) => (
+        <button
+          key={item}
+          type="button"
+          aria-pressed={source === item}
+          onClick={() => onSourceChange(item)}
+          style={{
+            ...styles.tab,
+            ...(source === item ? {
+              ...styles.tabActive,
+              borderBottomColor: 'var(--color-action-primary)',
+              color: 'var(--color-fg-default)',
+            } : {}),
+          }}
+        >
+          {item === 'hardware' ? t('editor.serial.hardware.tab') : t('editor.serial.simulation')}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (!isHardware && boards.length === 0) {
     return (
       <div style={styles.container}>
         {heading}
+        {sources}
         <pre style={styles.output}>{t('editor.serial.addBoard')}</pre>
       </div>
     );
@@ -256,68 +304,98 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
   return (
     <div style={styles.container}>
       {heading}
-      {/* Tab strip */}
-      <div style={styles.tabStrip}>
-        {boards.map((board) => {
-          const isActive = board.id === resolvedTabId;
-          const color = BOARD_COLOR[board.boardKind] ?? 'var(--wb-10)';
-          const hasUnread = board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
-          return (
-            <button
-              key={board.id}
-              style={{
-                ...styles.tab,
-                ...(isActive ? { ...styles.tabActive, borderBottomColor: color, color } : {}),
-              }}
-              onClick={() => handleTabClick(board.id)}
-              title={boardDisplayName(board)}
-            >
-              <span
-                style={{ fontSize: 9, marginRight: 3, color: isActive ? color : 'var(--wb-10)' }}
+      {sources}
+      {isHardware ? (
+        <div style={styles.hardwareControls}>
+          {hardware.available && (
+            <>
+              <DropdownSelect
+                aria-label={t('editor.serial.hardware.baudRate')}
+                value={baudRate}
+                onValueChange={(value) => setBaudRate(Number(value))}
+                disabled={hardware.status !== 'disconnected'}
+                style={styles.select}
               >
-                {BOARD_ICON[board.boardKind] ?? '●'}
-              </span>
-              {board.name?.trim() || BOARD_SHORT_LABEL[board.boardKind] || board.boardKind}
-              {hasUnread && !isActive && <span style={styles.unreadDot} />}
-            </button>
-          );
-        })}
+                {BAUD_RATES.map((rate) => (
+                  <option key={rate} value={rate}>{t('editor.serial.hardware.baud', { rate })}</option>
+                ))}
+              </DropdownSelect>
+              <button
+                type="button"
+                style={styles.sendBtn}
+                disabled={hardware.status === 'connecting' || hardware.status === 'disconnecting'}
+                onClick={() => {
+                  if (hardware.status === 'connected') void hardware.disconnect();
+                  else if (hardware.status === 'disconnected') void hardware.connect(baudRate);
+                }}
+              >
+                {t(`editor.serial.hardware.${hardware.status}`)}
+              </button>
+              {hardware.status === 'connected' && (
+                <span role="status">{t('editor.serial.hardware.portOpen')}</span>
+              )}
+            </>
+          )}
+          {hardware.error && <span role="alert" style={styles.hardwareError}>{hardware.error}</span>}
+        </div>
+      ) : (
+        <>
+          {/* Tab strip */}
+          <div style={styles.tabStrip}>
+            {boards.map((board) => {
+              const isActive = board.id === resolvedTabId;
+              const color = BOARD_COLOR[board.boardKind] ?? 'var(--wb-10)';
+              const hasUnread = board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
+              return (
+                <button
+                  key={board.id}
+                  style={{
+                    ...styles.tab,
+                    ...(isActive ? { ...styles.tabActive, borderBottomColor: color, color } : {}),
+                  }}
+                  onClick={() => handleTabClick(board.id)}
+                  title={boardDisplayName(board)}
+                >
+                  <span
+                    style={{ fontSize: 9, marginRight: 3, color: isActive ? color : 'var(--wb-10)' }}
+                  >
+                    {BOARD_ICON[board.boardKind] ?? '●'}
+                  </span>
+                  {board.name?.trim() || BOARD_SHORT_LABEL[board.boardKind] || board.boardKind}
+                  {hasUnread && !isActive && <span style={styles.unreadDot} />}
+                </button>
+              );
+            })}
 
-      </div>
+          </div>
 
-      {/* Overlay slot for a full-width notice about the LINK itself — e.g. the
-          terminal's baud not matching the rate the board is clocking, which is
-          why the text below is unreadable (empty in OSS). */}
-      <div data-velxio-slot="serial-banner" />
+          {/* Overlay slot for a full-width notice about the LINK itself — e.g. the
+              terminal's baud not matching the rate the board is clocking, which is
+              why the text below is unreadable (empty in OSS). */}
+          <div data-velxio-slot="serial-banner" />
+        </>
+      )}
 
       {/* Output area. QEMU-Linux boards get the interactive xterm (shell
           input, line editing, ANSI) instead of the read-only mirror — this
           replaced the separate RaspberryPiWorkspace as the one terminal. */}
-      {isPiBoardKind(activeBoard?.boardKind ?? '') &&
-      activeBoard?.running &&
-      activeBoard?.engineMode !== 'instant' ? (
+      {showPiTerminal ? (
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <PiTerminal key={activeBoard.id} boardId={activeBoard.id} />
         </div>
       ) : (
         <pre ref={outputRef} style={styles.output}>
-          {activeBoard?.serialOutput
+          {isHardware
+            ? cleanSerialText(hardware.output) || (
+                !hardware.available
+                  ? t('editor.serial.hardware.unavailable')
+                  : hardware.status === 'connected'
+                    ? t('editor.serial.waitingData')
+                    : t('editor.serial.hardware.connectHint')
+              )
+            : activeBoard?.serialOutput
             ? (() => {
-                // Firmwares and the Pi's Linux console emit ANSI escapes the
-                // <pre> can't render, so they leak through as literal text:
-                // SGR colour (`\x1b[0;32m`), and — on the Pi shell — the DSR
-                // cursor-position query `\x1b[6n` plus cursor moves / clears,
-                // which showed up as a stray `[6n` next to the prompt. Strip
-                // all CSI sequences (and keypad-mode toggles); a raw log <pre>
-                // can't act on any of them anyway. (xterm in PiTerminal still
-                // parses + answers them — this only cleans the dumb mirror.)
-                const text = serialMonitorText(activeBoard)
-                  .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-                  .replace(/\x1b[=>]/g, '')
-                  // Line-editing bytes the guest shell echoes (DEL on
-                  // backspace, BEL, other C0 controls) render as tofu boxes
-                  // in a <pre>; strip everything except \t \n \r.
-                  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+                const text = cleanSerialText(serialMonitorText(activeBoard));
                 // ESP32 (QEMU slirp) hands out 192.168.4.x; the Pico W virtual
                 // net hands out 10.13.37.x. Both reach their emulated server
                 // through the same /api/gateway proxy, so linkify either subnet.
@@ -408,16 +486,15 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
       )}
 
       {/* Input row — the xterm handles Pi input itself */}
-      {!(
-        isPiBoardKind(activeBoard?.boardKind ?? '') &&
-        activeBoard?.running &&
-        activeBoard?.engineMode !== 'instant'
-      ) && (
+      {!showPiTerminal && (
         <div style={styles.inputRow}>
           <input
             type="text"
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setDrafts((previous) => ({ ...previous, [source]: value }));
+            }}
             onKeyDown={handleKeyDown}
             placeholder={
               isMicroPython
@@ -425,9 +502,10 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
                 : t('editor.serial.placeholderText')
             }
             style={styles.input}
-            disabled={!activeBoard?.running}
+            disabled={!canSend}
           />
           <DropdownSelect
+            aria-label={t('editor.serial.lineEnd.label')}
             value={lineEnding}
             onValueChange={(value) => setLineEnding(value as typeof lineEnding)}
             style={styles.select}
@@ -437,7 +515,7 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
             <option value="cr">{t('editor.serial.lineEnd.cr')}</option>
             <option value="both">{t('editor.serial.lineEnd.both')}</option>
           </DropdownSelect>
-          <button onClick={handleSend} disabled={!activeBoard?.running} style={styles.sendBtn}>
+          <button type="button" onClick={handleSend} disabled={!canSend} style={styles.sendBtn}>
             {t('editor.serial.send')}
           </button>
         </div>
@@ -468,8 +546,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tab: {
     background: 'none',
-    border: 'none',
-    borderBottom: '2px solid transparent',
+    borderWidth: 0,
+    borderStyle: 'solid',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
     color: 'var(--wb-10)',
     padding: '5px 12px',
     cursor: 'pointer',
@@ -485,12 +565,32 @@ const styles: Record<string, React.CSSProperties> = {
   tabActive: {
     background: 'rgba(255,255,255,0.04)',
   },
-  headerControls: {
-    marginLeft: 'auto',
+  headerDetails: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 22,
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: '4px 8px',
     flexWrap: 'wrap',
+  },
+  headerControls: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 8,
+  },
+  hardwareControls: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    padding: '4px 8px',
+    fontSize: 11,
+  },
+  hardwareError: {
+    color: 'var(--color-feedback-error)',
+    overflowWrap: 'anywhere',
   },
   unreadDot: {
     width: 6,
@@ -544,6 +644,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     flex: 1,
+    minWidth: 0,
     background: 'var(--wb-2)',
     border: '1px solid var(--wb-7)',
     color: 'var(--wb-12)',

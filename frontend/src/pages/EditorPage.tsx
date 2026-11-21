@@ -22,7 +22,7 @@ import {
 import { CompilationConsole } from '../components/editor/CompilationConsole';
 import { CompileProgressCard } from '../components/editor/CompileProgressCard';
 import { SimulatorCanvas } from '../components/simulator/SimulatorCanvas';
-import { SerialMonitor } from '../components/simulator/SerialMonitor';
+import { SerialMonitor, type SerialMonitorSource } from '../components/simulator/SerialMonitor';
 import { Oscilloscope } from '../components/simulator/Oscilloscope';
 import { AppHeader } from '../components/layout/AppHeader';
 import { triggerSaveAction } from '../lib/proSaveAction';
@@ -58,6 +58,7 @@ import '../components/editor/Workspace.css';
 const MOBILE_BREAKPOINT = 768;
 
 const BOTTOM_PANEL_MIN = 80;
+const SERIAL_PANEL_MIN = 140;
 const BOTTOM_PANEL_MAX = 600;
 const BOTTOM_PANEL_DEFAULT = 200;
 
@@ -159,6 +160,7 @@ export const EditorPage: React.FC = () => {
   const viewToggleRef = useRef<HTMLDivElement>(null);
   const stopResize = useRef<(() => void) | null>(null);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
+  const [serialSource, setSerialSource] = useState<SerialMonitorSource>('simulation');
   const componentCount = useSimulatorStore((state) => state.components.length);
   const componentCountLabel = t('editor.canvas.componentCount', { count: componentCount });
   const boardChoices = useSimulatorStore((state) => showBoardPicker ? state.boards : undefined);
@@ -361,6 +363,26 @@ export const EditorPage: React.FC = () => {
     else openWorkspaceView(view);
   };
 
+  const hardwareSerialOpen = serialMonitorOpen && serialSource === 'hardware' && !simulatorHidden;
+
+  const openSerialMonitor = () => {
+    if (simulatorHidden) {
+      if (isMobile) setMobileView('circuit');
+      else setViewMode('both');
+    }
+    if (!serialMonitorOpen) {
+      setSerialSource('simulation');
+      useSimulatorStore.getState().toggleSerialMonitor();
+      trackToggleSerialMonitor(true);
+    }
+  };
+
+  const closeSerialMonitor = () => {
+    useSimulatorStore.getState().toggleSerialMonitor();
+    setSerialSource('simulation');
+    trackToggleSerialMonitor(false);
+  };
+
   const toggleWorkspaceTool = (tool: WorkspaceTool) => {
     if (tool === 'terminal') {
       if (!consoleOpen && !codeVisible) {
@@ -370,17 +392,16 @@ export const EditorPage: React.FC = () => {
       setConsoleOpen(!consoleOpen);
       return;
     }
-    const alreadyOpen = tool === 'serial' ? serialMonitorOpen : oscilloscopeOpen;
-    if (!alreadyOpen && simulatorHidden) {
+    if (tool === 'serial') {
+      if (serialMonitorOpen && !simulatorHidden) closeSerialMonitor();
+      else openSerialMonitor();
+      return;
+    }
+    if (!oscilloscopeOpen && simulatorHidden) {
       if (isMobile) setMobileView('circuit');
       else setViewMode('both');
     }
-    if (tool === 'serial') {
-      useSimulatorStore.getState().toggleSerialMonitor();
-      trackToggleSerialMonitor(!serialMonitorOpen);
-    } else {
-      useOscilloscopeStore.getState().toggleOscilloscope();
-    }
+    useOscilloscopeStore.getState().toggleOscilloscope();
   };
 
   useEffect(() => {
@@ -561,7 +582,8 @@ export const EditorPage: React.FC = () => {
 
       beginResize(e, 'ns-resize', (ev) => {
         const delta = startY - ev.clientY;
-        const height = Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, startHeight + delta));
+        const minHeight = panel === 'serial' ? SERIAL_PANEL_MIN : BOTTOM_PANEL_MIN;
+        const height = Math.max(minHeight, Math.min(BOTTOM_PANEL_MAX, startHeight + delta));
         setBottomPanelHeights((heights) => ({ ...heights, [panel]: height }));
       });
     },
@@ -936,7 +958,12 @@ export const EditorPage: React.FC = () => {
                 title={t('editor.shell.dragResize')}
               />
               <div style={{ height: bottomPanelHeights.serial, flexShrink: 0 }}>
-                <SerialMonitor onClose={() => toggleWorkspaceTool('serial')} />
+                <SerialMonitor
+                  key={workspaceVersion}
+                  source={serialSource}
+                  onSourceChange={setSerialSource}
+                  onClose={closeSerialMonitor}
+                />
               </div>
             </>
           )}
@@ -953,7 +980,7 @@ export const EditorPage: React.FC = () => {
             </>
           )}
         </div>
-        {showEmptyProjectActions && (
+        {showEmptyProjectActions && !hardwareSerialOpen && (
           <div className="workspace-project-start">
             <section aria-labelledby="workspace-project-start-title">
               <h2 id="workspace-project-start-title">

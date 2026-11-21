@@ -637,9 +637,14 @@ button.workspace-status-board:hover,
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
-.workspace-panel-clear:hover {
+.workspace-panel-clear:enabled:hover {
   border-color: var(--color-feedback-error-border);
   color: var(--color-feedback-error);
+}
+
+.workspace-panel-clear:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -650,8 +655,7 @@ button.workspace-status-board:hover,
 
 .workspace-serial-heading {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 4px 8px;
   flex-shrink: 0;
   min-height: 30px;
@@ -1547,7 +1551,7 @@ button.workspace-status-board:hover,
 
   .workspace-activity-button {
     min-height: 30px;
-    min-width: 36px;
+    min-width: clamp(30px, 9vw, 36px);
     border-inline-start: 0;
     border-bottom: 2px solid transparent;
   }
