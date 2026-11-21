@@ -7,6 +7,7 @@ import {
   readableEditorColors,
   type WorkspaceTheme,
 } from '../../lib/workspaceTheme';
+import { DropdownSelect } from '../ui/DropdownSelect';
 
 function downloadTheme(theme: WorkspaceTheme): void {
   const json = new Blob([JSON.stringify(theme, null, 2) + '\n'], { type: 'application/json' });
@@ -76,28 +77,18 @@ export function WorkspaceThemeSettings() {
   return (
     <div className="editor-settings-custom-theme">
       <div className="editor-settings-theme-actions">
-        <select
+        <DropdownSelect
           id="setting-custom-theme"
           value={selected ? current : ''}
-          onChange={(event) => {
+          onValueChange={(value) => {
             previewWorkspaceTheme(null);
-            setChoice(event.target.value);
+            setChoice(value);
           }}
         >
-          <option value="">
-            {t('editor.settings.chooseCustomTheme', 'Choose a custom theme')}
-          </option>
-          {draft && (
-            <option value="draft">
-              {t('editor.settings.importedTheme', '{{name}} (imported)', { name: draft.name })}
-            </option>
-          )}
-          {themes.map((theme) => (
-            <option key={theme.name} value={'saved:' + theme.name}>
-              {theme.name}
-            </option>
-          ))}
-        </select>
+          <option value="">{t('editor.settings.chooseCustomTheme', 'Choose a custom theme')}</option>
+          {draft && <option value="draft">{t('editor.settings.importedTheme', '{{name}} (imported)', { name: draft.name })}</option>}
+          {themes.map((theme) => <option key={theme.name} value={'saved:' + theme.name}>{theme.name}</option>)}
+        </DropdownSelect>
         <input
           ref={fileInput}
           type="file"

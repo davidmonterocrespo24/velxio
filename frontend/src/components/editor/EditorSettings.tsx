@@ -4,7 +4,6 @@ import {
   Check,
   FolderOpen,
   IndentIncrease,
-  LayoutList,
   Palette,
   RotateCcw,
   Search,
@@ -17,10 +16,12 @@ import { useActiveWorkspaceTheme, useThemeMode } from '../../hooks/useTheme';
 import { isLocale, LOCALES, LOCALE_META } from '../../i18n/config';
 import { getLocaleFromPath, switchLocale } from '../../i18n/path';
 import { useEditorPreferences, type EditorPreferences, type Indentation } from '../../store/useEditorPreferences';
+import { DropdownSelect } from '../ui/DropdownSelect';
 import { WorkspaceThemeSettings } from './WorkspaceThemeSettings';
 import './EditorSettings.css';
 
 type SettingsSection = 'appearance' | 'editor' | 'indentation' | 'files';
+type IndentLanguage = 'default' | 'cpp' | 'python';
 
 interface Setting {
   id: string;
@@ -41,8 +42,8 @@ export function EditorSettings({ onClose, onIndentationChange }: {
   const navigate = useNavigate();
   const locale = getLocaleFromPath(location.pathname);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<SettingsSection | 'all'>('all');
-  const [language, setLanguage] = useState<'default' | 'cpp' | 'python'>('default');
+  const [category, setCategory] = useState<SettingsSection>('appearance');
+  const [language, setLanguage] = useState<IndentLanguage>('default');
   const [fontSizeInput, setFontSizeInput] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -132,21 +133,16 @@ export function EditorSettings({ onClose, onIndentationChange }: {
             id: 'interface-language',
             label: t('editor.settings.interfaceLanguage', 'Interface language'),
             field: (
-              <select
+              <DropdownSelect
                 id="setting-interface-language"
                 value={locale}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (!isLocale(next) || next === locale) return;
+                onValueChange={(next) => {
+                  if (!isLocale(next)) return;
                   navigate(switchLocale(location.pathname, next) + location.search + location.hash);
                 }}
               >
-                {LOCALES.map((option) => (
-                  <option key={option} value={option}>
-                    {LOCALE_META[option].nativeName}
-                  </option>
-                ))}
-              </select>
+                {LOCALES.map((option) => <option key={option} value={option}>{LOCALE_META[option].nativeName}</option>)}
+              </DropdownSelect>
             ),
           },
         ],
@@ -246,21 +242,17 @@ export function EditorSettings({ onClose, onIndentationChange }: {
               'Edit the defaults or set an override for a language.',
             ),
             field: (
-              <select
+              <DropdownSelect
                 id="setting-indent-language"
                 value={language}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === 'default' || value === 'cpp' || value === 'python')
-                    setLanguage(value);
+                onValueChange={(next) => {
+                  if (next === 'default' || next === 'cpp' || next === 'python') setLanguage(next);
                 }}
               >
-                <option value="default">
-                  {t('editor.settings.allLanguages', 'All languages')}
-                </option>
+                <option value="default">{t('editor.settings.allLanguages', 'All languages')}</option>
                 <option value="cpp">C/C++</option>
                 <option value="python">Python</option>
-              </select>
+              </DropdownSelect>
             ),
           },
           {
@@ -268,31 +260,27 @@ export function EditorSettings({ onClose, onIndentationChange }: {
             label: t('editor.settings.indentStyle', 'Indent style'),
             description: t('editor.settings.indentStyleHelp', 'Applies to existing indentation in the active file when this setting matches its language.'),
             field: (
-              <select
+              <DropdownSelect
                 id="setting-indent-style"
                 value={indent.insertSpaces ? 'spaces' : 'tabs'}
-                onChange={(event) =>
-                  setIndent({ ...indent, insertSpaces: event.target.value === 'spaces' })
-                }
+                onValueChange={(style) => setIndent({ ...indent, insertSpaces: style === 'spaces' })}
               >
                 <option value="spaces">{t('editor.settings.spaces', 'Spaces')}</option>
                 <option value="tabs">{t('editor.settings.tabs', 'Tabs')}</option>
-              </select>
+              </DropdownSelect>
             ),
           },
           {
             id: 'tab-width',
             label: t('editor.settings.tabWidth', 'Tab width'),
             field: (
-              <select
+              <DropdownSelect
                 id="setting-tab-width"
                 value={indent.tabSize}
-                onChange={(event) => setIndent({ ...indent, tabSize: Number(event.target.value) })}
+                onValueChange={(size) => setIndent({ ...indent, tabSize: Number(size) })}
               >
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((size) => (
-                  <option key={size}>{size}</option>
-                ))}
-              </select>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((size) => <option key={size} value={size}>{size}</option>)}
+              </DropdownSelect>
             ),
           },
         ],
@@ -325,8 +313,9 @@ export function EditorSettings({ onClose, onIndentationChange }: {
 
   const searchLabel = t('editor.settings.search', 'Search settings');
   const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+  const searching = terms.length > 0;
   const visibleSections = sections
-    .filter(({ id }) => category === 'all' || id === category)
+    .filter(({ id }) => searching || id === category)
     .map((section) => ({
       ...section,
       rows: section.rows.filter(({ label, description }) => {
@@ -336,13 +325,18 @@ export function EditorSettings({ onClose, onIndentationChange }: {
     }))
     .filter(({ rows }) => rows.length > 0);
 
-  const selectCategory = (next: SettingsSection | 'all') => {
-    setCategory(next);
+  const updateSearch = (next: string) => {
+    setQuery(next);
     if (settingsBody.current) settingsBody.current.scrollTop = 0;
   };
 
+  const selectCategory = (next: SettingsSection) => {
+    setCategory(next);
+    updateSearch('');
+  };
+
   const clearSearch = () => {
-    setQuery('');
+    updateSearch('');
     searchInput.current?.focus();
   };
 
@@ -386,11 +380,7 @@ export function EditorSettings({ onClose, onIndentationChange }: {
               aria-label={searchLabel}
               placeholder={searchLabel}
               value={query}
-              onChange={(event) => {
-                const next = event.target.value;
-                if (!query.trim() && next.trim()) selectCategory('all');
-                setQuery(next);
-              }}
+              onChange={(event) => updateSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Escape') return;
                 event.preventDefault();
@@ -415,19 +405,11 @@ export function EditorSettings({ onClose, onIndentationChange }: {
             className="editor-settings-nav"
             aria-label={t('editor.settings.categories', 'Settings categories')}
           >
-            <button
-              type="button"
-              aria-pressed={category === 'all'}
-              onClick={() => selectCategory('all')}
-            >
-              <LayoutList size={15} aria-hidden />
-              {t('editor.settings.allSettings', 'All settings')}
-            </button>
             {sections.map(({ id, label, icon: Icon }) => (
               <button
                 type="button"
                 key={id}
-                aria-pressed={category === id}
+                aria-pressed={!searching && category === id}
                 onClick={() => selectCategory(id)}
               >
                 <Icon size={15} aria-hidden />
@@ -453,7 +435,7 @@ export function EditorSettings({ onClose, onIndentationChange }: {
                         {row.id === 'theme' ? (
                           <span id="setting-theme-label">{row.label}</span>
                         ) : (
-                          <label htmlFor={`setting-${row.id}`}>{row.label}</label>
+                          <label id={`setting-${row.id}-label`} htmlFor={`setting-${row.id}`}>{row.label}</label>
                         )}
                         {row.description && <p>{row.description}</p>}
                       </div>

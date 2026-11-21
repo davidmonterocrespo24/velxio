@@ -206,7 +206,6 @@
   line-height: 1.4;
 }
 
-.editor-settings-row select,
 .editor-settings-row input[type='number'],
 .editor-settings-button {
   min-height: 30px;
@@ -218,7 +217,7 @@
   font: inherit;
 }
 
-.editor-settings-row select {
+.editor-settings-row > .dropdown-select {
   max-width: 53%;
 }
 
@@ -241,6 +240,11 @@
 
 .editor-settings-row input[type='number'] {
   width: 58px;
+}
+
+.editor-settings-row input[type='number']:focus {
+  border-color: var(--color-action-primary);
+  outline: none;
 }
 
 .editor-settings-themes {
@@ -339,7 +343,7 @@
   gap: 6px;
 }
 
-.editor-settings-theme-actions select {
+.editor-settings-theme-actions .dropdown-select {
   flex: 1 1 12rem;
   max-width: 100%;
   min-width: 0;
@@ -409,10 +413,9 @@
   background: var(--color-action-primary-hover);
 }
 
-.editor-settings-dialog :is(button, input:not([type='search'])):focus-visible,
 .editor-settings-theme:has(input:focus-visible) {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 2px;
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: 1px;
 }
 
 @media (max-width: 580px) {
@@ -438,9 +441,5 @@
     border-inline-end: 0;
     border-block-end: 1px solid var(--wb-6);
     white-space: nowrap;
-  }
-
-  .editor-settings-nav button:focus-visible {
-    outline-offset: -2px;
   }
 }
