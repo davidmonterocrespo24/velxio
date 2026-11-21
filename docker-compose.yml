@@ -10,6 +10,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.standalone
+      args:
+        QEMU_RELEASE_URL: ${QEMU_RELEASE_URL:-}
+      secrets:
+        - qemu_license_key
     container_name: velxio-dev
     restart: unless-stopped
     ports:
@@ -45,6 +49,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+secrets:
+  qemu_license_key:
+    environment: VELXIO_LICENSE_KEY
 
 volumes:
   arduino-libs:

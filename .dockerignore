@@ -43,6 +43,7 @@ Thumbs.db
 # Docker files (avoid recursion)
 docker-compose.yml
 Dockerfile*
+.env
 
 # Documentation (not needed in image)
 *.md
