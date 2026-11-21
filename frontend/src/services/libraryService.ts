@@ -1,4 +1,5 @@
 import { getApiBase } from '../lib/apiBase';
+import { bareLibName, libraryVersionFromSpec } from '../utils/libraryManifest';
 const apiBase = () => `${getApiBase()}/libraries`;
 export const ARDUINO_LIBRARIES_CHANGED = 'velxio-arduino-libraries-changed';
 
@@ -46,20 +47,20 @@ export interface InstalledLibrary {
 
 /** Match Arduino's library names independently of case and separators. */
 export function normalizeArduinoLibraryName(name: string): string {
-  return name.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+  return bareLibName(name).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 export function findInstalledArduinoLibrary(libraries: InstalledLibrary[], spec: string): InstalledLibrary | undefined {
   const name = normalizeArduinoLibraryName(spec);
-  const [, version] = spec.split('@', 2);
+  const version = libraryVersionFromSpec(spec);
   return libraries.find((library) =>
     normalizeArduinoLibraryName(library.library?.name || library.name || '') === name
     && (!version || (library.library?.version || library.version) === version),
   );
 }
 
-export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> {
-  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`);
+export async function searchLibraries(query: string, signal?: AbortSignal): Promise<ArduinoLibrary[]> {
+  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`, signal && { signal });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
     throw new Error(err.detail || 'Failed to search libraries');
@@ -68,10 +69,37 @@ export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> 
   return data.libraries || [];
 }
 
-export async function findArduinoLibrary(name: string): Promise<ArduinoLibrary | null> {
+export async function findArduinoLibrary(name: string, signal?: AbortSignal): Promise<ArduinoLibrary | null> {
   const escaped = name.replace(/[\\"]/g, '\\$&');
-  const libraries = await searchLibraries(`name="${escaped}"`);
+  const libraries = await searchLibraries(`name="${escaped}"`, signal);
   return libraries.find((library) => library.name.toLowerCase() === name.toLowerCase()) ?? null;
+}
+
+export async function getCatalogLibraryVersion(name: string, signal?: AbortSignal): Promise<string | undefined> {
+  try {
+    const library = await findArduinoLibrary(name, signal);
+    const version = library?.latest?.version || library?.version;
+    return typeof version === 'string' ? version.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMissingLibraryVersions(
+  specs: readonly string[], signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const spec of specs) {
+    if (typeof spec !== 'string' || libraryVersionFromSpec(spec)) continue;
+    const name = bareLibName(spec).trim();
+    if (name) names.set(name.toLowerCase(), name);
+  }
+  const pinned = new Map<string, string>();
+  await Promise.all([...names].map(async ([key, name]) => {
+    const version = await getCatalogLibraryVersion(name, signal);
+    if (version && !signal?.aborted) pinned.set(key, version);
+  }));
+  return pinned;
 }
 
 export async function installLibrary(name: string, version?: string): Promise<{ success: boolean; error?: string; fallback?: boolean; requested_version?: string }> {

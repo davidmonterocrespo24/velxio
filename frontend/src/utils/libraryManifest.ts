@@ -24,6 +24,11 @@ export function bareLibName(spec: string): string {
   return at > 0 ? spec.slice(0, at) : spec;
 }
 
+export function libraryVersionFromSpec(spec: string): string | undefined {
+  const at = spec.lastIndexOf('@');
+  return at > 0 ? spec.slice(at + 1).trim() || undefined : undefined;
+}
+
 /**
  * Merge the backend's suggested libraries into the current manifest.
  *
@@ -39,13 +44,13 @@ export function mergeSuggestedLibraries(
   suggested: Record<string, string[]> | null | undefined,
 ): string[] | null {
   if (!suggested) return null;
-  const have = new Set((current ?? []).map(normalizeLibName));
+  const have = new Set((current ?? []).map((spec) => normalizeLibName(bareLibName(spec))));
   const additions: string[] = [];
   for (const candidates of Object.values(suggested)) {
     if (!Array.isArray(candidates) || candidates.length !== 1) continue;
     const name = String(candidates[0] ?? '').trim();
     if (!name) continue;
-    const norm = normalizeLibName(name);
+    const norm = normalizeLibName(bareLibName(name));
     if (!norm || have.has(norm)) continue;
     have.add(norm);
     additions.push(name);
@@ -65,9 +70,12 @@ export function addLibraryToManifest(
   const name = bareLibName(spec).trim();
   if (!name) return null;
   const norm = normalizeLibName(name);
-  const have = new Set((current ?? []).map(normalizeLibName));
-  if (have.has(norm)) return null;
-  return [...(current ?? []), name];
+  const entries = current ?? [];
+  const version = libraryVersionFromSpec(spec);
+  const existing = entries.findIndex((entry) => normalizeLibName(bareLibName(entry)) === norm);
+  if (existing === -1) return [...entries, version ? spec.trim() : name];
+  if (!version || libraryVersionFromSpec(entries[existing])) return null;
+  return entries.map((entry, index) => index === existing ? spec.trim() : entry);
 }
 
 /** Remove a library from a manifest (uninstall flow). Null = no change. */
@@ -77,6 +85,6 @@ export function removeLibraryFromManifest(
 ): string[] | null {
   if (!current?.length) return null;
   const norm = normalizeLibName(bareLibName(spec));
-  const next = current.filter((n) => normalizeLibName(n) !== norm);
+  const next = current.filter((n) => normalizeLibName(bareLibName(n)) !== norm);
   return next.length === current.length ? null : next;
 }

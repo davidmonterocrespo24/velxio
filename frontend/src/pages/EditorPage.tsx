@@ -31,6 +31,7 @@ import {
   canSaveProjectFile,
   openProjectFile,
   saveProjectFileAs,
+  upgradeWorkspaceLibraryVersions,
   useLocalWorkspace,
   watchLocalWorkspace,
 } from '../lib/localWorkspace';
@@ -130,6 +131,11 @@ export const EditorPage: React.FC = () => {
     setProjectDialog((dialog) => dialog ?? 'start');
   }, []);
   useLayoutEffect(() => watchLocalWorkspace(), []);
+  useEffect(() => {
+    const request = new AbortController();
+    void upgradeWorkspaceLibraryVersions(request.signal);
+    return () => request.abort();
+  }, [workspaceVersion]);
   const projectRoute = useEditorProjectRoute({
     clearWorkspace: clearWorkspaceForStarter,
     showStartup,

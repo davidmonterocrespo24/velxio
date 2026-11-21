@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { installLibrary } from '../../services/libraryService';
+import { getCatalogLibraryVersion, installLibrary } from '../../services/libraryService';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
-import { addLibraryToManifest } from '../../utils/libraryManifest';
+import { addLibraryToManifest, bareLibName, libraryVersionFromSpec } from '../../utils/libraryManifest';
 import './InstallLibrariesModal.css';
 
 interface InstallLibrariesModalProps {
@@ -19,27 +19,15 @@ interface LibItem {
   spec: string;
   /** Parsed library name (without @version or @wokwi:hash) */
   name: string;
-  /** Version if present and valid semver, otherwise undefined */
+  /** Version or revision pin for an Arduino library. */
   version?: string;
   status: ItemStatus;
   error?: string;
 }
 
-/** Split "LibName@version" into { name, version }.
- *  Returns version=undefined if no valid semver suffix.
- *  Handles wokwi-hosted "LibName@wokwi:hash" — version stays undefined. */
 function parseLibSpec(spec: string): { name: string; version?: string } {
-  if (spec.includes('@wokwi:')) {
-    return { name: spec.split('@wokwi:')[0] };
-  }
-  const idx = spec.lastIndexOf('@');
-  if (idx > 0) {
-    const ver = spec.slice(idx + 1);
-    if (/^\d+\.\d+\.\d+$/.test(ver)) {
-      return { name: spec.slice(0, idx), version: ver };
-    }
-  }
-  return { name: spec };
+  const version = libraryVersionFromSpec(spec);
+  return { name: bareLibName(spec), version: version?.startsWith('wokwi:') ? undefined : version };
 }
 
 const Spinner: React.FC<{ size?: number }> = ({ size = 16 }) => (
@@ -92,28 +80,34 @@ export const InstallLibrariesModal: React.FC<InstallLibrariesModalProps> = ({
   );
 
   const handleInstallAll = useCallback(async () => {
+    const { activeBoardId } = useSimulatorStore.getState();
     setRunning(true);
     let completed = 0;
     for (const item of items) {
       if (item.status === 'done') { completed++; continue; }
       setItemStatus(item.spec, 'installing');
       try {
-        const result = await installLibrary(item.spec);
-        if (result.success) {
+        const wokwi = item.spec.includes('@wokwi:');
+        const version = wokwi ? undefined : item.version || await getCatalogLibraryVersion(item.name);
+        const spec = version ? `${item.name}@${version}` : item.spec;
+        const result = await installLibrary(wokwi ? item.spec : item.name, version);
+        if (result.success && !(version && result.fallback)) {
           setItemStatus(item.spec, 'done');
           // Installing must also DECLARE: record the library in the active
           // board's manifest so the compile scope knows about it. Without
           // this, Wokwi-imported projects compiled via scan-all forever
           // (2026-08 library-contamination investigation).
           const sim = useSimulatorStore.getState();
-          const boardId = sim.activeBoardId;
+          const boardId = activeBoardId;
           const board = sim.boards.find((b) => b.id === boardId);
           if (boardId && board) {
-            const next = addLibraryToManifest(board.libraries, item.spec);
+            const next = addLibraryToManifest(board.libraries, spec);
             if (next) sim.updateBoard(boardId, { libraries: next });
           }
         } else {
-          setItemStatus(item.spec, 'error', result.error || 'Install failed');
+          setItemStatus(item.spec, 'error', result.error || (version && result.fallback
+            ? `Could not install ${item.name} ${version}`
+            : 'Install failed'));
         }
       } catch (e) {
         setItemStatus(item.spec, 'error', e instanceof Error ? e.message : 'Install failed');

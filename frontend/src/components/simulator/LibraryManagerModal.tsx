@@ -7,6 +7,7 @@ import { ChevronRight, Download, Plus, Trash2, TriangleAlert, X } from 'lucide-r
 import {
   searchLibraries,
   findArduinoLibrary,
+  getCatalogLibraryVersion,
   installLibrary,
   getInstalledLibraries,
   getCustomLibraries,
@@ -26,8 +27,10 @@ import {
 } from '../../services/micropythonLibs';
 import type { MpyPackage } from '../../services/micropythonLibs';
 import { useEditorStore } from '../../store/useEditorStore';
+import { useProjectStore } from '../../store/useProjectStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
+import { addLibraryToManifest, bareLibName, libraryVersionFromSpec } from '../../utils/libraryManifest';
 import './LibraryManagerModal.css';
 
 interface LibraryManagerModalProps {
@@ -235,12 +238,10 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
   );
   const addToManifest = useCallback(
     (name: string) => {
-      const clean = name.trim();
       const board = useSimulatorStore.getState().boards.find((entry) => entry.id === boardId);
-      if (!clean || !board) return;
-      const cur = board.libraries ?? [];
-      if (cur.some((l) => normLib(l) === normLib(clean))) return;
-      updateBoard(board.id, { libraries: [...cur, clean] });
+      if (!board) return;
+      const libraries = addLibraryToManifest(board.libraries, name);
+      if (libraries) updateBoard(board.id, { libraries });
     },
     [boardId, updateBoard],
   );
@@ -383,22 +384,24 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
   }, []);
 
   const install = useCallback(
-    async (name: string, pin?: string): Promise<boolean> => {
+    async (name: string, version?: string): Promise<boolean> => {
       const key = `arduino:${normLib(name)}`;
       if (!startLibraryAction(key)) return false;
       setStatusMsg(null);
       try {
-        const version = pin || selectedVersions[name];
         const result = await installLibrary(name, version);
         if (result.success) {
           trackInstallLibrary(name);
           setInventoryRevision((revision) => revision + 1);
-          if (pin && result.fallback) {
-            setStatusMsg({ type: 'error', text: t('editor.libraryManager.pinnedVersionUnavailable', 'Version {{version}} of {{name}} is unavailable. The board still requires that version.', { version: pin, name }) });
+          if (version && result.fallback) {
+            setStatusMsg({ type: 'error', text: t('editor.libraryManager.versionInstallUnavailable', 'Could not install {{name}} {{version}}. The board’s library declaration was kept as it was.', { version, name }) });
             return false;
           }
           if (!result.fallback) {
-            setInstalledLibraries((previous) => previous && [...previous, { name, version }]);
+            setInstalledLibraries((previous) => previous && [
+              ...previous.filter((library) => !findInstalledArduinoLibrary([library], name)),
+              { name, version },
+            ]);
           }
           return true;
         }
@@ -411,24 +414,33 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
         finishLibraryAction(key);
       }
     },
-    [selectedVersions, t, startLibraryAction, finishLibraryAction],
+    [t, startLibraryAction, finishLibraryAction],
   );
 
   // Primary action: install if needed, then declare on THIS board.
   const addToProject = useCallback(
     async (row: LibRow) => {
-      if (!row.installed) {
-        const ok = await install(row.name);
+      const workspace = useProjectStore.getState().workspaceVersion;
+      const isCurrent = () => useProjectStore.getState().workspaceVersion === workspace;
+      const inventory = [...customLibraries, ...(installedLibraries ?? [])];
+      const installed = findInstalledArduinoLibrary(inventory, row.name);
+      const version = selectedVersions[row.name] || row.version ||
+        installed?.library?.version || installed?.version || await getCatalogLibraryVersion(row.name);
+      if (!isCurrent()) return;
+      const spec = version ? `${row.name}@${version}` : row.name;
+      if (!row.custom && !findInstalledArduinoLibrary(inventory, spec)) {
+        const ok = await install(row.name, version);
         if (!ok) return;
       }
+      if (!isCurrent()) return;
       if (row.catalog) {
         const catalog = row.catalog;
         setLibraryDetails((previous) => ({ ...previous, [normLib(row.name)]: catalog }));
       }
-      addToManifest(row.name);
+      addToManifest(spec);
       setStatusMsg({ type: 'success', text: `"${row.name}" added to ${activeBoard ? boardDisplayName(activeBoard) : 'this board'}.` });
     },
-    [install, addToManifest, activeBoard],
+    [install, addToManifest, activeBoard, customLibraries, installedLibraries, selectedVersions],
   );
 
   // A CUSTOM lib lives in the user's per-user store, so removing it hits the
@@ -480,7 +492,8 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
     }));
     const listed = new Set(installed.map((lib) => normLib(lib.name)));
     for (const spec of declared) {
-      const [name, pin] = spec.split('@', 2);
+      const name = bareLibName(spec);
+      const pin = libraryVersionFromSpec(spec);
       const key = normLib(name);
       if (listed.has(key)) continue;
       const info = installedLibraries && findInstalledArduinoLibrary(installedLibraries, spec);
@@ -773,7 +786,7 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
               const availabilityUnknown = inProj && !row.installed && inventoryUnavailable;
               const releases = Object.keys(row.catalog?.releases ?? {});
               return (
-                <div key={`${tab}-${row.name}-${i}`} className="lib-item" inert={checkingInstalled}>
+                <div key={`${tab}-${row.name}-${i}`} className="lib-item">
                   <LibraryItemInfo
                     row={row.custom ? { ...row, author: 'you' } : row}
                     onExpand={!row.custom && !row.catalog ? () => void loadLibraryDetails(row.name) : undefined}
@@ -796,7 +809,7 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                   </LibraryItemInfo>
                   <div className="lib-item-actions">
                     {row.version && <span className="lib-item-version">{row.version}</span>}
-                    {!row.installed && releases.length > 1 && (
+                    {!row.pin && releases.length > 1 && (
                       <DropdownSelect
                         className="lib-version-select"
                         value={selectedVersions[row.name] ?? row.version}
@@ -815,7 +828,15 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                           <button
                             type="button"
                             className="lib-install-btn"
-                            onClick={() => void install(row.name, row.pin)}
+                            onClick={() => {
+                              const version = row.pin || selectedVersions[row.name] || row.catalogVersion;
+                              const workspace = useProjectStore.getState().workspaceVersion;
+                              void install(row.name, version).then((ok) => {
+                                if (ok && version && !row.pin && useProjectStore.getState().workspaceVersion === workspace) {
+                                  addToManifest(`${row.name}@${version}`);
+                                }
+                              });
+                            }}
                             disabled={busy}
                             aria-label={t('editor.libraryManager.installDependency', 'Install {{name}} for this board', { name: row.name })}
                             title={availabilityUnknown ? t('editor.libraryManager.inventoryUnavailable', 'Could not check whether this library is installed') : undefined}
