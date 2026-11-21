@@ -8,7 +8,7 @@
 #      for the full build-from-source guide) and they win — no network
 #      access required.
 #
-#   2. velxio.dev gated download endpoint, when VELXIO_LICENSE_KEY is set.
+#   2. velxio.dev gated download endpoint, when a license key is supplied.
 #      Free personal-tier keys at https://velxio.dev/license/signup.
 #
 #   3. Build fails with a clear error telling you which of the two paths
@@ -33,31 +33,6 @@ ARG QEMU_RELEASE_URL=
 RUN mkdir -p /qemu
 COPY prebuilt/qemu/ /qemu/
 
-# Resolve which fetch path the build will use and fail-fast with a
-# friendly message if neither prebuilt files nor a key were provided.
-RUN cd /qemu \
- && have_libs=1 && for base in libqemu-xtensa libqemu-riscv32; do \
-      [ -f "${base}.so" ] || have_libs=0 ; \
-    done \
- && if [ "$have_libs" = "1" ]; then \
-      echo "[qemu-provider] using local prebuilt/qemu/ files — no download" ; \
-    elif [ -n "${QEMU_RELEASE_URL}" ]; then \
-      echo "[qemu-provider] using legacy QEMU_RELEASE_URL: ${QEMU_RELEASE_URL}" ; \
-    elif [ -n "${VELXIO_LICENSE_KEY}" ]; then \
-      echo "[qemu-provider] using velxio.dev gated download with provided license key" ; \
-    else \
-      echo "" ; \
-      echo "ERROR: Velxio docker build needs the QEMU runtime libraries." ; \
-      echo "" ; \
-      echo "Pick one:" ; \
-      echo "  a) Free personal key from https://velxio.dev/license/signup ," ; \
-      echo "     then re-build with --build-arg VELXIO_LICENSE_KEY=vlx_personal_..." ; \
-      echo "  b) Build QEMU yourself (see docs/BUILD-QEMU.md) and drop the .so" ; \
-      echo "     files plus the three esp32*-rom.bin files into prebuilt/qemu/." ; \
-      echo "" ; \
-      exit 1 ; \
-    fi
-
 # The asset versions the gated endpoint serves right now. The download below
 # lives in a cached layer, so a new libqemu on velxio.dev would otherwise never
 # reach a rebuilt image: bump this when an asset is republished (2026-09-27:
@@ -72,32 +47,29 @@ ARG QEMU_ASSETS_REV=xtensa-1.2.10
 # The gated endpoint serves the same byte-for-byte content as the legacy
 # GitHub Release path; asset paths just drop the .so extension since the
 # license module's manifest carries the real filename.
-RUN echo "[qemu-provider] assets rev ${QEMU_ASSETS_REV}" && cd /qemu \
- && for base in libqemu-xtensa libqemu-riscv32; do \
-      f="${base}.so" ; \
-      if [ -f "$f" ]; then \
-        echo "Using local $f ($(stat -c%s "$f") bytes)" ; \
-      elif [ -n "${QEMU_RELEASE_URL}" ]; then \
-        echo "Downloading ${base}-${TARGETARCH}.so → $f (legacy URL) ..." ; \
-        curl -fSL -o "$f" "${QEMU_RELEASE_URL}/${base}-${TARGETARCH}.so" ; \
+RUN --mount=type=secret,id=qemu_license_key \
+    set -eu; \
+    cd /qemu; \
+    echo "[qemu-provider] assets rev ${QEMU_ASSETS_REV}"; \
+    key="${VELXIO_LICENSE_KEY}"; \
+    if [ -s /run/secrets/qemu_license_key ]; then key="$(cat /run/secrets/qemu_license_key)"; fi; \
+    for file in libqemu-xtensa.so libqemu-riscv32.so esp32-v3-rom.bin esp32-v3-rom-app.bin esp32c3-rom.bin esp32s3_rev0_rom.bin; do \
+      if [ -s "$file" ]; then echo "Using local $file"; continue; fi; \
+      asset="${file%.*}"; \
+      mirror_file="$file"; \
+      case "$file" in *.so) asset="$asset-${TARGETARCH}"; mirror_file="$asset.so";; esac; \
+      if [ -n "${QEMU_RELEASE_URL}" ]; then \
+        url="${QEMU_RELEASE_URL%/}/$mirror_file"; \
+      elif [ -n "$key" ]; then \
+        url="${VELXIO_BINARY_BASE_URL%/}/$asset?key=$key"; \
       else \
-        echo "Downloading ${base}-${TARGETARCH} → $f (velxio.dev) ..." ; \
-        curl -fSL -o "$f" "${VELXIO_BINARY_BASE_URL}/${base}-${TARGETARCH}?key=${VELXIO_LICENSE_KEY}" ; \
-      fi ; \
-    done \
- && for f in esp32-v3-rom.bin esp32-v3-rom-app.bin esp32c3-rom.bin esp32s3_rev0_rom.bin; do \
-      asset="${f%.bin}" ; \
-      if [ -f "$f" ]; then \
-        echo "Using local $f ($(stat -c%s "$f") bytes)" ; \
-      elif [ -n "${QEMU_RELEASE_URL}" ]; then \
-        echo "Downloading $f (legacy URL) ..." ; \
-        curl -fSL -o "$f" "${QEMU_RELEASE_URL}/$f" ; \
-      else \
-        echo "Downloading $asset → $f (velxio.dev) ..." ; \
-        curl -fSL -o "$f" "${VELXIO_BINARY_BASE_URL}/${asset}?key=${VELXIO_LICENSE_KEY}" ; \
-      fi ; \
-    done \
- && ls -lh /qemu/
+        echo "QEMU runtime file $file is missing. Set VELXIO_LICENSE_KEY in the Compose .env file or your shell, set QEMU_RELEASE_URL for a mirror, or populate prebuilt/qemu/ (see docs/BUILD-QEMU.md)." >&2; \
+        exit 1; \
+      fi; \
+      echo "Downloading $file"; \
+      curl --fail --silent --show-error --location --retry 3 --output "$file" "$url"; \
+      test -s "$file"; \
+    done
 
 
 # ---- Stage 0.5: ESP-IDF toolchain for ESP32 compilation ----
