@@ -181,9 +181,9 @@
   padding-inline-end: 0;
 }
 
-.new-project-dialog :is(button, input):focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
+.new-project-name input:focus {
+  outline: none;
+  border-color: var(--color-action-primary);
 }
 
 .new-project-card-name {
