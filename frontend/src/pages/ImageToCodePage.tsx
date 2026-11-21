@@ -7,6 +7,7 @@
  * handlers, previews in effects, and the OLED element is imported dynamically.
  */
 
+import { DropdownSelect } from '../components/ui/DropdownSelect';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppHeader } from '../components/layout/AppHeader';
@@ -356,10 +357,10 @@ export const ImageToCodePage: React.FC = () => {
                   <label htmlFor="i2c-scale">
                     {t('tools.imageToCode.scaleMode', 'Scale mode')}
                   </label>
-                  <select
+                  <DropdownSelect
                     id="i2c-scale"
                     value={scaleMode}
-                    onChange={(e) => setScaleMode(e.target.value as ScaleMode)}
+                    onValueChange={(value) => setScaleMode(value as ScaleMode)}
                   >
                     <option value="original">
                       {t('tools.imageToCode.scaleOriginal', 'Original size')}
@@ -368,17 +369,17 @@ export const ImageToCodePage: React.FC = () => {
                     <option value="stretch">
                       {t('tools.imageToCode.scaleStretch', 'Stretch to fill')}
                     </option>
-                  </select>
+                  </DropdownSelect>
                 </div>
 
                 <div className="i2c-field">
                   <label htmlFor="i2c-background">
                     {t('tools.imageToCode.background', 'Background')}
                   </label>
-                  <select
+                  <DropdownSelect
                     id="i2c-background"
                     value={background}
-                    onChange={(e) => setBackground(e.target.value as Background)}
+                    onValueChange={(value) => setBackground(value as Background)}
                   >
                     <option value="black">
                       {t('tools.imageToCode.backgroundBlack', 'Black (unlit)')}
@@ -386,7 +387,7 @@ export const ImageToCodePage: React.FC = () => {
                     <option value="white">
                       {t('tools.imageToCode.backgroundWhite', 'White (lit)')}
                     </option>
-                  </select>
+                  </DropdownSelect>
                   <span className="i2c-hint">
                     {t(
                       'tools.imageToCode.backgroundHint',
@@ -431,10 +432,10 @@ export const ImageToCodePage: React.FC = () => {
 
                 <div className="i2c-field">
                   <label htmlFor="i2c-dither">{t('tools.imageToCode.dither', 'Dithering')}</label>
-                  <select
+                  <DropdownSelect
                     id="i2c-dither"
                     value={dither}
-                    onChange={(e) => setDither(e.target.value as DitherMode)}
+                    onValueChange={(value) => setDither(value as DitherMode)}
                   >
                     <option value="none">{t('tools.imageToCode.ditherNone', 'None')}</option>
                     <option value="bayer">{t('tools.imageToCode.ditherBayer', 'Bayer 4x4')}</option>
@@ -444,7 +445,7 @@ export const ImageToCodePage: React.FC = () => {
                     <option value="atkinson">
                       {t('tools.imageToCode.ditherAtkinson', 'Atkinson')}
                     </option>
-                  </select>
+                  </DropdownSelect>
                 </div>
 
                 <div className="i2c-field">
@@ -483,10 +484,10 @@ export const ImageToCodePage: React.FC = () => {
                   <label htmlFor="i2c-drawmode">
                     {t('tools.imageToCode.drawMode', 'Draw mode')}
                   </label>
-                  <select
+                  <DropdownSelect
                     id="i2c-drawmode"
                     value={drawMode}
-                    onChange={(e) => setDrawMode(e.target.value as DrawMode)}
+                    onValueChange={(value) => setDrawMode(value as DrawMode)}
                   >
                     <option value="horizontal">
                       {t(
@@ -497,7 +498,7 @@ export const ImageToCodePage: React.FC = () => {
                     <option value="vertical">
                       {t('tools.imageToCode.drawVertical', 'Vertical (SSD1306 page buffer)')}
                     </option>
-                  </select>
+                  </DropdownSelect>
                   <span className="i2c-hint">
                     {drawMode === 'horizontal'
                       ? t(
@@ -515,10 +516,10 @@ export const ImageToCodePage: React.FC = () => {
                   <label htmlFor="i2c-format">
                     {t('tools.imageToCode.format', 'Output format')}
                   </label>
-                  <select
+                  <DropdownSelect
                     id="i2c-format"
                     value={format}
-                    onChange={(e) => setFormat(e.target.value as OutputFormat)}
+                    onValueChange={(value) => setFormat(value as OutputFormat)}
                   >
                     <option value="arduino">
                       {t('tools.imageToCode.formatArduino', 'Arduino PROGMEM array')}
@@ -526,7 +527,7 @@ export const ImageToCodePage: React.FC = () => {
                     <option value="plain">
                       {t('tools.imageToCode.formatPlain', 'Plain bytes')}
                     </option>
-                  </select>
+                  </DropdownSelect>
                 </div>
 
                 <div className="i2c-field">

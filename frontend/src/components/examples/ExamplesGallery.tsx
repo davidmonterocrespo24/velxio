@@ -4,6 +4,7 @@
  * Displays a gallery of example Arduino projects that users can load and run
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useState, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
@@ -408,10 +409,10 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
           )}
         </div>
 
-        <select
+        <DropdownSelect
           className="examples-select"
           value={selectedBoard}
-          onChange={(e) => setSelectedBoard(e.target.value)}
+          onValueChange={(value) => setSelectedBoard(value)}
           aria-label={t('examples.filters.boardLabel', 'Board')}
         >
           {boardTabs.map((tab) => (
@@ -420,12 +421,12 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
               {boardCounts[tab.id] != null ? ` (${boardCounts[tab.id]})` : ''}
             </option>
           ))}
-        </select>
+        </DropdownSelect>
 
-        <select
+        <DropdownSelect
           className="examples-select"
           value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value as typeof selectedCategory)}
+          onValueChange={(value) => setSelectedCategory(value as typeof selectedCategory)}
           aria-label={t('examples.filters.categoryLabel')}
         >
           {CATEGORIES.map((cat) => (
@@ -433,12 +434,12 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
               {t(`examples.filters.category.${cat}`)}
             </option>
           ))}
-        </select>
+        </DropdownSelect>
 
-        <select
+        <DropdownSelect
           className="examples-select"
           value={selectedDifficulty}
-          onChange={(e) => setSelectedDifficulty(e.target.value as typeof selectedDifficulty)}
+          onValueChange={(value) => setSelectedDifficulty(value as typeof selectedDifficulty)}
           aria-label={t('examples.filters.difficultyLabel')}
         >
           {DIFFICULTIES.map((diff) => (
@@ -446,7 +447,7 @@ export const ExamplesGallery: React.FC<ExamplesGalleryProps> = ({ onLoadExample 
               {t(`examples.filters.difficulty.${diff}`)}
             </option>
           ))}
-        </select>
+        </DropdownSelect>
 
         {facets.map((facet) => {
           const on = activeFacet?.id === facet.id;

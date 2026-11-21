@@ -155,7 +155,7 @@
 
 .i2c-field input[type='text'],
 .i2c-field input[type='number'],
-.i2c-field select {
+.i2c-field .dropdown-select {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--color-border-default);
@@ -172,9 +172,14 @@
   accent-color: var(--color-action-primary);
 }
 
-.i2c-field input:focus {
+.i2c-field input:is([type='text'], [type='number']):focus {
+  border-color: var(--color-action-primary);
   outline: none;
-  box-shadow: var(--color-focus-ring, 0 0 0 2px #0071e3);
+}
+
+.i2c-field input[type='range']:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: 2px;
 }
 
 .i2c-hint {
