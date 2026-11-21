@@ -111,25 +111,17 @@
 }
 
 .board-selector {
-  padding-inline-end: 23px;
+  min-height: 0;
   padding-block: 0;
   max-inline-size: 190px;
   text-overflow: ellipsis;
   align-items: center;
+  gap: 4px;
   line-height: normal;
 }
 
-:where(select.board-selector) {
-  appearance: none;
-}
-
-.canvas-board-select > svg {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: 7px;
-  transform: translateY(-50%);
+.board-selector svg {
   color: var(--color-accent-fg);
-  pointer-events: none;
 }
 
 .board-selector.board-selector--empty {
@@ -142,20 +134,10 @@
   cursor: default;
 }
 
-@supports (appearance: base-select) and selector(::picker(select)) {
-  .board-selector::picker-icon {
-    display: none;
-  }
-
-  .board-selector:enabled:open {
-    border-color: var(--color-action-primary);
-    background: var(--wb-5);
-    color: var(--wb-13);
-  }
-
-  .board-selector:open + svg {
-    transform: translateY(-50%) rotate(180deg);
-  }
+.board-selector[aria-expanded='true'] {
+  border-color: var(--color-action-primary);
+  background: var(--wb-5);
+  color: var(--wb-13);
 }
 
 /* ── Camera / Microphone toggles ─────────────────────
@@ -379,9 +361,9 @@
   margin-block-start: 8px;
 }
 
-.canvas-diagnostics :is(button, section):focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
+.canvas-diagnostics section:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
 }
 
 .canvas-content {
@@ -628,7 +610,7 @@
   .board-selector {
     font-size: 11px;
     max-width: 90px;
-    padding-inline: 6px 20px;
+    padding-inline: 6px;
   }
 
   .zoom-controls {
@@ -769,10 +751,6 @@
 }
 .selection-action-bar button:active {
   transform: scale(0.97);
-}
-.selection-action-bar button:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
 }
 
 /* Hide button labels on narrow viewports — keep just the icons */

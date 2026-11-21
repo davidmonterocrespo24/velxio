@@ -1,3 +1,4 @@
+import { DropdownSelect } from '../ui/DropdownSelect';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BoardKind } from '../../types/board';
@@ -191,12 +192,12 @@ export const BoardOptionsModal = ({
                 <div className="bom-row">
                   <label className="bom-label">Partition Scheme</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.partitionScheme}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          partitionScheme: e.target.value as ESP32BoardOptions['partitionScheme'],
+                          partitionScheme: value as ESP32BoardOptions['partitionScheme'],
                         })
                       }
                     >
@@ -205,17 +206,17 @@ export const BoardOptionsModal = ({
                           {PARTITION_SCHEME_LABELS[s]}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
                   <label className="bom-label">Flash Size</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashSize}
-                      onChange={(e) =>
-                        update({ flashSize: e.target.value as ESP32BoardOptions['flashSize'] })
+                      onValueChange={(value) =>
+                        update({ flashSize: value as ESP32BoardOptions['flashSize'] })
                       }
                     >
                       {FLASH_SIZE_OPTIONS.map((o) => (
@@ -223,7 +224,7 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {draft.flashSize !== '4MB' && (
                       <span className="bom-badge bom-badge-warn">QEMU image grows</span>
                     )}
@@ -236,12 +237,12 @@ export const BoardOptionsModal = ({
                 <div className="bom-row">
                   <label className="bom-label">CPU Frequency</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.cpuFreqMHz}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          cpuFreqMHz: Number(e.target.value) as ESP32BoardOptions['cpuFreqMHz'],
+                          cpuFreqMHz: Number(value) as ESP32BoardOptions['cpuFreqMHz'],
                         })
                       }
                     >
@@ -250,18 +251,18 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
                   <label className="bom-label">Flash Frequency</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashFreqMHz}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          flashFreqMHz: e.target.value as ESP32BoardOptions['flashFreqMHz'],
+                          flashFreqMHz: value as ESP32BoardOptions['flashFreqMHz'],
                         })
                       }
                     >
@@ -270,7 +271,7 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
               </section>
@@ -280,11 +281,11 @@ export const BoardOptionsModal = ({
                 <div className="bom-row">
                   <label className="bom-label">Flash Mode</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashMode}
-                      onChange={(e) =>
-                        update({ flashMode: e.target.value as ESP32BoardOptions['flashMode'] })
+                      onValueChange={(value) =>
+                        update({ flashMode: value as ESP32BoardOptions['flashMode'] })
                       }
                     >
                       {FLASH_MODE_OPTIONS.map((o) => (
@@ -292,7 +293,7 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {nonDio && (
                       <span className="bom-badge bom-badge-error">
                         QEMU may fail to boot
@@ -308,17 +309,17 @@ export const BoardOptionsModal = ({
                   <div className="bom-row">
                     <label className="bom-label">External PSRAM</label>
                     <div className="bom-control">
-                      <select
+                      <DropdownSelect
                         className="bom-select"
                         value={draft.psram}
-                        onChange={(e) =>
-                          update({ psram: e.target.value as ESP32BoardOptions['psram'] })
+                        onValueChange={(value) =>
+                          update({ psram: value as ESP32BoardOptions['psram'] })
                         }
                       >
                         <option value="disabled">Disabled</option>
                         <option value="enabled">Enabled</option>
                         {showOpi && <option value="opi">OPI PSRAM</option>}
-                      </select>
+                      </DropdownSelect>
                     </div>
                   </div>
                 </section>
@@ -329,13 +330,12 @@ export const BoardOptionsModal = ({
                 <div className="bom-row">
                   <label className="bom-label">Core Debug Level</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.coreDebugLevel}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          coreDebugLevel: e.target
-                            .value as ESP32BoardOptions['coreDebugLevel'],
+                          coreDebugLevel: value as ESP32BoardOptions['coreDebugLevel'],
                         })
                       }
                     >
@@ -344,7 +344,7 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
               </section>
@@ -354,11 +354,11 @@ export const BoardOptionsModal = ({
                 <div className="bom-row">
                   <label className="bom-label">Events Run On</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.eventsRunOnCore}
-                      onChange={(e) =>
-                        update({ eventsRunOnCore: Number(e.target.value) as ESP32CoreSelect })
+                      onValueChange={(value) =>
+                        update({ eventsRunOnCore: Number(value) as ESP32CoreSelect })
                       }
                     >
                       {CORE_SELECT_OPTIONS.map((o) => (
@@ -366,17 +366,17 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
                   <label className="bom-label">Arduino Runs On</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.arduinoRunsOnCore}
-                      onChange={(e) =>
-                        update({ arduinoRunsOnCore: Number(e.target.value) as ESP32CoreSelect })
+                      onValueChange={(value) =>
+                        update({ arduinoRunsOnCore: Number(value) as ESP32CoreSelect })
                       }
                     >
                       {CORE_SELECT_OPTIONS.map((o) => (
@@ -384,7 +384,7 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {sameCore && (
                       <span className="bom-badge bom-badge-warn">
                         Both on same core

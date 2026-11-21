@@ -1,3 +1,4 @@
+import { DropdownSelect } from '../ui/DropdownSelect';
 import {
   useSimulatorStore,
   getEsp32Bridge,
@@ -19,7 +20,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, LocateFixed } from 'lucide-react';
+import { LocateFixed } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
@@ -3094,28 +3095,25 @@ export const SimulatorCanvas = ({ headerSlot, addComponentSlot }: SimulatorCanva
                       {t('editor.canvas.noBoard')}
                     </span>
                   ) : (
-                    <>
-                      <select
-                        className="board-selector"
-                        value={activeBoardId ?? ''}
-                        onChange={(e) => useSimulatorStore.getState().setActiveBoardId(e.target.value)}
-                        aria-label={t('editor.canvas.activeBoard')}
-                        title={activeBoard ? boardDisplayName(activeBoard) : t('editor.canvas.activeBoard')}
-                      >
-                        {boards.map((board) => {
-                          const name = boardDisplayName(board);
-                          const duplicate = boards.some(
-                            (other) => other.id !== board.id && boardDisplayName(other) === name,
-                          );
-                          return (
-                            <option key={board.id} value={board.id}>
-                              {duplicate ? `${name} (${board.id})` : name}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <ChevronDown size={12} aria-hidden />
-                    </>
+                    <DropdownSelect
+                      className="board-selector"
+                      value={activeBoardId ?? ''}
+                      onValueChange={(value) => useSimulatorStore.getState().setActiveBoardId(value)}
+                      aria-label={t('editor.canvas.activeBoard')}
+                      title={activeBoard ? boardDisplayName(activeBoard) : t('editor.canvas.activeBoard')}
+                    >
+                      {boards.map((board) => {
+                        const name = boardDisplayName(board);
+                        const duplicate = boards.some(
+                          (other) => other.id !== board.id && boardDisplayName(other) === name,
+                        );
+                        return (
+                          <option key={board.id} value={board.id}>
+                            {duplicate ? `${name} (${board.id})` : name}
+                          </option>
+                        );
+                      })}
+                    </DropdownSelect>
                   )}
                 </div>
                 {/* Overlay slot for board status next to the selector (e.g.

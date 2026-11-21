@@ -33,6 +33,7 @@
  * `bootloaderHint` / `enterBootloader` seam methods.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BoardInstance } from '../../store/useSimulatorStore';
@@ -579,9 +580,9 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
             state.kind === 'picking') && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--wb-11)' }}>
               {t('editor.flash.revision')}
-              <select
+              <DropdownSelect
                 value={revisionId ?? ''}
-                onChange={(e) => pickRevision(e.target.value)}
+                onValueChange={(value) => pickRevision(value)}
                 style={{ ...selectStyle, flex: 1 }}
               >
                 {revisions.map((r) => (
@@ -589,7 +590,7 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
                     {r.label}
                   </option>
                 ))}
-              </select>
+              </DropdownSelect>
             </label>
           )}
 
@@ -899,9 +900,9 @@ const PickerView = ({ board, ports, selected, onSelect, onRefresh, onFlash }: Pi
       <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: 'var(--wb-11)' }}>
         {t('editor.flash.serialPort')}
       </label>
-      <select
+      <DropdownSelect
         value={selected ?? ''}
-        onChange={(e) => onSelect(e.target.value)}
+        onValueChange={(value) => onSelect(value)}
         style={selectStyle}
       >
         {ports.map((p) => (
@@ -909,7 +910,7 @@ const PickerView = ({ board, ports, selected, onSelect, onRefresh, onFlash }: Pi
             {portLabel(p)}
           </option>
         ))}
-      </select>
+      </DropdownSelect>
 
       <BuildNotice status={status} />
 
