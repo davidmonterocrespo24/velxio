@@ -27,7 +27,7 @@ export function useEditorProjectRoute({
   const navigate = useNavigate();
   const navigationType = useNavigationType();
   const { localProjectId } = useParams<{ localProjectId: string }>();
-  const browserId = useLocalWorkspace((state) => state.browserId);
+  const projectId = useLocalWorkspace((state) => state.browserId ?? state.diskId);
   const editorPath = localizedPath('/editor', getLocaleFromPath(location.pathname));
   const bare = location.pathname.replace(/\/+$/, '') === editorPath;
   const bareEntry = useRef<{
@@ -40,7 +40,8 @@ export function useEditorProjectRoute({
   const syncProjectUrl = useEffectEvent((previousId: string | null) => {
     const pathname = window.location.pathname.replace(/\/+$/, '');
     const base = localizedPath('/editor', getLocaleFromPath(pathname));
-    const id = useLocalWorkspace.getState().browserId;
+    const { browserId, diskId } = useLocalWorkspace.getState();
+    const id = browserId ?? diskId;
     if (id) {
       const destination = `${base}/${encodeURIComponent(id)}`;
       if (pathname !== destination) navigate(destination, { replace: true });
@@ -54,9 +55,10 @@ export function useEditorProjectRoute({
   useLayoutEffect(() => {
     let disposed = false;
     const unsubscribe = useLocalWorkspace.subscribe((next, previous) => {
-      if (next.browserId === previous.browserId) return;
+      const previousId = previous.browserId ?? previous.diskId;
+      if ((next.browserId ?? next.diskId) === previousId) return;
       queueMicrotask(() => {
-        if (!disposed) syncProjectUrl(previous.browserId);
+        if (!disposed) syncProjectUrl(previousId);
       });
     });
     return () => {
@@ -69,7 +71,8 @@ export function useEditorProjectRoute({
     if (!bare && !localProjectId) return;
     const request = new AbortController();
     const initialize = async () => {
-      const activeId = useLocalWorkspace.getState().browserId;
+      const { browserId, diskId } = useLocalWorkspace.getState();
+      const activeId = browserId ?? diskId;
       if (localProjectId) bareEntry.current = null;
       if (localProjectId && localProjectId === activeId) return;
 
@@ -145,7 +148,7 @@ export function useEditorProjectRoute({
   ]);
 
   return {
-    openingProject: Boolean(localProjectId && localProjectId !== browserId),
+    openingProject: Boolean(localProjectId && localProjectId !== projectId),
     openProject: (id: string) => {
       closeProjectDialog();
       if (id !== localProjectId) navigate(`${editorPath}/${encodeURIComponent(id)}`);

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createStore, entries, get, set } from 'idb-keyval';
 import type { AutoSaveState } from '../hooks/useAutoSaveProject';
 import { flushChipFileSync } from '../services/chipFiles';
 import {
@@ -18,7 +19,8 @@ import { generateUUID } from '../utils/uuid';
 import { buildVlxPayload, loadVlxPayload, parseVlxFile, type VlxPayload } from '../utils/vlxFile';
 
 interface DiskHandle extends FileSystemFileHandle {
-  queryPermission(options: { mode: 'readwrite' }): Promise<PermissionState>;
+  queryPermission(options: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
+  requestPermission(options: { mode: 'readwrite' }): Promise<PermissionState>;
 }
 
 type PickerWindow = Window & {
@@ -28,7 +30,9 @@ type PickerWindow = Window & {
 
 type SaveTarget =
   | { kind: 'browser'; id: string; name: string; revision: number }
-  | { kind: 'disk'; name: string; handle: DiskHandle; fileVersion: string };
+  | { kind: 'disk'; id?: string; name: string; handle: DiskHandle; fileVersion: string };
+
+const diskProjects = createStore('velxio-disk-projects', 'handles');
 
 const idle: AutoSaveState = { status: 'idle', lastSavedAt: null, errorMessage: null };
 const fileType = { description: 'Velxio project', accept: { 'application/json': ['.vlx'] } };
@@ -36,10 +40,12 @@ const fileType = { description: 'Velxio project', accept: { 'application/json': 
 export const useLocalWorkspace = create<AutoSaveState & {
   name: string | null;
   browserId: string | null;
+  diskId: string | null;
 }>(() => ({
   ...idle,
   name: null,
   browserId: null,
+  diskId: null,
 }));
 
 let target: SaveTarget | null = null;
@@ -77,6 +83,7 @@ function selectTarget(next: SaveTarget, content: string, updatedAt: number): voi
   useLocalWorkspace.setState({
     name: next.name,
     browserId: next.kind === 'browser' ? next.id : null,
+    diskId: next.kind === 'disk' ? next.id ?? null : null,
     status: 'saved',
     lastSavedAt: updatedAt,
     errorMessage: null,
@@ -86,7 +93,7 @@ function selectTarget(next: SaveTarget, content: string, updatedAt: number): voi
 function clearTarget(status: 'idle' | 'dirty' = 'idle'): void {
   target = null;
   savedContent = '';
-  useLocalWorkspace.setState({ ...idle, status, name: null, browserId: null });
+  useLocalWorkspace.setState({ ...idle, status, name: null, browserId: null, diskId: null });
 }
 
 function loadLocalProject(project: LocalProject): void {
@@ -112,14 +119,67 @@ export function hasUnsavedLocalChanges(): boolean {
 }
 
 export async function openLocalWorkspace(id: string, signal: AbortSignal): Promise<boolean> {
-  if (currentTarget()?.kind === 'browser' && useLocalWorkspace.getState().browserId === id) {
-    return true;
-  }
+  if (currentTarget()?.id === id) return true;
   const version = workspaceVersion();
   const project = await getLocalProject(id);
-  if (!project || signal.aborted || version !== workspaceVersion()) return false;
-  loadLocalProject(project);
-  return true;
+  if (signal.aborted || version !== workspaceVersion()) return false;
+  if (project) {
+    loadLocalProject(project);
+    return true;
+  }
+
+  const handle = await get<DiskHandle>(id, diskProjects);
+  const isCurrent = () => !signal.aborted && version === workspaceVersion();
+  if (!handle || !isCurrent() || !canOpenProjectFile()) return false;
+  try {
+    if (await handle.queryPermission({ mode: 'read' }) !== 'granted') {
+      if (!isCurrent()) return false;
+      const reconnect = await showConfirmDialog(`Allow Velxio to reopen “${handle.name}”.`, {
+        title: 'Reconnect disk project',
+        confirmLabel: 'Reconnect',
+      });
+      // Request permission from the confirmation click's user activation.
+      if (!reconnect || !isCurrent() || await handle.requestPermission({ mode: 'readwrite' }) !== 'granted') return false;
+    }
+    if (!isCurrent()) return false;
+    const file = await handle.getFile();
+    const payload = await parseVlxFile(file);
+    if (!isCurrent()) return false;
+    loadDiskWorkspace(handle, file, payload, id);
+    return true;
+  } catch (error) {
+    if (isCurrent()) showMessageDialog(String(error), { kind: 'error', title: 'Could not reopen disk project' });
+    return false;
+  }
+}
+
+async function rememberDiskHandle(handle: DiskHandle): Promise<string | undefined> {
+  try {
+    for (const [id, saved] of await entries<string, DiskHandle>(diskProjects)) {
+      if (await handle.isSameEntry(saved).catch(() => false)) return id;
+    }
+    const id = generateUUID();
+    await set(id, handle, diskProjects);
+    return id;
+  } catch {
+    // Some browsers or storage policies prevent persisting file handles.
+    return undefined;
+  }
+}
+
+function loadDiskWorkspace(handle: DiskHandle, file: File, payload: VlxPayload, id?: string): void {
+  loadVlxPayload(payload);
+  selectTarget(
+    {
+      kind: 'disk',
+      id,
+      handle,
+      name: payload.name || file.name.replace(/\.vlx$/i, ''),
+      fileVersion: `${file.lastModified}:${file.size}`,
+    },
+    fingerprint(),
+    file.lastModified,
+  );
 }
 
 export async function renameBrowserWorkspace(id: string, revision: number, name: string) {
@@ -248,6 +308,7 @@ export async function saveLocalWorkspace(
       let next: SaveTarget;
       if (saveTarget.kind === 'disk') {
         next = await writeDisk(saveTarget, payload, manual);
+        if (disk && next.kind === 'disk') next.id = await rememberDiskHandle(disk);
       } else {
         next = { ...saveTarget, revision: saveTarget.revision + 1 };
         await writeLocalProject({ ...next, updatedAt, payload });
@@ -304,17 +365,9 @@ export async function openProjectFile(): Promise<void> {
     )
       return;
     if (version !== workspaceVersion()) return;
-    loadVlxPayload(payload);
-    selectTarget(
-      {
-        kind: 'disk',
-        handle,
-        name: payload.name || file.name.replace(/\.vlx$/i, ''),
-        fileVersion: `${file.lastModified}:${file.size}`,
-      },
-      fingerprint(),
-      file.lastModified,
-    );
+    const id = await rememberDiskHandle(handle);
+    if (version !== workspaceVersion()) return;
+    loadDiskWorkspace(handle, file, payload, id);
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
       showMessageDialog(String(error), { kind: 'error', title: 'Could not open project' });
