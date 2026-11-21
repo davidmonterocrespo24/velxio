@@ -149,7 +149,18 @@
   display: flex;
   flex-direction: column;
   min-width: 120px;
-  overflow: hidden;
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
+
+.file-explorer-context-menu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--wb-7);
+}
+
+.file-explorer-item[data-cut='true'] {
+  opacity: 0.55;
 }
 
 .file-explorer-context-menu button {

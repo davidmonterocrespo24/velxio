@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Ellipsis } from 'lucide-react';
 import { useEditorStore, chipFileGroupId, normalizeFolderPath } from '../../store/useEditorStore';
-import type { WorkspaceFile } from '../../store/useEditorStore';
+import type { WorkspaceFile, WorkspacePath } from '../../store/useEditorStore';
+import { useProjectStore } from '../../store/useProjectStore';
 import { useSimulatorStore, keepWireShapes } from '../../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { installChipFileSync, ensureChipWasm, flushChipFileSync } from '../../services/chipFiles';
@@ -365,12 +366,14 @@ const fileBasename = (name: string) => name.slice(name.lastIndexOf('/') + 1);
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 
 interface ContextMenu {
-  kind: 'file' | 'folder';
+  kind: 'file' | 'folder' | 'root';
   item: string;
   boardGroupId: string;
   x: number;
   y: number;
 }
+
+type ExplorerClipboard = WorkspacePath & { copy: boolean; workspaceVersion: number };
 
 interface FileExplorerProps {
   onShowExplorer: () => void;
@@ -480,6 +483,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
     createFile,
     deleteFile,
     moveWorkspacePath,
+    pasteWorkspacePath,
     createFolder,
     deleteFolder,
     setActiveGroup,
@@ -492,6 +496,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   const updateBoard = useSimulatorStore((s) => s.updateBoard);
   const updateComponent = useSimulatorStore((s) => s.updateComponent);
   const components = useSimulatorStore((s) => s.components);
+  const workspaceVersion = useProjectStore((s) => s.workspaceVersion);
 
   // EVERY custom chip owns an editor section: its chip.c + chip.json are
   // ordinary files in its own group (plus the program file for programmable
@@ -573,6 +578,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   }, []);
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [clipboard, setClipboard] = useState<ExplorerClipboard | null>(null);
+  const currentClipboard = clipboard?.workspaceVersion === workspaceVersion ? clipboard : null;
   const [renameTarget, setRenameTarget] = useState<{
     groupId: string;
     path: string;
@@ -745,12 +752,24 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   }, [creatingInGroup, creatingParentPath]);
 
   // Close context menu on click outside
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!contextMenu) return;
-    contextRef.current?.querySelector('button')?.focus();
+    const menu = contextRef.current;
+    if (!menu) return;
+    const position = () => {
+      const { width, height } = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(contextMenu.x, window.innerWidth - width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(contextMenu.y, window.innerHeight - height - 8))}px`;
+    };
+    position();
+    menu.querySelector<HTMLButtonElement>('button:enabled')?.focus({ preventScroll: true });
     const handler = () => setContextMenu(null);
     document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    window.addEventListener('resize', position);
+    return () => {
+      document.removeEventListener('click', handler);
+      window.removeEventListener('resize', position);
+    };
   }, [contextMenu]);
 
   const switchToBoard = useCallback(
@@ -798,6 +817,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   };
 
   const startRename = (kind: ContextMenu['kind'], item: string, groupId: string) => {
+    if (kind === 'root') return;
     const file = kind === 'file' ? fileGroups[groupId]?.find((f) => f.id === item) : undefined;
     const path = kind === 'folder' ? item : file?.name;
     if (path === undefined) return;
@@ -805,6 +825,32 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
     setRenameTarget({ groupId, path, fileId: file?.id });
     setRenameValue(path);
     setContextMenu(null);
+  };
+
+  const putOnClipboard = (menu: ContextMenu, copy: boolean) => {
+    if (menu.kind === 'root') return;
+    const groupId = menu.boardGroupId;
+    const folder = menu.kind === 'folder';
+    const fileId = folder ? undefined : menu.item;
+    const path = folder ? menu.item : fileGroups[groupId]?.find((file) => file.id === fileId)?.name;
+    if (!path) return;
+    setClipboard({ groupId, path, folder, fileId, copy, workspaceVersion });
+    setContextMenu(null);
+    contextOrigin.current?.focus({ preventScroll: true });
+  };
+
+  const pasteFromClipboard = (groupId: string, parent: string) => {
+    setContextMenu(null);
+    if (!currentClipboard || currentClipboard.workspaceVersion !== useProjectStore.getState().workspaceVersion) return;
+    if (!pasteWorkspacePath(currentClipboard, groupId, parent, currentClipboard.copy)) {
+      showMessageDialog(t('editor.fileExplorer.pasteUnavailable', 'This item could not be pasted here. Check the source and destination folders.'), { kind: 'error' });
+      return;
+    }
+    if (!currentClipboard.copy) setClipboard(null);
+    const board = boards.find((item) => item.activeFileGroupId === groupId);
+    if (board) setCollapsed((previous) => ({ ...previous, [board.id]: false }));
+    expandFolder(groupId, parent);
+    contextOrigin.current?.focus({ preventScroll: true });
   };
 
   const commitRename = useCallback(() => {
@@ -857,7 +903,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       activate();
-    } else if (event.key === 'F2' && options) {
+    } else if (event.key === 'F2' && options && options.kind !== 'root') {
       event.preventDefault();
       contextOrigin.current = event.currentTarget;
       startRename(options.kind, options.item, options.boardGroupId);
@@ -887,7 +933,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
       cancelLabel: t('editor.fileTabs.cancel'),
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || useProjectStore.getState().workspaceVersion !== workspaceVersion ||
+        useEditorStore.getState().getGroupFiles(groupId).length <= 1) return;
     const board = useSimulatorStore.getState().boards.find((item) => item.activeFileGroupId === groupId);
     if (!board) return;
     switchToBoard(board.id, groupId);
@@ -951,25 +998,33 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   };
 
   const handleDeleteFolder = (boardId: string, groupId: string, path: string) => {
-    switchToBoard(boardId, groupId);
+    setContextMenu(null);
     const inside = (fileGroups[groupId] ?? []).filter((f) => f.name.startsWith(path + '/'));
     // Never allow a folder delete to empty the group completely — the group
     // must keep at least one file (same invariant as single-file delete).
-    if (inside.length >= (fileGroups[groupId] ?? []).length) {
+    if (inside.length > 0 && inside.length === (fileGroups[groupId] ?? []).length) {
       showMessageDialog(t('editor.fileExplorer.folderHoldsEverything', 'The folder holds every file of this board — a board needs at least one file.'), { kind: 'info' });
       return;
     }
     if (inside.length === 0) {
+      switchToBoard(boardId, groupId);
       deleteFolder(path);
       return;
     }
     void showConfirmDialog(
       t(
         'editor.fileExplorer.confirmDeleteFolder',
-        `Delete the folder "${path}" and the ${inside.length} file(s) inside it?`,
+        'Delete the folder "{{path}}" and its {{count}} file(s)?',
+        { path, count: inside.length },
       ),
     ).then((ok) => {
-      if (ok) deleteFolder(path);
+      if (!ok || useProjectStore.getState().workspaceVersion !== workspaceVersion) return;
+      const board = useSimulatorStore.getState().boards.find((item) => item.id === boardId && item.activeFileGroupId === groupId);
+      if (!board) return;
+      const files = useEditorStore.getState().getGroupFiles(groupId);
+      if (files.length > 0 && files.every((file) => file.name.startsWith(path + '/'))) return;
+      switchToBoard(boardId, groupId);
+      deleteFolder(path);
     });
   };
 
@@ -1041,7 +1096,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
   };
 
   return (
-    <div className="file-explorer">
+    <div className="file-explorer" onContextMenu={(event) => event.preventDefault()}>
       <div className="file-explorer-header workspace-sidebar-header">
         <h2 className="workspace-sidebar-title">{t('editor.activity.explorer', 'Explorer')}</h2>
         <details className="file-explorer-overflow" onBlur={(event) => {
@@ -1094,10 +1149,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
                 {...folderDropTarget(groupId, '')}
                 tabIndex={0}
                 data-workspace-row
+                onContextMenu={currentClipboard ? (event) => handleContextMenu(event, 'root', '', groupId) : undefined}
                 onKeyDown={(e) => treeKey(e, () => {
                   switchToBoard(board.id, groupId);
                   toggleCollapse(board.id);
-                })}
+                }, currentClipboard ? { kind: 'root', item: '', boardGroupId: groupId } : undefined)}
                 onClick={() => {
                   switchToBoard(board.id, groupId);
                   if (!isOpen) toggleCollapse(board.id);
@@ -1205,6 +1261,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
                           role="group"
                           aria-label={row.path}
                           data-workspace-row
+                          data-cut={currentClipboard && !currentClipboard.copy && currentClipboard.folder &&
+                            currentClipboard.groupId === groupId && currentClipboard.path === row.path || undefined}
                           onContextMenu={(e) => handleContextMenu(e, 'folder', row.path, groupId)}
                           onKeyDown={(e) => {
                             if (e.target === e.currentTarget &&
@@ -1275,6 +1333,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
                         tabIndex={0}
                         aria-current={isActiveFile ? 'true' : undefined}
                         data-workspace-row
+                        data-cut={currentClipboard && !currentClipboard.copy &&
+                          currentClipboard.groupId === groupId && currentClipboard.fileId === file.id || undefined}
                         data-workspace-file={file.id}
                         data-workspace-group={groupId}
                         onKeyDown={(e) => treeKey(e, () => handleFileClick(file.id, board.id, groupId), {
@@ -1551,30 +1611,60 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ onShowExplorer }) =>
         <div
           ref={contextRef}
           className="file-explorer-context-menu dropdown-panel"
-          style={{ top: Math.min(contextMenu.y, window.innerHeight - 90), left: Math.min(contextMenu.x, window.innerWidth - 170) }}
           onClick={(e) => e.stopPropagation()}
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget)) setContextMenu(null);
           }}
           onKeyDown={(e) => {
-            if (e.key !== 'Escape') return;
-            e.stopPropagation();
-            setContextMenu(null);
-            contextOrigin.current?.focus();
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setContextMenu(null);
+              contextOrigin.current?.focus();
+              return;
+            }
+            if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+            e.preventDefault();
+            const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('button:enabled')];
+            if (!buttons.length) return;
+            const index = buttons.findIndex((button) => button === document.activeElement);
+            const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1
+              : (index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next].focus();
           }}
         >
-          <button type="button" onClick={() => startRename(contextMenu.kind, contextMenu.item, contextMenu.boardGroupId)}>
-            {t('editor.fileExplorer.moveOrRename', 'Move or rename…')}
-          </button>
-          {contextMenu.kind === 'file' && (
-            <button
-              type="button"
-              className="ctx-delete"
-              onClick={() => void handleDelete(contextMenu.item, contextMenu.boardGroupId)}
-              disabled={(fileGroups[contextMenu.boardGroupId] ?? []).length <= 1}
-            >
-              {t('editor.fileExplorer.contextMenu.delete')}
+          {contextMenu.kind !== 'root' && (
+            <>
+              <button type="button" onClick={() => putOnClipboard(contextMenu, false)}>{t('editor.fileExplorer.contextMenu.cut', 'Cut')}</button>
+              <button type="button" onClick={() => putOnClipboard(contextMenu, true)}>{t('editor.fileExplorer.contextMenu.copy', 'Copy')}</button>
+            </>
+          )}
+          {contextMenu.kind !== 'file' && (
+            <button type="button" disabled={!currentClipboard} onClick={() => pasteFromClipboard(contextMenu.boardGroupId, contextMenu.item)}>
+              {t('editor.fileExplorer.contextMenu.paste', 'Paste')}
             </button>
+          )}
+          {contextMenu.kind !== 'root' && (
+            <>
+              <hr />
+              <button type="button" onClick={() => startRename(contextMenu.kind, contextMenu.item, contextMenu.boardGroupId)}>
+                {t('editor.fileExplorer.contextMenu.rename', 'Rename')}
+              </button>
+              <button
+                type="button"
+                className="ctx-delete"
+                disabled={contextMenu.kind === 'file' && (fileGroups[contextMenu.boardGroupId] ?? []).length <= 1}
+                onClick={() => {
+                  const { kind, item, boardGroupId } = contextMenu;
+                  if (kind === 'file') void handleDelete(item, boardGroupId);
+                  else {
+                    const board = boards.find((entry) => entry.activeFileGroupId === boardGroupId);
+                    if (board) handleDeleteFolder(board.id, boardGroupId, item);
+                  }
+                }}
+              >
+                {t('editor.fileExplorer.contextMenu.delete')}
+              </button>
+            </>
           )}
         </div>
       )}
