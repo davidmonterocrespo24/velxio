@@ -13,6 +13,7 @@ interface CurrentProject {
 
 interface ProjectState {
   currentProject: CurrentProject | null;
+  workspaceVersion: number;
   /**
    * Gallery example currently loaded in the editor (null when the workspace
    * came from a project, a file or scratch). Set by loadExample, cleared
@@ -30,13 +31,22 @@ interface ProjectState {
 
 export const useProjectStore = create<ProjectState>((set) => ({
   currentProject: null,
+  workspaceVersion: 0,
   currentExampleId: null,
   // Loading a real project supersedes the example context.
-  setCurrentProject: (project) => set({ currentProject: project, currentExampleId: null }),
+  setCurrentProject: (project) => set((state) => ({
+    currentProject: project,
+    currentExampleId: null,
+    workspaceVersion: state.workspaceVersion + Number(state.currentProject?.id !== project.id),
+  })),
   // Also drops the example context: every caller (new project, blank
   // workspace, logout cleanup) means "this workspace is no longer that".
   // loadExample re-stamps its id right after calling this.
-  clearCurrentProject: () => set({ currentProject: null, currentExampleId: null }),
+  clearCurrentProject: () => set((state) => ({
+    currentProject: null,
+    currentExampleId: null,
+    workspaceVersion: state.workspaceVersion + 1,
+  })),
   setCurrentExampleId: (id) => set({ currentExampleId: id }),
   setVisibility: (next) =>
     set((s) => {
