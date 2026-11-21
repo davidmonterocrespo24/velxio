@@ -3,6 +3,7 @@
  * Each board has its own tab with serial output, input, and clear button.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -425,16 +426,16 @@ export const SerialMonitor: React.FC<{ onClose?: () => void }> = ({ onClose }) =
             style={styles.input}
             disabled={!activeBoard?.running}
           />
-          <select
+          <DropdownSelect
             value={lineEnding}
-            onChange={(e) => setLineEnding(e.target.value as typeof lineEnding)}
+            onValueChange={(value) => setLineEnding(value as typeof lineEnding)}
             style={styles.select}
           >
             <option value="none">{t('editor.serial.lineEnd.none')}</option>
             <option value="nl">{t('editor.serial.lineEnd.nl')}</option>
             <option value="cr">{t('editor.serial.lineEnd.cr')}</option>
             <option value="both">{t('editor.serial.lineEnd.both')}</option>
-          </select>
+          </DropdownSelect>
           <button onClick={handleSend} disabled={!activeBoard?.running} style={styles.sendBtn}>
             {t('editor.serial.send')}
           </button>

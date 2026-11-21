@@ -3,6 +3,7 @@
  * Rendered below the code editor when open. Similar to VS Code's output panel.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { compileErrorCount, type CompilationLog, type CompileTarget } from '../../utils/compilationLogger';
@@ -136,15 +137,15 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
         </div>
         <div style={styles.headerRight}>
           {/* Filter */}
-          <select
+          <DropdownSelect
             value={filter}
-            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            onValueChange={(value) => setFilter(value as typeof filter)}
             style={styles.filterSelect}
           >
             <option value="all">{t('editor.console.filterAll')}</option>
             <option value="errors">{t('editor.console.filterErrors')}</option>
             <option value="warnings">{t('editor.console.filterWarnings')}</option>
-          </select>
+          </DropdownSelect>
 
           {/* Autoscroll */}
           <label style={styles.checkboxLabel}>
