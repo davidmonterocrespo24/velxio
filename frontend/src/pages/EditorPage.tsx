@@ -2,7 +2,7 @@
  * Editor Page — main editor + simulator with resizable panels
  */
 
-import React, { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react';
+import React, { useRef, useState, useSyncExternalStore, useCallback, useEffect, useLayoutEffect } from 'react';
 import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, Package, PanelsLeftRight, Plus, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { startSimulation } from '../simulation/spice/start';
@@ -48,6 +48,8 @@ import { clearWorkspaceForStarter } from '../components/editor/NewProjectDialog'
 import { useAutoSaveProject } from '../hooks/useAutoSaveProject';
 import { useEditorProjectRoute } from '../hooks/useEditorProjectRoute';
 import { registerEditorCommand, runEditorCommand } from '../lib/editorCommands';
+import { WorkspaceFlash } from '../components/editor/WorkspaceFlash';
+import { getBrowserFlashSelection, subscribeBrowserFlashSelection } from '../lib/browserFlashSerial';
 import { EditorMenuBar } from '../components/editor/EditorMenuBar';
 import '../App.css';
 import '../components/editor/Workspace.css';
@@ -338,6 +340,14 @@ export const EditorPage: React.FC = () => {
     if (isMobile) setMobileView('code');
     else if (useEditorStore.getState().viewMode === 'circuit') setViewMode('code');
   }, [isMobile, setExplorerOpen, setViewMode, updatePreferences]);
+  const openFlash = useCallback(() => openWorkspaceView('flash'), [openWorkspaceView]);
+  const openFlashOutput = useCallback(() => setConsoleOpen(true), []);
+  const flashPort = useSyncExternalStore(subscribeBrowserFlashSelection, getBrowserFlashSelection, () => null);
+  const flashBoardName = useSimulatorStore((s) => {
+    if (!flashPort || flashPort.workspaceVersion !== workspaceVersion || flashPort.port.connected === false) return undefined;
+    const board = s.boards.find((item) => item.id === flashPort.boardId);
+    return board ? boardDisplayName(board) : undefined;
+  });
   const openExplorer = useCallback(() => openWorkspaceView('explorer'), [openWorkspaceView]);
 
   const selectWorkspaceView = (view: WorkspaceView) => {
@@ -739,6 +749,7 @@ export const EditorPage: React.FC = () => {
           settingsOpen={showSettings}
           openTools={{ terminal: consoleOpen, scope: oscilloscopeOpen, serial: serialMonitorOpen }}
           onSelect={selectWorkspaceView}
+          flashBoardName={flashBoardName}
           onToggleTool={toggleWorkspaceTool}
           onSettings={() => setShowSettings(true)}
         />
@@ -780,6 +791,7 @@ export const EditorPage: React.FC = () => {
               if (isMobile) setExplorerOpen(false);
             }} />}
             {sidebarView === 'libraries' && <WorkspaceLibraries />}
+            <WorkspaceFlash key={workspaceVersion} active={sidebarView === 'flash'} onOpen={openFlash} onShowOutput={openFlashOutput} />
           </aside>
           {!isMobile && (
             <div

@@ -2,7 +2,7 @@
  * Frontend client for the hardware flash endpoint.
  *
  * Wraps `POST /api/flash/upload` (SSE response) and yields parsed
- * events back to the caller. The FlashModal renders the stream
+ * events back to the caller. The Flash controls send the stream to the terminal
  * line-by-line and updates a progress bar based on the optional
  * `progress` field.
  *

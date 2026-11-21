@@ -138,6 +138,7 @@ export function WorkspaceActivityBar({
   onSelect,
   onToggleTool,
   onSettings,
+  flashBoardName,
 }: {
   view: WorkspaceView | null;
   settingsOpen: boolean;
@@ -145,8 +146,12 @@ export function WorkspaceActivityBar({
   onSelect: (view: WorkspaceView) => void;
   onToggleTool: (tool: WorkspaceTool) => void;
   onSettings: () => void;
+  flashBoardName?: string;
 }) {
   const { t } = useTranslation();
+  const flashLabel = flashBoardName
+    ? t('editor.flash.selectedBoard', 'Flash · {{board}}', { board: flashBoardName })
+    : t('editor.toolbar.flash.label', 'Flash');
   return (
     <nav
       className="workspace-activity-bar"
@@ -173,6 +178,20 @@ export function WorkspaceActivityBar({
         {tools.map(({ id }) => (
           <WorkspaceToolButton key={id} tool={id} pressed={openTools[id]} onToggle={onToggleTool} />
         ))}
+      </div>
+      <div className="workspace-activity-panel-tools">
+        <button type="button" className="workspace-activity-button workspace-activity-flash"
+          title={flashLabel} aria-label={flashLabel} aria-pressed={view === 'flash'}
+          onClick={() => onSelect('flash')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+            <path d="M12 8v7" />
+            <path d="m9 12 3 3 3-3" />
+            <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+          </svg>
+          {flashBoardName && <span className="workspace-activity-flash-dot" aria-hidden />}
+        </button>
       </div>
       <div
         className="workspace-activity-account-tools"

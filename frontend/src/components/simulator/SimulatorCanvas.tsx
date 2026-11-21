@@ -90,13 +90,10 @@ import type { ComponentMetadata } from '../../types/component-metadata';
 import type { BoardKind, BoardInstance } from '../../types/board';
 import { BOARD_KIND_FQBN, boardDisplayName } from '../../types/board';
 import { blockedByBoardGate } from '../../lib/proBoardGate';
-import { FlashModal } from './FlashModal';
 import { isTauri as isTauriRuntimeFn } from '../../desktop/tauriBridge';
 import {
-  OPEN_FLASH_EVENT,
   boardFlashSupport,
   requestFlashDialog,
-  type OpenFlashDetail,
 } from '../../lib/flashRequest';
 import { isEsp32Family } from '../../types/boardOptions';
 import { BoardOptionsModal } from './BoardOptionsModal';
@@ -573,29 +570,9 @@ export const SimulatorCanvas = ({
   // Board Options modal — id of the board whose options are being edited.
   const [boardOptionsModalFor, setBoardOptionsModalFor] = useState<string | null>(null);
   // Hardware-flash modal: set to a board id when the user picks
-  // "Flash to real board" from the board context menu. The FlashModal
-  // owns its own port-picker / progress UI; we just gate the mount.
-  const [flashModalFor, setFlashModalFor] = useState<string | null>(null);
   // Cached Tauri-runtime probe — used to gate the "Flash to real
   // board" menu item in web builds. Hooks-stable across re-renders.
   const isTauriRuntime = useRef(isTauriRuntimeFn()).current;
-  // Every way into the Flash dialog (board context menu, the toolbar button
-  // next to Run, an overlay such as the agent's chat card) arrives as one
-  // window event; this canvas is its only listener. A board that cannot be
-  // flashed here is ignored rather than opening a dialog that would fail.
-  useEffect(() => {
-    const onOpen = (ev: Event) => {
-      const detail = (ev as CustomEvent<OpenFlashDetail>).detail;
-      const st = useSimulatorStore.getState();
-      const id = detail?.boardId ?? st.activeBoardId;
-      const target = st.boards.find((b) => b.id === id);
-      if (!target || boardFlashSupport(target, isTauriRuntime).disabled) return;
-      setFlashModalFor(target.id);
-    };
-    window.addEventListener(OPEN_FLASH_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_FLASH_EVENT, onOpen);
-  }, [isTauriRuntime]);
-
   // Click vs drag detection
   const [clickStartTime, setClickStartTime] = useState<number>(0);
   const [clickStartPos, setClickStartPos] = useState({ x: 0, y: 0 });
@@ -4275,26 +4252,6 @@ export const SimulatorCanvas = ({
               </div>
             </>
           );
-        })()}
-
-      {/* Hardware flash modal — opens from board context menu when
-          the user has compiled the sketch + clicks "Flash to real
-          board". Present in Tauri, and on the web when the pro
-          overlay installed a Web Serial flasher for the board kind. */}
-      {flashModalFor &&
-        (() => {
-          const b = boards.find((x) => x.id === flashModalFor);
-          if (!b) return null;
-          const fqbn = BOARD_KIND_FQBN[b.boardKind];
-          if (!fqbn) {
-            // The board kind has no arduino-cli FQBN (e.g. some
-            // virtual boards or chips). Auto-close — surface a toast
-            // via the existing menu-event system if/when that exists.
-            console.warn('[flash] no FQBN for board kind', b.boardKind);
-            setFlashModalFor(null);
-            return null;
-          }
-          return <FlashModal board={b} fqbn={fqbn} onClose={() => setFlashModalFor(null)} />;
         })()}
 
       {/* Board Options modal (ESP32 only) */}

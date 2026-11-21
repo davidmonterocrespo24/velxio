@@ -1,22 +1,8 @@
-/**
- * "Flash to real board": who may offer it, and one way to open it.
- *
- * The Flash dialog belongs to SimulatorCanvas (it owns the board list and
- * the modal mount). Until now the only way in was the board's context menu,
- * which is why almost nobody found it. Three places ask for it now, the
- * context menu, the toolbar button next to Run and any overlay that wants to
- * offer it (the pro agent's chat card), so the question "can this board be
- * flashed here?" and the request to open the dialog live here, once.
- *
- * Opening goes through a window event instead of a callback prop: the
- * callers sit in unrelated trees (toolbar, canvas, an overlay root mounted
- * outside React's tree), and an event needs no wiring between them. The
- * canvas is the single listener. The `source` travels with it so an overlay
- * can count where people come from without any of these callers knowing.
- */
+/** Flash capabilities and the shared event that opens the workspace Flash view. */
 import { isTauri } from '../desktop/tauriBridge';
 import { boardKindHasUf2 } from '../utils/uf2Download';
 import { webFlashAvailable, webFlashMpyAvailable } from './proWebFlash';
+export { getBrowserFlashSerial } from './browserFlashSerial';
 
 export const OPEN_FLASH_EVENT = 'velxio-open-flash';
 
@@ -29,11 +15,17 @@ export interface OpenFlashDetail {
   source: FlashRequestSource;
 }
 
+export function isFlashPortSelectionCancelled(error: unknown, choosingPort = false): boolean {
+  if (!(error instanceof Error) || error.name === 'NotInBootloaderError') return false;
+  return (choosingPort && (error.name === 'NotFoundError' || error.name === 'AbortError')) ||
+    /no (?:port|device) selected/i.test(error.message);
+}
+
 /**
  * How a board reaches real hardware from this build, or why it cannot.
  *
  *  - `desktop`: the Tauri shell (arduino-cli over USB), every family.
- *  - `web`:     a Web Serial / WebUSB flasher installed by an overlay.
+ *  - `web`:     a built-in or overlay browser flasher.
  *  - `uf2`:     RP2040 / RP2350 without a flasher: the dialog compiles and
  *               hands over the .uf2 for the board's BOOTSEL drive.
  *  - null:      no route in this build or browser.
@@ -73,7 +65,7 @@ export function boardFlashSupport(
   return { route, micropython, disabled };
 }
 
-/** Ask the canvas to open the Flash dialog. Safe to call anywhere. */
+/** Ask the editor to open the Flash sidebar. Safe to call anywhere. */
 export function requestFlashDialog(
   boardId: string | null,
   source: FlashRequestSource,

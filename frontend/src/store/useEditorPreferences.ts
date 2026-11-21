@@ -15,7 +15,7 @@ const preferences = z.object({
   languageIndentation: z.object({ cpp: indentation.optional(), python: indentation.optional() }),
   autoSave: z.boolean(),
   sidebarWidth: z.number().int().min(100).max(500),
-  sidebarView: z.enum(['explorer', 'search', 'libraries']),
+  sidebarView: z.enum(['explorer', 'search', 'libraries', 'flash']),
 });
 
 export type Indentation = z.infer<typeof indentation>;
