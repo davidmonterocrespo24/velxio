@@ -20,6 +20,7 @@
  * undo, colors and running-state gating.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -670,18 +671,18 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
                   return (
                     <div key={prop.name} className="pid-row">
                       <label className="pid-row-label">{prop.description || prop.name}</label>
-                      <select
+                      <DropdownSelect
                         className="pid-select"
                         value={current}
                         disabled={readOnly}
-                        onChange={(e) => onPropertyChange?.(componentId, prop.name, e.target.value)}
+                        onValueChange={(value) => onPropertyChange?.(componentId, prop.name, value)}
                       >
                         {prop.options.map((opt: string) => (
                           <option key={opt} value={opt}>
                             {opt.toUpperCase()}
                           </option>
                         ))}
-                      </select>
+                      </DropdownSelect>
                     </div>
                   );
                 }

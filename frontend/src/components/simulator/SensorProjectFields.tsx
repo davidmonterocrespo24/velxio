@@ -18,6 +18,7 @@
  * value stored is the same number the slider would store.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useEffect, useState } from 'react';
 import { nearestOption, type SensorProjectField } from '../../simulation/sensorControlConfig';
 
@@ -114,12 +115,12 @@ const SensorProjectFieldRow: React.FC<{
         <label className="pid-row-label" htmlFor={inputId}>
           {label}
         </label>
-        <select
+        <DropdownSelect
           id={inputId}
           className="pid-select pid-sensor-select"
           value={current ? String(current.value) : ''}
-          onChange={(e) => {
-            const v = Number(e.target.value);
+          onValueChange={(value) => {
+            const v = Number(value);
             if (Number.isFinite(v)) onChange(field, store(v));
           }}
         >
@@ -128,7 +129,7 @@ const SensorProjectFieldRow: React.FC<{
               {o.label}
             </option>
           ))}
-        </select>
+        </DropdownSelect>
       </div>
     );
   }

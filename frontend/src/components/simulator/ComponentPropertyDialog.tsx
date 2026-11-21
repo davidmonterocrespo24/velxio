@@ -5,6 +5,7 @@
  * Shows pin roles, rotation, and delete options.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ComponentMetadata } from '../../types/component-metadata';
@@ -267,17 +268,17 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
                 return (
                   <div key={prop.name} className="property-edit-row">
                     <label className="property-edit-label">{prop.description || prop.name}</label>
-                    <select
+                    <DropdownSelect
                       className="property-edit-select"
                       value={current}
-                      onChange={(e) => onPropertyChange?.(componentId, prop.name, e.target.value)}
+                      onValueChange={(value) => onPropertyChange?.(componentId, prop.name, value)}
                     >
                       {prop.options.map((opt: string) => (
                         <option key={opt} value={opt}>
                           {opt.toUpperCase()}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 );
               }
