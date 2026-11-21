@@ -66,7 +66,7 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
     if (autoscroll && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [logs, autoscroll]);
+  }, [logs, autoscroll, filter]);
 
   // Auto-switch to "Errors" filter when a new batch of logs arrives with
   // errors — but reset to "all" the moment a fresh compile clears/shrinks
@@ -86,8 +86,11 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
     if (logs.length === prevLogsLenRef.current) return;
     const newLogs = logs.slice(prevLogsLenRef.current);
     prevLogsLenRef.current = logs.length;
-    const hasNewErrors = newLogs.some((l) => l.type === 'error');
-    if (hasNewErrors) setFilter('errors');
+    if (newLogs.some((log) => log.source === 'flash')) {
+      setFilter('all');
+    } else if (newLogs.some((log) => log.type === 'error')) {
+      setFilter('errors');
+    }
   }, [logs]);
 
   const filteredLogs = logs.filter((log) => {

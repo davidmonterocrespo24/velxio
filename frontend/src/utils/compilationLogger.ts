@@ -20,6 +20,7 @@ export interface CompilationLog {
   timestamp: Date;
   type: 'info' | 'success' | 'error' | 'warning' | 'core-install';
   message: string;
+  source?: 'flash';
   target?: CompileTarget;
   location?: BuildLocation;
 }
