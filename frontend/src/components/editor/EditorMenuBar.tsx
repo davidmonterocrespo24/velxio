@@ -24,7 +24,6 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { useEditorStore, type EditorViewMode } from '../../store/useEditorStore';
 import { useEditorPreferences } from '../../store/useEditorPreferences';
-import { EditorAccountMenuItems } from './EditorAccountMenuItems';
 import {
   getEditingPane,
   hasEditorCommand,
@@ -69,7 +68,7 @@ export const EditorMenuBar: React.FC<{
   onSetMobileView: (mode: 'code' | 'circuit') => void;
 }> = ({ mobileView, onSetMobileView }) => {
   const { t } = useTranslation();
-  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'account' | 'help' | null>(null);
+  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'run' | 'help' | null>(null);
   const [compact, setCompact] = useState(() => matchMedia('(max-width: 1280px)').matches);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -220,14 +219,15 @@ export const EditorMenuBar: React.FC<{
     },
   ];
 
-  // File Explorer is rendered as a checkmarked row in the View block below
-  // (it reads the store), not as a plain command here.
-  const viewItems: Item[] = [
+  const runItems: Item[] = [
     { kind: 'command', id: 'sim.compile', label: t('editor.menu.compile', 'Compile'), shortcut: 'Ctrl+B' },
     { kind: 'command', id: 'sim.run', label: t('editor.menu.run', 'Run') },
     { kind: 'command', id: 'sim.stop', label: t('editor.toolbar.stop', 'Stop') },
     { kind: 'command', id: 'sim.resetBoard', label: t('editor.toolbar.reset', 'Reset') },
-    { kind: 'separator' },
+  ];
+
+  // File Explorer is rendered as a checkmarked row in the View block below.
+  const viewItems: Item[] = [
     { kind: 'command', id: 'view.toggleConsole', label: t('editor.menu.toggleConsole', 'Output Console') },
     { kind: 'command', id: 'view.settings', label: t('editor.settings.title', 'Settings') },
     { kind: 'separator' },
@@ -279,7 +279,7 @@ export const EditorMenuBar: React.FC<{
     { key: 'file', label: t('editor.menu.file', 'File'), items: fileItems },
     { key: 'edit', label: t('editor.menu.edit', 'Edit'), items: editItems },
     { key: 'view', label: t('editor.menu.view', 'View'), items: viewItems },
-    { key: 'account', label: t('editor.menu.account', 'Account'), items: [] },
+    { key: 'run', label: t('editor.menu.run', 'Run'), items: runItems },
     { key: 'help', label: t('editor.menu.help', 'Help'), items: helpItems },
   ] as const;
 
@@ -380,7 +380,6 @@ export const EditorMenuBar: React.FC<{
               <div className="emb-separator" />
             </>
           )}
-          {which === 'account' && <EditorAccountMenuItems onClose={() => setOpen(null)} />}
           {which === 'edit' && (
             <>
               <button
@@ -431,15 +430,7 @@ export const EditorMenuBar: React.FC<{
   );
 
   return (
-    <div
-      className="editor-menubar"
-      ref={rootRef}
-      onBlur={(event) => {
-        if (open === 'account' && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
-          setOpen(null);
-        }
-      }}
-    >
+    <div className="editor-menubar" ref={rootRef}>
       {compact ? menu(menus.find((entry) => entry.key === open) ?? menus[0]) : menus.map(menu)}
     </div>
   );
