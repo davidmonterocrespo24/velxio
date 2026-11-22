@@ -26,6 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   initialConditionCommands,
+  tranCommand,
   type SolverPort,
   type SolveAnalysis,
   type SolveResult,
@@ -254,7 +255,7 @@ export class NgSpiceNodeAdapter implements SolverPort {
       switch (analysis.kind) {
         case 'op': return 'op';
         case 'tran':
-          return `tran ${analysis.step} ${analysis.stop}${analysis.start ? ` ${analysis.start}` : ''}${analysis.uic ? ' uic' : ''}`;
+          return tranCommand(analysis);
         case 'ac': return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;
       }
     })();

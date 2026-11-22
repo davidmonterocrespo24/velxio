@@ -19,6 +19,7 @@
 import { NgSpiceInteractive } from '../wasm/NgSpiceInteractive';
 import {
   initialConditionCommands,
+  tranCommand,
   type SolverPort,
   type SolveAnalysis,
   type SolveResult,
@@ -35,8 +36,8 @@ function analysisToCommand(analysis: SolveAnalysis): string {
     case 'op':
       return 'op';
     case 'tran':
-      // ngspice tran syntax: `tran <tstep> <tstop> [<tstart> [<tmax>] [uic]]`
-      return `tran ${analysis.step} ${analysis.stop}${analysis.start ? ` ${analysis.start}` : ''}${analysis.uic ? ' uic' : ''}`;
+      // ngspice tran syntax: `tran <tstep> <tstop> [<tstart> [<tmax>]] [uic]`
+      return tranCommand(analysis);
     case 'ac':
       // ngspice ac syntax: `ac <sweep> <points> <fstart> <fstop>`
       return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;

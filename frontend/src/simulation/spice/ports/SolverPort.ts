@@ -36,8 +36,31 @@ export type SolveAnalysis =
        */
       uic?: boolean;
       ic?: ReadonlyArray<{ device: string; value: number }>;
+      /**
+       * ngspice's TMAX, the longest step the run may take. Without it the
+       * longest step is `step` (TSTEP), which also sets the first one, a
+       * hundredth of it. A run that must resolve a coil's kick at its start,
+       * microseconds long, and then a motor's shaft over seconds asks for a
+       * fine `step` and a coarse `maxStep` (velxio/velxio-prod#164).
+       */
+      maxStep?: string;
     }
   | { kind: 'ac'; sweep: 'dec' | 'oct' | 'lin'; points: number; fstart: number; fstop: number };
+
+/**
+ * The ngspice command of a transient: `tran <tstep> <tstop> [<tstart>
+ * [<tmax>]] [uic]` (ngspice manual, chapter 15). A TMAX needs a TSTART before
+ * it, 0 when the run stores from its start.
+ */
+export function tranCommand(analysis: Extract<SolveAnalysis, { kind: 'tran' }>): string {
+  const start = analysis.start ?? (analysis.maxStep ? '0' : undefined);
+  return (
+    `tran ${analysis.step} ${analysis.stop}` +
+    (start ? ` ${start}` : '') +
+    (analysis.maxStep ? ` ${analysis.maxStep}` : '') +
+    (analysis.uic ? ' uic' : '')
+  );
+}
 
 /** The `alter` commands that set a transient's initial conditions. */
 export function initialConditionCommands(analysis: SolveAnalysis): string[] {

@@ -584,6 +584,16 @@ export class CircuitSimulationService {
   /** Output points of a step's capture: ngspice steps finer where the
    *  circuit moves fast, so this only sets how coarse the settled tail is. */
   private static readonly STEP_POINTS = 2000;
+  /**
+   * The TSTEP of a step whose deck holds an inductor, with the run's coarse
+   * step as its TMAX instead: ngspice's first step is a hundredth of TSTEP.
+   * A coil cut off at the edge kicks for a microsecond or so (a DC motor's
+   * winding into its own losses or a MOSFET's avalanche). With the coarse
+   * step as TSTEP, a run sized for a motor's shaft (24.6 s) started with a
+   * 123 us step that stepped over the kick: no spike on the drain, and the
+   * coil's energy gone (velxio/velxio-prod#164).
+   */
+  private static readonly STEP_KICK_S = 1e-6;
 
   // ── The pads: the MCU-driven V-sources of the loaded deck ────────────
   //
@@ -1072,12 +1082,20 @@ export class CircuitSimulationService {
       Math.max(CircuitSimulationService.STEP_MIN_S, 2 * ctx.settleS),
     );
     const started = nowMs();
+    // A coil's kick at the edge wants a fine first step (STEP_KICK_S).
+    const coil = ctx.reactive.some((d) => d.kind === 'L');
     let result: SolveResult | null = null;
     try {
       for (let run = 1; ; run++) {
+        const coarse = stop / CircuitSimulationService.STEP_POINTS;
         const analysis: SolveAnalysis = {
           kind: 'tran',
-          step: (stop / CircuitSimulationService.STEP_POINTS).toExponential(3),
+          ...(coil
+            ? {
+                step: Math.min(CircuitSimulationService.STEP_KICK_S, coarse).toExponential(3),
+                maxStep: coarse.toExponential(3),
+              }
+            : { step: coarse.toExponential(3) }),
           stop: stop.toExponential(3),
           uic: true,
           ic,
