@@ -488,9 +488,27 @@ export function bjtBreakdownSubckt(vceo: number): { name: string; text: string }
 }
 
 /**
+ * The 0 V sources a transistor's mapper puts in its leads, by the keys the
+ * solve gives their currents (lower case, as `branchCurrents` and a
+ * capture's `branches` hold them): the collector's or the drain's (`main`),
+ * and a bipolar transistor's base (`control`). Each reads the current INTO
+ * the part, so the circuit check and the runtime monitor see what the part
+ * carries and dissipates against its ratings (velxio/velxio-prod#138). A
+ * MOSFET's gate draws nothing at DC and has none.
+ */
+export function transistorSenseKeys(id: string, bipolar: boolean): { main: string; control: string | null } {
+  return bipolar
+    ? { main: `v_${id}_c`.toLowerCase(), control: `v_${id}_b`.toLowerCase() }
+    : { main: `v_${id}_d`.toLowerCase(), control: null };
+}
+
+/**
  * A bipolar transistor: its Gummel-Poon card, `model` (the `.model` line,
  * named `name`), and its C-E breakdown at the rated `vceo`
- * (bjtBreakdownSubckt): from C to E on an NPN, from E to C on a PNP.
+ * (bjtBreakdownSubckt): from C to E on an NPN, from E to C on a PNP. The
+ * collector and the base reach the card through their sense sources
+ * (transistorSenseKeys), the breakdown included: its current is collector
+ * current.
  */
 function bjtEmission(
   comp: ComponentForSpice,
@@ -502,10 +520,39 @@ function bjtEmission(
   const e = netLookup('E');
   if (!c || !b || !e) return null;
   const clamp = bjtBreakdownSubckt(part.vceo);
-  const [hi, lo] = part.pnp ? [e, c] : [c, e];
+  const ci = `${comp.id}_ci`;
+  const bi = `${comp.id}_bi`;
+  const [hi, lo] = part.pnp ? [e, ci] : [ci, e];
   return {
-    cards: [`Q_${comp.id} ${c} ${b} ${e} ${part.name}`, `X_${comp.id}_bv ${hi} ${lo} ${clamp.name}`],
+    cards: [
+      `V_${comp.id}_c ${c} ${ci} DC 0`,
+      `V_${comp.id}_b ${b} ${bi} DC 0`,
+      `Q_${comp.id} ${ci} ${bi} ${e} ${part.name}`,
+      `X_${comp.id}_bv ${hi} ${lo} ${clamp.name}`,
+    ],
     modelsUsed: new Set([part.model, clamp.text]),
+  };
+}
+
+/**
+ * A MOSFET: its VDMOS card, `model` (named `name`), with the drain reaching
+ * it through its sense source (transistorSenseKeys). The body diode, its
+ * avalanche (BV) included, is inside the card, so its current is drain
+ * current.
+ */
+function mosfetEmission(
+  comp: ComponentForSpice,
+  netLookup: NetLookup,
+  part: { name: string; model: string },
+): SpiceEmission | null {
+  const d = netLookup('D');
+  const g = netLookup('G');
+  const s = netLookup('S');
+  if (!d || !g || !s) return null;
+  const di = `${comp.id}_di`;
+  return {
+    cards: [`V_${comp.id}_d ${d} ${di} DC 0`, `M_${comp.id} ${di} ${g} ${s} ${part.name}`],
+    modelsUsed: new Set([part.model]),
   };
 }
 
@@ -789,50 +836,32 @@ const MAPPERS: Record<string, Mapper> = {
   // V(BR)DSS: 60 V for the 2N7000 (onsemi), 100 V for the IRF540 and the
   // IRF9540 (Vishay). The drain now clamps there, as a real part's does
   // before it dissipates the energy or fails (velxio/velxio-prod#110).
-  'mosfet-2n7000': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} M2N7000`],
-      modelsUsed: new Set([
+  'mosfet-2n7000': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'M2N7000',
+      model:
         '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)',
-      ]),
-    };
-  },
-  'mosfet-irf540': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MIRF540`],
-      modelsUsed: new Set([
-        // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
-        // smaller die). Close enough for the canvas.
+    }),
+  'mosfet-irf540': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MIRF540',
+      // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
+      // smaller die). Close enough for the canvas.
+      model:
         '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p BV=100 Vds=100 Ron=160m Qg=26n)',
-      ]),
-    };
-  },
+    }),
 
   // MOSFETs — PMOS (P-channel: Vto is negative, V_GS < Vto turns device ON)
-  'mosfet-irf9540': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MIRF9540`],
-      modelsUsed: new Set([
-        // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
-        // identical pin-out and similar Vto; BV gives it the IRF9540's own
-        // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
-        // engine to flip polarity.
+  'mosfet-irf9540': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MIRF9540',
+      // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
+      // identical pin-out and similar Vto; BV gives it the IRF9540's own
+      // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
+      // engine to flip polarity.
+      model:
         '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p BV=100 Vds=-100 Ron=.5 Qg=44n)',
-      ]),
-    };
-  },
+    }),
   // FQP27P06: a VDMOS card fitted to Fairchild's datasheet (Rev. A2), as no
   // library carries one (velxio/velxio-prod#136). RDS(on) 54 mohm at VGS
   // -10 V, ID -13.5 A (0.055 typ, 0.07 max); VGS(th) -2.66 V at 250 uA
@@ -842,18 +871,12 @@ const MAPPERS: Record<string, Mapper> = {
   // gate swing turns it well on (0.11 ohm at 1 A); 3.3 V barely (0.5 A at
   // VDS -1 V). The Level-1 placeholder it replaces was 32.6 ohm at -5 V and
   // 10.7 ohm at -10 V (200 times the datasheet), with no breakdown.
-  'mosfet-fqp27p06': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MFQP27P06`],
-      modelsUsed: new Set([
+  'mosfet-fqp27p06': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MFQP27P06',
+      model:
         '.model MFQP27P06 VDMOS(pchan Vto=-2.9 Kp=6 Rd=20m Rs=10m Rb=10m lambda=.01 Cgdmax=1n Cgdmin=.1n Cgs=1n Cjo=2n BV=60 Vds=-60 Ron=55m Qg=33n)',
-      ]),
-    };
-  },
+    }),
 
   // The ideal op-amp: a VCVS of gain 10^6 (very high, not infinite: in a
   // closed loop it makes no difference you can read), no input current, no
