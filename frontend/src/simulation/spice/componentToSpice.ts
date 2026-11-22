@@ -59,6 +59,18 @@ export interface SpiceEmission {
    * (MapperContext.operated), so a sealed-in relay stays in.
    */
   memory?: { control: string; on: number; off: number };
+  /**
+   * The part's C and L cards hold a state that a PWM pad's two levels,
+   * weighted by the duty, describe as well as its mean does not: a DC
+   * motor's winding settles in a fraction of a PWM period, and its shaft
+   * averages the periods, as the duty-weighted mean of the two levels' speeds
+   * does. Such a part leaves a pad that drives it, straight or through a
+   * switch, a static pad (BuildNetlistResult.staticPads): at its mean, the
+   * pad would hold an IRF540's gate at 2.5 V, which passes nothing, where
+   * the real gate is fully on half of each period (velxio/velxio-prod#152,
+   * #164). Without it, any C or L card makes the pad's network reactive.
+   */
+  pwmStatic?: boolean;
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -1910,6 +1922,31 @@ const PERIODIC_SOURCES: Readonly<Record<string, (comp: ComponentForSpice) => num
 export function periodicSourceHz(comp: ComponentForSpice): number | null {
   const hz = PERIODIC_SOURCES[comp.metadataId]?.(comp) ?? null;
   return hz !== null && Number.isFinite(hz) && hz > 0 ? hz : null;
+}
+
+/**
+ * Parts whose own cards store energy, a C or an L inside the part (a DC
+ * motor's winding and shaft), with how long the part takes to settle after
+ * its pads change, in seconds. pickDynamicAnalysis (storeAdapter) treats such
+ * a part like a capacitor or an inductor on the canvas: with a driven pin the
+ * deck is a step response, and a pad edge runs the step the circuit takes
+ * from where it was (velxio/velxio-prod#153). Without this, the part's
+ * state was never carried from one pad state to the next: a motor switched
+ * off sent no current through a flyback diode and coasted like one braked
+ * (velxio/velxio-prod#164). A part registers itself, as with
+ * registerSpiceMapper.
+ */
+const SETTLING_PARTS: Record<string, (comp: ComponentForSpice) => number> = {};
+
+export function registerPartSettleTime(id: string, settleS: (comp: ComponentForSpice) => number): void {
+  SETTLING_PARTS[id] = settleS;
+}
+
+/** How long a part that stores energy in its own cards takes to settle, in
+ *  seconds, or null for any other part. */
+export function partSettleS(comp: ComponentForSpice): number | null {
+  const s = SETTLING_PARTS[comp.metadataId]?.(comp) ?? null;
+  return s !== null && Number.isFinite(s) && s > 0 ? s : null;
 }
 
 export function componentToSpice(

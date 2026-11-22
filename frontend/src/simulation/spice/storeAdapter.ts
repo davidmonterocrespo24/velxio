@@ -19,7 +19,7 @@ import { analogScopeWantsTransient } from './analogScopeFeed';
 import type { BoardKind } from '../../types/board';
 import { boardPinGroupFor } from './boardPinGroups';
 import { parseValueWithUnits } from './valueParser';
-import { PASSIVE_PRESETS, periodicSourceHz } from './componentToSpice';
+import { PASSIVE_PRESETS, partSettleS, periodicSourceHz } from './componentToSpice';
 
 // Shortest transient window, for a very high-frequency source.
 const MIN_TRAN_STOP_S = 5e-3;
@@ -162,7 +162,8 @@ function estimateLargestTau(components: StoreSnapshot['components']): number {
  *      generator that is not on DC, a power supply in AC mode)
  *   2. Any capacitor or inductor wired to an MCU pin that's actively driving
  *      (digital HIGH or PWM) — step-response circuits like RC charging from
- *      a `digitalWrite(HIGH)` or PWM-charged caps
+ *      a `digitalWrite(HIGH)` or PWM-charged caps — or a part that stores
+ *      energy in its own cards (partSettleS: a DC motor)
  */
 function pickDynamicAnalysis(
   components: StoreSnapshot['components'],
@@ -211,15 +212,24 @@ function pickDynamicAnalysis(
   const hasReactive = components.some(
     (c) => CAPACITOR_META.has(c.metadataId) || INDUCTOR_META.has(c.metadataId),
   );
-  if (hasReactive && hasDrivenPin(boards)) {
-    const tau = estimateLargestTau(components);
+  // A part that stores energy in its own cards (a DC motor's winding and
+  // shaft) is one too, and says how long it settles (partSettleS).
+  let partSettle = 0;
+  for (const c of components) partSettle = Math.max(partSettle, partSettleS(c) ?? 0);
+  if ((hasReactive || partSettle > 0) && hasDrivenPin(boards)) {
+    const tau = hasReactive ? estimateLargestTau(components) : 0;
     const rawStop = tau > 0 ? 5 * tau : MIN_TRAN_STOP_S;
     const stopS = Math.min(MAX_TRAN_STOP_S, Math.max(MIN_TRAN_STOP_S, rawStop));
     return {
       kind: 'tran',
       step: STEP_RESPONSE_STEP_S.toExponential(3),
+      // The deck's own window, which a rebuild runs from the operating point,
+      // is sized by the canvas's capacitors and inductors; a settling part
+      // only lengthens the step it runs from a pad edge (velxio/velxio-prod
+      // #164): a motor's shaft would cost every rebuild a 0.4 s capture that
+      // stays flat.
       stop: stopS.toExponential(3),
-      settleS: Math.max(MIN_TRAN_STOP_S, rawStop),
+      settleS: Math.max(MIN_TRAN_STOP_S, rawStop, partSettle),
     };
   }
 

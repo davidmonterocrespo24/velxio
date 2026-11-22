@@ -340,7 +340,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
     partNets.push({
       nets: [...joined],
-      reactive: emission.cards.some((c) => /^[CL]/i.test(c)),
+      // A part whose C and L a PWM's split states describe (a DC motor's
+      // winding and shaft) leaves its pads static (SpiceEmission.pwmStatic).
+      reactive: !emission.pwmStatic && emission.cards.some((c) => /^[CL]/i.test(c)),
     });
   }
 
