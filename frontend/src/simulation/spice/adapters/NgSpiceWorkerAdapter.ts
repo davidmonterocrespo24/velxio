@@ -17,12 +17,13 @@
  * before returning a `SolveResult`.
  */
 import { NgSpiceInteractive } from '../wasm/NgSpiceInteractive';
-import type {
-  SolverPort,
-  SolveAnalysis,
-  SolveResult,
-  SolveOptions,
-  SolveVector,
+import {
+  initialConditionCommands,
+  type SolverPort,
+  type SolveAnalysis,
+  type SolveResult,
+  type SolveOptions,
+  type SolveVector,
 } from '../ports/SolverPort';
 
 /**
@@ -35,9 +36,7 @@ function analysisToCommand(analysis: SolveAnalysis): string {
       return 'op';
     case 'tran':
       // ngspice tran syntax: `tran <tstep> <tstop> [<tstart> [<tmax>] [uic]]`
-      return analysis.start
-        ? `tran ${analysis.step} ${analysis.stop} ${analysis.start}`
-        : `tran ${analysis.step} ${analysis.stop}`;
+      return `tran ${analysis.step} ${analysis.stop}${analysis.start ? ` ${analysis.start}` : ''}${analysis.uic ? ' uic' : ''}`;
     case 'ac':
       // ngspice ac syntax: `ac <sweep> <points> <fstart> <fstop>`
       return `ac ${analysis.sweep} ${analysis.points} ${analysis.fstart} ${analysis.fstop}`;
@@ -95,6 +94,8 @@ export class NgSpiceWorkerAdapter implements SolverPort {
     await this.init();
     const t0 = performance.now();
 
+    const ics = initialConditionCommands(analysis);
+    if (ics.length > 0) await this.client.commands(ics);
     const cmdResult = await this.client.command(analysisToCommand(analysis));
     const commandMs = performance.now() - t0;
     // ngspice writes convergence warnings to stderr; surface them so
@@ -144,7 +145,7 @@ export class NgSpiceWorkerAdapter implements SolverPort {
     await this.init();
     const t0 = performance.now();
     const res = await this.client.solveState(
-      changes.map((c) => `alter ${c.source} dc ${c.volts}`),
+      [...changes.map((c) => `alter ${c.source} dc ${c.volts}`), ...initialConditionCommands(analysis)],
       analysisToCommand(analysis),
       options.vectorsOfInterest,
     );

@@ -27,6 +27,7 @@ function cleanSerialText(text: string) {
     .replace(/\x1b[=>]/g, '')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
 }
+import { baudLabelTitle } from '../../store/serialWire';
 
 // Short labels for tabs
 const BOARD_SHORT_LABEL: Partial<Record<string, string>> = {

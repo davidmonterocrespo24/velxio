@@ -1,10 +1,8 @@
 import { PartSimulationRegistry } from './PartSimulationRegistry';
 import { useElectricalStore } from '../../store/useElectricalStore';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { emitPropertyChange, firstBoardPin } from './partUtils';
 import { releaseLineGap, requestLine } from '../line/requestLine';
-import { LED_UNLIMITED_AMPS } from '../ledLimits';
-import { readSpan, spanStats } from '../spice/waveformStats';
+import { LED_VISIBLE_BRIGHTNESS, reportLedBurnout, reportLedFault, solvedLedBranch } from './ledBranch';
 
 /**
  * Boards whose digital inputs are driven from the SPICE solve
@@ -164,70 +162,6 @@ PartSimulationRegistry.register('dip-switch-8', {
  * LED stays off regardless of the anode state.
  */
 
-// A real 5mm indicator LED survives ~20 mA (datasheet absolute max ~30 mA).
-// A sustained forward current well above that destroys it within moments —
-// the classic "LED straight across a 9V battery with no series resistor"
-// mistake. A professional simulator must model that, not glow happily. Once
-// the solved forward current crosses LED_BURNOUT_A the LED burns out (goes
-// dark and stays dark for the rest of the run) and a fault message is shown.
-//
-// The burnout threshold (100 mA) sits well above both the 20 mA rating AND the
-// ~100-150 mA a high-power / RGB channel may legitimately draw, so a merely
-// bright LED is never falsely destroyed — only a missing or grossly-undersized
-// series resistor trips it. The pre-flight circuitVerifier already warns at the
-// 20 mA datasheet limit BEFORE the run starts (the primary, professional
-// check); this runtime burnout is the last-resort net for users who click
-// "Run Anyway" past that warning, or for faults that only appear mid-run.
-const LED_RATED_MAX_A = 0.02;
-const LED_BURNOUT_A = 0.1;
-
-/** Surface a circuit fault for an LED — console + a UI event the toolbar shows. */
-function reportLedFault(componentId: string, kind: string, message: string): void {
-  console.warn(`[led] ${componentId}: ${message}`);
-  // Mark it destroyed in the shared burnt set (P4): the canvas renders it
-  // charred + a smoke badge, and the solver opens it — same treatment as a
-  // burnt resistor/capacitor. (The LED also goes dark via its own update.)
-  try {
-    useSimulatorStore.getState().markComponentBurnt?.(componentId);
-  } catch {
-    /* store unavailable (test env) — ignore */
-  }
-  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent('velxio-circuit-fault', {
-          detail: { componentId, kind, message },
-        }),
-      );
-    } catch {
-      /* CustomEvent unavailable (test env) — the console.warn is enough */
-    }
-  }
-}
-
-function reportLedBurnout(componentId: string, current: number): void {
-  // Past LED_UNLIMITED_AMPS the solved current says only that nothing limits
-  // it (an ideal source across a bare LED solves at trillions of amperes), so
-  // the figure is left out, as the pre-run check does (velxio/velxio-prod#21).
-  if (current > LED_UNLIMITED_AMPS) {
-    reportLedFault(
-      componentId,
-      'led-burnout',
-      `LED burnt out — nothing limits its current (no series resistor), so a real LED ` +
-        `burns out at once. Add a series resistor between the supply and the LED.`,
-    );
-    return;
-  }
-  const mA = current * 1000;
-  const amount = mA >= 1000 ? `${(mA / 1000).toFixed(1)} A` : `${mA.toFixed(0)} mA`;
-  reportLedFault(
-    componentId,
-    'led-burnout',
-    `LED burnt out — it drew ${amount}, far above its ~20 mA limit. ` +
-      `Add a series resistor between the supply and the LED.`,
-  );
-}
-
 PartSimulationRegistry.register('led', {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId, getPinResolver) => {
     const pinManager = (simulator as any).pinManager;
@@ -273,76 +207,24 @@ PartSimulationRegistry.register('led', {
       // source in series with the diode (`V_<componentId>_sense`) so
       // ngspice exposes the branch current as
       // `i(v_<componentId>_sense)` → stored under the
-      // `v_<componentId>_sense` key in `branchCurrents`.
-      //
-      // For `.tran` circuits the scalar current is the last sample
-      // (≈ steady state). If a full waveform is available we instead
-      // compute the period-averaged |I|, which is what a real observer
-      // sees — a 50 Hz rectified LED does not flicker to the eye, it
-      // glows at ~Ipeak/π of its peak brightness. Averaged over TIME, on
-      // the span a meter reads (whole periods, after settling): a plain
-      // average of ngspice's points, crowded after every edge, lit an
-      // RC-coupled LED at 20 % for a 1 % mean current (velxio/velxio-prod#106).
+      // `v_<componentId>_sense` key in `branchCurrents`. solvedLedBranch
+      // reads it the way an eye sees it (period-averaged waveforms,
+      // time-weighted publish windows; see ledBranch.ts).
       //
       // Digital fallback (anodeHigh && cathodeLow) is only used if
       // the electrical store can't be loaded at all — e.g. in a
       // Node-side test harness that stubs it out.
-      const { branchCurrents, timeWaveforms, window } = useElectricalStore.getState();
-      const iKey = `v_${componentId}_sense`;
-      let raw = branchCurrents[iKey];
-      if (timeWaveforms) {
-        const samples = timeWaveforms.branches.get(iKey);
-        if (samples && samples.length > 0) {
-          const span = readSpan(timeWaveforms.time, timeWaveforms.period);
-          const stats = span ? spanStats(timeWaveforms.time, samples, span) : null;
-          raw = stats ? stats.meanAbs : Math.abs(samples[samples.length - 1]!);
-        }
-      }
-      // A publish window is the circuit over the last few tens of
-      // milliseconds as the pad states it went through, each with its
-      // share. The eye integrates light over about that long, so the LED
-      // shows the time-weighted brightness of those states: a 50 ms pulse
-      // is on for 50 ms, a software PWM glows at its duty, a scanned LED
-      // bar lights every LED for exactly as long as its pin was high
-      // (before this, only the state the solver happened to land on was
-      // ever shown, and a pulse shorter than a solve plus a gap was lost).
-      // The burnout check uses the highest current of the window: a short
-      // overcurrent is still an overcurrent.
-      let windowBrightness: number | undefined;
-      let windowPeak: number | undefined;
-      if (!timeWaveforms && window && window.states.length > 1) {
-        let seen = false;
-        let mean = 0;
-        let peak = 0;
-        for (const st of window.states) {
-          const i = st.branchCurrents[iKey];
-          if (i === undefined) continue;
-          if (!Number.isFinite(i)) {
-            peak = i;
-            seen = true;
-            break;
-          }
-          seen = true;
-          const a = Math.abs(i);
-          if (a > peak) peak = a;
-          mean += st.weight * Math.min(1, a / LED_RATED_MAX_A);
-        }
-        if (seen) {
-          windowBrightness = mean;
-          windowPeak = peak;
-          raw = peak;
-        }
-      }
+      const reading = solvedLedBranch(`v_${componentId}_sense`);
       // A non-finite branch current (NaN / Infinity) that ngspice actually
       // returned is NOT "no data" — it means the solver could not find a
       // stable operating point for this LED. In practice that is the textbook
       // degenerate circuit: a forward-biased diode with no series resistor (a
       // near-short across the supply). Burn the LED out rather than silently
       // glowing via the digital fallback (the old behaviour, which let the
-      // "missing 220Ω" mistake light up as if it were fine). `raw === undefined`
+      // "missing 220Ω" mistake light up as if it were fine). No reading at all
       // is different — that is the engine warming up, handled by the HOLD /
       // digital-fallback path below.
-      if (raw !== undefined && !Number.isFinite(raw)) {
+      if (reading.kind === 'unstable') {
         burnt = true;
         el.value = false;
         el.brightness = 0;
@@ -355,28 +237,24 @@ PartSimulationRegistry.register('led', {
         );
         return;
       }
-      if (raw !== undefined && Number.isFinite(raw)) {
-        const current = Math.abs(raw);
-        // Destructive overcurrent → burn the LED out (and tell the user why).
-        // Latches; the top-of-update guard keeps it dark from here on.
-        if (current > LED_BURNOUT_A) {
-          burnt = true;
-          el.value = false;
-          el.brightness = 0;
-          reportLedBurnout(componentId, current);
-          return;
-        }
-        lastSpiceBrightness =
-          windowBrightness !== undefined && windowPeak !== undefined
-            ? windowBrightness
-            : Math.min(1, current / LED_RATED_MAX_A);
+      // Destructive overcurrent → burn the LED out (and tell the user why).
+      // Latches; the top-of-update guard keeps it dark from here on.
+      if (reading.kind === 'over') {
+        burnt = true;
+        el.value = false;
+        el.brightness = 0;
+        reportLedBurnout(componentId, reading.current);
+        return;
+      }
+      if (reading.kind === 'lit') {
+        lastSpiceBrightness = reading.brightness;
         lastSpiceTs = Date.now();
-        el.value = windowBrightness !== undefined ? windowBrightness > 1e-3 : current > 1e-6;
+        el.value = reading.on;
         el.brightness = lastSpiceBrightness;
         return;
       }
       if (Date.now() - lastSpiceTs < HOLD_MS && lastSpiceTs > 0 && Number.isFinite(lastSpiceBrightness)) {
-        el.value = lastSpiceBrightness > 1e-3;
+        el.value = lastSpiceBrightness > LED_VISIBLE_BRIGHTNESS;
         el.brightness = lastSpiceBrightness;
         return;
       }

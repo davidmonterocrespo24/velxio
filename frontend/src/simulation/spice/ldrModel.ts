@@ -104,3 +104,48 @@ export function ldrModuleAoVolts(
 ): number {
   return (vcc * ldrOhms) / (ldrOhms + fixedOhms);
 }
+
+/**
+ * The module's comparator, its LM393, against the threshold its potentiometer
+ * sets: DO is HIGH while AO is above the threshold, in the dark, and LOW in
+ * the light, when the module's DO LED lights. Wokwi's element takes the
+ * threshold as `threshold`, in volts, 2.5 by default (about 100 lux with its
+ * own LDR): "The digital output ("DO") pin goes high when it's dark, and low
+ * when there's light" (docs.wokwi.com/parts/wokwi-photoresistor-sensor).
+ */
+export const LDR_MODULE_DO_THRESHOLD_V = 2.5;
+
+/** The module's DO threshold in volts: `threshold`, or 2.5 V. */
+export function ldrModuleDoThreshold(properties: Record<string, unknown>): number {
+  return parseValueWithUnits(properties.threshold, LDR_MODULE_DO_THRESHOLD_V);
+}
+
+/** Whether the module drives DO HIGH (dark) with AO at `aoVolts` (see above). */
+export function ldrModuleDoHigh(aoVolts: number, thresholdVolts: number): boolean {
+  return aoVolts > thresholdVolts;
+}
+
+/**
+ * DO's output stage. The LM393's output is an open collector, and the board
+ * pulls it up to VCC through 10 kΩ (R3 on the common schematic), so DO is
+ * HIGH only through that resistor: a load on DO in the dark gets what the
+ * pull-up gives (about 0.4 mA into a transistor's base, 0.3 mA through a bare
+ * LED), never the supply itself.
+ */
+export const LDR_MODULE_DO_PULLUP_OHMS = 10_000;
+
+/**
+ * The LM393's output transistor while it sinks, as I = I_SINK · tanh(V / knee):
+ * 3.9 mA at 0.25 V and 14.5 mA at 1.5 V against the datasheet's typical
+ * "saturation voltage 250 mV at I_SINK ≤ 4 mA" and "output sink current
+ * 16 mA at V_O ≤ 1.5 V" (LM393, National / TI). A pin driven HIGH against it
+ * in the light meets about 16 mA, not a short.
+ */
+export const LDR_MODULE_DO_SINK_AMPS = 0.016;
+export const LDR_MODULE_DO_SINK_KNEE_VOLTS = 1;
+
+/**
+ * The output transistor while it is off: 1 GΩ, 5 nA at 5 V, between the
+ * datasheet's 0.1 nA typical and 1 µA at most ("output leakage current").
+ */
+export const LDR_MODULE_DO_OFF_OHMS = 1e9;

@@ -8,6 +8,7 @@
  */
 import type { SolverPort } from './ports/SolverPort';
 import { NgSpiceWorkerAdapter } from './adapters/NgSpiceWorkerAdapter';
+import { transientShortfall } from './transientShortfall';
 
 export interface ComplexNumber {
   real: number;
@@ -157,15 +158,18 @@ export async function runNetlist(netlist: string): Promise<SpiceResult> {
     if (!mergedVectors.has(ngKey)) mergedVectors.set(ngKey, v);
   }
 
+  const timeAxis =
+    analysis.kind === 'tran' ? mergedVectors.get('time')?.real ?? new Float64Array(0) : new Float64Array(0);
+  // A transient ngspice gave up on still hands back its samples: say where it
+  // stopped, as the live service does, or a caller reads the instant it
+  // stopped at as the end of the run (velxio/velxio-prod#145).
+  const shortfall = transientShortfall(analysis, timeAxis);
   const result = {
     analysis,
     vectors: mergedVectors,
-    timeAxis:
-      analysis.kind === 'tran'
-        ? mergedVectors.get('time')?.real ?? new Float64Array(0)
-        : new Float64Array(0),
+    timeAxis,
     solveMs: 0,
-    warnings: (solved.warnings ?? []) as string[],
+    warnings: [...((solved.warnings ?? []) as string[]), ...(shortfall ? [shortfall] : [])],
   };
   const rawVecs = all.rawNames;
 

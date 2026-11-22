@@ -37,6 +37,10 @@ RP2 = {'BC': 0, 'DE': 1, 'HL': 2, 'AF': 3}   # used by PUSH/POP
 CC  = {'NZ': 0, 'Z': 1, 'NC': 2, 'C': 3, 'PO': 4, 'PE': 5, 'P': 6, 'M': 7}
 CC_REL = {'NZ': 0, 'Z': 1, 'NC': 2, 'C': 3}  # 8-bit-displacement relative branches
 
+# The Z80 addresses 64 KB: no location, and no byte, lies past it.
+ADDRESS_SPACE = 0x10000
+PAST_END = "the program does not fit the 64 KB address space (0x0000-0xFFFF)"
+
 
 def _atom(tok: str, labels: dict[str, int]) -> int:
     tok = tok.strip()
@@ -72,6 +76,15 @@ def parse_imm(tok: str, labels: dict[str, int]) -> int:
 def imm16(val: int) -> tuple[int, int]:
     val &= 0xFFFF
     return (val & 0xFF, (val >> 8) & 0xFF)
+
+
+def _org_target(args: list[str], labels: dict[str, int]) -> int:
+    if not args:
+        raise ValueError("ORG needs an address")
+    new = parse_imm(args[0], labels)
+    if not 0 <= new <= ADDRESS_SPACE:  # 0x10000: the end, where nothing more goes
+        raise ValueError(f"ORG {args[0][:40]} is outside the 64 KB address space (0x0000-0xFFFF)")
+    return new
 
 
 # ── Parsing helpers ───────────────────────────────────────────────────────
@@ -503,12 +516,14 @@ def assemble(src: str) -> bytes:
     sizes: list[int] = []
     pc = 0
     for (lbl, mnem, args) in lines:
+        if pc > ADDRESS_SPACE:
+            raise ValueError(PAST_END)
         if lbl:
             labels[lbl] = pc
         if mnem is None:
             sizes.append(0); continue
         if mnem == 'ORG':
-            new_pc = parse_imm(args[0], labels)
+            new_pc = _org_target(args, labels)
             if new_pc < pc:
                 raise ValueError(f"ORG cannot move backwards (at {pc} -> {new_pc})")
             sizes.append(new_pc - pc); pc = new_pc; continue
@@ -524,17 +539,21 @@ def assemble(src: str) -> bytes:
             sizes.append(2 * len(args)); pc += 2 * len(args); continue
         sz = _size_for(mnem, args)
         sizes.append(sz); pc += sz
+    if pc > ADDRESS_SPACE:
+        raise ValueError(PAST_END)
 
     # ── Pass 2: emit ──────────────────────────────────────────────────────
     out = bytearray()
     pc = 0
     for (i, (lbl, mnem, args)) in enumerate(lines):
+        if pc > ADDRESS_SPACE:
+            raise ValueError(PAST_END)
         if mnem is None:
             continue
         if mnem == 'ORG':
-            tgt = parse_imm(args[0], labels)
-            while pc < tgt:
-                out.append(0x00); pc += 1
+            tgt = _org_target(args, labels)
+            if tgt > pc:
+                out.extend(bytes(tgt - pc)); pc = tgt
             continue
         if mnem == 'DB':
             for a in args:
@@ -565,6 +584,8 @@ def assemble(src: str) -> bytes:
         else:
             data = enc(args, labels)
         out.extend(data); pc += len(data)
+    if pc > ADDRESS_SPACE:
+        raise ValueError(PAST_END)
 
     return bytes(out)
 

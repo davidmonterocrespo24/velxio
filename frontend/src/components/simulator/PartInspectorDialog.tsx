@@ -63,7 +63,7 @@ import {
 } from '../../utils/pinInspectorLayout';
 import { showConfirmDialog } from '../../store/useMessageDialogStore';
 import { scalableSvgThumbnail } from '../../utils/svgThumbnail';
-import { fieldIsRead, valueFieldOf, readoutOf } from '../../simulation/spice/valueFields';
+import { elementValueOf, fieldIsRead, valueFieldOf, readoutOf } from '../../simulation/spice/valueFields';
 // The keybind chips and the SD Card panel keep their existing class names and
 // styles — both live in ComponentPropertyDialog.css, imported here so the old
 // dialog file can eventually retire without orphaning them.
@@ -242,7 +242,9 @@ export const PartInspectorDialog: React.FC<PartInspectorDialogProps> = ({
           ...componentProperties,
         })) {
           try {
-            (made as any)[k] = v;
+            // The drawing shows the number the simulation uses (a resistor's
+            // bands for "4k7"), as on the canvas (velxio/velxio-prod#230).
+            (made as any)[k] = elementValueOf(metaRef.current.id, k, v);
           } catch {
             /* read-only prop on some element - ignore */
           }

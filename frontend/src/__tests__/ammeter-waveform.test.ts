@@ -72,10 +72,12 @@ describe('readAmmeter with .tran timeWaveforms', () => {
       expect(reading.ac.rms).toBeLessThan(idealRmsA * 1.15);
       expect(reading.ac.peak).toBeGreaterThan(idealPeakA * 0.9);
       expect(reading.ac.peak).toBeLessThan(idealPeakA * 1.1);
+      expect(reading.ac.peakToPeak).toBeGreaterThan(2 * idealPeakA * 0.9);
+      expect(reading.ac.peakToPeak).toBeLessThan(2 * idealPeakA * 1.1);
       expect(Math.abs(reading.ac.dc)).toBeLessThan(idealRmsA * 0.25);
 
       expect(reading.ac.rmsDisplay).toMatch(/^RMS /);
-      expect(reading.ac.peakDisplay).toMatch(/^pk /);
+      expect(reading.ac.peakToPeakDisplay).toMatch(/^pp /);
       expect(reading.ac.dcDisplay).toMatch(/^DC /);
       // mA formatting (0.001 ≤ |i| < 1).
       expect(reading.ac.rmsDisplay).toMatch(/mA/);

@@ -39,6 +39,14 @@ export interface ValueField {
    * in `in`, or is not in `notIn`. Absent: the field is always read.
    */
   readIn?: { prop: string; default: string; in?: readonly string[]; notIn?: readonly string[] };
+  /**
+   * The part's drawing shows this field, and its element reads the number
+   * itself: wokwi-resistor draws its colour bands from parseFloat(value), so
+   * the field's text "4k7" drew the bands of 4 ohms and "1M" those of 1 ohm
+   * (velxio/velxio-prod#230). Such a field reaches the element as the number
+   * the simulation uses (elementValueOf), never as the text.
+   */
+  drawn?: boolean;
 }
 
 const field = (
@@ -47,12 +55,14 @@ const field = (
   unit: ValueUnit,
   fallback: number,
   readIn?: ValueField['readIn'],
+  drawn?: boolean,
 ): ValueField => ({
   prop,
   label,
   unit,
   fallback,
   ...(readIn ? { readIn } : {}),
+  ...(drawn ? { drawn } : {}),
 });
 
 /** The power supply's modes, as its mapper reads them (componentToSpice). */
@@ -60,7 +70,7 @@ const SUPPLY_AC_ONLY = { prop: 'mode', default: 'dc', in: ['ac'] } as const;
 /** The generator's waveforms: DC emits only the offset. */
 const GENERATOR_NOT_DC = { prop: 'waveform', default: 'sine', notIn: ['dc'] } as const;
 
-const RESISTOR = [field('value', 'resistance', 'Ω', 1000)];
+const RESISTOR = [field('value', 'resistance', 'Ω', 1000, undefined, true)];
 const CAPACITOR = [field('value', 'capacitance', 'F', 1e-6)];
 const INDUCTOR = [field('value', 'inductance', 'H', 1e-3)];
 
@@ -84,6 +94,8 @@ const FIELDS: Readonly<Record<string, readonly ValueField[]>> = {
   photoresistor: [
     field('dark', 'dark resistance', 'Ω', 1_000_000),
     field('pullup', 'pull-up resistance', 'Ω', 10_000),
+    // The module's DO comparator (ldrModel, LDR_MODULE_DO_THRESHOLD_V).
+    field('threshold', 'DO threshold', 'V', 2.5),
   ],
   'power-supply': [
     field('voltage', 'voltage', 'V', 5),
@@ -128,6 +140,21 @@ export function readValueField(comp: PartLike, prop: string): number {
   const parsed = parseValue(comp.properties[prop]);
   if (parsed.ok) return parsed.value;
   return f ? f.fallback : NaN;
+}
+
+/**
+ * What a part's element is given for one of its properties. A number field
+ * the drawing shows (`drawn`) gets the number the simulation uses, written
+ * out plainly: "4700" for "4k7", and the field's fallback for a text that is
+ * not a value, which is what the inspector says the simulation runs. So the
+ * colour bands and the netlist agree. Every other property passes as it is,
+ * and the project keeps the text the user typed.
+ */
+export function elementValueOf(metadataId: string, prop: string, raw: unknown): unknown {
+  const f = valueFieldOf(metadataId, prop);
+  if (!f?.drawn) return raw;
+  const parsed = parseValue(raw);
+  return String(parsed.ok ? parsed.value : f.fallback);
 }
 
 /**

@@ -101,7 +101,7 @@ const BOARD_DESCRIPTIONS: Record<BoardKind, string> = {
   'raspberry-pi-3': 'ARM64 Cortex-A53 quad-core, Linux/Python (QEMU)',
   'raspberry-pi-4': 'ARM64 Cortex-A72 quad-core, Linux/Python (QEMU)',
   'raspberry-pi-5': 'ARM64 Cortex-A76 quad-core + RP1 I/O, Linux/Python (QEMU)',
-  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 38 GPIO (QEMU)',
+  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 34 GPIO (QEMU)',
   'esp32-devkit-c-v4': 'ESP32 DevKit C V4, official Espressif (QEMU)',
   'esp32-cam': 'ESP32 + 2MP camera, microSD (QEMU)',
   'wemos-lolin32-lite': 'Compact ESP32, LiPo battery support (QEMU)',

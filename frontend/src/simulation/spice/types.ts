@@ -112,11 +112,30 @@ export type AnalysisMode =
        */
       settle?: boolean;
       /**
+       * The step, in `step`'s form, that the window's and the start-up's
+       * budgets of steps are counted in, when `step` is finer than it for the
+       * integration's sake alone: a deck that can resonate runs at a
+       * hundredth of its fastest period instead of a twentieth
+       * (velxio/velxio-prod#121), and its window and start-up last as long
+       * as any other deck's. Absent: `step`.
+       */
+      budgetStep?: string;
+      /**
        * ngspice's TSTART: the run is computed from t = 0 but stored from here
        * on. The time axis the readers get (TimeWaveforms) starts at 0 anyway:
        * the service takes `start` off it.
        */
       start?: string;
+      /**
+       * For a step response (a capacitor or an inductor and a driven pad, no
+       * moving source): about how long the circuit takes to settle, five of
+       * its largest R*C or L/R, unclamped. The deck's own capture is clamped
+       * to MAX_TRAN_STOP_S; a step the circuit service runs from a carried
+       * state starts at twice this, and runs longer while the circuit has
+       * not settled: an estimate, short of a coil's own series resistor or
+       * of resistors in series (velxio/velxio-prod#153).
+       */
+      settleS?: number;
     }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 
@@ -198,6 +217,19 @@ export interface TimeWaveforms {
    * (readSpan).
    */
   period?: number;
+  /**
+   * Present on a step response the circuit service ran from the state the
+   * circuit was in when its pads changed (ElectricalSnapshot.stepWaveforms):
+   * the capture is what the circuit does from that moment on, once. Its
+   * t = 0 is `wallMs` (performance.now()) and, for each board listed in
+   * `guestMs`, that board's own clock in milliseconds; past its last sample
+   * the circuit is at the operating point the snapshot's scalar fields hold.
+   * A reader samples it at the time since then (the ADC hooks), never modulo
+   * its length, which turned a charge curve into a sawtooth. Absent: the
+   * capture repeats (a periodic source, a scope window), or it is a flat
+   * operating point (velxio/velxio-prod#153).
+   */
+  oneShot?: { wallMs: number; guestMs?: Record<string, number> };
 }
 
 /** Cooked solve results exposed to UI layers. */

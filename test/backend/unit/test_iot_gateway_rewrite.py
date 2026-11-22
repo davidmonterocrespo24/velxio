@@ -90,15 +90,18 @@ def test_an_empty_body_is_passed_through():
 
 
 def test_status_and_headers_survive():
+    # The headers a page is given (see test_iot_gateway_headers.py for the
+    # ones it is not) come through the injection with the status.
     r = Response(
         content="<html><head></head></html>",
         status_code=418,
         media_type="text/html",
-        headers={"x-board": "esp32"},
+        headers={"cache-control": "no-cache", "etag": '"v1"'},
     )
     out = _rewrite_html(r, PREFIX)
     assert out.status_code == 418
-    assert out.headers["x-board"] == "esp32"
+    assert out.headers["cache-control"] == "no-cache"
+    assert out.headers["etag"] == '"v1"'
 
 
 def test_content_length_is_recomputed_not_inherited():

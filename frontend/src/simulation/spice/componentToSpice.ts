@@ -18,8 +18,19 @@ import { isAuxRailNet } from './boardPinGroups';
 import { LM358_SUBCKT } from './models/lm358Subckt';
 import { getChipDrivenPins } from '../customChips/chipPinDrives';
 import { HC14_VT_NEG_FRACTION, HC14_VT_POS_FRACTION } from '../LogicFamilies';
-import { ldrModuleFixedOhms, ldrParams, ldrResistance } from './ldrModel';
+import {
+  LDR_MODULE_DO_OFF_OHMS,
+  LDR_MODULE_DO_PULLUP_OHMS,
+  LDR_MODULE_DO_SINK_AMPS,
+  LDR_MODULE_DO_SINK_KNEE_VOLTS,
+  ldrModuleAoVolts,
+  ldrModuleDoThreshold,
+  ldrModuleFixedOhms,
+  ldrParams,
+  ldrResistance,
+} from './ldrModel';
 import { flagProperty } from '../../utils/flagProperty';
+import { RGB_LED_CHANNELS, rgbLedCommon, rgbLedSenseSource, type RgbLedChannel } from '../rgbLed';
 
 export interface SpiceEmission {
   /** One or more netlist lines (without trailing newline). */
@@ -114,6 +125,14 @@ function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
 }
 
+/** A time for a card at 12 significant digits (0.0005 - 1e-9 prints 0.000499999). */
+function spiceNumber(v: number): string {
+  return String(Number(v.toPrecision(12)));
+}
+
+/** The rise and fall of the signal generator's square wave (PULSE TR and TF). */
+const SQUARE_EDGE_S = 1e-9;
+
 function twoPin(
   comp: ComponentForSpice,
   netLookup: NetLookup,
@@ -159,6 +178,14 @@ function emitInductor(
     modelsUsed: new Set(),
   };
 }
+
+/**
+ * The resistance of an open switch contact (a button not pressed, a slide
+ * switch's unselected leg). A real open contact conducts nothing; this keeps
+ * the node in the matrix. NetlistBuilder counts no resistance this large as a
+ * DC path when it looks for floating nets (velxio/velxio-prod#192).
+ */
+export const OPEN_CONTACT_OHMS = 1e9;
 
 // ── Bench power supply (constant voltage / constant current) ─────────────
 /** Output resistance of the supply in constant-voltage mode. */
@@ -346,6 +373,18 @@ export function relayCoilOf(metadataId: string): RelayCoil | null {
 /** Colours already reported as missing from LED_MODELS (one warning each). */
 const unknownLedColours = new Set<string>();
 
+// The three dies of an RGB LED, fitted to the Young Sun YSL-R596CR3G4B5C-C10
+// (the common-cathode RGB LED SparkFun sells as COM-00105): VF at IF = 20 mA is
+// 2.0 V red, 3.2 V green and 3.2 V blue (typ; 1.8-2.2 / 3.0-3.4 / 3.0-3.4 V).
+// An RGB LED's green die is InGaN like its blue one, a volt above a single
+// green (GaP) LED. Forward voltage at 10 mA / 20 mA: red 1.97 / 2.00 V, green
+// and blue 3.16 / 3.20 V (Is held at ngspice's 1e-28 floor, see above).
+const RGB_LED_DIES: Record<RgbLedChannel['pin'], { name: string; Is: string; n: string }> = {
+  R: { name: 'LED_RGB_RED', Is: '3.5e-22', n: '1.7' },
+  G: { name: 'LED_RGB_GREEN', Is: '1e-28', n: '2.043' },
+  B: { name: 'LED_RGB_BLUE', Is: '1e-28', n: '2.043' },
+};
+
 // ── NTC β-model ────────────────────────────────────────────────────────────
 function ntcResistance(Tc: number, R0 = 10_000, T0 = 298.15, beta = 3950): number {
   const T = Tc + 273.15;
@@ -480,6 +519,37 @@ const MAPPERS: Record<string, Mapper> = {
       ],
       modelsUsed: new Set([`.model ${model.name} D(Is=${model.Is} N=${model.n})`]),
     };
+  },
+
+  // RGB LED: three LED dies joined at COM, each with its own 0 V sense source
+  // (`i(v_<id>_r_sense)` ...), which the part reads for each colour's
+  // brightness and the Run check for each colour's current (velxio/velxio-prod
+  // #174). Which end COM is comes from the `common` property; 'auto' reads it
+  // off the wiring: COM on a supply rail is a common anode, anywhere else a
+  // common cathode (see simulation/rgbLed.ts). A colour whose pin is not wired
+  // gets no card, and without COM nothing can conduct.
+  'rgb-led': (comp, netLookup) => {
+    const com = netLookup('COM');
+    if (!com) return null;
+    const common = rgbLedCommon(comp.properties);
+    const anode = common === 'anode' || (common === 'auto' && (com === 'vcc_rail' || isAuxRailNet(com)));
+    const cards: string[] = [];
+    const modelsUsed = new Set<string>();
+    for (const ch of RGB_LED_CHANNELS) {
+      const net = netLookup(ch.pin);
+      if (!net) continue;
+      const die = RGB_LED_DIES[ch.pin];
+      const tag = ch.pin.toLowerCase();
+      const mid = `${comp.id}_${tag}_mid`;
+      const sense = rgbLedSenseSource(comp.id, ch.pin);
+      if (anode) {
+        cards.push(`${sense} ${com} ${mid} DC 0`, `D_${comp.id}_${tag} ${mid} ${net} ${die.name}`);
+      } else {
+        cards.push(`${sense} ${net} ${mid} DC 0`, `D_${comp.id}_${tag} ${mid} ${com} ${die.name}`);
+      }
+      modelsUsed.add(`.model ${die.name} D(Is=${die.Is} N=${die.n})`);
+    }
+    return cards.length > 0 ? { cards, modelsUsed } : null;
   },
 
   // Generic diode
@@ -727,19 +797,19 @@ const MAPPERS: Record<string, Mapper> = {
   // are the board's logic rail and ground, the only supply an op-amp had
   // before the pins existed, so a circuit drawn then solves as it always did.
   //
-  // Input impedance is 1 MΩ differential + a 10 MΩ common-mode load so the
-  // netlist never has floating inputs during DC.
+  // The behavioural parts load each input with their `rin` to ground. The
+  // LM358's inputs are its macro-model's: the input transistors' bias
+  // current, tens of nanoamperes, and 100 MOhm between the inputs.
   'opamp-lm358': (comp, netLookup) => {
     const inp = netLookup('IN+');
     const inn = netLookup('IN-');
     const out = netLookup('OUT');
     if (!inp || !inn || !out) return null;
-    // Phase 1d #9: real LM358 macro-model subckt enabled now that
-    // Phase 1d #2 added `.options gmin=1e-10 gminsteps=20 sourcesteps=10
-    // method=gear maxord=2` to both adapters — the subckt converges
-    // where the prior `.op` skipped. Real slew rate (~0.5 V/µs), GBW
-    // (~1 MHz), and rail headroom come for free vs the prior behavioural
-    // B-source clamp. Its supply pins take the part's V+ / V- nets.
+    // The LM358 macro-model subcircuit (National's, with the local changes
+    // models/lm358Subckt.ts lists): slew rate (~0.5 V/µs), GBW (~1 MHz) and
+    // the output's swing to each rail come with it, where the behavioural
+    // B-source clamp it replaced had none. Its supply pins take the part's
+    // V+ / V- nets.
     const { vp, vm } = opampSupply(netLookup);
     return {
       cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
@@ -948,6 +1018,14 @@ const MAPPERS: Record<string, Mapper> = {
   //   offset:    V DC                       (default 0)
   // Emits a SIN / PULSE / DC source accordingly. For square waves uses
   // PULSE with ~1ns edges; for DC, amplitude is ignored.
+  //
+  // PULSE holds V2 for PW only, after a rise of TR and before a fall of TF,
+  // so between its 50 % points a pulse lasts TR/2 + PW + TF/2. A square wave
+  // is high for half its period there: PW = T/2 - (TR + TF)/2. PW = T/2 kept
+  // it high for T/2 + 1 ns, and two generators whose edges should meet (1 kHz
+  // falling as 2 kHz rises) overlapped by 1 ns: an AND gate fed by them put
+  // out a 1.2 ns spike at 0.5, 1.5, 2.5 ... ms (velxio/velxio-prod#149). The
+  // edges stay 1 ns up to 250 MHz and take a quarter of the period above.
   'signal-generator': (comp, netLookup) => {
     const sig = netLookup('SIG') ?? netLookup('+');
     const gnd = netLookup('GND') ?? netLookup('-') ?? netLookup('−');
@@ -961,10 +1039,12 @@ const MAPPERS: Record<string, Mapper> = {
     let source: string;
     if (waveform === 'square') {
       const period = 1 / freq;
-      const pw = period / 2;
+      const edgeS = Math.min(SQUARE_EDGE_S, period / 4);
+      const edge = edgeS === SQUARE_EDGE_S ? '1n' : spiceNumber(edgeS);
+      const pw = spiceNumber(Math.max(0, period / 2 - edgeS));
       const vlo = off - amp;
       const vhi = off + amp;
-      source = `PULSE(${vlo} ${vhi} 0 1n 1n ${pw} ${period})`;
+      source = `PULSE(${vlo} ${vhi} 0 ${edge} ${edge} ${pw} ${period})`;
     } else if (waveform === 'dc') {
       source = `DC ${off}`;
     } else {
@@ -1004,7 +1084,7 @@ const MAPPERS: Record<string, Mapper> = {
       // Read `pressed` the way the canvas draws it (flagProperty): typed as
       // text, "false" is released. Boolean("false") closed the switch under a
       // button drawn released (velxio/velxio-prod#151).
-      const R = flagProperty(comp.properties.pressed) ? 0.01 : 1e9;
+      const R = flagProperty(comp.properties.pressed) ? 0.01 : OPEN_CONTACT_OHMS;
       cards.push(`R_${comp.id}_sw ${term1} ${term2} ${R}`);
     }
     return cards.length ? { cards, modelsUsed: new Set() } : null;
@@ -1026,8 +1106,8 @@ const MAPPERS: Record<string, Mapper> = {
     const pin3 = netLookup('3');
     const toPin3 = comp.properties.value === 1 || comp.properties.value === '1';
     const cards: string[] = [];
-    if (pin1) cards.push(`R_${comp.id}_1 ${common} ${pin1} ${toPin3 ? 1e9 : 0.01}`);
-    if (pin3) cards.push(`R_${comp.id}_3 ${common} ${pin3} ${toPin3 ? 0.01 : 1e9}`);
+    if (pin1) cards.push(`R_${comp.id}_1 ${common} ${pin1} ${toPin3 ? OPEN_CONTACT_OHMS : 0.01}`);
+    if (pin3) cards.push(`R_${comp.id}_3 ${common} ${pin3} ${toPin3 ? 0.01 : OPEN_CONTACT_OHMS}`);
     return cards.length ? { cards, modelsUsed: new Set() } : null;
   },
 
@@ -1654,8 +1734,8 @@ const MAPPERS: Record<string, Mapper> = {
   // Photoresistor sensor — 4-pin breakout module (VCC, GND, DO, AO), the
   // LM393 light-sensor board. Internal topology, as on the real board and in
   // Wokwi: a fixed 10k from VCC to AO and the LDR from AO to GND. Brighter
-  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). The DO
-  // (comparator) pin is not modelled.
+  // light → LDR resistance drops → V_AO FALLS (ldrModel.ts). DO is the
+  // comparator's open-collector output with its 10k pull-up (below).
   // The LDR is a GL5528 by default, R = rl10 · (10 / lux)^gamma up to its
   // dark resistance (ldrModel.ts, velxio/velxio-prod#103).
   photoresistor: (comp, netLookup) => {
@@ -1674,16 +1754,46 @@ const MAPPERS: Record<string, Mapper> = {
     const vcc = netLookup('VCC');
     const gnd = netLookup('GND');
     const ao = netLookup('AO');
+    const doNet = netLookup('DO');
+    const fixedOhms = ldrModuleFixedOhms(comp.properties);
+    const cards: string[] = [];
     if (ao && (vcc || gnd)) {
       // The legs that are wired: a module missing its GND reads VCC through
       // the fixed resistor, one missing its VCC reads 0 V through the LDR. The
       // solve then owns AO in every wiring that powers the module at all
       // (velxio/velxio-prod#188: the part no longer writes it).
-      const cards: string[] = [];
       if (gnd) cards.push(`R_${comp.id}_ldr ${ao} ${gnd} ${Rldr}`);
-      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${ldrModuleFixedOhms(comp.properties)}`);
-      return { cards, modelsUsed: new Set() };
+      if (vcc) cards.push(`R_${comp.id}_pull ${vcc} ${ao} ${fixedOhms}`);
     }
+    // DO, the comparator (ldrModel: ldrModuleDoHigh), as the board builds it
+    // (velxio/velxio-prod#227): the LM393's open-collector output, which sinks
+    // DO to GND while the divider sits under the threshold (in the light), and
+    // a 10k pull-up to VCC, which alone drives DO in the dark. Before, DO was
+    // driven by nothing, and then by an ideal source that pushed 0.41 A into a
+    // transistor base and left no solution beside a pin the sketch drives.
+    // The comparator reads the divider's own level, unloaded, which is AO on
+    // the board unless something loads AO: so DO wired back onto AO gives the
+    // level the board settles at when powered at that light, not a latch the
+    // solve cannot place. DO on a rail has nothing to drive. Declared as a net
+    // the module powers, so the pre-run check leaves the board pin reading it
+    // an input (NetlistBuilder, partPoweredNets); the off transistor's leakage
+    // is what ties DO to the module's GND among its own cards, as poweredBy
+    // asks (the sink, a current, holds no voltage).
+    let supplies: string[] | undefined;
+    if (doNet && vcc && doNet !== vcc && doNet !== gnd) {
+      cards.push(`R_${comp.id}_dopull ${vcc} ${doNet} ${LDR_MODULE_DO_PULLUP_OHMS}`);
+      if (gnd) {
+        const rel = (n: string) => (gnd === '0' ? `V(${n})` : `(V(${n})-V(${gnd}))`);
+        const level = `${ldrModuleAoVolts(1, Rldr, fixedOhms).toPrecision(6)}*${rel(vcc)}`;
+        const sinking = `0.5*(1+tanh((${ldrModuleDoThreshold(comp.properties)}-${level})/${LOGIC_EDGE_VOLTS}))`;
+        cards.push(
+          `B_${comp.id}_do ${doNet} ${gnd} I = ${LDR_MODULE_DO_SINK_AMPS}*${sinking}*tanh(${rel(doNet)}/${LDR_MODULE_DO_SINK_KNEE_VOLTS})`,
+          `R_${comp.id}_dooff ${doNet} ${gnd} ${LDR_MODULE_DO_OFF_OHMS}`,
+        );
+        supplies = [doNet];
+      }
+    }
+    if (cards.length > 0) return { cards, modelsUsed: new Set(), ...(supplies ? { supplies } : {}) };
     // Legacy / discrete LDR fallbacks: emit bare 2-terminal resistor.
     const pins = twoPin(comp, netLookup, 'LDR1', 'LDR2') ?? twoPin(comp, netLookup, '1', '2');
     if (!pins) return null;

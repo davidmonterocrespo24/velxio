@@ -12,8 +12,9 @@
  *     resistors.
  *   - **Resistor overpower**: I²·R > rated power (1/4 W default). Catches
  *     load resistors that would burn out in the real world.
- *   - **Disconnected indicator**: an LED that's fully wired but carries
- *     zero current — usually means the user forgot a switch / power tie.
+ *   - **Starved or backwards LED**: an LED that conducts forward but far
+ *     too little to light (megaohms in series), or one wired backwards. An
+ *     LED the circuit simply holds off is not a fault and is not reported.
  *
  * Results are split into `errors` (severe enough to block the user with a
  * confirm dialog) and `warnings` (non-blocking — the simulation can proceed).
@@ -31,8 +32,12 @@ import { breadboardGroupKey, hasInternalNets, isBreadboard } from '../../utils/b
 import type { BuildNetlistInput, ElectricalSolveResult } from '../spice/types';
 import { readValueField, unreadableValues } from '../spice/valueFields';
 import { formatQuantity } from '../spice/valueParser';
+import { readSpan, spanStats, subtract } from '../spice/waveformStats';
 import { COMPONENT_RATINGS } from './componentRatings';
 import { LED_UNLIMITED_AMPS } from '../ledLimits';
+import { isRatedResistor, resistorPowerRating } from '../parts/resistorRating';
+import { RGB_LED_CHANNELS, rgbLedSenseKey, rgbLedSenseSource } from '../rgbLed';
+import { gpioOverVoltages } from './gpioOverVoltage';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -51,6 +56,7 @@ export type WarningCode =
   | 'shorted-component'
   | 'resistor-overpower'
   | 'led-no-current'
+  | 'led-reverse-biased'
   | 'unsupported-sensor'
   | 'unpowered-net'
   | 'no-return-path'
@@ -89,6 +95,14 @@ export interface VerifierConfig {
   /** Below this the LED is "wired but dark" — surface a hint. */
   ledMinAmps: number;
   /**
+   * Below this forward current an LED is simply off, as the circuit asks:
+   * junction leakage behind a comparator's low output or an off transistor
+   * (picoamperes), or an open contact's 1 GOhm (a few nA at the voltages
+   * circuits use). Between this and ledMinAmps it conducts but is starved by
+   * a resistance of megaohms in series (velxio/velxio-prod#134).
+   */
+  ledOffAmps: number;
+  /**
    * `${boardId}:${pinName}` of the board sources the PRE-FLIGHT invented
    * (every wired GPIO assumed HIGH). Only set by verifyCircuitFromStore; the
    * live solver never synthesizes. Used to word a conflict honestly.
@@ -102,7 +116,17 @@ export const DEFAULT_CONFIG: VerifierConfig = {
   ledMaxAmps: 0.02,
   resistorMaxWatts: 0.25,
   ledMinAmps: 1e-6,
+  ledOffAmps: 1e-7,
 };
+
+/**
+ * An LED backwards by more than this is reported as wired backwards: past
+ * any leakage a forward circuit leaves across a dark LED (an LM358's low
+ * output sits a few millivolts from ground).
+ */
+const LED_REVERSE_HINT_VOLTS = 0.5;
+/** The reverse voltage most LEDs are rated to withstand (5 mm LED datasheets: VR = 5 V). */
+const LED_REVERSE_RATED_VOLTS = 5;
 
 // ── What joins a supply pin to ground (power-short) ──────────────────────
 
@@ -950,6 +974,16 @@ export async function verifyCircuit(
 
   const branchCurrents = solve.branchCurrents;
 
+  // ── What a moving source does over its window ─────────────────────────
+  // The checks below read an operating point: the circuit at t = 0, where a
+  // sine with no offset is 0 V and a square wave sits at its low level. A
+  // 12 V-peak sine across 100 ohm, 0.72 W on average and 2.9x a 1/4 W
+  // rating, passed as 0 W, and an AC supply's current limit was never met
+  // (velxio/velxio-prod#117). A circuit whose source moves on its own is
+  // also solved over the transient window the live simulation runs, and the
+  // source, resistor and capacitor checks take what it does there.
+  const moving = await transientReadings(input);
+
   // ── Rule 1: short circuit / power source overload ──────────────────────
   // Every voltage source (battery / signal-generator / power-supply) emits
   // a branch current `i(v_<id>)`. SPICE convention: V-source's current is
@@ -990,14 +1024,25 @@ export async function verifyCircuit(
       });
       continue;
     }
-    const i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
     const isPsu = src.metadataId === 'power-supply';
+    let i = Math.abs(branchCurrents[`v_${src.id}`] ?? 0);
+    // Over the window of a moving source: a supply's limiter acts on the
+    // current at each instant, so the peak meets it; a short circuit is what
+    // flows, its RMS.
+    const wave = moving?.sourceAmps.get(src.id);
+    const fromWave = wave !== undefined && (isPsu ? wave.peak : wave.rms) > i;
+    if (fromWave) i = isPsu ? wave.peak : wave.rms;
     // The limit the netlist was built with (valueFields): "500m" is 0.5 A,
     // and never under the floor the model applies.
     const threshold = isPsu
       ? Math.max(MIN_SUPPLY_LIMIT_A, readValueField(src, 'currentLimit'))
       : config.shortCircuitAmps;
     if (isPsu ? i >= threshold * (1 - 1e-3) : i >= threshold) {
+      // A supply on a board's rail is at its limit because the two fight,
+      // whichever reading put it there: an AC supply's peak over the window
+      // comes out a hair above its operating point, and it is the same fight.
+      // The rail check gives way off the rails and for a supply that powers a
+      // board through its input, so a load that clips the supply still blocks.
       const onRail = isPsu
         ? supplyOnRailWarning(src, threshold, branchCurrents[`v_${src.id}`] ?? 0, rails, pinNetMap, input)
         : null;
@@ -1010,8 +1055,10 @@ export async function verifyCircuit(
         code: isPsu ? 'source-overload' : 'short-circuit',
         componentId: src.id,
         message: isPsu
-          ? `Power supply ${src.id} is at its ${formatAmps(threshold)} current limit: the load asks for more, so the supply holds ${formatAmps(i)} and lets its voltage drop (constant current). Raise the currentLimit or add more series resistance to the load.`
-          : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
+          ? fromWave
+            ? `Power supply ${src.id} reaches its ${formatAmps(threshold)} current limit at the peaks of its waveform: the load asks for more, so the supply holds the current there and its output is clipped (constant current). Raise the currentLimit or add more series resistance to the load.`
+            : `Power supply ${src.id} is at its ${formatAmps(threshold)} current limit: the load asks for more, so the supply holds ${formatAmps(i)} and lets its voltage drop (constant current). Raise the currentLimit or add more series resistance to the load.`
+          : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)}${fromWave ? ' RMS' : ''} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
         metric: i,
       });
     }
@@ -1031,7 +1078,8 @@ export async function verifyCircuit(
       });
       continue;
     }
-    const i = Math.abs(branchCurrents[`v_${led.id}_sense`] ?? 0);
+    const forward = branchCurrents[`v_${led.id}_sense`] ?? 0;
+    const i = Math.abs(forward);
     if (i > config.ledMaxAmps) {
       errors.push({
         severity: 'error',
@@ -1046,16 +1094,101 @@ export async function verifyCircuit(
             : `LED ${led.id} is carrying ${formatAmps(i)} — above the 20 mA absolute maximum. Add or increase the series resistor.`,
         metric: i,
       });
-    } else if (i > 0 && i < config.ledMinAmps) {
-      warnings.push({
-        severity: 'warning',
-        code: 'led-no-current',
-        componentId: led.id,
-        message: `LED ${led.id} appears wired but is carrying almost no current (${formatAmps(
-          i,
-        )}). It will not light visibly.`,
-        metric: i,
-      });
+    } else if (i < config.ledMinAmps) {
+      // Too little to see, for one of three reasons (velxio/velxio-prod#134).
+      // An LED held off on purpose (a comparator's low output, an off
+      // transistor, an active-low LED whose pin the check drives HIGH, an
+      // open switch or relay contact) conducts leakage only, picoamperes to
+      // a few nanoamperes: that is the circuit working, and a warning there
+      // read as a wiring fault. One wired backwards conducts leakage too, but
+      // its cathode sits above its anode. One starved by megaohms in series
+      // conducts forward, a tenth of a microampere and up.
+      const pinV = (pin: string): number | undefined => {
+        const net = pinNetMap.get(`${led.id}:${pin}`);
+        if (net === undefined) return undefined;
+        const v = net === '0' ? 0 : solve.nodeVoltages[net];
+        return Number.isFinite(v) ? v : undefined;
+      };
+      const anode = pinV('A');
+      const cathode = pinV('C');
+      const bias = anode !== undefined && cathode !== undefined ? anode - cathode : undefined;
+      if (bias !== undefined && bias < -LED_REVERSE_HINT_VOLTS) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-reverse-biased',
+          componentId: led.id,
+          message:
+            `LED ${led.id} is reverse-biased by ${formatVolts(-bias)}: its cathode (C) is above its anode (A), ` +
+            `so it stays dark. If it should light, it is wired backwards; swap its pins.` +
+            (-bias > LED_REVERSE_RATED_VOLTS
+              ? ` That is also more than the ${LED_REVERSE_RATED_VOLTS} V most LEDs withstand backwards.`
+              : ''),
+          metric: bias,
+        });
+      } else if (forward >= config.ledOffAmps) {
+        warnings.push({
+          severity: 'warning',
+          code: 'led-no-current',
+          componentId: led.id,
+          message:
+            `LED ${led.id} carries only ${formatAmps(i)}: far too little to light visibly. Something in series ` +
+            `with it limits the current; check the value of its series resistor.`,
+          metric: i,
+        });
+      }
+    }
+  }
+  // An RGB LED is three dies, one sense source each (`V_<id>_r_sense` ...):
+  // the same rules, per colour (velxio/velxio-prod#174). A colour whose pin is
+  // not wired has no source and is skipped.
+  for (const rgb of input.components.filter((c) => c.metadataId === 'rgb-led')) {
+    // A common anode (COM on the supply) lights a colour when its pin goes
+    // LOW, and this check drives every wired pin HIGH: its colours are dark
+    // here by construction, so "carrying almost no current" says nothing.
+    const comNet = pinNetMap.get(`${rgb.id}:COM`);
+    const commonAnode =
+      comNet !== undefined &&
+      RGB_LED_CHANNELS.some((c) => netlist.includes(`\n${rgbLedSenseSource(rgb.id, c.pin)} ${comNet} `));
+    for (const ch of RGB_LED_CHANNELS) {
+      const key = rgbLedSenseKey(rgb.id, ch.pin);
+      const what = `RGB LED ${rgb.id}'s ${ch.colour} channel`;
+      if (nonFiniteBranches.has(key)) {
+        errors.push({
+          severity: 'error',
+          code: 'unstable-solve',
+          componentId: rgb.id,
+          message: `${what} could not be solved — its forward current has no stable value. This almost always means that colour is wired with no series resistor. Add a series resistor to its pin.`,
+        });
+        continue;
+      }
+      const raw = branchCurrents[key];
+      if (raw === undefined) continue;
+      const i = Math.abs(raw);
+      if (i > config.ledMaxAmps) {
+        errors.push({
+          severity: 'error',
+          code: 'led-overcurrent',
+          componentId: rgb.id,
+          message:
+            i > LED_UNLIMITED_AMPS
+              ? `${what} has nothing limiting its current (no series resistor) — a real LED would burn out at once. Add a series resistor to its pin.`
+              : `${what} is carrying ${formatAmps(i)} — above its 20 mA absolute maximum. Add or increase its series resistor.`,
+          metric: i,
+        });
+      } else if (!commonAnode && i >= config.ledOffAmps && i < config.ledMinAmps) {
+        // As for a single LED (velxio/velxio-prod#134): below ledOffAmps the
+        // colour is held off on purpose (an open contact, an off transistor)
+        // and conducts leakage only; between the two it is starved.
+        warnings.push({
+          severity: 'warning',
+          code: 'led-no-current',
+          componentId: rgb.id,
+          message:
+            `${what} carries only ${formatAmps(i)}: far too little to light visibly. Something in series ` +
+            `with it limits the current; check the value of its series resistor.`,
+          metric: i,
+        });
+      }
     }
   }
 
@@ -1063,7 +1196,10 @@ export async function verifyCircuit(
   // Resistors don't have a built-in sense source, so we recover their
   // current from the voltage drop across their two terminals and the
   // resistance value. Pin → net resolution piggy-backs on the netlist
-  // text via a quick scan of the emitted R_<id> card.
+  // text via a quick scan of the emitted R_<id> card. Every resistor part
+  // is checked, the picker's presets too, against its power property as
+  // the inspector stores it (text) or a project holds it (a number); 1/4 W
+  // when it has none (#104).
   const resistorPattern = /^R_(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/gm;
   let m: RegExpExecArray | null;
   while ((m = resistorPattern.exec(netlist)) !== null) {
@@ -1071,16 +1207,17 @@ export async function verifyCircuit(
     // Skip the sense / internal helpers (e.g. R_<comp>_sense).
     if (id.endsWith('_sense') || id.endsWith('_load') || id.endsWith('_esr')) continue;
     const comp = input.components.find((c) => c.id === id);
-    if (!comp || comp.metadataId !== 'resistor') continue;
+    if (!comp || !isRatedResistor(comp.metadataId)) continue;
     const R = parseResistance(valStr);
     if (!Number.isFinite(R) || R <= 0) continue;
     const v1 = solve.nodeVoltages[n1] ?? 0;
     const v2 = solve.nodeVoltages[n2] ?? 0;
-    const power = Math.pow(v1 - v2, 2) / R;
-    const rating =
-      typeof comp.properties.power === 'number'
-        ? (comp.properties.power as number)
-        : config.resistorMaxWatts;
+    // A moving source: the mean power over its window, what heats the part.
+    const atOp = Math.pow(v1 - v2, 2) / R;
+    const onAverage = moving?.resistorWatts.get(id);
+    const averaged = onAverage !== undefined && onAverage > atOp;
+    const power = averaged ? onAverage : atOp;
+    const rating = resistorPowerRating(comp.properties, config.resistorMaxWatts);
     if (power > rating) {
       // Severity 'warning' (not 'error'): SPICE doesn't physically burn the
       // part out, and many teaching-circuit examples deliberately use a
@@ -1093,7 +1230,7 @@ export async function verifyCircuit(
         componentId: id,
         message: `Resistor ${id} (${formatResistance(R)}) is dissipating ${formatPower(
           power,
-        )} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher-power part or larger resistance.`,
+        )}${averaged ? ' on average' : ''} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher power rating in its properties, or a larger resistance.`,
         metric: power,
       });
     }
@@ -1140,6 +1277,35 @@ export async function verifyCircuit(
     }
   }
 
+  // ── 5 V on an ESP32 pin (velxio/velxio-prod#175) ──────────────────────
+  // The solve above forces every wired GPIO to the board's 3.3 V, so it cannot
+  // show what the circuit puts on one: gpioOverVoltage reads the wiring, and a
+  // solve of its own with no pad driven. Non-blocking, like the other
+  // over-voltage warnings; a failure there never takes the check down.
+  try {
+    const overs = await gpioOverVoltages(input, sourceInfo, async (deck) => {
+      const cooked = await runSpice(deck);
+      const voltagesOf: Record<string, number> = {};
+      for (const name of cooked.variableNames) {
+        if (!name.startsWith('v(')) continue;
+        const v = cooked.dcValue(name);
+        if (Number.isFinite(v)) voltagesOf[name.slice(2, -1)] = v;
+      }
+      return voltagesOf;
+    });
+    for (const o of overs) {
+      warnings.push({
+        severity: 'warning',
+        code: 'over-voltage',
+        componentId: o.boardId,
+        message: o.message,
+        metric: o.volts,
+      });
+    }
+  } catch {
+    /* the rest of the check stands */
+  }
+
   // ── Rule 6: electrolytic capacitor over-voltage / reverse polarity ─────
   // Electrolytic caps have a voltage rating (over it they vent / burst) and a
   // polarity (reverse-biasing destroys them). Their +/- pins are normal nets,
@@ -1154,27 +1320,31 @@ export async function verifyCircuit(
     if (vPos === undefined || vNeg === undefined || !Number.isFinite(vPos) || !Number.isFinite(vNeg)) {
       continue; // a terminal net is floating / unsolved
     }
-    const v = vPos - vNeg;
+    // A moving source: the highest and the lowest voltage over its window.
+    const wave = moving?.capVolts.get(c.id);
+    const highest = Math.max(vPos - vNeg, wave?.max ?? -Infinity);
+    const lowest = Math.min(vPos - vNeg, wave?.min ?? Infinity);
+    const peakNote = wave && (wave.max > vPos - vNeg || wave.min < vPos - vNeg) ? ' at its peak' : '';
     const rating = parseVolts(c.properties.voltage) ?? 25;
-    if (v > rating) {
+    if (highest > rating) {
       warnings.push({
         severity: 'warning',
         code: 'over-voltage',
         componentId: c.id,
-        message: `Electrolytic capacitor ${c.id} has ${formatVolts(v)} across it — above its ${formatVolts(
+        message: `Electrolytic capacitor ${c.id} has ${formatVolts(highest)} across it${peakNote} — above its ${formatVolts(
           rating,
         )} rating. A real capacitor would vent or burst; use a higher-voltage part.`,
-        metric: v,
+        metric: highest,
       });
-    } else if (v < -0.5) {
+    } else if (lowest < -0.5) {
       warnings.push({
         severity: 'warning',
         code: 'reverse-polarity',
         componentId: c.id,
         message: `Electrolytic capacitor ${c.id} is reverse-biased (${formatVolts(
-          Math.abs(v),
-        )} backwards). Polarized capacitors are destroyed when connected backwards — swap its + and - terminals.`,
-        metric: v,
+          Math.abs(lowest),
+        )} backwards${peakNote}). Polarized capacitors are destroyed when connected backwards — swap its + and - terminals.`,
+        metric: lowest,
       });
     }
   }
@@ -1185,6 +1355,81 @@ export async function verifyCircuit(
     componentsChecked: input.components.length,
     solve,
   };
+}
+
+/** What a circuit with a moving source does over its window (transientReadings). */
+interface TransientReadings {
+  /** Rated resistor id -> time-weighted mean of (V1 - V2)^2 / R, W. */
+  resistorWatts: Map<string, number>;
+  /** Battery, generator or supply id -> its current's RMS and peak, A. */
+  sourceAmps: Map<string, { rms: number; peak: number }>;
+  /** Electrolytic capacitor id -> lowest and highest V(+) - V(-), V. */
+  capVolts: Map<string, { min: number; max: number }>;
+}
+
+/**
+ * What a circuit whose source moves on its own (a generator's sine or
+ * square, a supply in AC mode: the transient storeAdapter picks with
+ * `timeVarying`) does over that window, on the span the meters read
+ * (readSpan: whole periods after the start-up), weighted by time
+ * (spanStats): each rated resistor's mean power, each source's RMS and peak
+ * current, each electrolytic capacitor's voltage range. Null for any other
+ * circuit, and when the transient cannot be built or solved: the
+ * operating-point checks still run.
+ */
+async function transientReadings(input: BuildNetlistInput): Promise<TransientReadings | null> {
+  const analysis = input.analysis;
+  if (analysis.kind !== 'tran' || !analysis.timeVarying) return null;
+  let built: ReturnType<typeof buildNetlist>;
+  let cooked: Awaited<ReturnType<typeof runSpice>>;
+  try {
+    built = buildNetlist(input);
+    cooked = await runSpice(built.netlist);
+  } catch {
+    return null;
+  }
+  const read = (name: string): number[] | null => {
+    try {
+      const v = cooked.vec(name);
+      return v.length > 0 && v.every((x) => typeof x === 'number') ? (v as number[]) : null;
+    } catch {
+      return null;
+    }
+  };
+  const time = read('time');
+  if (!time || time.length < 2) return null;
+  const span = readSpan(time, analysis.period);
+  if (!span) return null;
+  const node = (net: string | undefined): number[] | null =>
+    net === undefined ? null : net === '0' ? new Array<number>(time.length).fill(0) : read(`v(${net})`);
+  const across = (a: string | undefined, b: string | undefined) => {
+    const va = node(a);
+    const vb = node(b);
+    return va && vb ? spanStats(time, subtract(va, vb), span) : null;
+  };
+  const out: TransientReadings = { resistorWatts: new Map(), sourceAmps: new Map(), capVolts: new Map() };
+  // The resistors as Rule 3 finds them, from their cards.
+  for (const m of built.netlist.matchAll(/^R_(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/gm)) {
+    const [, id, n1, n2, valStr] = m;
+    const comp = input.components.find((c) => c.id === id);
+    if (!comp || !isRatedResistor(comp.metadataId)) continue;
+    const R = parseResistance(valStr!);
+    if (!(R > 0)) continue;
+    const st = across(n1, n2);
+    if (st) out.resistorWatts.set(id!, (st.rms * st.rms) / R);
+  }
+  for (const c of input.components) {
+    if (/^(battery|signal-generator|power-supply)/.test(c.metadataId)) {
+      const samples = read(`i(v_${c.id})`);
+      const st = samples ? spanStats(time, samples, span) : null;
+      if (st) out.sourceAmps.set(c.id, { rms: st.rms, peak: st.peak });
+    } else if (isElectrolyticCap(c.metadataId)) {
+      const pin = (p: string) => built.pinNetMap.get(`${c.id}:${p}`);
+      const st = across(pin('+'), pin('−') ?? pin('-'));
+      if (st) out.capVolts.set(c.id, { min: st.min, max: st.max });
+    }
+  }
+  return out;
 }
 
 /** Nominal positive-output voltage + positive pin names of a power source. */
@@ -1247,6 +1492,7 @@ function formatAmps(a: number): string {
   if (a >= 1) return `${a.toFixed(2)} A`;
   if (a >= 1e-3) return `${(a * 1e3).toFixed(1)} mA`;
   if (a >= 1e-6) return `${(a * 1e6).toFixed(1)} µA`;
+  if (a >= 1e-9) return `${(a * 1e9).toFixed(1)} nA`;
   return `${a.toExponential(2)} A`;
 }
 
@@ -1294,7 +1540,10 @@ interface SourceCard {
  * nodes are merged and it is not itself a source. Without that, a regulator
  * (its B source on an internal node, then the sense to VOUT) wired into a
  * supply rail sat on a different node pair than the rail and the conflict
- * went unreported.
+ * went unreported. A behavioural source written as a current (`B... I = ...`,
+ * the light-sensor module's DO sink) holds no voltage, as NetlistBuilder
+ * reads it too: another source on its nodes is no conflict, and a board pin
+ * there is not taken.
  */
 function parseSourceCards(netlist: string): SourceCard[] {
   const raw: SourceCard[] = [];
@@ -1309,6 +1558,7 @@ function parseSourceCards(netlist: string): SourceCard[] {
     if (!line || line.startsWith('*') || line.startsWith('.')) continue;
     const m = /^([VB]\S*)\s+(\S+)\s+(\S+)/.exec(line);
     if (!m) continue;
+    if (/^B\S*\s+\S+\s+\S+\s+I\s*=/i.test(line)) continue;
     if (/^V\S*\s+\S+\s+\S+\s+DC\s+0\s*$/i.test(line)) {
       const x = find(m[2]!);
       const y = find(m[3]!);

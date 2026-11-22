@@ -95,6 +95,7 @@ import {
   unbindBoard as icUnbindBoard,
   updateWires as icUpdateWires,
   setInterconnectRuntime,
+  type TimedSim,
 } from '../simulation/Interconnect';
 import {
   SENSOR_CONTROLS,
@@ -614,8 +615,20 @@ export class Esp32BridgeShim {
     // Deliberately -1, even when the in-browser engine below DOES have a cycle
     // counter: several parts read `getCurrentCycles() >= 0` to tell an AVR from
     // an ESP32 bridge (ComplexParts' servo picks its whole strategy on it).
-    // Guest TIME is exposed separately, through getGuestMicros().
+    // Guest TIME is exposed separately, through getGuestMicros(), and the
+    // cycle clock the interconnect times edges on through linkClock().
     return -1;
+  }
+  /**
+   * The engine's cycle clock and edge scheduler, for the interconnect's timed
+   * delivery between boards (Interconnect.ts, #397): a board wired to this
+   * one hears its edges at their spacing in guest time, and this one hears
+   * the other's so. Null (the default, the QEMU bridge) keeps the immediate
+   * write.
+   */
+  linkClock(): TimedSim | null {
+    const b = this.bridge as unknown as { linkClock?: () => TimedSim | null };
+    return typeof b.linkClock === 'function' ? b.linkClock() : null;
   }
   getClockHz(): number {
     return 240_000_000;
@@ -735,8 +748,12 @@ export class Esp32BridgeShim {
   setAdcVoltage(pin: number, voltage: number): boolean {
     const channel = this.adcChannelForPin(pin);
     if (channel < 0) return false;
-    const millivolts = Math.round(voltage * 1000);
-    this.bridge.setAdc(channel, millivolts);
+    // The exact pad voltage, fraction and all: a 12-bit step over 3.3 V is
+    // 0.806 mV, so rounding to whole millivolts here skipped 795 of the 4096
+    // codes before any engine saw the value, and the in-browser engine
+    // converts fractional millivolts at the attenuation the sketch set
+    // (velxio/velxio-prod#171).
+    this.bridge.setAdc(channel, voltage * 1000);
     return true;
   }
 
@@ -1003,7 +1020,11 @@ export function applyPinPwm(pm: PinManager, pin: number, dutyPct: number, freqHz
   // back with getPwmFreq to play the sketch's actual note, and a servo to turn
   // the duty into a real pulse width.
   if (freqHz && freqHz > 0) pm.setPwmFreq(pin, freqHz);
-  pm.updatePwm(pin, dutyPct / 100);
+  // A duty is 0..100 %. QEMU's LEDC divides by 2^N - 1 where the chip divides by
+  // 2^N, so arduino-esp32's full-on write (ledcWrite(pin, 255) at 8 bits, which
+  // it sends as 256) reported 100.39 % and the circuit saw 3.313 V on a 3.3 V
+  // pin (velxio/velxio-prod#174). No engine can drive a pad above 100 %.
+  pm.updatePwm(pin, Math.min(100, Math.max(0, dutyPct)) / 100);
   // An LEDC channel at duty 0 holds its pad LOW. The pad's GPIO latch is not
   // what drives it while the GPIO matrix routes the LEDC signal there, and it
   // can be HIGH for reasons that have nothing to do with the PWM (the solver's

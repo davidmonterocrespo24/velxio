@@ -57,15 +57,31 @@ export const STANDARD_BAUD_RATES = [
 ];
 
 /**
- * The nominal rate a decoded one is called by — 115201 is "115200" on the label, because
- * that is the rate the sketch asked for and the number a student has to match. Only
- * snaps inside 2%, the error budget an 8N1 receiver tolerates before it starts dropping
- * frames; anything further off is a genuinely different rate and keeps its own number.
+ * How far a clocked rate may sit from a standard one and still be called by it.
+ *
+ * A UART divides its clock by an integer, so the rate a sketch asks for is rarely
+ * the rate it gets. An Uno asked for 115200 runs U2X with UBRR 16, 117647 baud
+ * (+2.1 %, Microchip AVR306 Table 3-5), and the Uno's own USB bridge runs the same
+ * divider; 57600 gives 58823 (+2.1 %) and 230400 gives 222222 (-3.5 %). Every one of
+ * those links works: an 8N1 frame tolerates about 3.3 % of total clock mismatch on a
+ * normal link (Maxim AN2141). Adjacent standard rates are at least 7.8 % apart
+ * (230400/250000, 460800/500000, 921600/1000000), so inside 4 % a rate is always
+ * nearer the one it is called by than any other (velxio/velxio-prod#193).
+ */
+const NOMINAL_BAUD_TOLERANCE = 0.04;
+
+/**
+ * The nominal rate a decoded one is called by — 117647 is "115200" on the label,
+ * because that is the rate the sketch asked for and the number a student has to
+ * match in the monitor. Anything further off than NOMINAL_BAUD_TOLERANCE is a
+ * genuinely different rate and keeps its own number; a divider that lands on
+ * ANOTHER standard rate (460800 on a 16 MHz AVR clocks 500000) is called by that one,
+ * because that is the rate on the wire.
  */
 export function nominalBaud(baud: number): number {
   if (!(baud > 0)) return 0;
   let best = baud;
-  let bestErr = 0.02;
+  let bestErr = NOMINAL_BAUD_TOLERANCE;
   for (const std of STANDARD_BAUD_RATES) {
     const err = Math.abs(std - baud) / std;
     if (err < bestErr) {
@@ -74,6 +90,27 @@ export function nominalBaud(baud: number): number {
     }
   }
   return best;
+}
+
+/**
+ * The tooltip of the monitor's baud label. The label shows the nominal rate; when
+ * that rounds a divider error away, the tooltip keeps the rate the board really
+ * clocks and how far off it is (117647 is +2.1 % from 115200 on an Uno), which is
+ * the number a scope or a logic analyser on the TX pin measures.
+ */
+export function baudLabelTitle(baud: number): string {
+  const base = 'The rate the board is clocking Serial at.';
+  const nominal = nominalBaud(baud);
+  if (!(baud > 0) || nominal === baud) return base;
+  const off = ((baud - nominal) / nominal) * 100;
+  if (Math.abs(off) < 0.05) return base;
+  const sign = off > 0 ? '+' : '-';
+  return (
+    `${base} Its divider gives ${baud.toLocaleString()} baud, ` +
+    `${sign}${Math.abs(off).toFixed(1)} % from ${nominal.toLocaleString()}: ` +
+    'inside what an 8N1 receiver tolerates, so a monitor at ' +
+    `${nominal.toLocaleString()} reads it.`
+  );
 }
 
 let model: SerialWireModel | null = null;

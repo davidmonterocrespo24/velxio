@@ -8,7 +8,7 @@
  * - PartSimulationRegistry lookup
  * - LED, Pushbutton, Pushbutton-6mm, Slide-switch, DIP-switch-8
  * - LED-bar-graph, 7segment
- * - RGB LED (digital + PWM)
+ * - RGB LED (digital + PWM, before a solve)
  * - Potentiometer, Slide-potentiometer, Photoresistor-sensor, Analog-joystick
  * - Servo (OCR register polling via RAF)
  * - Buzzer (Web Audio API mock)
@@ -643,7 +643,11 @@ describe('RGB LED — attachEvents', () => {
     expect(sim.pinManager.onPwmChange.mock.calls.length).toBe(3);
   });
 
-  it('sets ledRed to 255 on digital HIGH, 0 on LOW', () => {
+  // Before the first solve a colour follows its pin's level, on the element's
+  // 0-1 brightness scale (velxio/velxio-prod#174: it used to write 0-255, which
+  // wokwi-rgb-led draws as full brightness for any duty). Once the circuit is
+  // solved, each colour's current decides (rgb-led-circuit.test.ts).
+  it('sets ledRed to 1 on digital HIGH, 0 on LOW (COM on GND)', () => {
     const logic = PartSimulationRegistry.get('rgb-led')!;
     const el = makeElement({ ledRed: 0, ledGreen: 0, ledBlue: 0 });
     const sim = makeSimulator();
@@ -657,14 +661,14 @@ describe('RGB LED — attachEvents', () => {
     );
     sim.pinManager.onPwmChange.mockReturnValue(() => {});
 
-    logic.attachEvents!(el, sim as any, pinMap({ R: 9 }));
+    logic.attachEvents!(el, sim as any, pinMap({ R: 9, COM: -1 }));
     digitalCbs[9](9, true);
-    expect((el as any).ledRed).toBe(255);
+    expect((el as any).ledRed).toBe(1);
     digitalCbs[9](9, false);
     expect((el as any).ledRed).toBe(0);
   });
 
-  it('sets ledGreen via PWM duty cycle (0.5 → 128)', () => {
+  it('sets ledGreen via PWM duty cycle (0.5 → 0.5)', () => {
     const logic = PartSimulationRegistry.get('rgb-led')!;
     const el = makeElement({ ledRed: 0, ledGreen: 0, ledBlue: 0 });
     const sim = makeSimulator();
@@ -678,12 +682,12 @@ describe('RGB LED — attachEvents', () => {
       },
     );
 
-    logic.attachEvents!(el, sim as any, pinMap({ G: 10 }));
+    logic.attachEvents!(el, sim as any, pinMap({ G: 10, COM: -1 }));
     pwmCbs[10](10, 0.5);
-    expect((el as any).ledGreen).toBe(128); // Math.round(0.5 * 255)
+    expect((el as any).ledGreen).toBe(0.5); // the element's 0-1 brightness
   });
 
-  it('sets ledBlue via PWM full brightness (1.0 → 255)', () => {
+  it('sets ledBlue via PWM full brightness (1.0 → 1)', () => {
     const logic = PartSimulationRegistry.get('rgb-led')!;
     const el = makeElement({ ledBlue: 0 });
     const sim = makeSimulator();
@@ -697,9 +701,9 @@ describe('RGB LED — attachEvents', () => {
       },
     );
 
-    logic.attachEvents!(el, sim as any, pinMap({ B: 11 }));
+    logic.attachEvents!(el, sim as any, pinMap({ B: 11, COM: -1 }));
     pwmCbs[11](11, 1.0);
-    expect((el as any).ledBlue).toBe(255);
+    expect((el as any).ledBlue).toBe(1);
   });
 
   it('cleanup unsubscribes all 6 listeners', () => {
@@ -841,13 +845,18 @@ describe('Photoresistor-sensor — attachEvents', () => {
     expect(adc.channelValues[0]).toBeCloseTo(0.432, 2);
   });
 
-  it('registers DO indicator listener when digital output pin is connected', () => {
+  // DO is the module's comparator, not a copy of the board pin: at the
+  // default 500 lux it is light, so DO is LOW and its LED lights
+  // (velxio/velxio-prod#227; photoresistor-module-do.test.ts).
+  it('drives DO from its comparator and lights the DO LED in the light', () => {
     const logic = PartSimulationRegistry.get('photoresistor-sensor')!;
     const el = makeElement({ ledDO: false });
     const sim = makeSimulator(makeADC());
 
     logic.attachEvents!(el, sim as any, pinMap({ AO: 14, DO: 4 }));
-    expect(sim.pinManager.onPinChange.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect((el as unknown as { ledDO: boolean }).ledDO).toBe(true);
+    expect(sim.setPinState).toHaveBeenCalledWith(4, false);
+    expect(sim.pinManager.onPinChange).not.toHaveBeenCalled();
   });
 });
 

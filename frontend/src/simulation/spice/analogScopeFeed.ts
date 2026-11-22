@@ -73,8 +73,11 @@ function refreshWatchedNets(): void {
         // whole transient, and a circuit with a periodic source runs its
         // start-up before every window it stores (velxio/velxio-prod#143).
         // An edge solved as an operating point publishes none; then a new
-        // sweep is due.
-        if (useElectricalStore.getState().timeWaveforms) return;
+        // sweep is due, unless a step runs from that edge (stepWaveforms,
+        // velxio/velxio-prod#153): its curve is the sweep, and a rebuild every
+        // 250 ms would run it again.
+        const { timeWaveforms, stepWaveforms } = useElectricalStore.getState();
+        if (timeWaveforms || stepWaveforms) return;
         requestElectricalResolve();
       }, RECAPTURE_MS);
     }

@@ -51,7 +51,7 @@ const BOARD_BLURBS: Record<string, string> = {
   'arduino-mega': '8-bit AVR, 256KB flash, 54 digital I/O',
   'arduino-nano': '8-bit AVR, 32KB flash, breadboard-size Uno',
   'arduino-nano-esp32': 'ESP32-S3 in the Nano footprint, WiFi+BT (QEMU)',
-  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 38 GPIO (QEMU)',
+  esp32: 'Xtensa LX6 dual-core, WiFi+BT, 34 GPIO (QEMU)',
   'esp32-cam': 'ESP32 + OV2640 camera, streams to LCD (QEMU)',
   'xiao-esp32-s3': 'Seeed XIAO tiny form, 8MB flash+PSRAM (QEMU)',
   'xiao-esp32-c3': 'Seeed XIAO ESP32-C3 mini board (QEMU)',

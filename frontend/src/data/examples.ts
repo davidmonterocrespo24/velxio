@@ -5774,7 +5774,6 @@ void loop() {
     boardType: 'esp32',
     code: `// ESP32 Blink LED
 // Blinks the built-in LED (GPIO2) and an external LED (GPIO4)
-// Requires arduino-esp32 2.0.17 (IDF 4.4.x) — see docs/ESP32_EMULATION.md
 
 
 #define LED_BUILTIN_PIN 2   // Built-in blue LED on ESP32 DevKit

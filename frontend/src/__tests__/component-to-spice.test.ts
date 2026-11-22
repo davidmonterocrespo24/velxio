@@ -47,6 +47,9 @@ const MINIMAL_FIXTURES: Record<string, Fixture> = {
   'analog-capacitor': { pins: ['A', 'B'], properties: { value: '1u' } },
   'analog-inductor': { pins: ['A', 'B'], properties: { value: '10m' } },
   led: { pins: ['A', 'C'], properties: { color: 'red' } },
+  // Three LED dies joined at COM (velxio/velxio-prod#174): R on the rail, G and
+  // B loaded, COM to ground, so the red die conducts as a single LED does here.
+  'rgb-led': { pins: ['R', 'G', 'B', 'COM'] },
   diode: { pins: ['A', 'C'] },
   'diode-1n4148': { pins: ['A', 'C'] },
   'diode-1n4007': { pins: ['A', 'C'] },

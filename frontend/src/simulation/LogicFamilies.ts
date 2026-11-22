@@ -29,6 +29,9 @@
  *   - TTL: 7400 series classic TTL
  */
 
+import { boardPinGroupFor } from './spice/boardPinGroups';
+import { isPiBoardKind } from '../types/board';
+
 /**
  * 74HC14 Schmitt-trigger thresholds as fractions of VCC. TI SN74HC14
  * (SCLS085L, 5.5) gives typical VT+ / VT- of 1.2 / 0.6 V at 2 V, 2.5 / 1.6 V
@@ -158,8 +161,11 @@ export const FAMILIES = {
   /**
    * LVCMOS33 — 3.3V CMOS logic with TTL-compatible input thresholds.
    * ESP32 GPIO, RP2040 GPIO, most modern ARM Cortex-M MCUs use this.
-   * VIH = 2.0V means a 5V CMOS output (VOH ≥ 4.9V) easily drives it,
-   * but a 3.3V output back into a 5V CMOS-input gate is marginal.
+   * A 5 V output's HIGH clears VIH = 2.0 V, but that does not make it a safe
+   * connection: an ESP32 input takes at most VDD + 0.3 V (ESP32 datasheet,
+   * Table 5-3: VIH max), so a 5 V output needs a level shifter or a divider
+   * in front of it. A 3.3V output into a 5V CMOS-input gate (VIH 3.5 V) is
+   * marginal the other way.
    */
   LVCMOS33: {
     name: 'LVCMOS33',
@@ -237,12 +243,18 @@ const BOARD_FAMILY: Record<string, LogicFamilyId> = {
 };
 
 /**
- * Lookup the I/O logic family for a board.  Falls back to AVR_HC (5V
- * Arduino) when the board is unknown — that's the most common
- * fallback and produces conservative thresholds.
+ * Lookup the I/O logic family for a board. A board the table does not name
+ * takes the family of its supply: a 3.3 V board (its pin group's vcc, an
+ * overlay board's declared power) is LVCMOS33, anything else AVR_HC (5V
+ * Arduino), the conservative default. Without that a 3.3 V board missing
+ * from the table (the LOLIN32 Lite, velxio/velxio-prod#175) got the 5 V
+ * AVR thresholds. A Raspberry Pi takes 5 V in but its GPIO header is 3.3 V
+ * logic, as the table already says for the Pi 3.
  */
 export function getBoardLogicFamily(boardKind: string): LogicFamily {
-  const id = BOARD_FAMILY[boardKind] ?? 'AVR_HC';
+  const id =
+    BOARD_FAMILY[boardKind] ??
+    (isPiBoardKind(boardKind) || boardPinGroupFor(boardKind).vcc <= 3.3 ? 'LVCMOS33' : 'AVR_HC');
   return FAMILIES[id];
 }
 

@@ -41,6 +41,7 @@ import contextlib
 import dataclasses
 import itertools
 import json
+import math
 import time
 import logging
 import os
@@ -212,6 +213,19 @@ class _WorkerInstance:
 
 
 # ── Manager ───────────────────────────────────────────────────────────────────
+
+
+def adc_millivolts(value) -> float | None:
+    """The pad voltage the tab sent for an ADC channel, in millivolts with its
+    fraction (a pot at 512 of 1023 is 1651.6 mV), or None for a value that is
+    no finite number. The route used to cut it to an integer, which skipped a
+    12-bit step every few millivolts (velxio/velxio-prod#171), and a value
+    that int() refuses would have ended the whole simulation session."""
+    try:
+        mv = float(value)
+    except (TypeError, ValueError):
+        return None
+    return mv if math.isfinite(mv) else None
 
 class EspLibManager:
     """
@@ -507,8 +521,9 @@ class EspLibManager:
                 'data': base64.b64encode(data).decode(),
             })
 
-    def set_adc(self, client_id: str, channel: int, millivolts: int) -> None:
-        """Set ADC channel voltage in millivolts (0-3300 mV)."""
+    def set_adc(self, client_id: str, channel: int, millivolts: float) -> None:
+        """Set ADC channel voltage in millivolts (0-3300 mV), with its
+        fraction: the worker converts the exact value (velxio/velxio-prod#171)."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:

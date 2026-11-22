@@ -27,6 +27,9 @@ export interface SolveWindowState {
   levels: Record<string, number>;
   nodeVoltages: Record<string, number>;
   branchCurrents: Record<string, number>;
+  /** The state's own transient capture, when it was solved as one (a deck
+   *  whose sources move by themselves); the scalars are its last sample. */
+  timeWaveforms?: TimeWaveforms;
 }
 
 /**
@@ -53,6 +56,11 @@ export interface ElectricalSnapshot {
   /** The transient capture of the published state, when it has one; see
    *  CircuitSimulationService's ElectricalSnapshot. */
   timeWaveforms?: TimeWaveforms;
+  /** The step the circuit is taking since its pads last changed, a one-shot
+   *  capture that ends at the operating point the scalar fields hold; read
+   *  by the ADC bridge alone (see CircuitSimulationService's
+   *  ElectricalSnapshot). */
+  stepWaveforms?: TimeWaveforms;
   /** The last capture the deck produced, for the oscilloscope only: it may
    *  describe an earlier state than the one published. */
   scopeWaveforms?: TimeWaveforms;
@@ -91,6 +99,7 @@ const EMPTY: ElectricalSnapshot = {
   pinNetMap: new Map(),
   analysisMode: 'op',
   timeWaveforms: undefined,
+  stepWaveforms: undefined,
   scopeWaveforms: undefined,
   converged: true,
   error: null,

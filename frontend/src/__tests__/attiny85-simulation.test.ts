@@ -38,6 +38,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { connectTiny85CompareOutputs } from './helpers/avrPwm';
 import { spawnSync } from 'child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
@@ -279,6 +280,7 @@ describe('ATtiny85 — PWM monitoring', () => {
     // Directly write a PWM value to OCR0B in CPU data memory.
     // ATtiny85 OCR0B = I/O 0x08 → data 0x48 (NOT 0x5C, which is EECR).
     const cpu = (sim as any).cpu;
+    connectTiny85CompareOutputs(cpu); // as analogWrite() does
     cpu.data[0x48] = 128; // 50% duty cycle
 
     sim.start();
@@ -297,6 +299,7 @@ describe('ATtiny85 — PWM monitoring', () => {
 
     // ATtiny85 OCR0A = I/O 0x09 → data 0x49 (NOT 0x56, which is PINB).
     const cpu = (sim as any).cpu;
+    connectTiny85CompareOutputs(cpu);
     cpu.data[0x49] = 64;
 
     sim.start();
@@ -325,6 +328,7 @@ describe('ATtiny85 — PWM monitoring', () => {
     });
 
     const cpu = (sim as any).cpu;
+    connectTiny85CompareOutputs(cpu);
     TINY85_PWM_MAP.forEach(({ addr }, i) => {
       cpu.data[addr] = (i + 1) * 50; // 50, 100, 150, 200
     });

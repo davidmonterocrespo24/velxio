@@ -11,7 +11,7 @@
  * the circuit for that long without storing it, and stores only the window
  * after it (manual 11.3.10).
  *
- * When there is a start-up to skip (startsAwayFromSteadyState):
+ * When there is a start-up to skip (startUpSeconds):
  *  - A square wave (PULSE) starts at its low level, so the operating point at
  *    t = 0 charges every capacitor for that level, while the circuit runs
  *    about the wave's mean: a filter starts at 0 V and climbs to 2.5 V.
@@ -25,10 +25,19 @@
  *    reading, 9.146 V for 8.766 V, was the step's error, not the start-up's:
  *    DIODE_STEP_DIVISOR.)
  *  - A sine starts at its offset, which is its mean: a linear circuit's
- *    operating point at t = 0 is already its steady-state DC, and what is
- *    left to settle is a ripple-sized transient. Such decks are not run any
- *    longer than before, so an amplifier's coupling capacitors (seconds
- *    through a megohm bias network) cost nothing.
+ *    operating point at t = 0 is already its steady-state DC. What it lacks
+ *    is each capacitor's share of the AC (each inductor's), and that
+ *    difference decays with the circuit's time constant. The meters read the
+ *    second half of the window, so a filter slower than that was read in its
+ *    start-up: 1 kHz into 10 kΩ / 1 µF (τ = 10 ms) read pk 26.88 mV, DC
+ *    10.59 mV and RMS 15.40 mV across C, for 15.91 mV peak, no DC and
+ *    11.25 mV RMS (velxio/velxio-prod#120). Such a deck runs SETTLE_TAUS of
+ *    its time constant when they reach past the first half of the window and
+ *    fit MAX_SETTLE_STEPS. A longer one is left alone: for a coupling
+ *    capacitor (an amplifier's, seconds through a megohm bias network) the
+ *    difference is a ripple-sized part of the signal it passes, and a
+ *    first-order filter that slow (ωτ above 449 at a twentieth of a period)
+ *    passes less than 1/449 of its source.
  *
  * The time constant is estimated from the deck's own cards, which know the
  * real nets (breadboard strips, rails, ground) and the sources, the way the
@@ -57,13 +66,18 @@ import { parseValueWithUnits } from './valueParser';
 export const SETTLE_TAUS = 7;
 
 /**
- * The most time steps the start-up may take, at the window's own step (ngspice
- * holds every step of a transient to its TSTEP, stored or not). About 0.2-0.3 s
- * of engine time for a small circuit; a time constant that would need more
- * is cut there, and the window then holds what remains of its approach.
- * A deck that holds a diode runs at a DIODE_STEP_DIVISOR-th of the window's
- * step (settledStepS) over the same start-up, so it takes up to that many
- * times as many steps.
+ * The start-up's budget, in plain steps: a twentieth of the fastest source's
+ * period, the step a deck that cannot resonate integrates at (ngspice holds
+ * every step of a transient to its TSTEP, stored or not). About 0.2-0.3 s of
+ * engine time for a small circuit; a time constant that would need more is
+ * cut there, and the window then holds what remains of its approach.
+ * The budget is that length of time whatever the run integrates at. A deck
+ * that holds a diode runs at a DIODE_STEP_DIVISOR-th of the plain step
+ * (settledStepS), so it takes up to that many times as many steps; a deck
+ * that can resonate runs at a fifth of it (velxio/velxio-prod#121; the
+ * analysis' `budgetStep` is the plain step), so it takes up to five times as
+ * many, 50 000. Counted in that finer step, its start-up was a fifth as long,
+ * and a 1 kHz square wave into 100 Ω, 10 mH and 470 µF read 2.229 V for 2.5 V.
  */
 export const MAX_SETTLE_STEPS = 10_000;
 
@@ -126,13 +140,44 @@ export function startsAwayFromSteadyState(cards: readonly string[]): boolean {
 }
 
 /**
- * The step a deck that settles runs at: the window's, or a
- * DIODE_STEP_DIVISOR-th of it when the deck holds a diode (a D card: a
- * rectifier, an LED, a board pin's clamp). The start-up is sized in window
- * steps all the same (settleSeconds).
+ * The start-up a transient runs before the window it stores, in seconds (0
+ * for none), for a deck whose cards are `cards`, whose window is `windowS`
+ * long, whose budget counts steps of `stepS` (the plain step, not a resonant
+ * deck's finer one: MAX_SETTLE_STEPS), and whose slowest source has the
+ * period `periodS`. See the module comment.
  */
-export function settledStepS(cards: readonly string[], windowStepS: number): number {
-  return parseCards(cards).some((c) => c.kind === 'D') ? windowStepS / DIODE_STEP_DIVISOR : windowStepS;
+export function startUpSeconds(
+  cards: readonly string[],
+  stepS: number,
+  windowS: number,
+  periodS: number | undefined,
+): number {
+  const tau = largestTimeConstant(cards);
+  if (startsAwayFromSteadyState(cards)) return settleSeconds(tau, stepS, periodS);
+  // Driven by sines alone: over before the meters read, or too slow to matter.
+  if (!(tau > 0) || SETTLE_TAUS * tau <= windowS / 2) return 0;
+  if (SETTLE_TAUS * tau > MAX_SETTLE_STEPS * stepS) return 0;
+  return settleSeconds(tau, stepS, periodS);
+}
+
+/**
+ * The step a deck that settles runs at: the window's, or a
+ * DIODE_STEP_DIVISOR-th of the plain step (`plainStepS`, which a resonant
+ * deck's window step is finer than: storeAdapter's budgetStep) when the deck
+ * holds a diode (a D card: a rectifier, an LED, a board pin's clamp) and the
+ * window's is coarser than that. A resonant deck at a hundredth of its period
+ * already resolves the conduction pulses better than half the plain step
+ * does, so it is not halved again. The start-up is sized in plain steps all
+ * the same (settleSeconds).
+ */
+export function settledStepS(
+  cards: readonly string[],
+  windowStepS: number,
+  plainStepS: number = windowStepS,
+): number {
+  return parseCards(cards).some((c) => c.kind === 'D')
+    ? Math.min(windowStepS, plainStepS / DIODE_STEP_DIVISOR)
+    : windowStepS;
 }
 
 /** Nets joined by voltage-defined elements and by the element kinds that act
@@ -212,7 +257,8 @@ export function largestTimeConstant(cards: readonly string[]): number {
 
 /**
  * The start of the stored window: SETTLE_TAUS time constants, at most
- * MAX_SETTLE_STEPS steps of `stepS`, in whole periods of the slowest source
+ * MAX_SETTLE_STEPS steps of `stepS` (the plain step the budget counts in, not
+ * a resonant deck's finer one), in whole periods of the slowest source
  * where the budget allows (so every capture starts at the same phase, and a
  * window replayed in a loop joins up): rounded up when that stays within the
  * budget, down when a whole period still fits, as it is otherwise. A slow

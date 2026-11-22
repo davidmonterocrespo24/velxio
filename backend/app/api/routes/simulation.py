@@ -4,7 +4,7 @@ import socket
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.esp_qemu_manager import esp_qemu_manager
 from app.services.board_access import PRO_BOARD_MESSAGE
-from app.services.esp32_lib_manager import esp_lib_manager
+from app.services.esp32_lib_manager import adc_millivolts, esp_lib_manager
 from app.services import esp32_qemu_access
 from app.core.hooks import dispatch_ws_sim_message, dispatch_ws_sim_disconnect
 
@@ -196,14 +196,14 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
 
             # ── ESP32 ADC (analog input from potentiometer, sensor, etc.) ─
             elif msg_type == 'esp32_adc_set':
-                # Frontend sends {channel: int, millivolts: int}
-                # or {channel: int, raw: int} for direct 12-bit value
+                # Frontend sends {channel: int, millivolts: float}
+                # or {channel: int, raw: int} for direct 12-bit value.
+                # The millivolts keep their fraction (velxio/velxio-prod#171).
                 channel = int(msg_data.get('channel', 0))
                 if 'millivolts' in msg_data:
-                    if _use_lib():
-                        esp_lib_manager.set_adc(
-                            client_id, channel, int(msg_data['millivolts'])
-                        )
+                    mv = adc_millivolts(msg_data['millivolts'])
+                    if mv is not None and _use_lib():
+                        esp_lib_manager.set_adc(client_id, channel, mv)
                 elif 'raw' in msg_data:
                     if _use_lib():
                         esp_lib_manager.set_adc_raw(

@@ -32,6 +32,10 @@ const MAX_TRAN_STOP_S = 0.4;
 // twentieth of a period), so a 0.5 Hz generator gets its 8 s; what costs is a
 // slow source next to a much faster one, whose step is the fast one's. 8000
 // is what the old 0.4 s cap left a 1 kHz source (velxio/velxio-prod#107).
+// These are plain steps, a twentieth of the fastest period: a deck that can
+// resonate integrates up to five times finer over the same window
+// (RESONANT_SAMPLES_PER_PERIOD), so its four periods are up to 400 steps and
+// its window up to 40 000.
 const MAX_WINDOW_STEPS = 8000;
 const SAMPLES_PER_PERIOD = 20;
 // Periods of the slowest periodic source in the stored window. The circuit's
@@ -53,6 +57,23 @@ const STEP_RESPONSE_STEP_S = 1e-4;
 // Default τ when no resistor is found in the circuit (capacitor charging
 // through a 10 kΩ pull-up is a reasonable default).
 const DEFAULT_R_OHMS = 10e3;
+
+// A circuit with an inductor and a capacitor can resonate, and ngspice's
+// trapezoidal rule shifts frequencies like the bilinear transform: at a
+// step of T/20 a series RLC with f0 = 5033 Hz (10 Ω, 1 mH, 1 µF) resonated
+// at about 4991 Hz, and a sweep of the generator peaked at 4965-4995 Hz
+// (velxio/velxio-prod#121). At T/100 the shift is 0.03 % (f0 θ/tan θ with
+// θ = π/100). The finer step stays at least MIN_TRAN_STOP_S /
+// RESONANT_MAX_STEPS (1 µs), so a fast source's shortest window holds no more
+// than that many of them, and the step is never coarser than the plain one
+// (SAMPLES_PER_PERIOD): above 50 kHz the plain step is already under 1 µs and
+// is kept. The finer step is the integration's only. The window's budget
+// (MAX_WINDOW_STEPS) and the start-up's (settleTime.ts) count plain steps
+// (`budgetStep`), so they last as long as any other deck's: counted in the
+// finer step they shrank fivefold in time, and a 50 Hz generator next to a
+// 5 kHz RLC was read over 16 ms, less than one of its periods.
+const RESONANT_SAMPLES_PER_PERIOD = 100;
+const RESONANT_MAX_STEPS = 5000;
 
 // Build the meta-id sets dynamically by combining the canonical IDs with
 // every PASSIVE_PRESETS alias that maps to the same base — so adding a new
@@ -76,6 +97,26 @@ const RESISTOR_META = new Set([
   'analog-resistor',
   ...presetsOf('resistor'),
 ]);
+
+/**
+ * The steps of a transient driven by periodic sources whose fastest is at
+ * `maxFreq`: `plain`, SAMPLES_PER_PERIOD to its period, which the budgets of
+ * steps count in, and `step`, the one the deck integrates at: the plain one,
+ * or RESONANT_SAMPLES_PER_PERIOD when the circuit holds an inductor and a
+ * capacitor and can resonate (see RESONANT_SAMPLES_PER_PERIOD).
+ */
+function periodicSteps(
+  components: StoreSnapshot['components'],
+  maxFreq: number,
+): { step: number; plain: number } {
+  const plain = 1 / (maxFreq * SAMPLES_PER_PERIOD);
+  const resonant =
+    components.some((c) => INDUCTOR_META.has(c.metadataId)) &&
+    components.some((c) => CAPACITOR_META.has(c.metadataId));
+  if (!resonant) return { step: plain, plain };
+  const fine = 1 / (maxFreq * RESONANT_SAMPLES_PER_PERIOD);
+  return { step: Math.min(plain, Math.max(fine, MIN_TRAN_STOP_S / RESONANT_MAX_STEPS)), plain };
+}
 
 /** True if any board has at least one actively-driven pin (digital or PWM). */
 function hasDrivenPin(boards: StoreSnapshot['boards']): boolean {
@@ -138,13 +179,13 @@ function pickDynamicAnalysis(
   if (frequencies.length > 0) {
     const maxFreq = Math.max(...frequencies);
     const minFreq = Math.min(...frequencies);
-    const stepS = 1 / (maxFreq * SAMPLES_PER_PERIOD);
+    const { step: stepS, plain: plainStepS } = periodicSteps(components, maxFreq);
     const periodS = 1 / minFreq;
     // Four periods of the slowest source. A window the step budget cannot
     // hold keeps the whole periods that fit (the meters read whole periods),
     // or the budget when not even one does.
     let stopS = PERIODS_SHOWN * periodS;
-    const maxS = MAX_WINDOW_STEPS * stepS;
+    const maxS = MAX_WINDOW_STEPS * plainStepS;
     if (stopS > maxS) {
       const whole = Math.floor(maxS / periodS + 1e-9);
       stopS = whole >= 1 ? whole * periodS : maxS;
@@ -161,6 +202,8 @@ function pickDynamicAnalysis(
       // circuit's start-up before it, sized from its time constants
       // (settleTime.ts, velxio/velxio-prod#143).
       settle: true,
+      // A resonant deck's start-up budget counts plain steps too.
+      ...(stepS < plainStepS ? { budgetStep: plainStepS.toExponential(3) } : {}),
     };
   }
 
@@ -176,6 +219,7 @@ function pickDynamicAnalysis(
       kind: 'tran',
       step: STEP_RESPONSE_STEP_S.toExponential(3),
       stop: stopS.toExponential(3),
+      settleS: Math.max(MIN_TRAN_STOP_S, rawStop),
     };
   }
 

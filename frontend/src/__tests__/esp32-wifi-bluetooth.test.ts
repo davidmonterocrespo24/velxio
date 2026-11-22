@@ -199,13 +199,13 @@ describe('Esp32Bridge — WiFi/BLE status events', () => {
 
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(received).toHaveLength(1);
     expect(received[0].status).toBe('got_ip');
     expect(received[0].ssid).toBe('Velxio-GUEST');
-    expect(received[0].ip).toBe('192.168.4.2');
+    expect(received[0].ip).toBe('192.168.4.15');
   });
 
   it('dispatches wifi_status initializing event', () => {
@@ -277,14 +277,14 @@ describe('Esp32Bridge — WiFi/BLE status events', () => {
     ws.receive({ type: 'wifi_status', data: { status: 'connected', ssid: 'Velxio-GUEST' } });
     ws.receive({
       type: 'wifi_status',
-      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.2' },
+      data: { status: 'got_ip', ssid: 'Velxio-GUEST', ip: '192.168.4.15' },
     });
 
     expect(received).toHaveLength(3);
     expect(received[0].status).toBe('initializing');
     expect(received[1].status).toBe('connected');
     expect(received[2].status).toBe('got_ip');
-    expect(received[2].ip).toBe('192.168.4.2');
+    expect(received[2].ip).toBe('192.168.4.15');
   });
 });
 

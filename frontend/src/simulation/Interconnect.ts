@@ -342,14 +342,36 @@ function pushSerialByte(boardId: string, ch: string, uart: number): void {
 // pin; PinManager handles fan-out internally so we don't need our own
 // fanout map for these.
 
-/** A browser simulator that can place a level change at a future cycle. */
-interface TimedSim {
+/** A board's simulator, or the clock it offers apart, that can place a level change at a future cycle. */
+export interface TimedSim {
   getCurrentCycles(): number;
   getClockHz(): number;
-  schedulePinChange(pin: number, state: boolean, atCycle: number): void;
+  /** Place a level on a pad at a cycle; false when the pad takes none (its guest drives it, or a line model owns it). */
+  schedulePinChange(pin: number, state: boolean, atCycle: number): void | boolean;
+  /**
+   * The board's guest time in nanoseconds, where it keeps one finer than the
+   * cycle count it reports (a board whose getCurrentCycles() moves once a
+   * frame): when a level the interconnect handed the board lands is told on
+   * it (edgeOf). Negative while the board has no clock.
+   */
+  getCurrentNanos?(): number;
+  /**
+   * The board's clock in this tab runs behind its guest's (a guest in a
+   * worker, whose events this tab replays): an edge written there "now"
+   * would land wherever the guest has got to. Nothing more is needed of the
+   * interconnect for it: every edge goes through schedulePinChange, a burst
+   * anchored LINK_ANCHOR_AHEAD_S into the receiver's future, which keeps
+   * the edges of one task together.
+   */
+  readonly deferred?: boolean;
 }
 
 function asTimedSim(sim: unknown): TimedSim | null {
+  // A board whose engine is behind a bridge (the ESP32 shim) offers its clock
+  // apart, and only when the engine has one: its getCurrentCycles() stays -1
+  // for the parts that tell an AVR from an ESP32 by it.
+  const link = (sim as { linkClock?: () => TimedSim | null } | undefined)?.linkClock;
+  if (typeof link === 'function') return link.call(sim) ?? null;
   const s = sim as Partial<TimedSim> | undefined;
   return s &&
     typeof s.getCurrentCycles === 'function' &&
@@ -359,9 +381,235 @@ function asTimedSim(sim: unknown): TimedSim | null {
     : null;
 }
 
-/** A link idle this long (in seconds of the sender's time) starts its next
- *  edge at the receiver's "now" again instead of after the previous one. */
+/** A link idle this long (in seconds of the sender's time) starts a new
+ *  burst: its next edge is anchored afresh instead of spaced from the last. */
 const LINK_REANCHOR_S = 0.05;
+
+/**
+ * Where a burst's first edge lands: this far into the receiver's future, in
+ * seconds of the receiver's clock (a frame at 60 Hz, and a little more). The
+ * boards run in turn, a frame of guest time each, so the receiver runs a whole
+ * frame before the sender's next burst. Anchored at the receiver's present,
+ * the edges after the end of the sender's burst fell where the receiver had
+ * already run, and a line that crossed it broke there (velxio/velxio-prod#74).
+ */
+export const LINK_ANCHOR_AHEAD_S = 0.02;
+
+/**
+ * The furthest an edge lands ahead of the receiver's clock, in seconds of it:
+ * the anchor and the longest burst a board runs in one frame (50 ms: the frame
+ * loops cap a frame there, MAX_DELTA_MS, and at 20 fps every frame is that
+ * long), and a margin. A sender that makes more guest time than the receiver
+ * runs (a receiver below real time, on a link never quiet for LINK_REANCHOR_S)
+ * pushed every edge further out, without bound (#74). Past it the edges keep
+ * their order on the receiver, not their spacing: one placed nearer would land
+ * before edges it still holds and leave it at the wrong level. Below the
+ * anchor and a 50 ms burst it squeezed the end of a long line sent in one
+ * frame at 20 fps: 40 bytes at 9600 baud arrived whole a third as often as
+ * with #397's anchor alone.
+ */
+export const LINK_MAX_AHEAD_S = 0.075;
+
+/**
+ * The quiet a new burst keeps after the last one when the receiver has not
+ * run through that one yet (a receiver slower than the sender, or not
+ * running). The sender kept LINK_REANCHOR_S at least; this much of it keeps a
+ * line's last stop bit (it lasts until the next start bit: 3.3 ms at 300
+ * baud) without pushing every burst further out.
+ */
+const LINK_MIN_QUIET_S = 0.005;
+
+// ── The edges on the wires, by the pad they started on (#74) ────────────────
+//
+// A receiver reports a level the interconnect handed one of its pads as a
+// change of that pad, as it reports its guest's own (an AVR or an RP2040 input
+// takes it through its PinManager), and the wire's other direction heard it as
+// the receiver's and sent it back. Written at once, as #397 wrote the first
+// edge of a burst, the level travelled under `propagatingPins` and went no
+// further; scheduled (a burst lands LINK_ANCHOR_AHEAD_S ahead), it lands while
+// the receiver runs, where no guard can be. On a line both boards only listen
+// to (open-drain, pulled up at both ends) one pulse then went back and forth
+// for ever, an anchor and a frame each way.
+//
+// So an edge is known by the pad it started on. A pad's report is the edge a
+// wire handed it when it is that level landing, or a new edge the pad made
+// (its guest's write, a button); and no wire hands a pad an edge the pad has:
+// the one it made, or one a wire brought it. That stops the echo, a ring of
+// boards (three wired each to each) hands every pad an edge once, and a board
+// between two others still passes one on (a chain).
+//
+// Every step of it is a few operations, however many edges are in flight and
+// however long a receiver takes to run them: an edge carries the pads that
+// have it, and a pad's levels are a queue read from an index. #74's review
+// measured the first version, which kept each pad's edges in a Map for a
+// second of its board's clock, walked from the oldest on every edge, and took
+// levels off the queue with shift(): those two took 46 % of the CPU of a fast
+// signal between two Unos (120 k edges a second took more than twice the time
+// they took before the bookkeeping), and a sender forgot its edges before a
+// receiver stopped for two seconds, or running at a sixtieth of real time, had
+// them land, so they came back to it as pulses it never made.
+
+/**
+ * An edge on the wires: made once, on the pad it started on, and the pads that
+ * have it (that one, and each a wire handed it to since). It lives while a
+ * level that carries it waits on a pad, or a pad's last report was it: as long
+ * as it can come back to a pad, however slowly the receiver runs, and no
+ * longer. No pad forgets an edge by its clock.
+ */
+interface LinkEdge {
+  readonly pads: PadEdges[];
+}
+
+/** A level a wire scheduled on a pad, and the edge it carries. */
+interface HandedLevel {
+  readonly level: boolean;
+  readonly edge: LinkEdge;
+  /** Where it lands: the board's nanoseconds when it keeps them (`ns`), its cycles otherwise. */
+  readonly at: number;
+  readonly ns: boolean;
+}
+
+interface PadEdges {
+  /** The board's cycles when the pad last heard of the wires: lower now, the board started over. */
+  clock: number;
+  /** The levels the wires handed the pad, in the order they land: it has not reported the ones from `head` on. */
+  handed: HandedLevel[];
+  head: number;
+  /** The pad's last report and the edge it was: a report reaches each wire on the pad in turn. */
+  last: { cycles: number; nanos: number; level: boolean; edge: LinkEdge } | null;
+}
+
+/** By pad (`board:pin`). */
+const padEdges = new Map<string, PadEdges>();
+
+/** A level that lands is reported within this, in seconds of its board (an engine applies it between two instructions). */
+const LINK_TAKEN_WITHIN_S = 0.00002;
+
+/**
+ * The most levels a pad holds that it has not reported (a board that does not
+ * run lands none). Past it the oldest is dropped: it still lands, as an edge
+ * of the pad's own, and goes back up the wire it came down.
+ */
+const LINK_PAD_MAX = 1 << 14;
+
+/** A pad's queue lets go of the levels read off its head once they are this many, and half of it or more. */
+const LINK_QUEUE_COMPACT = 1 << 10;
+
+/**
+ * The steps the bookkeeping has taken since the interconnect was reset: a
+ * level queued, read, or moved along its queue, and a pad looked for on an
+ * edge. The specs hold it to a few an edge with thousands in flight.
+ */
+let linkSteps = 0;
+
+const nanosOf = (sim: TimedSim): number =>
+  typeof sim.getCurrentNanos === 'function' ? sim.getCurrentNanos() : -1;
+
+/**
+ * A pad's edges. When its board's clock has gone back (a reset), the levels
+ * the pad was waiting for went with its old run; the edges it made or reported
+ * stay its own (one still on the wires is not new to it).
+ */
+function padOf(key: string, cycles: number): PadEdges {
+  let p = padEdges.get(key);
+  if (!p) {
+    p = { clock: cycles, handed: [], head: 0, last: null };
+    padEdges.set(key, p);
+  } else if (cycles < p.clock) {
+    dropHanded(p);
+    p.last = null;
+  }
+  p.clock = cycles;
+  return p;
+}
+
+/** The pad has `edge`: it made it, was handed it, or reported it. */
+function hasEdge(p: PadEdges, edge: LinkEdge): boolean {
+  linkSteps += edge.pads.length;
+  return edge.pads.includes(p);
+}
+
+/** The pad has `edge` from now on. */
+function keepEdge(p: PadEdges, edge: LinkEdge): void {
+  if (!hasEdge(p, edge)) edge.pads.push(p);
+}
+
+/** The level at the head of the pad's queue is read (see LINK_QUEUE_COMPACT for when the read ones go). */
+function readHanded(p: PadEdges): void {
+  linkSteps++;
+  if (++p.head === p.handed.length) {
+    p.handed.length = 0;
+    p.head = 0;
+  } else if (p.head >= LINK_QUEUE_COMPACT && p.head * 2 >= p.handed.length) {
+    linkSteps += p.handed.length - p.head;
+    p.handed = p.handed.slice(p.head);
+    p.head = 0;
+  }
+}
+
+/** The levels the pad has not reported are dropped, and it no longer has their edges. */
+function dropHanded(p: PadEdges): void {
+  for (let i = p.head; i < p.handed.length; i++) {
+    const pads = p.handed[i].edge.pads;
+    linkSteps += pads.length;
+    const k = pads.indexOf(p);
+    if (k >= 0) pads.splice(k, 1);
+  }
+  p.handed = [];
+  p.head = 0;
+}
+
+/**
+ * The edge a pad's report is: the one a wire handed it when the report is that
+ * level landing (the first level the pad was handed, in the order they land,
+ * that has landed and is the level reported: the ones before it found the pad
+ * at their level already and made no report), or a new edge the pad made.
+ */
+function edgeOf(pad: string, cycles: number, nanos: number, hz: number, level: boolean): LinkEdge {
+  const p = padOf(pad, cycles);
+  const last = p.last;
+  if (last && last.cycles === cycles && last.nanos === nanos && last.level === level) return last.edge;
+  let edge: LinkEdge | undefined;
+  while (p.head < p.handed.length) {
+    const e = p.handed[p.head];
+    const now = e.ns ? nanos : cycles;
+    if (e.at > now + (e.ns ? 1 : 0)) break; // not landed yet
+    readHanded(p);
+    // Landed long before this report: the pad had that level, or its guest drives it.
+    if (e.at < now - LINK_TAKEN_WITHIN_S * (e.ns ? 1e9 : hz)) continue;
+    if (e.level === level) {
+      edge = e.edge;
+      break;
+    }
+  }
+  if (edge) keepEdge(p, edge);
+  else edge = { pads: [p] };
+  p.last = { cycles, nanos, level, edge };
+  return edge;
+}
+
+/** A wire scheduled `level` on the pad at `atCycle`, with its board at `cycles`: where it lands, and the edge it carries. */
+function handEdge(pad: string, dst: TimedSim, hz: number, cycles: number, atCycle: number, level: boolean, edge: LinkEdge): void {
+  const p = padOf(pad, cycles);
+  const nanos = nanosOf(dst);
+  const ns = nanos >= 0;
+  const now = ns ? nanos : cycles;
+  const at = ns ? nanos + ((atCycle - cycles) / hz) * 1e9 : atCycle;
+  // What landed before now was reported (and read) or never will be; a pad
+  // that holds LINK_PAD_MAX drops its oldest.
+  const stale = now - LINK_TAKEN_WITHIN_S * (ns ? 1e9 : hz);
+  while (p.head < p.handed.length && (p.handed[p.head].at < stale || p.handed.length - p.head >= LINK_PAD_MAX)) {
+    readHanded(p);
+  }
+  // In the order they land: last, unless a level of another wire lands later.
+  const h = p.handed;
+  let i = h.length;
+  while (i > p.head && h[i - 1].at > at) i--;
+  linkSteps += h.length - i + 1;
+  if (i === h.length) h.push({ level, edge, at, ns });
+  else h.splice(i, 0, { level, edge, at, ns });
+  keepEdge(p, edge);
+}
 
 /**
  * Deliver a sender's edges to the receiver at the SPACING they had.
@@ -375,31 +623,79 @@ const LINK_REANCHOR_S = 0.05;
  *
  * Instead each edge is scheduled on the receiver's own cycle clock, the
  * sender's interval since the previous edge on this link converted between
- * the two clocks, so bit periods arrive intact a frame later. A link that
- * was quiet for LINK_REANCHOR_S re-anchors at the receiver's current cycle,
- * which keeps the lag from growing. Boards without a cycle clock get the
- * immediate write they always had.
+ * the two clocks, so bit periods arrive intact a frame later. A burst starts
+ * LINK_ANCHOR_AHEAD_S into the receiver's future, so the sender's next burst,
+ * which the receiver has run a frame closer to, still lands ahead of it and
+ * a line across the two arrives whole (#74). A new burst starts when the link
+ * was quiet for LINK_REANCHOR_S, when either clock has gone back (a reset; the
+ * receiver's queue went with its old run), and when the receiver has already
+ * run past where the spacing puts an edge (a sender slower than it). No edge
+ * lands more than LINK_MAX_AHEAD_S ahead of the receiver, nor on or before the
+ * edge before it on the same run.
+ *
+ * An edge goes nowhere it has been (see LinkEdge): the level the receiver's
+ * pad was handed down this wire does not come back up it, nor round a ring.
+ *
+ * Boards without a cycle clock get the immediate write they always had (the
+ * QEMU bridges). A sender behind a bridge (an ESP32 whose engine runs in the
+ * tab or in a worker) times its edges the same way, from the clock its shim
+ * offers (linkClock), and so does such a receiver.
  */
-function makeTimedPush(fromBoardId: string, toBoardId: string, toPin: number) {
-  let lastFrom = -1;
-  let lastTo = -1;
+function makeTimedPush(fromBoardId: string, fromPin: number, toBoardId: string, toPin: number) {
+  const fromPad = `${fromBoardId}:${fromPin}`;
+  const toPad = `${toBoardId}:${toPin}`;
+  /** The previous edge was timed: the cycles below are its. */
+  let timed = false;
+  /** The sender's cycle at the previous edge, and the receiver's present then. */
+  let lastFrom = 0;
+  let lastNow = 0;
+  /** Where the previous edge landed on the receiver: exactly, and the cycle it was given. */
+  let lastTo = 0;
+  let lastAt = 0;
   return (state: boolean) => {
     const src = asTimedSim(runtime?.getBoardSimulator(fromBoardId));
     const dst = asTimedSim(runtime?.getBoardSimulator(toBoardId));
-    if (!src || !dst) {
+    const srcHz = src?.getClockHz() ?? 0;
+    const hz = dst?.getClockHz() ?? 0;
+    if (!src || !dst || !(srcHz > 0) || !(hz > 0)) {
+      timed = false;
       pushPinState(toBoardId, toPin, state);
       return;
     }
     const fromNow = src.getCurrentCycles();
     const toNow = dst.getCurrentCycles();
-    const srcHz = src.getClockHz();
-    const gapS = lastFrom < 0 ? Infinity : (fromNow - lastFrom) / srcHz;
-    let at = gapS < LINK_REANCHOR_S && lastTo >= 0 ? lastTo + gapS * dst.getClockHz() : toNow;
-    if (at < toNow) at = toNow;
+    // The edge this report is; the receiver's pad has it already when it is
+    // the level a wire handed the sender from there, or one come round a ring.
+    const edge = edgeOf(fromPad, fromNow, nanosOf(src), srcHz, state);
+    if (hasEdge(padOf(toPad, toNow), edge)) return;
+    // The receiver still holds what this link gave it: its clock has not gone
+    // back (a reset starts it over, and its queue with it).
+    const held = timed && toNow >= lastNow;
+    // The sender's time since the previous edge, in the receiver's cycles;
+    // none when its clock went back.
+    const gap = timed && fromNow >= lastFrom ? ((fromNow - lastFrom) / srcHz) * hz : Infinity;
+    let at = held && gap < LINK_REANCHOR_S * hz ? lastTo + gap : -Infinity;
+    if (at < toNow) {
+      // A new burst: a frame into the receiver's future, and a quiet after
+      // the edges it still holds.
+      at = toNow + LINK_ANCHOR_AHEAD_S * hz;
+      if (held) at = Math.max(at, lastAt + LINK_MIN_QUIET_S * hz);
+    }
+    at = Math.min(at, toNow + LINK_MAX_AHEAD_S * hz);
+    // Each edge after the one before it: two on one cycle may not keep their
+    // order in an engine's queue (the in-browser ESP32 engines keep a heap).
+    let cycle = Math.round(at);
+    if (held && cycle <= lastAt) {
+      cycle = lastAt + 1;
+      at = cycle;
+    }
+    timed = true;
     lastFrom = fromNow;
+    lastNow = toNow;
     lastTo = at;
-    if (at <= toNow) pushPinState(toBoardId, toPin, state);
-    else dst.schedulePinChange(toPin, state, Math.round(at));
+    lastAt = cycle;
+    if (dst.schedulePinChange(toPin, state, cycle) === false) return;
+    handEdge(toPad, dst, hz, toNow, cycle, state, edge);
   };
 }
 
@@ -412,7 +708,7 @@ function installBrowserPinSubscription(
   if (!runtime) return () => {};
   const pm = runtime.getBoardPinManager(fromBoardId);
   if (!pm?.onPinChange) return () => {};
-  const push = makeTimedPush(fromBoardId, toBoardId, toPin);
+  const push = makeTimedPush(fromBoardId, fromPin, toBoardId, toPin);
   const unsub = pm.onPinChange(fromPin, (_p: number, state: boolean) => {
     // The reverse hop of a synchronous delivery (see pushPinState's guard).
     if (propagatingPins.has(`${fromBoardId}:${fromPin}`)) return;
@@ -471,7 +767,10 @@ function installBridgePinFanout(
     set = new Set();
     entry.pinChangeFanout.set(fromPin, set);
   }
-  const cb = (state: boolean) => pushPinState(toBoardId, toPin, state);
+  // At the sender's spacing when both ends keep a cycle clock (the bridge's
+  // shim offers its own), at once otherwise, as before.
+  const push = makeTimedPush(fromBoardId, fromPin, toBoardId, toPin);
+  const cb = (state: boolean) => push(state);
   set.add(cb);
   return () => {
     entry.pinChangeFanout.get(fromPin)?.delete(cb);
@@ -727,6 +1026,14 @@ export function unbindBoard(boardId: string): void {
   }
   // Remove the board entry; subsequent updateWires() will re-resolve.
   boards.delete(boardId);
+  for (const [pad, p] of padEdges) {
+    if (!pad.startsWith(`${boardId}:`)) continue;
+    // Its edges can outlive it on other pads: they hold nothing of its queue.
+    p.handed = [];
+    p.head = 0;
+    p.last = null;
+    padEdges.delete(pad);
+  }
 }
 
 let lastWireSnapshot: string = '';
@@ -803,6 +1110,8 @@ export function resetInterconnect(): void {
   }
   boards.clear();
   propagatingPins.clear();
+  padEdges.clear();
+  linkSteps = 0;
   for (const u of chipNetUnsubs) u();
   chipNetUnsubs = [];
   chipNetLinks.clear();
@@ -813,6 +1122,11 @@ export function resetInterconnect(): void {
 /** Diagnostic: return route count (for tests). */
 export function getRouteCount(): number {
   return routes.size;
+}
+
+/** Diagnostic: the steps the edge bookkeeping has taken since the last reset (for tests). */
+export function getLinkEdgeSteps(): number {
+  return linkSteps;
 }
 
 export function getBoundBoardIds(): string[] {
