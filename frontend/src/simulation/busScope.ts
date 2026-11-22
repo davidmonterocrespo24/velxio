@@ -26,8 +26,9 @@
  * sketch that streams Wire or SPI pays a lookup per step (the feed's `wants`,
  * a set it keeps per channel list). When the scope watches the bus, each
  * edge is one sample object, appended as it will be stored, and they are
- * handed over a run per pin in one store update: at each I2C STOP, every
- * FLUSH_EDGES samples, and when the engine's frame ends (flush()).
+ * handed over a run per pin in one store update: every FLUSH_EDGES samples,
+ * and when the engine's frame ends (flush()), so once a frame for a bus that
+ * is not saturated.
  *
  * I2C (NXP UM10204, sections 3.1.4 to 3.1.6): both lines idle HIGH; START is
  * SDA falling while SCL is HIGH, STOP is SDA rising while SCL is HIGH; data
@@ -251,8 +252,7 @@ export class I2cScopeSynth implements I2cScopeTap {
 
   stop(): void {
     // STOP, one SCL period: SDA LOW while SCL is LOW, SCL HIGH, then SDA
-    // rises while SCL is HIGH (UM10204 3.1.4). The bus is idle after it, and
-    // the transaction goes to the scope.
+    // rises while SCL is HIGH (UM10204 3.1.4). The bus is idle after it.
     this.step(1, (t, L, H, sda, scl) => {
       scl(t, false);
       sda(t + L / 2, false);
@@ -261,7 +261,6 @@ export class I2cScopeSynth implements I2cScopeTap {
     });
     this.open = false;
     this.skipping = false;
-    this.drawing.flush();
   }
 
   /** Eight bits MSB first and the ninth (SDA HIGH for a NACK), nine SCL periods. */

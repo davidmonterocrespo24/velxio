@@ -187,6 +187,7 @@ describe('I2C on an engine whose bus completes at once', () => {
     const clock = { now: 10 };
     const synth = i2c(clock, sink);
     writeTransaction(synth, 2);
+    synth.flush();
     // START (1 period) + 3 packets of 9 + STOP (1), 10 us each: 290 us.
     const sdaLast = edges.filter((e) => e.pin === SDA).at(-1)!;
     expect(sdaLast.state).toBe(true); // the STOP leaves the bus idle
@@ -201,6 +202,7 @@ describe('I2C on an engine whose bus completes at once', () => {
     // A 100-byte transaction at 100 kHz is 911 SCL periods, 9.11 ms on the
     // wire; the clock does not move, as on an engine that completes it at once.
     for (let k = 0; k < 10; k++) writeTransaction(synth, 100);
+    synth.flush();
     // The sixth starts 45.55 ms ahead and is drawn; the seventh would start
     // 54.66 ms ahead, and it and the three after it are left out.
     expect(synth.skippedTransactions).toBe(4);
@@ -225,6 +227,7 @@ describe('I2C on an engine whose bus completes at once', () => {
     clock.now = 60;
     const before = edges.length;
     writeTransaction(synth, 1);
+    synth.flush();
     expect(edges.length).toBeGreaterThan(before);
     expect(edges[before]!.timeMs).toBeGreaterThanOrEqual(60);
   });
@@ -290,22 +293,21 @@ describe('nobody looking', () => {
     }) as ScopeSink;
     const synth = i2c({ now: 0 }, plain);
     writeTransaction(synth, 1);
+    synth.flush();
     expect(got.filter((e) => e.pin === SCL && e.state)).toHaveLength(1 + 18 + 1);
     for (let i = 1; i < got.length; i++) expect(got[i]!.timeMs).toBeGreaterThanOrEqual(got[i - 1]!.timeMs);
   });
 });
 
 describe('handing the edges over', () => {
-  it('an I2C transaction reaches the scope in one batch, at its STOP', () => {
+  it('I2C transactions reach the scope together when the engine\'s frame ends', () => {
     const { sink, edges, batches } = sinkFor([SDA, SCL]);
     const synth = i2c({ now: 0 }, sink);
-    synth.start();
-    synth.address(0x3c, false, true);
-    synth.write(0x00, true);
+    for (let k = 0; k < 3; k++) writeTransaction(synth, 1);
     expect(batches()).toBe(0);
-    synth.stop();
+    synth.flush();
     expect(batches()).toBe(1);
-    expect(edges.length).toBeGreaterThan(40);
+    expect(edges.length).toBeGreaterThan(3 * 40);
   });
 
   it(`a long burst goes over every ${FLUSH_EDGES} edges or so, not byte by byte`, () => {
@@ -315,6 +317,7 @@ describe('handing the edges over', () => {
     synth.address(0x3c, false, true);
     for (let k = 0; k < 200; k++) synth.write(k & 0xff, true);
     synth.stop();
+    synth.flush();
     expect(edges.length).toBeGreaterThan(200 * 18);
     expect(batches()).toBeLessThanOrEqual(Math.ceil(edges.length / FLUSH_EDGES) + 1);
     expect(batches()).toBeLessThan(20);
