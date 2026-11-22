@@ -1,0 +1,1287 @@
+# Python 3.13.7 documentation symbol inventory, Python Software Foundation (PSF License).
+# https://docs.python.org/release/3.13.7/objects.inv
+	Class	ArithmeticError AssertionError AttributeError BaseException BaseExceptionGroup BlockingIOError BrokenPipeError BufferError BytesWarning ChildProcessError ConnectionAbortedError ConnectionError ConnectionRefusedError ConnectionResetError DeprecationWarning EOFError EncodingWarning EnvironmentError Exception ExceptionGroup FileExistsError FileNotFoundError FloatingPointError FutureWarning GeneratorExit IOError ImportError ImportWarning IndentationError IndexError InterruptedError IsADirectoryError KeyError KeyboardInterrupt LookupError MemoryError ModuleNotFoundError NameError NotADirectoryError NotImplementedError OSError OverflowError PendingDeprecationWarning PermissionError ProcessLookupError PythonFinalizationError RecursionError ReferenceError ResourceWarning RuntimeError RuntimeWarning StopAsyncIteration StopIteration SyntaxError SyntaxWarning SystemError SystemExit TabError TimeoutError TypeError UnboundLocalError UnicodeDecodeError UnicodeEncodeError UnicodeError UnicodeTranslateError UnicodeWarning UserWarning ValueError Warning WindowsError ZeroDivisionError bool bytearray bytes complex dict float frozenset int list memoryview object property range set slice str super tuple type
+	Constant	Ellipsis False None NotImplemented True __debug__ copyright credits exit license quit
+	Function	__import__ abs aiter all anext any ascii bin breakpoint callable chr classmethod compile delattr dir divmod enumerate eval exec filter format getattr globals hasattr hash help hex id input isinstance issubclass iter len locals map max min next oct open ord pow print repr reversed round setattr sorted staticmethod sum vars zip
+	Module	__future__ __main__ _thread _tkinter abc aifc argparse array ast asynchat asyncio asyncore atexit audioop base64 bdb binascii bisect builtins bz2 cProfile calendar cgi cgitb chunk cmath cmd code codecs codeop collections colorsys compileall configparser contextlib contextvars copy copyreg crypt csv ctypes curses dataclasses datetime dbm decimal difflib dis distutils doctest email encodings ensurepip enum errno faulthandler fcntl filecmp fileinput fnmatch fractions ftplib functools gc getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http idlelib imaplib imghdr imp importlib inspect io ipaddress itertools json keyword linecache locale logging lzma mailbox mailcap marshal math mimetypes mmap modulefinder msilib msvcrt multiprocessing netrc nis nntplib numbers operator optparse os ossaudiodev pathlib pdb pickle pickletools pipes pkgutil platform plistlib poplib posix pprint profile pstats pty pwd py_compile pyclbr pydoc queue quopri random re readline reprlib resource rlcompleter runpy sched secrets select selectors shelve shlex shutil signal site sitecustomize smtpd smtplib sndhdr socket socketserver spwd sqlite3 ssl stat statistics string stringprep struct subprocess sunau symtable sys sysconfig syslog tabnanny tarfile telnetlib tempfile termios test textwrap threading time timeit tkinter token tokenize tomllib trace traceback tracemalloc tty turtle turtledemo types typing unicodedata unittest urllib usercustomize uu uuid venv warnings wave weakref webbrowser winreg winsound wsgiref xdrlib xml xmlrpc zipapp zipfile zipimport zlib zoneinfo
+AttributeError	Property	name obj
+BaseException	Method	add_note with_traceback
+BaseException	Property	__cause__ __context__ __notes__ __suppress_context__ __traceback__ args
+BaseExceptionGroup	Method	derive split subgroup
+BaseExceptionGroup	Property	exceptions message
+BlockingIOError	Property	characters_written
+ImportError	Property	name path
+NameError	Property	name
+OSError	Property	errno filename filename2 strerror winerror
+StopIteration	Property	value
+SyntaxError	Property	end_lineno end_offset filename lineno offset text
+SystemExit	Property	code
+UnicodeError	Property	encoding end object reason start
+__future__	Class	_Feature
+__future__	Constant	absolute_import annotations division generator_stop generators nested_scopes print_function unicode_literals with_statement
+__future__._Feature	Method	getMandatoryRelease getOptionalRelease
+__future__._Feature	Property	compiler_flag
+_thread	Class	error
+_thread	Constant	LockType TIMEOUT_MAX
+_thread	Function	allocate_lock exit get_ident get_native_id interrupt_main stack_size start_new_thread
+_thread.lock	Method	acquire locked release
+_tkinter	Constant	EXCEPTION READABLE WRITABLE
+_tkinter.Widget.tk	Method	createfilehandler deletefilehandler
+abc	Class	ABC ABCMeta
+abc	Function	abstractclassmethod abstractmethod abstractproperty abstractstaticmethod get_cache_token update_abstractmethods
+abc.ABCMeta	Method	__subclasshook__ register
+agen	Method	__anext__ aclose asend athrow
+argparse	Class	Action ArgumentDefaultsHelpFormatter ArgumentError ArgumentParser ArgumentTypeError BooleanOptionalAction FileType MetavarTypeHelpFormatter Namespace RawDescriptionHelpFormatter RawTextHelpFormatter
+argparse.Action	Method	__call__ format_usage
+argparse.ArgumentParser	Method	add_argument add_argument_group add_mutually_exclusive_group add_subparsers convert_arg_line_to_args error exit format_help format_usage get_default parse_args parse_intermixed_args parse_known_args parse_known_intermixed_args print_help print_usage register set_defaults
+array	Class	array
+array	Constant	typecodes
+array.array	Method	append buffer_info byteswap clear count extend frombytes fromfile fromlist fromunicode index insert pop remove reverse tobytes tofile tolist tounicode
+array.array	Property	itemsize typecode
+ast	Class	AST Add And AnnAssign Assert Assign AsyncFor AsyncFunctionDef AsyncWith Attribute AugAssign Await BinOp BitAnd BitOr BitXor BoolOp Break Call ClassDef Compare Constant Continue Del Delete Dict DictComp Div Eq ExceptHandler Expr Expression FloorDiv For FormattedValue FunctionDef FunctionType GeneratorExp Global Gt GtE If IfExp Import ImportFrom In Interactive Invert Is IsNot JoinedStr LShift Lambda List ListComp Load Lt LtE MatMult Match MatchAs MatchClass MatchMapping MatchOr MatchSequence MatchSingleton MatchStar MatchValue Mod Module Mult Name NamedExpr NodeTransformer NodeVisitor Nonlocal Not NotEq NotIn Or ParamSpec Pass Pow RShift Raise Return Set SetComp Slice Starred Store Sub Subscript Try TryStar Tuple TypeAlias TypeIgnore TypeVar TypeVarTuple UAdd USub UnaryOp While With Yield YieldFrom alias arg arguments comprehension keyword match_case withitem
+ast	Constant	PyCF_ALLOW_TOP_LEVEL_AWAIT PyCF_ONLY_AST PyCF_OPTIMIZED_AST PyCF_TYPE_COMMENTS
+ast	Function	copy_location dump fix_missing_locations get_docstring get_source_segment increment_lineno iter_child_nodes iter_fields literal_eval parse unparse walk
+ast.AST	Property	_field_types _fields col_offset end_col_offset end_lineno lineno
+ast.Assign	Property	type_comment
+ast.For	Property	type_comment
+ast.FunctionDef	Property	type_comment
+ast.NodeVisitor	Method	generic_visit visit visit_Constant
+ast.With	Property	type_comment
+ast.arg	Property	type_comment
+asyncio	Class	AbstractChildWatcher AbstractEventLoop AbstractEventLoopPolicy Barrier BaseProtocol BaseTransport BoundedSemaphore BrokenBarrierError BufferedProtocol CancelledError Condition DatagramProtocol DatagramTransport DefaultEventLoopPolicy Event EventLoop FastChildWatcher Future Handle IncompleteReadError InvalidStateError LifoQueue LimitOverrunError Lock MultiLoopChildWatcher PidfdChildWatcher PriorityQueue ProactorEventLoop Protocol Queue QueueEmpty QueueFull QueueShutDown ReadTransport Runner SafeChildWatcher SelectorEventLoop Semaphore SendfileNotAvailableError Server StreamReader StreamWriter SubprocessProtocol SubprocessTransport Task TaskGroup ThreadedChildWatcher Timeout TimeoutError TimerHandle Transport WindowsProactorEventLoopPolicy WindowsSelectorEventLoopPolicy WriteTransport
+asyncio	Constant	ALL_COMPLETED FIRST_COMPLETED FIRST_EXCEPTION
+asyncio	Function	_enter_task _leave_task _register_task _unregister_task all_tasks as_completed create_eager_task_factory create_subprocess_exec create_subprocess_shell create_task current_task eager_task_factory ensure_future gather get_child_watcher get_event_loop get_event_loop_policy get_running_loop iscoroutine isfuture new_event_loop open_connection open_unix_connection run run_coroutine_threadsafe set_child_watcher set_event_loop set_event_loop_policy shield sleep start_server start_unix_server timeout timeout_at to_thread wait wait_for wrap_future
+asyncio.AbstractChildWatcher	Method	add_child_handler attach_loop close is_active remove_child_handler
+asyncio.AbstractEventLoopPolicy	Method	get_child_watcher get_event_loop new_event_loop set_child_watcher set_event_loop
+asyncio.Barrier	Method	abort reset wait
+asyncio.Barrier	Property	broken n_waiting parties
+asyncio.BaseProtocol	Method	connection_lost connection_made pause_writing resume_writing
+asyncio.BaseTransport	Method	close get_extra_info get_protocol is_closing set_protocol
+asyncio.BufferedProtocol	Method	buffer_updated eof_received get_buffer
+asyncio.Condition	Method	acquire locked notify notify_all release wait wait_for
+asyncio.DatagramProtocol	Method	datagram_received error_received
+asyncio.DatagramTransport	Method	abort sendto
+asyncio.Event	Method	clear is_set set wait
+asyncio.Future	Method	__init__ add_done_callback cancel cancelled done exception get_loop remove_done_callback result set_exception set_result
+asyncio.Handle	Method	cancel cancelled get_context
+asyncio.IncompleteReadError	Property	expected partial
+asyncio.LimitOverrunError	Property	consumed
+asyncio.Lock	Method	acquire locked release
+asyncio.Protocol	Method	data_received eof_received
+asyncio.Queue	Method	empty full get get_nowait join put put_nowait qsize shutdown task_done
+asyncio.Queue	Property	maxsize
+asyncio.ReadTransport	Method	is_reading pause_reading resume_reading
+asyncio.Runner	Method	close get_loop run
+asyncio.Semaphore	Method	acquire locked release
+asyncio.Server	Method	abort_clients close close_clients get_loop is_serving serve_forever start_serving wait_closed
+asyncio.Server	Property	sockets
+asyncio.StreamReader	Method	at_eof feed_eof read readexactly readline readuntil
+asyncio.StreamWriter	Method	can_write_eof close drain get_extra_info is_closing start_tls wait_closed write write_eof writelines
+asyncio.StreamWriter	Property	transport
+asyncio.SubprocessProtocol	Method	pipe_connection_lost pipe_data_received process_exited
+asyncio.SubprocessTransport	Method	close get_pid get_pipe_transport get_returncode kill send_signal terminate
+asyncio.Task	Method	__init__ add_done_callback cancel cancelled cancelling done exception get_context get_coro get_name get_stack print_stack remove_done_callback result set_name uncancel
+asyncio.TaskGroup	Method	create_task
+asyncio.Timeout	Method	expired reschedule when
+asyncio.TimerHandle	Method	when
+asyncio.WriteTransport	Method	abort can_write_eof get_write_buffer_limits get_write_buffer_size set_write_buffer_limits write write_eof writelines
+asyncio.loop	Method	add_reader add_signal_handler add_writer call_at call_exception_handler call_later call_soon call_soon_threadsafe close connect_accepted_socket connect_read_pipe connect_write_pipe create_connection create_datagram_endpoint create_future create_server create_task create_unix_connection create_unix_server default_exception_handler get_debug get_exception_handler get_task_factory getaddrinfo getnameinfo is_closed is_running remove_reader remove_signal_handler remove_writer run_forever run_in_executor run_until_complete sendfile set_debug set_default_executor set_exception_handler set_task_factory shutdown_asyncgens shutdown_default_executor sock_accept sock_connect sock_recv sock_recv_into sock_recvfrom sock_recvfrom_into sock_sendall sock_sendfile sock_sendto start_tls stop subprocess_exec subprocess_shell time
+asyncio.loop	Property	slow_callback_duration
+asyncio.subprocess	Class	Process
+asyncio.subprocess	Constant	DEVNULL PIPE STDOUT
+asyncio.subprocess.Process	Method	communicate kill send_signal terminate wait
+asyncio.subprocess.Process	Property	pid returncode stderr stdin stdout
+atexit	Function	register unregister
+base64	Function	a85decode a85encode b16decode b16encode b32decode b32encode b32hexdecode b32hexencode b64decode b64encode b85decode b85encode decode decodebytes encode encodebytes standard_b64decode standard_b64encode urlsafe_b64decode urlsafe_b64encode z85decode z85encode
+bdb	Class	Bdb BdbQuit Breakpoint
+bdb	Function	checkfuncname effective set_trace
+bdb.Bdb	Method	break_anywhere break_here canonic clear_all_breaks clear_all_file_breaks clear_bpbynumber clear_break dispatch_call dispatch_exception dispatch_line dispatch_return do_clear format_stack_entry get_all_breaks get_bpbynumber get_break get_breaks get_file_breaks get_stack is_skipped_line reset run runcall runctx runeval set_break set_continue set_next set_quit set_return set_step set_trace set_until stop_here trace_dispatch user_call user_exception user_line user_return
+bdb.Breakpoint	Method	bpformat bpprint deleteMe disable enable
+bdb.Breakpoint	Property	bpbynumber bplist cond enabled file funcname hits ignore line temporary
+binascii	Class	Error Incomplete
+binascii	Function	a2b_base64 a2b_hex a2b_qp a2b_uu b2a_base64 b2a_hex b2a_qp b2a_uu crc32 crc_hqx hexlify unhexlify
+bisect	Function	bisect bisect_left bisect_right insort insort_left insort_right
+bytearray	Method	capitalize center count decode endswith expandtabs find fromhex hex index isalnum isalpha isascii isdigit islower isspace istitle isupper join ljust lower lstrip maketrans partition removeprefix removesuffix replace rfind rindex rjust rpartition rsplit rstrip split splitlines startswith strip swapcase title translate upper zfill
+bytes	Method	capitalize center count decode endswith expandtabs find fromhex hex index isalnum isalpha isascii isdigit islower isspace istitle isupper join ljust lower lstrip maketrans partition removeprefix removesuffix replace rfind rindex rjust rpartition rsplit rstrip split splitlines startswith strip swapcase title translate upper zfill
+bz2	Class	BZ2Compressor BZ2Decompressor BZ2File
+bz2	Function	compress decompress open
+bz2.BZ2Compressor	Method	compress flush
+bz2.BZ2Decompressor	Method	decompress
+bz2.BZ2Decompressor	Property	eof needs_input unused_data
+bz2.BZ2File	Method	fileno peek read1 readable readinto seekable writable
+bz2.BZ2File	Property	mode name
+calendar	Class	Calendar Day HTMLCalendar IllegalMonthError IllegalWeekdayError LocaleHTMLCalendar LocaleTextCalendar Month TextCalendar
+calendar	Constant	APRIL AUGUST DECEMBER FEBRUARY FRIDAY JANUARY JULY JUNE MARCH MAY MONDAY NOVEMBER OCTOBER SATURDAY SEPTEMBER SUNDAY THURSDAY TUESDAY WEDNESDAY day_abbr day_name month_abbr month_name
+calendar	Function	calendar firstweekday isleap leapdays month monthcalendar monthrange prcal prmonth setfirstweekday timegm weekday weekheader
+calendar.Calendar	Method	getfirstweekday itermonthdates itermonthdays itermonthdays2 itermonthdays3 itermonthdays4 iterweekdays monthdatescalendar monthdays2calendar monthdayscalendar setfirstweekday yeardatescalendar yeardays2calendar yeardayscalendar
+calendar.Calendar	Property	firstweekday
+calendar.HTMLCalendar	Method	formatmonth formatmonthname formatyear formatyearpage
+calendar.HTMLCalendar	Property	cssclass_month cssclass_month_head cssclass_noday cssclass_year cssclass_year_head cssclasses cssclasses_weekday_head
+calendar.IllegalMonthError	Property	month
+calendar.IllegalWeekdayError	Property	weekday
+calendar.TextCalendar	Method	formatday formatmonth formatmonthname formatweek formatweekday formatweekheader formatyear prmonth pryear
+cmath	Constant	e inf infj nan nanj pi tau
+cmath	Function	acos acosh asin asinh atan atanh cos cosh exp isclose isfinite isinf isnan log log10 phase polar rect sin sinh sqrt tan tanh
+cmd	Class	Cmd
+cmd.Cmd	Method	cmdloop columnize completedefault default do_help emptyline onecmd postcmd postloop precmd preloop
+cmd.Cmd	Property	cmdqueue doc_header identchars intro lastcmd misc_header prompt ruler undoc_header use_rawinput
+code	Class	InteractiveConsole InteractiveInterpreter
+code	Function	compile_command interact
+code.InteractiveConsole	Method	interact push raw_input resetbuffer
+code.InteractiveInterpreter	Method	runcode runsource showsyntaxerror showtraceback write
+codecs	Class	Codec CodecInfo IncrementalDecoder IncrementalEncoder StreamReader StreamReaderWriter StreamRecoder StreamWriter
+codecs	Constant	BOM BOM_BE BOM_LE BOM_UTF16 BOM_UTF16_BE BOM_UTF16_LE BOM_UTF32 BOM_UTF32_BE BOM_UTF32_LE BOM_UTF8
+codecs	Function	EncodedFile backslashreplace_errors charmap_build decode encode getdecoder getencoder getincrementaldecoder getincrementalencoder getreader getwriter ignore_errors iterdecode iterencode lookup lookup_error namereplace_errors open readbuffer_encode register register_error replace_errors strict_errors unregister xmlcharrefreplace_errors
+codecs.Codec	Method	decode encode
+codecs.CodecInfo	Property	decode encode incrementaldecoder incrementalencoder name streamreader streamwriter
+codecs.IncrementalDecoder	Method	decode getstate reset setstate
+codecs.IncrementalEncoder	Method	encode getstate reset setstate
+codecs.StreamReader	Method	read readline readlines reset
+codecs.StreamWriter	Method	reset write writelines
+codecs.codecs	Function	escape_decode escape_encode
+codeobject	Method	co_lines co_positions replace
+codeobject	Property	co_argcount co_cellvars co_code co_consts co_filename co_firstlineno co_flags co_freevars co_kwonlyargcount co_lnotab co_name co_names co_nlocals co_posonlyargcount co_qualname co_stacksize co_varnames
+codeop	Class	CommandCompiler Compile
+codeop	Function	compile_command
+collections	Class	ChainMap Counter OrderedDict UserDict UserList UserString defaultdict deque
+collections	Function	namedtuple
+collections	Module	abc
+collections.ChainMap	Method	new_child
+collections.ChainMap	Property	maps parents
+collections.Counter	Method	elements fromkeys most_common subtract total update
+collections.OrderedDict	Method	move_to_end popitem
+collections.UserDict	Property	data
+collections.UserList	Property	data
+collections.UserString	Property	data
+collections.abc	Class	AsyncGenerator AsyncIterable AsyncIterator Awaitable Buffer ByteString Callable Collection Container Coroutine Generator Hashable ItemsView Iterable Iterator KeysView Mapping MappingView MutableMapping MutableSequence MutableSet Reversible Sequence Set Sized ValuesView
+collections.defaultdict	Method	__missing__
+collections.defaultdict	Property	default_factory
+collections.deque	Method	append appendleft clear copy count extend extendleft index insert pop popleft remove reverse rotate
+collections.deque	Property	maxlen
+collections.somenamedtuple	Method	_asdict _make _replace
+collections.somenamedtuple	Property	_field_defaults _fields
+colorsys	Function	hls_to_rgb hsv_to_rgb rgb_to_hls rgb_to_hsv rgb_to_yiq yiq_to_rgb
+compileall	Function	compile_dir compile_file compile_path
+concurrent	Module	futures
+concurrent.futures	Class	BrokenExecutor CancelledError Executor Future InvalidStateError ProcessPoolExecutor ThreadPoolExecutor TimeoutError
+concurrent.futures	Constant	ALL_COMPLETED FIRST_COMPLETED FIRST_EXCEPTION
+concurrent.futures	Function	as_completed wait
+concurrent.futures.Executor	Method	map shutdown submit
+concurrent.futures.Future	Method	add_done_callback cancel cancelled done exception result running set_exception set_result set_running_or_notify_cancel
+concurrent.futures.process	Class	BrokenProcessPool
+concurrent.futures.thread	Class	BrokenThreadPool
+configparser	Class	BasicInterpolation ConfigParser DuplicateOptionError DuplicateSectionError Error ExtendedInterpolation InterpolationDepthError InterpolationError InterpolationMissingOptionError InterpolationSyntaxError MissingSectionHeaderError MultilineContinuationError NoOptionError NoSectionError ParsingError RawConfigParser
+configparser	Constant	MAX_INTERPOLATION_DEPTH UNNAMED_SECTION
+configparser.ConfigParser	Method	add_section defaults get getboolean getfloat getint has_option has_section items options optionxform read read_dict read_file read_string remove_option remove_section sections set write
+configparser.ConfigParser	Property	BOOLEAN_STATES SECTCRE
+configparser.RawConfigParser	Method	add_section set
+container	Method	__iter__
+contextlib	Class	AbstractAsyncContextManager AbstractContextManager AsyncContextDecorator AsyncExitStack ContextDecorator ExitStack
+contextlib	Function	aclosing asynccontextmanager chdir closing contextmanager nullcontext redirect_stderr redirect_stdout suppress
+contextlib.AsyncExitStack	Method	aclose enter_async_context push_async_callback push_async_exit
+contextlib.ExitStack	Method	callback close enter_context pop_all push
+contextmanager	Method	__enter__ __exit__
+contextvars	Class	Context ContextVar Token
+contextvars	Function	copy_context
+contextvars.Context	Method	copy get items keys run values
+contextvars.ContextVar	Method	get reset set
+contextvars.ContextVar	Property	name
+contextvars.Token	Property	MISSING old_value var
+copy	Class	Error
+copy	Function	copy deepcopy replace
+copyreg	Function	constructor pickle
+coroutine	Method	close send throw
+csv	Class	Dialect DictReader DictWriter Error Sniffer excel excel_tab unix_dialect
+csv	Constant	QUOTE_ALL QUOTE_MINIMAL QUOTE_NONE QUOTE_NONNUMERIC QUOTE_NOTNULL QUOTE_STRINGS
+csv	Function	field_size_limit get_dialect list_dialects reader register_dialect unregister_dialect writer
+csv.Dialect	Property	delimiter doublequote escapechar lineterminator quotechar quoting skipinitialspace strict
+csv.DictReader	Property	fieldnames
+csv.DictWriter	Method	writeheader
+csv.Sniffer	Method	has_header sniff
+csv.csvreader	Method	__next__
+csv.csvreader	Property	dialect line_num
+csv.csvwriter	Method	writerow writerows
+csv.csvwriter	Property	dialect
+ctypes	Class	ArgumentError Array BigEndianStructure BigEndianUnion CDLL HRESULT LibraryLoader LittleEndianStructure LittleEndianUnion OleDLL PyDLL Structure Union WinDLL _CData _CFuncPtr _Pointer _SimpleCData c_bool c_byte c_char c_char_p c_double c_float c_int c_int16 c_int32 c_int64 c_int8 c_long c_longdouble c_longlong c_short c_size_t c_ssize_t c_time_t c_ubyte c_uint c_uint16 c_uint32 c_uint64 c_uint8 c_ulong c_ulonglong c_ushort c_void_p c_wchar c_wchar_p py_object
+ctypes	Function	ARRAY CFUNCTYPE DllCanUnloadNow DllGetClassObject FormatError GetLastError POINTER PYFUNCTYPE WINFUNCTYPE WinError addressof alignment byref cast create_string_buffer create_unicode_buffer get_errno get_last_error memmove memset pointer resize set_errno set_last_error sizeof string_at wstring_at
+ctypes.Array	Property	_length_ _type_
+ctypes.LibraryLoader	Method	LoadLibrary
+ctypes.PyDLL	Property	_handle _name
+ctypes.Structure	Property	_align_ _anonymous_ _fields_ _pack_
+ctypes._CData	Method	from_address from_buffer from_buffer_copy from_param in_dll
+ctypes._CData	Property	_b_base_ _b_needsfree_ _objects
+ctypes._CFuncPtr	Property	argtypes errcheck restype
+ctypes._Pointer	Property	_type_ contents
+ctypes._SimpleCData	Property	value
+ctypes.util	Function	find_library find_msvcrt
+curses	Class	error
+curses	Constant	ACS_BBSS ACS_BLOCK ACS_BOARD ACS_BSBS ACS_BSSB ACS_BSSS ACS_BTEE ACS_BULLET ACS_CKBOARD ACS_DARROW ACS_DEGREE ACS_DIAMOND ACS_GEQUAL ACS_HLINE ACS_LANTERN ACS_LARROW ACS_LEQUAL ACS_LLCORNER ACS_LRCORNER ACS_LTEE ACS_NEQUAL ACS_PI ACS_PLMINUS ACS_PLUS ACS_RARROW ACS_RTEE ACS_S1 ACS_S3 ACS_S7 ACS_S9 ACS_SBBS ACS_SBSB ACS_SBSS ACS_SSBB ACS_SSBS ACS_SSSB ACS_SSSS ACS_STERLING ACS_TTEE ACS_UARROW ACS_ULCORNER ACS_URCORNER ACS_VLINE A_ALTCHARSET A_ATTRIBUTES A_BLINK A_BOLD A_CHARTEXT A_COLOR A_DIM A_HORIZONTAL A_INVIS A_ITALIC A_LEFT A_LOW A_NORMAL A_PROTECT A_REVERSE A_RIGHT A_STANDOUT A_TOP A_UNDERLINE A_VERTICAL BUTTON_ALT BUTTON_CTRL BUTTON_SHIFT BUTTONn_CLICKED BUTTONn_DOUBLE_CLICKED BUTTONn_PRESSED BUTTONn_RELEASED BUTTONn_TRIPLE_CLICKED COLORS COLOR_BLACK COLOR_BLUE COLOR_CYAN COLOR_GREEN COLOR_MAGENTA COLOR_PAIRS COLOR_RED COLOR_WHITE COLOR_YELLOW COLS ERR KEY_A1 KEY_A3 KEY_B2 KEY_BACKSPACE KEY_BEG KEY_BREAK KEY_BTAB KEY_C1 KEY_C3 KEY_CANCEL KEY_CATAB KEY_CLEAR KEY_CLOSE KEY_COMMAND KEY_COPY KEY_CREATE KEY_CTAB KEY_DC KEY_DL KEY_DOWN KEY_EIC KEY_END KEY_ENTER KEY_EOL KEY_EOS KEY_EXIT KEY_F0 KEY_FIND KEY_Fn KEY_HELP KEY_HOME KEY_IC KEY_IL KEY_LEFT KEY_LL KEY_MARK KEY_MAX KEY_MESSAGE KEY_MIN KEY_MOUSE KEY_MOVE KEY_NEXT KEY_NPAGE KEY_OPEN KEY_OPTIONS KEY_PPAGE KEY_PREVIOUS KEY_PRINT KEY_REDO KEY_REFERENCE KEY_REFRESH KEY_REPLACE KEY_RESET KEY_RESIZE KEY_RESTART KEY_RESUME KEY_RIGHT KEY_SAVE KEY_SBEG KEY_SCANCEL KEY_SCOMMAND KEY_SCOPY KEY_SCREATE KEY_SDC KEY_SDL KEY_SELECT KEY_SEND KEY_SEOL KEY_SEXIT KEY_SF KEY_SFIND KEY_SHELP KEY_SHOME KEY_SIC KEY_SLEFT KEY_SMESSAGE KEY_SMOVE KEY_SNEXT KEY_SOPTIONS KEY_SPREVIOUS KEY_SPRINT KEY_SR KEY_SREDO KEY_SREPLACE KEY_SRESET KEY_SRIGHT KEY_SRSUME KEY_SSAVE KEY_SSUSPEND KEY_STAB KEY_SUNDO KEY_SUSPEND KEY_UNDO KEY_UP LINES OK __version__ ncurses_version version
+curses	Function	baudrate beep can_change_color cbreak color_content color_pair curs_set def_prog_mode def_shell_mode delay_output doupdate echo endwin erasechar filter flash flushinp get_escdelay get_tabsize getmouse getsyx getwin halfdelay has_colors has_extended_color_support has_ic has_il has_key init_color init_pair initscr is_term_resized isendwin keyname killchar longname meta mouseinterval mousemask napms newpad newwin nl nocbreak noecho nonl noqiflush noraw pair_content pair_number putp qiflush raw reset_prog_mode reset_shell_mode resetty resize_term resizeterm savetty set_escdelay set_tabsize setsyx setupterm start_color termattrs termname tigetflag tigetnum tigetstr tparm typeahead unctrl unget_wch ungetch ungetmouse update_lines_cols use_default_colors use_env wrapper
+curses	Module	ascii panel textpad
+curses.ascii	Constant	ACK BEL BS CAN CR DC1 DC2 DC3 DC4 DEL DLE EM ENQ EOT ESC ETB ETX FF FS GS HT LF NAK NL NUL RS SI SO SOH SP STX SUB SYN TAB US VT controlnames
+curses.ascii	Function	alt ascii ctrl isalnum isalpha isascii isblank iscntrl isctrl isdigit isgraph islower ismeta isprint ispunct isspace isupper isxdigit unctrl
+curses.panel	Function	bottom_panel new_panel top_panel update_panels
+curses.panel.Panel	Method	above below bottom hidden hide move replace set_userptr show top userptr window
+curses.textpad	Class	Textbox
+curses.textpad	Function	rectangle
+curses.textpad.Textbox	Method	do_command edit gather
+curses.textpad.Textbox	Property	stripspaces
+curses.window	Method	addch addnstr addstr attroff attron attrset bkgd bkgdset border box chgat clear clearok clrtobot clrtoeol cursyncup delch deleteln derwin echochar enclose erase get_wch getbegyx getbkgd getch getkey getmaxyx getparyx getstr getyx hline idcok idlok immedok inch insch insdelln insertln insnstr insstr instr is_linetouched is_wintouched keypad leaveok move mvderwin mvwin nodelay notimeout noutrefresh overlay overwrite putwin redrawln redrawwin refresh resize scroll scrollok setscrreg standend standout subpad subwin syncdown syncok syncup timeout touchline touchwin untouchwin vline
+curses.window	Property	encoding
+dataclasses	Class	Field FrozenInstanceError InitVar
+dataclasses	Constant	KW_ONLY MISSING
+dataclasses	Function	__post_init__ asdict astuple dataclass field fields is_dataclass make_dataclass replace
+datetime	Class	date datetime time timedelta timezone tzinfo
+datetime	Constant	MAXYEAR MINYEAR UTC
+datetime.date	Method	__format__ __str__ ctime fromisocalendar fromisoformat fromordinal fromtimestamp isocalendar isoformat isoweekday replace strftime timetuple today toordinal weekday
+datetime.date	Property	day max min month resolution year
+datetime.datetime	Method	__format__ __str__ astimezone combine ctime date dst fromisocalendar fromisoformat fromordinal fromtimestamp isocalendar isoformat isoweekday now replace strftime strptime time timestamp timetuple timetz today toordinal tzname utcfromtimestamp utcnow utcoffset utctimetuple weekday
+datetime.datetime	Property	day fold hour max microsecond min minute month resolution second tzinfo year
+datetime.time	Method	__format__ __str__ dst fromisoformat isoformat replace strftime tzname utcoffset
+datetime.time	Property	fold hour max microsecond min minute resolution second tzinfo
+datetime.timedelta	Method	total_seconds
+datetime.timedelta	Property	days max microseconds min resolution seconds
+datetime.timezone	Method	dst fromutc tzname utcoffset
+datetime.timezone	Property	utc
+datetime.tzinfo	Method	dst fromutc tzname utcoffset
+dbm	Class	error
+dbm	Function	open whichdb
+dbm	Module	dumb gnu ndbm sqlite3
+dbm.dumb	Class	error
+dbm.dumb	Function	open
+dbm.dumb.dumbdbm	Method	close sync
+dbm.gnu	Class	error
+dbm.gnu	Constant	open_flags
+dbm.gnu	Function	open
+dbm.gnu.gdbm	Method	clear close firstkey nextkey reorganize sync
+dbm.ndbm	Class	error
+dbm.ndbm	Constant	library
+dbm.ndbm	Function	open
+dbm.ndbm.ndbm	Method	clear close
+dbm.sqlite3	Function	open
+decimal	Class	Clamped Context Decimal DecimalException DivisionByZero FloatOperation Inexact InvalidOperation Overflow Rounded Subnormal Underflow
+decimal	Constant	BasicContext DefaultContext ExtendedContext HAVE_CONTEXTVAR HAVE_THREADS MAX_EMAX MAX_PREC MIN_EMIN MIN_ETINY ROUND_05UP ROUND_CEILING ROUND_DOWN ROUND_FLOOR ROUND_HALF_DOWN ROUND_HALF_EVEN ROUND_HALF_UP ROUND_UP
+decimal	Function	getcontext localcontext setcontext
+decimal.Context	Method	Etiny Etop abs add canonical clear_flags clear_traps compare compare_signal compare_total compare_total_mag copy copy_abs copy_decimal copy_negate copy_sign create_decimal create_decimal_from_float divide divide_int divmod exp fma is_canonical is_finite is_infinite is_nan is_normal is_qnan is_signed is_snan is_subnormal is_zero ln log10 logb logical_and logical_invert logical_or logical_xor max max_mag min min_mag minus multiply next_minus next_plus next_toward normalize number_class plus power quantize radix remainder remainder_near rotate same_quantum scaleb shift sqrt subtract to_eng_string to_integral_exact to_sci_string
+decimal.Context	Property	Emax Emin capitals clamp flags prec rounding traps
+decimal.Decimal	Method	adjusted as_integer_ratio as_tuple canonical compare compare_signal compare_total compare_total_mag conjugate copy_abs copy_negate copy_sign exp fma from_float is_canonical is_finite is_infinite is_nan is_normal is_qnan is_signed is_snan is_subnormal is_zero ln log10 logb logical_and logical_invert logical_or logical_xor max max_mag min min_mag next_minus next_plus next_toward normalize number_class quantize radix remainder_near rotate same_quantum scaleb shift sqrt to_eng_string to_integral to_integral_exact to_integral_value
+definition	Property	__doc__ __module__ __name__ __qualname__ __type_params__
+dict	Method	clear copy fromkeys get items keys pop popitem setdefault update values
+difflib	Class	Differ HtmlDiff SequenceMatcher
+difflib	Function	IS_CHARACTER_JUNK IS_LINE_JUNK context_diff diff_bytes get_close_matches ndiff restore unified_diff
+difflib.Differ	Method	compare
+difflib.HtmlDiff	Method	__init__ make_file make_table
+difflib.SequenceMatcher	Method	find_longest_match get_grouped_opcodes get_matching_blocks get_opcodes quick_ratio ratio real_quick_ratio set_seq1 set_seq2 set_seqs
+dis	Class	Bytecode Instruction Positions
+dis	Constant	cmp_op hasarg hascompare hasconst hasexc hasfree hasjabs hasjrel hasjump haslocal hasname opmap opname
+dis	Function	code_info dis disassemble findlabels findlinestarts get_instructions show_code stack_effect
+dis.Bytecode	Constant	codeobj first_line
+dis.Bytecode	Method	dis from_traceback info
+dis.Instruction	Constant	arg argrepr argval baseopcode baseopname cache_info cache_offset end_offset is_jump_target jump_target line_number offset oparg opcode opname positions start_offset starts_line
+dis.Positions	Constant	col_offset end_col_offset end_lineno lineno
+doctest	Class	DebugRunner DocTest DocTestFailure DocTestFinder DocTestParser DocTestRunner Example OutputChecker TestResults UnexpectedException
+doctest	Constant	COMPARISON_FLAGS DONT_ACCEPT_BLANKLINE DONT_ACCEPT_TRUE_FOR_1 ELLIPSIS FAIL_FAST IGNORE_EXCEPTION_DETAIL NORMALIZE_WHITESPACE REPORTING_FLAGS REPORT_CDIFF REPORT_NDIFF REPORT_ONLY_FIRST_FAILURE REPORT_UDIFF SKIP
+doctest	Function	DocFileSuite DocTestSuite debug debug_src register_optionflag run_docstring_examples script_from_examples set_unittest_reportflags testfile testmod testsource
+doctest.DocTest	Property	docstring examples filename globs lineno name
+doctest.DocTestFailure	Property	example got test
+doctest.DocTestFinder	Method	find
+doctest.DocTestParser	Method	get_doctest get_examples parse
+doctest.DocTestRunner	Method	report_failure report_start report_success report_unexpected_exception run summarize
+doctest.DocTestRunner	Property	failures skips tries
+doctest.Example	Property	exc_msg indent lineno options source want
+doctest.OutputChecker	Method	check_output output_difference
+doctest.TestResults	Property	attempted failed skipped
+doctest.UnexpectedException	Property	example exc_info test
+email	Function	message_from_binary_file message_from_bytes message_from_file message_from_string
+email	Module	charset contentmanager encoders errors generator header headerregistry iterators message mime parser policy utils
+email.charset	Class	Charset
+email.charset	Function	add_alias add_charset add_codec
+email.charset.Charset	Method	__eq__ __ne__ __str__ body_encode get_body_encoding get_output_charset header_encode header_encode_lines
+email.charset.Charset	Property	body_encoding header_encoding input_charset input_codec output_charset output_codec
+email.contentmanager	Class	ContentManager
+email.contentmanager	Constant	raw_data_manager
+email.contentmanager	Method	get_content set_content
+email.contentmanager.ContentManager	Method	add_get_handler add_set_handler get_content set_content
+email.encoders	Function	encode_7or8bit encode_base64 encode_noop encode_quopri
+email.errors	Class	BoundaryError CloseBoundaryNotFoundDefect FirstHeaderLineIsContinuationDefect HeaderDefect HeaderParseError HeaderWriteError InvalidBase64CharactersDefect InvalidBase64LengthDefect InvalidBase64PaddingDefect InvalidDateDefect MalformedHeaderDefect MessageDefect MessageError MessageParseError MisplacedEnvelopeHeaderDefect MissingHeaderBodySeparatorDefect MultipartConversionError MultipartInvariantViolationDefect NoBoundaryInMultipartDefect StartBoundaryNotFoundDefect
+email.generator	Class	BytesGenerator DecodedGenerator Generator
+email.generator.BytesGenerator	Method	clone flatten write
+email.generator.Generator	Method	clone flatten write
+email.header	Class	Header
+email.header	Function	decode_header make_header
+email.header.Header	Method	__eq__ __ne__ __str__ append encode
+email.headerregistry	Class	Address AddressHeader BaseHeader ContentDispositionHeader ContentTransferEncoding ContentTypeHeader DateHeader Group HeaderRegistry MIMEVersionHeader ParameterizedMIMEHeader SingleAddressHeader UnstructuredHeader
+email.headerregistry.Address	Method	__str__
+email.headerregistry.Address	Property	addr_spec display_name domain username
+email.headerregistry.AddressHeader	Property	addresses groups
+email.headerregistry.BaseHeader	Method	fold
+email.headerregistry.BaseHeader	Property	defects max_count name
+email.headerregistry.ContentDispositionHeader	Property	content_disposition
+email.headerregistry.ContentTransferEncoding	Property	cte
+email.headerregistry.ContentTypeHeader	Property	content_type maintype subtype
+email.headerregistry.DateHeader	Property	datetime
+email.headerregistry.Group	Method	__str__
+email.headerregistry.Group	Property	addresses display_name
+email.headerregistry.HeaderRegistry	Method	__call__ __getitem__ map_to_type
+email.headerregistry.MIMEVersionHeader	Property	major minor version
+email.headerregistry.ParameterizedMIMEHeader	Property	params
+email.headerregistry.SingleAddressHeader	Property	address
+email.iterators	Function	_structure body_line_iterator typed_subpart_iterator
+email.message	Class	EmailMessage MIMEPart Message
+email.message.EmailMessage	Method	__bytes__ __contains__ __delitem__ __getitem__ __len__ __setitem__ __str__ add_alternative add_attachment add_header add_related as_bytes as_string clear clear_content del_param get get_all get_body get_boundary get_charsets get_content get_content_charset get_content_disposition get_content_maintype get_content_subtype get_content_type get_default_type get_filename get_unixfrom is_attachment is_multipart items iter_attachments iter_parts keys make_alternative make_mixed make_related replace_header set_boundary set_content set_default_type set_param set_unixfrom values walk
+email.message.EmailMessage	Property	defects epilogue preamble
+email.message.Message	Method	__bytes__ __contains__ __delitem__ __getitem__ __len__ __setitem__ __str__ add_header as_bytes as_string attach del_param get get_all get_boundary get_charset get_charsets get_content_charset get_content_disposition get_content_maintype get_content_subtype get_content_type get_default_type get_filename get_param get_params get_payload get_unixfrom is_multipart items keys replace_header set_boundary set_charset set_default_type set_param set_payload set_type set_unixfrom values walk
+email.message.Message	Property	defects epilogue preamble
+email.mime	Module	application audio base image message multipart nonmultipart text
+email.mime.application	Class	MIMEApplication
+email.mime.audio	Class	MIMEAudio
+email.mime.base	Class	MIMEBase
+email.mime.image	Class	MIMEImage
+email.mime.message	Class	MIMEMessage
+email.mime.multipart	Class	MIMEMultipart
+email.mime.nonmultipart	Class	MIMENonMultipart
+email.mime.text	Class	MIMEText
+email.parser	Class	BytesFeedParser BytesHeaderParser BytesParser FeedParser HeaderParser Parser
+email.parser.BytesFeedParser	Method	close feed
+email.parser.BytesParser	Method	parse parsebytes
+email.parser.Parser	Method	parse parsestr
+email.policy	Class	Compat32 EmailPolicy Policy
+email.policy	Constant	HTTP SMTP SMTPUTF8 compat32 default strict
+email.policy.Compat32	Method	fold fold_binary header_fetch_parse header_source_parse header_store_parse
+email.policy.Compat32	Property	mangle_from_
+email.policy.EmailPolicy	Method	fold fold_binary header_fetch_parse header_max_count header_source_parse header_store_parse
+email.policy.EmailPolicy	Property	content_manager header_factory refold_source utf8
+email.policy.Policy	Method	clone fold fold_binary handle_defect header_fetch_parse header_max_count header_source_parse header_store_parse register_defect
+email.policy.Policy	Property	cte_type linesep mangle_from_ max_line_length message_factory raise_on_defect verify_generated_headers
+email.utils	Function	collapse_rfc2231_value decode_params decode_rfc2231 encode_rfc2231 format_datetime formataddr formatdate getaddresses localtime make_msgid mktime_tz parseaddr parsedate parsedate_to_datetime parsedate_tz quote unquote
+encodings	Class	CodecRegistryError
+encodings	Function	normalize_encoding search_function
+encodings	Module	idna mbcs utf_8_sig
+encodings.idna	Function	ToASCII ToUnicode nameprep
+ensurepip	Function	bootstrap version
+enum	Class	Enum EnumCheck EnumDict EnumType Flag FlagBoundary IntEnum IntFlag ReprEnum StrEnum auto
+enum	Function	global_enum member nonmember property show_flag_values unique verify
+enum.Enum	Method	__dir__ __format__ __init__ __init_subclass__ __new__ __repr__ __str__ _add_alias_ _add_value_alias_ _generate_next_value_ _missing_
+enum.Enum	Property	_ignore_ _name_ _order_ _value_ name value
+enum.EnumCheck	Property	CONTINUOUS NAMED_FLAGS UNIQUE
+enum.EnumDict	Property	member_names
+enum.EnumType	Method	__call__ __contains__ __dir__ __getitem__ __iter__ __len__ __reversed__
+enum.EnumType	Property	__members__
+enum.Flag	Method	__and__ __contains__ __or__ __xor__ _numeric_repr_
+enum.FlagBoundary	Property	CONFORM EJECT KEEP STRICT
+errno	Constant	E2BIG EACCES EADDRINUSE EADDRNOTAVAIL EADV EAFNOSUPPORT EAGAIN EALREADY EAUTH EBADARCH EBADE EBADEXEC EBADF EBADFD EBADMACHO EBADMSG EBADR EBADRPC EBADRQC EBADSLT EBFONT EBUSY ECANCELED ECHILD ECHRNG ECOMM ECONNABORTED ECONNREFUSED ECONNRESET EDEADLK EDEADLOCK EDESTADDRREQ EDEVERR EDOM EDOTDOT EDQUOT EEXIST EFAULT EFBIG EFTYPE EHOSTDOWN EHOSTUNREACH EIDRM EILSEQ EINPROGRESS EINTR EINVAL EIO EISCONN EISDIR EISNAM EKEYEXPIRED EKEYREJECTED EKEYREVOKED EL2HLT EL2NSYNC EL3HLT EL3RST ELIBACC ELIBBAD ELIBEXEC ELIBMAX ELIBSCN ELNRNG ELOCKUNMAPPED ELOOP EMEDIUMTYPE EMFILE EMLINK EMSGSIZE EMULTIHOP ENAMETOOLONG ENAVAIL ENEEDAUTH ENETDOWN ENETRESET ENETUNREACH ENFILE ENOANO ENOATTR ENOBUFS ENOCSI ENODATA ENODEV ENOENT ENOEXEC ENOKEY ENOLCK ENOLINK ENOMEDIUM ENOMEM ENOMSG ENONET ENOPKG ENOPOLICY ENOPROTOOPT ENOSPC ENOSR ENOSTR ENOSYS ENOTACTIVE ENOTBLK ENOTCAPABLE ENOTCONN ENOTDIR ENOTEMPTY ENOTNAM ENOTRECOVERABLE ENOTSOCK ENOTSUP ENOTTY ENOTUNIQ ENXIO EOPNOTSUPP EOVERFLOW EOWNERDEAD EPERM EPFNOSUPPORT EPIPE EPROCLIM EPROCUNAVAIL EPROGMISMATCH EPROGUNAVAIL EPROTO EPROTONOSUPPORT EPROTOTYPE EPWROFF EQFULL ERANGE EREMCHG EREMOTE EREMOTEIO ERESTART ERFKILL EROFS ERPCMISMATCH ESHLIBVERS ESHUTDOWN ESOCKTNOSUPPORT ESPIPE ESRCH ESRMNT ESTALE ESTRPIPE ETIME ETIMEDOUT ETOOMANYREFS ETXTBSY EUCLEAN EUNATCH EUSERS EWOULDBLOCK EXDEV EXFULL errorcode
+faulthandler	Function	cancel_dump_traceback_later disable dump_traceback dump_traceback_later enable is_enabled register unregister
+fcntl	Constant	LOCK_EX LOCK_NB LOCK_SH LOCK_UN
+fcntl	Function	fcntl flock ioctl lockf
+filecmp	Class	dircmp
+filecmp	Constant	DEFAULT_IGNORES
+filecmp	Function	clear_cache cmp cmpfiles
+filecmp.dircmp	Method	report report_full_closure report_partial_closure
+filecmp.dircmp	Property	common common_dirs common_files common_funny diff_files funny_files left left_list left_only right right_list right_only same_files subdirs
+fileinput	Class	FileInput
+fileinput	Function	close filelineno filename fileno hook_compressed hook_encoded input isfirstline isstdin lineno nextfile
+float	Method	as_integer_ratio fromhex hex is_integer
+fnmatch	Function	filter fnmatch fnmatchcase translate
+fractions	Class	Fraction
+fractions.Fraction	Method	__ceil__ __floor__ __format__ __round__ as_integer_ratio from_decimal from_float is_integer limit_denominator
+fractions.Fraction	Property	denominator numerator
+frame	Method	clear
+frame	Property	f_back f_builtins f_code f_globals f_lasti f_lineno f_locals f_trace f_trace_lines f_trace_opcodes
+frozenset	Method	add clear copy difference difference_update discard intersection intersection_update isdisjoint issubset issuperset pop remove symmetric_difference symmetric_difference_update union update
+ftplib	Class	FTP FTP_TLS error_perm error_proto error_reply error_temp
+ftplib	Constant	all_errors
+ftplib.FTP	Method	abort close connect cwd delete dir getwelcome login mkd mlsd nlst ntransfercmd pwd quit rename retrbinary retrlines rmd sendcmd set_debuglevel set_pasv size storbinary storlines transfercmd voidcmd
+ftplib.FTP_TLS	Method	auth ccc prot_c prot_p
+ftplib.FTP_TLS	Property	ssl_version
+function	Property	__annotations__ __closure__ __code__ __defaults__ __dict__ __doc__ __globals__ __kwdefaults__ __module__ __name__ __qualname__ __type_params__
+functools	Class	partialmethod singledispatchmethod
+functools	Function	cache cached_property cmp_to_key lru_cache partial reduce singledispatch total_ordering update_wrapper wraps
+functools.lru_cache	Method	cache_clear cache_info
+functools.partial	Property	args func keywords
+functools.singledispatch	Method	register
+gc	Constant	DEBUG_COLLECTABLE DEBUG_LEAK DEBUG_SAVEALL DEBUG_STATS DEBUG_UNCOLLECTABLE callbacks garbage
+gc	Function	collect disable enable freeze get_count get_debug get_freeze_count get_objects get_referents get_referrers get_stats get_threshold is_finalized is_tracked isenabled set_debug set_threshold unfreeze
+generator	Method	__next__ close send throw
+genericalias	Property	__args__ __origin__ __parameters__ __unpacked__
+getopt	Class	GetoptError error
+getopt	Function	getopt gnu_getopt
+getpass	Class	GetPassWarning
+getpass	Function	getpass getuser
+gettext	Class	GNUTranslations NullTranslations
+gettext	Function	bindtextdomain dgettext dngettext dnpgettext dpgettext find gettext install ngettext npgettext pgettext textdomain translation
+gettext.GNUTranslations	Method	gettext ngettext npgettext pgettext
+gettext.NullTranslations	Method	_parse add_fallback charset gettext info install ngettext npgettext pgettext
+glob	Function	escape glob iglob translate
+graphlib	Class	CycleError TopologicalSorter
+graphlib.TopologicalSorter	Method	add done get_ready is_active prepare static_order
+grp	Function	getgrall getgrgid getgrnam
+gzip	Class	BadGzipFile GzipFile
+gzip	Function	compress decompress open
+gzip.GzipFile	Method	peek
+gzip.GzipFile	Property	mode mtime name
+hashlib	Constant	algorithms_available algorithms_guaranteed
+hashlib	Function	blake2b blake2s file_digest md5 new pbkdf2_hmac scrypt sha1 sha224 sha256 sha384 sha3_224 sha3_256 sha3_384 sha3_512 sha512 shake_128 shake_256
+hashlib.blake2b	Constant	MAX_DIGEST_SIZE MAX_KEY_SIZE PERSON_SIZE SALT_SIZE
+hashlib.blake2s	Constant	MAX_DIGEST_SIZE MAX_KEY_SIZE PERSON_SIZE SALT_SIZE
+hashlib.hash	Constant	block_size digest_size
+hashlib.hash	Method	copy digest hexdigest update
+hashlib.hash	Property	name
+hashlib.shake	Method	digest hexdigest
+heapq	Function	heapify heappop heappush heappushpop heapreplace merge nlargest nsmallest
+hmac	Function	compare_digest digest new
+hmac.HMAC	Method	copy digest hexdigest update
+hmac.HMAC	Property	block_size digest_size name
+html	Function	escape unescape
+html	Module	entities parser
+html.entities	Constant	codepoint2name entitydefs html5 name2codepoint
+html.parser	Class	HTMLParser
+html.parser.HTMLParser	Method	close feed get_starttag_text getpos handle_charref handle_comment handle_data handle_decl handle_endtag handle_entityref handle_pi handle_startendtag handle_starttag reset unknown_decl
+http	Class	HTTPMethod HTTPStatus
+http	Module	client cookiejar cookies server
+http.client	Class	BadStatusLine CannotSendHeader CannotSendRequest HTTPConnection HTTPException HTTPMessage HTTPResponse HTTPSConnection ImproperConnectionState IncompleteRead InvalidURL LineTooLong NotConnected RemoteDisconnected ResponseNotReady UnimplementedFileMode UnknownProtocol UnknownTransferEncoding
+http.client	Constant	HTTPS_PORT HTTP_PORT responses
+http.client	Function	parse_headers
+http.client.HTTPConnection	Method	close connect endheaders get_proxy_response_headers getresponse putheader putrequest request send set_debuglevel set_tunnel
+http.client.HTTPConnection	Property	blocksize
+http.client.HTTPResponse	Method	fileno getcode getheader getheaders geturl info read readinto
+http.client.HTTPResponse	Property	closed debuglevel headers msg reason status url version
+http.cookiejar	Class	Cookie CookieJar CookiePolicy DefaultCookiePolicy FileCookieJar LWPCookieJar LoadError MozillaCookieJar
+http.cookiejar.Cookie	Method	get_nonstandard_attr has_nonstandard_attr is_expired set_nonstandard_attr
+http.cookiejar.Cookie	Property	comment comment_url discard domain domain_initial_dot domain_specified expires name path port port_specified rfc2109 secure value version
+http.cookiejar.CookieJar	Method	add_cookie_header clear clear_session_cookies extract_cookies make_cookies set_cookie set_cookie_if_ok set_policy
+http.cookiejar.CookiePolicy	Method	domain_return_ok path_return_ok return_ok set_ok
+http.cookiejar.CookiePolicy	Property	hide_cookie2 netscape rfc2965
+http.cookiejar.DefaultCookiePolicy	Method	allowed_domains blocked_domains is_blocked is_not_allowed set_allowed_domains set_blocked_domains
+http.cookiejar.DefaultCookiePolicy	Property	DomainLiberal DomainRFC2965Match DomainStrict DomainStrictNoDots DomainStrictNonDomain rfc2109_as_netscape strict_domain strict_ns_domain strict_ns_set_initial_dollar strict_ns_set_path strict_ns_unverifiable strict_rfc2965_unverifiable
+http.cookiejar.FileCookieJar	Method	load revert save
+http.cookiejar.FileCookieJar	Property	delayload filename
+http.cookies	Class	BaseCookie CookieError Morsel SimpleCookie
+http.cookies.BaseCookie	Method	js_output load output value_decode value_encode
+http.cookies.Morsel	Method	OutputString copy isReservedKey js_output output set setdefault update
+http.cookies.Morsel	Property	coded_value comment domain expires httponly key path samesite secure value version
+http.server	Class	BaseHTTPRequestHandler CGIHTTPRequestHandler HTTPServer SimpleHTTPRequestHandler ThreadingHTTPServer
+http.server.BaseHTTPRequestHandler	Method	address_string date_time_string end_headers flush_headers handle handle_expect_100 handle_one_request log_date_time_string log_error log_message log_request send_error send_header send_response send_response_only version_string
+http.server.BaseHTTPRequestHandler	Property	MessageClass client_address close_connection command error_content_type error_message_format headers path protocol_version request_version requestline responses rfile server server_version sys_version wfile
+http.server.CGIHTTPRequestHandler	Method	do_POST
+http.server.CGIHTTPRequestHandler	Property	cgi_directories
+http.server.SimpleHTTPRequestHandler	Method	do_GET do_HEAD
+http.server.SimpleHTTPRequestHandler	Property	extensions_map server_version
+imaplib	Class	IMAP4 IMAP4_SSL IMAP4_stream
+imaplib	Function	Int2AP Internaldate2tuple ParseFlags Time2Internaldate
+imaplib.IMAP4	Class	abort error readonly
+imaplib.IMAP4	Method	append authenticate check close copy create delete deleteacl enable expunge fetch getacl getannotation getquota getquotaroot list login login_cram_md5 logout lsub myrights namespace noop open partial proxyauth read readline recent rename response search select send setacl setannotation setquota shutdown socket sort starttls status store subscribe thread uid unselect unsubscribe xatom
+imaplib.IMAP4	Property	PROTOCOL_VERSION debug utf8_enabled
+importlib	Function	__import__ import_module invalidate_caches reload
+importlib	Module	abc machinery metadata resources util
+importlib.abc	Class	ExecutionLoader FileLoader InspectLoader Loader MetaPathFinder PathEntryFinder ResourceLoader ResourceReader SourceLoader Traversable TraversableResources
+importlib.abc.ExecutionLoader	Method	get_filename
+importlib.abc.FileLoader	Method	get_data get_filename load_module
+importlib.abc.FileLoader	Property	name path
+importlib.abc.InspectLoader	Method	exec_module get_code get_source is_package load_module source_to_code
+importlib.abc.Loader	Method	create_module exec_module load_module
+importlib.abc.MetaPathFinder	Method	find_spec invalidate_caches
+importlib.abc.PathEntryFinder	Method	find_spec invalidate_caches
+importlib.abc.ResourceLoader	Method	get_data
+importlib.abc.ResourceReader	Method	contents is_resource open_resource resource_path
+importlib.abc.SourceLoader	Method	exec_module get_code get_source is_package load_module path_mtime path_stats set_data
+importlib.abc.Traversable	Method	__truediv__ is_dir is_file iterdir joinpath open read_bytes read_text
+importlib.abc.Traversable	Property	name
+importlib.abc.TraversableResources	Method	files
+importlib.machinery	Class	AppleFrameworkLoader BuiltinImporter ExtensionFileLoader FileFinder FrozenImporter ModuleSpec NamespaceLoader PathFinder SourceFileLoader SourcelessFileLoader WindowsRegistryFinder
+importlib.machinery	Constant	BYTECODE_SUFFIXES DEBUG_BYTECODE_SUFFIXES EXTENSION_SUFFIXES OPTIMIZED_BYTECODE_SUFFIXES SOURCE_SUFFIXES
+importlib.machinery	Function	all_suffixes
+importlib.machinery.AppleFrameworkLoader	Property	name path
+importlib.machinery.ExtensionFileLoader	Method	create_module exec_module get_code get_filename get_source is_package
+importlib.machinery.ExtensionFileLoader	Property	name path
+importlib.machinery.FileFinder	Method	find_spec invalidate_caches path_hook
+importlib.machinery.FileFinder	Property	path
+importlib.machinery.ModuleSpec	Property	cached has_location loader loader_state name origin parent submodule_search_locations
+importlib.machinery.PathFinder	Method	find_spec invalidate_caches
+importlib.machinery.SourceFileLoader	Method	is_package load_module path_stats set_data
+importlib.machinery.SourceFileLoader	Property	name path
+importlib.machinery.SourcelessFileLoader	Method	get_code get_source is_package load_module
+importlib.machinery.SourcelessFileLoader	Property	name path
+importlib.metadata	Class	Distribution EntryPoint EntryPoints PackageMetadata PackageNotFoundError PackagePath
+importlib.metadata	Function	distribution entry_points files metadata packages_distributions requires version
+importlib.resources	Class	Anchor
+importlib.resources	Function	as_file contents files is_resource open_binary open_text path read_binary read_text
+importlib.resources	Module	abc
+importlib.resources.abc	Class	ResourceReader Traversable TraversableResources
+importlib.resources.abc.ResourceReader	Method	contents is_resource open_resource resource_path
+importlib.resources.abc.Traversable	Method	__truediv__ is_dir is_file iterdir joinpath open read_bytes read_text
+importlib.resources.abc.Traversable	Property	name
+importlib.resources.abc.TraversableResources	Method	files
+importlib.util	Class	LazyLoader
+importlib.util	Constant	MAGIC_NUMBER
+importlib.util	Function	_incompatible_extension_module_restrictions cache_from_source decode_source find_spec module_from_spec resolve_name source_from_cache source_hash spec_from_file_location spec_from_loader
+importlib.util.LazyLoader	Method	factory
+inspect	Class	BoundArguments BufferFlags FrameInfo Parameter Signature Traceback
+inspect	Constant	CO_ASYNC_GENERATOR CO_COROUTINE CO_GENERATOR CO_ITERABLE_COROUTINE CO_NESTED CO_NEWLOCALS CO_OPTIMIZED CO_VARARGS CO_VARKEYWORDS
+inspect	Function	cleandoc currentframe formatargvalues get_annotations getargvalues getasyncgenlocals getasyncgenstate getattr_static getcallargs getclasstree getclosurevars getcomments getcoroutinelocals getcoroutinestate getdoc getfile getframeinfo getfullargspec getgeneratorlocals getgeneratorstate getinnerframes getmembers getmembers_static getmodule getmodulename getmro getouterframes getsource getsourcefile getsourcelines isabstract isasyncgen isasyncgenfunction isawaitable isbuiltin isclass iscode iscoroutine iscoroutinefunction isdatadescriptor isframe isfunction isgenerator isgeneratorfunction isgetsetdescriptor ismemberdescriptor ismethod ismethoddescriptor ismethodwrapper ismodule isroutine istraceback markcoroutinefunction signature stack trace unwrap
+inspect.BoundArguments	Method	apply_defaults
+inspect.BoundArguments	Property	args arguments kwargs signature
+inspect.BufferFlags	Property	ANY_CONTIGUOUS CONTIG CONTIG_RO C_CONTIGUOUS FORMAT FULL FULL_RO F_CONTIGUOUS INDIRECT ND READ RECORDS RECORDS_RO SIMPLE STRIDED STRIDED_RO STRIDES WRITABLE WRITE
+inspect.FrameInfo	Property	code_context filename frame function index lineno positions
+inspect.Parameter	Method	replace
+inspect.Parameter	Property	annotation default empty kind name
+inspect.Parameter.kind	Property	description
+inspect.Signature	Method	bind bind_partial format from_callable replace
+inspect.Signature	Property	empty parameters return_annotation
+inspect.Traceback	Property	code_context filename function index lineno positions
+int	Method	as_integer_ratio bit_count bit_length from_bytes is_integer to_bytes
+io	Class	BlockingIOError BufferedIOBase BufferedRWPair BufferedRandom BufferedReader BufferedWriter BytesIO FileIO IOBase IncrementalNewlineDecoder RawIOBase StringIO TextIOBase TextIOWrapper UnsupportedOperation
+io	Constant	DEFAULT_BUFFER_SIZE
+io	Function	open open_code text_encoding
+io.BufferedIOBase	Method	detach read read1 readinto readinto1 write
+io.BufferedIOBase	Property	raw
+io.BufferedReader	Method	peek read read1
+io.BufferedWriter	Method	flush write
+io.BytesIO	Method	getbuffer getvalue read1 readinto1
+io.FileIO	Property	mode name
+io.IOBase	Method	__del__ close fileno flush isatty readable readline readlines seek seekable tell truncate writable writelines
+io.IOBase	Property	closed
+io.RawIOBase	Method	read readall readinto write
+io.StringIO	Method	getvalue
+io.TextIOBase	Method	detach read readline seek tell write
+io.TextIOBase	Property	buffer encoding errors newlines
+io.TextIOWrapper	Method	reconfigure seek tell
+io.TextIOWrapper	Property	line_buffering write_through
+ipaddress	Class	AddressValueError IPv4Address IPv4Interface IPv4Network IPv6Address IPv6Interface IPv6Network NetmaskValueError
+ipaddress	Function	collapse_addresses get_mixed_type_key ip_address ip_interface ip_network summarize_address_range v4_int_to_packed v6_int_to_packed
+ipaddress.IPv4Address	Method	__format__
+ipaddress.IPv4Address	Property	compressed exploded ipv6_mapped is_global is_link_local is_loopback is_multicast is_private is_reserved is_unspecified max_prefixlen packed reverse_pointer version
+ipaddress.IPv4Interface	Property	ip network with_hostmask with_netmask with_prefixlen
+ipaddress.IPv4Network	Method	address_exclude compare_networks hosts overlaps subnet_of subnets supernet supernet_of
+ipaddress.IPv4Network	Property	broadcast_address compressed exploded hostmask is_link_local is_loopback is_multicast is_private is_reserved is_unspecified max_prefixlen netmask network_address num_addresses prefixlen version with_hostmask with_netmask with_prefixlen
+ipaddress.IPv6Address	Method	__format__
+ipaddress.IPv6Address	Property	compressed exploded ipv4_mapped is_global is_link_local is_loopback is_multicast is_private is_reserved is_site_local is_unspecified max_prefixlen packed reverse_pointer scope_id sixtofour teredo version
+ipaddress.IPv6Interface	Property	ip network with_hostmask with_netmask with_prefixlen
+ipaddress.IPv6Network	Method	address_exclude compare_networks hosts overlaps subnet_of subnets supernet supernet_of
+ipaddress.IPv6Network	Property	broadcast_address compressed exploded hostmask is_link_local is_loopback is_multicast is_private is_reserved is_site_local is_unspecified max_prefixlen netmask network_address num_addresses prefixlen version with_hostmask with_netmask with_prefixlen
+iterator	Method	__iter__ __next__
+itertools	Function	accumulate batched chain combinations combinations_with_replacement compress count cycle dropwhile filterfalse groupby islice pairwise permutations product repeat starmap takewhile tee zip_longest
+itertools.chain	Method	from_iterable
+json	Class	JSONDecodeError JSONDecoder JSONEncoder
+json	Function	dump dumps load loads
+json	Module	tool
+json.JSONDecodeError	Property	colno doc lineno msg pos
+json.JSONDecoder	Method	decode raw_decode
+json.JSONEncoder	Method	default encode iterencode
+keyword	Constant	kwlist softkwlist
+keyword	Function	iskeyword issoftkeyword
+linecache	Function	checkcache clearcache getline lazycache
+list	Method	sort
+locale	Class	Error
+locale	Constant	ABDAY_1 ABDAY_2 ABDAY_3 ABDAY_4 ABDAY_5 ABDAY_6 ABDAY_7 ABMON_1 ABMON_10 ABMON_11 ABMON_12 ABMON_2 ABMON_3 ABMON_4 ABMON_5 ABMON_6 ABMON_7 ABMON_8 ABMON_9 ALT_DIGITS CHAR_MAX CODESET CRNCYSTR DAY_1 DAY_2 DAY_3 DAY_4 DAY_5 DAY_6 DAY_7 D_FMT D_T_FMT ERA ERA_D_FMT ERA_D_T_FMT ERA_T_FMT LC_ALL LC_COLLATE LC_CTYPE LC_MESSAGES LC_MONETARY LC_NUMERIC LC_TIME MON_1 MON_10 MON_11 MON_12 MON_2 MON_3 MON_4 MON_5 MON_6 MON_7 MON_8 MON_9 NOEXPR RADIXCHAR THOUSEP T_FMT T_FMT_AMPM YESEXPR
+locale	Function	atof atoi bind_textdomain_codeset bindtextdomain currency dcgettext delocalize dgettext format_string getdefaultlocale getencoding getlocale getpreferredencoding gettext localeconv localize nl_langinfo normalize setlocale str strcoll strxfrm textdomain
+logging	Class	BufferingFormatter FileHandler Filter Formatter Handler LogRecord Logger LoggerAdapter NullHandler StreamHandler
+logging	Constant	CRITICAL DEBUG ERROR INFO NOTSET WARNING lastResort raiseExceptions
+logging	Function	addLevelName basicConfig captureWarnings critical debug disable error exception getHandlerByName getHandlerNames getLevelName getLevelNamesMapping getLogRecordFactory getLogger getLoggerClass info log makeLogRecord setLogRecordFactory setLoggerClass shutdown warning
+logging	Module	config handlers
+logging.BufferingFormatter	Method	format formatFooter formatHeader
+logging.FileHandler	Method	close emit
+logging.Filter	Method	filter
+logging.Formatter	Method	format formatException formatStack formatTime
+logging.Handler	Method	__init__ acquire addFilter close createLock emit filter flush format handle handleError release removeFilter setFormatter setLevel
+logging.LogRecord	Method	getMessage
+logging.Logger	Method	addFilter addHandler critical debug error exception filter findCaller getChild getChildren getEffectiveLevel handle hasHandlers info isEnabledFor log makeRecord removeFilter removeHandler setLevel warning
+logging.Logger	Property	disabled handlers level name parent propagate
+logging.LoggerAdapter	Method	process
+logging.LoggerAdapter	Property	_log manager
+logging.NullHandler	Method	createLock emit handle
+logging.StreamHandler	Method	emit flush setStream
+logging.StreamHandler	Property	terminator
+logging.config	Function	dictConfig fileConfig listen stopListening
+logging.handlers	Class	BaseRotatingHandler BufferingHandler DatagramHandler HTTPHandler MemoryHandler NTEventLogHandler QueueHandler QueueListener RotatingFileHandler SMTPHandler SocketHandler SysLogHandler TimedRotatingFileHandler WatchedFileHandler
+logging.handlers.BaseRotatingHandler	Method	rotate rotation_filename
+logging.handlers.BaseRotatingHandler	Property	namer rotator
+logging.handlers.BufferingHandler	Method	emit flush shouldFlush
+logging.handlers.DatagramHandler	Method	emit makeSocket send
+logging.handlers.HTTPHandler	Method	emit mapLogRecord
+logging.handlers.MemoryHandler	Method	close flush setTarget shouldFlush
+logging.handlers.NTEventLogHandler	Method	close emit getEventCategory getEventType getMessageID
+logging.handlers.QueueHandler	Method	emit enqueue prepare
+logging.handlers.QueueHandler	Property	listener
+logging.handlers.QueueListener	Method	dequeue enqueue_sentinel handle prepare start stop
+logging.handlers.RotatingFileHandler	Method	doRollover emit shouldRollover
+logging.handlers.SMTPHandler	Method	emit getSubject
+logging.handlers.SocketHandler	Method	close createSocket emit handleError makePickle makeSocket send
+logging.handlers.SysLogHandler	Method	close createSocket emit encodePriority mapPriority
+logging.handlers.TimedRotatingFileHandler	Method	doRollover emit getFilesToDelete shouldRollover
+logging.handlers.WatchedFileHandler	Method	emit reopenIfNeeded
+logging.logging.Formatter	Method	__init__
+lzma	Class	LZMACompressor LZMADecompressor LZMAError LZMAFile
+lzma	Function	compress decompress is_check_supported open
+lzma.LZMACompressor	Method	compress flush
+lzma.LZMADecompressor	Method	decompress
+lzma.LZMADecompressor	Property	check eof needs_input unused_data
+lzma.LZMAFile	Method	peek
+lzma.LZMAFile	Property	mode name
+mailbox	Class	Babyl BabylMessage Error ExternalClashError FormatError MH MHMessage MMDF MMDFMessage Mailbox Maildir MaildirMessage Message NoSuchMailboxError NotEmptyError mbox mboxMessage
+mailbox.Babyl	Method	get_file get_labels lock unlock
+mailbox.BabylMessage	Method	add_label get_labels get_visible remove_label set_labels set_visible update_visible
+mailbox.MH	Method	__delitem__ add_folder close discard flush get_file get_folder get_sequences list_folders lock pack remove remove_folder set_sequences unlock
+mailbox.MHMessage	Method	add_sequence get_sequences remove_sequence set_sequences
+mailbox.MMDF	Method	get_bytes get_file lock unlock
+mailbox.MMDFMessage	Method	add_flag get_flags get_from remove_flag set_flags set_from
+mailbox.Mailbox	Method	__contains__ __delitem__ __getitem__ __iter__ __len__ __setitem__ add clear close discard flush get get_bytes get_file get_message get_string items iteritems iterkeys itervalues keys lock pop popitem remove unlock update values
+mailbox.Maildir	Method	__setitem__ add add_flag add_folder clean close flush get_file get_flags get_folder get_info list_folders lock remove_flag remove_folder set_flags set_info unlock update
+mailbox.Maildir	Property	colon
+mailbox.MaildirMessage	Method	add_flag get_date get_flags get_info get_subdir remove_flag set_date set_flags set_info set_subdir
+mailbox.mbox	Method	get_bytes get_file get_string lock unlock
+mailbox.mboxMessage	Method	add_flag get_flags get_from remove_flag set_flags set_from
+marshal	Constant	version
+marshal	Function	dump dumps load loads
+math	Constant	e inf nan pi tau
+math	Function	acos acosh asin asinh atan atan2 atanh cbrt ceil comb copysign cos cosh degrees dist erf erfc exp exp2 expm1 fabs factorial floor fma fmod frexp fsum gamma gcd hypot isclose isfinite isinf isnan isqrt lcm ldexp lgamma log log10 log1p log2 modf nextafter perm pow prod radians remainder sin sinh sqrt sumprod tan tanh trunc ulp
+memoryview	Method	__eq__ cast hex release tobytes tolist toreadonly
+memoryview	Property	c_contiguous contiguous f_contiguous format itemsize nbytes ndim obj readonly shape strides suboffsets
+method	Property	__doc__ __func__ __module__ __name__ __self__
+mimetypes	Class	MimeTypes
+mimetypes	Constant	common_types encodings_map inited knownfiles suffix_map types_map
+mimetypes	Function	add_type guess_all_extensions guess_extension guess_file_type guess_type init read_mime_types
+mimetypes.MimeTypes	Method	add_type guess_all_extensions guess_extension guess_file_type guess_type read read_windows_registry readfp
+mimetypes.MimeTypes	Property	encodings_map suffix_map types_map types_map_inv
+mmap	Class	mmap
+mmap	Constant	MADV_AUTOSYNC MADV_CORE MADV_DODUMP MADV_DOFORK MADV_DONTDUMP MADV_DONTFORK MADV_DONTNEED MADV_FREE MADV_FREE_REUSABLE MADV_FREE_REUSE MADV_HUGEPAGE MADV_HWPOISON MADV_MERGEABLE MADV_NOCORE MADV_NOHUGEPAGE MADV_NORMAL MADV_NOSYNC MADV_PROTECT MADV_RANDOM MADV_REMOVE MADV_SEQUENTIAL MADV_SOFT_OFFLINE MADV_UNMERGEABLE MADV_WILLNEED MAP_32BIT MAP_ALIGNED_SUPER MAP_ANON MAP_ANONYMOUS MAP_CONCEAL MAP_DENYWRITE MAP_EXECUTABLE MAP_HASSEMAPHORE MAP_JIT MAP_NOCACHE MAP_NOEXTEND MAP_NORESERVE MAP_POPULATE MAP_PRIVATE MAP_RESILIENT_CODESIGN MAP_RESILIENT_MEDIA MAP_SHARED MAP_STACK MAP_TPRO MAP_TRANSLATED_ALLOW_EXECUTE MAP_UNIX03
+mmap.mmap	Method	close find flush madvise move read read_byte readline resize rfind seek seekable size tell write write_byte
+mmap.mmap	Property	closed
+module	Property	__annotations__ __cached__ __dict__ __doc__ __file__ __loader__ __name__ __package__ __path__ __spec__ __test__
+modulefinder	Class	ModuleFinder
+modulefinder	Function	AddPackagePath ReplacePackage
+modulefinder.ModuleFinder	Method	report run_script
+modulefinder.ModuleFinder	Property	modules
+msvcrt	Constant	CRTDBG_MODE_DEBUG CRTDBG_MODE_FILE CRTDBG_MODE_WNDW CRTDBG_REPORT_MODE CRT_ASSEMBLY_VERSION CRT_ASSERT CRT_ERROR CRT_WARN LIBRARIES_ASSEMBLY_NAME_PREFIX LK_LOCK LK_NBLCK LK_NBRLCK LK_RLCK LK_UNLCK OUT_TO_DEFAULT OUT_TO_MSGBOX OUT_TO_STDERR REPORT_ERRMODE VC_ASSEMBLY_PUBLICKEYTOKEN
+msvcrt	Function	CrtSetReportFile CrtSetReportMode get_osfhandle getch getche getwch getwche heapmin kbhit locking open_osfhandle putch putwch set_error_mode setmode ungetch ungetwch
+multiprocessing	Class	AuthenticationError Barrier BoundedSemaphore BufferTooShort Condition Event JoinableQueue Lock Process ProcessError Queue RLock Semaphore SimpleQueue TimeoutError
+multiprocessing	Function	Array Manager Pipe Value active_children cpu_count current_process freeze_support get_all_start_methods get_context get_logger get_start_method log_to_stderr parent_process set_executable set_forkserver_preload set_start_method
+multiprocessing	Module	connection dummy managers pool shared_memory sharedctypes
+multiprocessing.JoinableQueue	Method	join task_done
+multiprocessing.Lock	Method	acquire release
+multiprocessing.Process	Method	close is_alive join kill run start terminate
+multiprocessing.Process	Property	authkey daemon exitcode name pid sentinel
+multiprocessing.Queue	Method	cancel_join_thread close empty full get get_nowait join_thread put put_nowait qsize
+multiprocessing.RLock	Method	acquire release
+multiprocessing.SimpleQueue	Method	close empty get put
+multiprocessing.connection	Class	Connection Listener
+multiprocessing.connection	Function	Client answer_challenge deliver_challenge wait
+multiprocessing.connection.Connection	Method	close fileno poll recv recv_bytes recv_bytes_into send send_bytes
+multiprocessing.connection.Listener	Method	accept close
+multiprocessing.connection.Listener	Property	address last_accepted
+multiprocessing.managers	Class	BaseManager BaseProxy Namespace SharedMemoryManager SyncManager
+multiprocessing.managers.BaseManager	Method	connect get_server register shutdown start
+multiprocessing.managers.BaseManager	Property	address
+multiprocessing.managers.BaseProxy	Method	__repr__ __str__ _callmethod _getvalue
+multiprocessing.managers.SharedMemoryManager	Method	ShareableList SharedMemory
+multiprocessing.managers.SyncManager	Method	Array Barrier BoundedSemaphore Condition Event Lock Namespace Queue RLock Semaphore Value dict list
+multiprocessing.pool	Class	AsyncResult Pool ThreadPool
+multiprocessing.pool.AsyncResult	Method	get ready successful wait
+multiprocessing.pool.Pool	Method	apply apply_async close imap imap_unordered join map map_async starmap starmap_async terminate
+multiprocessing.shared_memory	Class	ShareableList SharedMemory
+multiprocessing.shared_memory.ShareableList	Method	count index
+multiprocessing.shared_memory.ShareableList	Property	format shm
+multiprocessing.shared_memory.SharedMemory	Method	close unlink
+multiprocessing.shared_memory.SharedMemory	Property	buf name size
+multiprocessing.sharedctypes	Function	Array RawArray RawValue Value copy synchronized
+netrc	Class	NetrcParseError netrc
+netrc.NetrcParseError	Property	filename lineno msg
+netrc.netrc	Method	__repr__ authenticators
+netrc.netrc	Property	hosts macros
+numbers	Class	Complex Integral Number Rational Real
+numbers.Complex	Method	conjugate
+numbers.Complex	Property	imag real
+numbers.Rational	Property	denominator numerator
+object	Constant	__match_args__ __slots__
+object	Method	__abs__ __add__ __aenter__ __aexit__ __aiter__ __and__ __anext__ __await__ __bool__ __buffer__ __bytes__ __call__ __ceil__ __class_getitem__ __complex__ __contains__ __copy__ __deepcopy__ __del__ __delattr__ __delete__ __delitem__ __dir__ __divmod__ __enter__ __eq__ __exit__ __float__ __floor__ __floordiv__ __format__ __ge__ __get__ __getattr__ __getattribute__ __getitem__ __getnewargs__ __getnewargs_ex__ __getstate__ __gt__ __hash__ __iadd__ __iand__ __ifloordiv__ __ilshift__ __imatmul__ __imod__ __imul__ __index__ __init__ __init_subclass__ __int__ __invert__ __ior__ __ipow__ __irshift__ __isub__ __iter__ __itruediv__ __ixor__ __le__ __len__ __length_hint__ __lshift__ __lt__ __matmul__ __missing__ __mod__ __mro_entries__ __mul__ __ne__ __neg__ __new__ __or__ __pos__ __pow__ __radd__ __rand__ __rdivmod__ __reduce__ __reduce_ex__ __release_buffer__ __replace__ __repr__ __reversed__ __rfloordiv__ __rlshift__ __rmatmul__ __rmod__ __rmul__ __ror__ __round__ __rpow__ __rrshift__ __rshift__ __rsub__ __rtruediv__ __rxor__ __set__ __set_name__ __setattr__ __setitem__ __setstate__ __str__ __sub__ __truediv__ __trunc__ __xor__
+object	Property	__class__ __dict__ __objclass__
+operator	Function	__abs__ __add__ __and__ __call__ __concat__ __contains__ __delitem__ __eq__ __floordiv__ __ge__ __getitem__ __gt__ __iadd__ __iand__ __iconcat__ __ifloordiv__ __ilshift__ __imatmul__ __imod__ __imul__ __index__ __inv__ __invert__ __ior__ __ipow__ __irshift__ __isub__ __itruediv__ __ixor__ __le__ __lshift__ __lt__ __matmul__ __mod__ __mul__ __ne__ __neg__ __not__ __or__ __pos__ __pow__ __rshift__ __setitem__ __sub__ __truediv__ __xor__ abs add and_ attrgetter call concat contains countOf delitem eq floordiv ge getitem gt iadd iand iconcat ifloordiv ilshift imatmul imod imul index indexOf inv invert ior ipow irshift is_ is_not isub itemgetter itruediv ixor le length_hint lshift lt matmul methodcaller mod mul ne neg not_ or_ pos pow rshift setitem sub truediv truth xor
+optparse	Class	AmbiguousOptionError BadOptionError Option OptionConflictError OptionError OptionGroup OptionParser OptionValueError Values
+optparse.Option	Property	ACTIONS ALWAYS_TYPED_ACTIONS STORE_ACTIONS TYPED_ACTIONS TYPES TYPE_CHECKER action callback callback_args callback_kwargs choices const default dest help metavar nargs type
+optparse.OptionParser	Method	add_option disable_interspersed_args enable_interspersed_args get_option get_option_group get_usage get_version has_option parse_args print_usage print_version remove_option set_defaults set_usage
+os	Class	DirEntry PathLike error sched_param stat_result terminal_size
+os	Constant	CLD_CONTINUED CLD_DUMPED CLD_EXITED CLD_KILLED CLD_STOPPED CLD_TRAPPED CLONE_FILES CLONE_FS CLONE_NEWCGROUP CLONE_NEWIPC CLONE_NEWNET CLONE_NEWNS CLONE_NEWPID CLONE_NEWTIME CLONE_NEWUSER CLONE_NEWUTS CLONE_SIGHAND CLONE_SYSVSEM CLONE_THREAD CLONE_VM EFD_CLOEXEC EFD_NONBLOCK EFD_SEMAPHORE EX_CANTCREAT EX_CONFIG EX_DATAERR EX_IOERR EX_NOHOST EX_NOINPUT EX_NOPERM EX_NOTFOUND EX_NOUSER EX_OK EX_OSERR EX_OSFILE EX_PROTOCOL EX_SOFTWARE EX_TEMPFAIL EX_UNAVAILABLE EX_USAGE F_LOCK F_OK F_TEST F_TLOCK F_ULOCK GRND_NONBLOCK GRND_RANDOM MFD_ALLOW_SEALING MFD_CLOEXEC MFD_HUGETLB MFD_HUGE_16GB MFD_HUGE_16MB MFD_HUGE_1GB MFD_HUGE_1MB MFD_HUGE_256MB MFD_HUGE_2GB MFD_HUGE_2MB MFD_HUGE_32MB MFD_HUGE_512KB MFD_HUGE_512MB MFD_HUGE_64KB MFD_HUGE_8MB MFD_HUGE_MASK MFD_HUGE_SHIFT O_APPEND O_ASYNC O_BINARY O_CLOEXEC O_CREAT O_DIRECT O_DIRECTORY O_DSYNC O_EVTONLY O_EXCL O_EXLOCK O_FSYNC O_NDELAY O_NOATIME O_NOCTTY O_NOFOLLOW O_NOFOLLOW_ANY O_NOINHERIT O_NONBLOCK O_PATH O_RANDOM O_RDONLY O_RDWR O_RSYNC O_SEQUENTIAL O_SHLOCK O_SHORT_LIVED O_SYMLINK O_SYNC O_TEMPORARY O_TEXT O_TMPFILE O_TRUNC O_WRONLY PIDFD_NONBLOCK POSIX_FADV_DONTNEED POSIX_FADV_NOREUSE POSIX_FADV_NORMAL POSIX_FADV_RANDOM POSIX_FADV_SEQUENTIAL POSIX_FADV_WILLNEED POSIX_SPAWN_CLOSE POSIX_SPAWN_CLOSEFROM POSIX_SPAWN_DUP2 POSIX_SPAWN_OPEN PRIO_DARWIN_BG PRIO_DARWIN_NONUI PRIO_DARWIN_PROCESS PRIO_DARWIN_THREAD PRIO_PGRP PRIO_PROCESS PRIO_USER P_ALL P_DETACH P_NOWAIT P_NOWAITO P_OVERLAY P_PGID P_PID P_PIDFD P_WAIT RTLD_DEEPBIND RTLD_GLOBAL RTLD_LAZY RTLD_LOCAL RTLD_NODELETE RTLD_NOLOAD RTLD_NOW RWF_APPEND RWF_DSYNC RWF_HIPRI RWF_NOWAIT RWF_SYNC R_OK SCHED_BATCH SCHED_FIFO SCHED_IDLE SCHED_OTHER SCHED_RESET_ON_FORK SCHED_RR SCHED_SPORADIC SEEK_CUR SEEK_DATA SEEK_END SEEK_HOLE SEEK_SET SF_MNOWAIT SF_NOCACHE SF_NODISKIO SF_SYNC SPLICE_F_MORE SPLICE_F_MOVE SPLICE_F_NONBLOCK TFD_CLOEXEC TFD_NONBLOCK TFD_TIMER_ABSTIME TFD_TIMER_CANCEL_ON_SET WCONTINUED WEXITED WNOHANG WNOWAIT WSTOPPED WUNTRACED W_OK XATTR_CREATE XATTR_REPLACE XATTR_SIZE_MAX X_OK altsep confstr_names curdir defpath devnull environ environb extsep linesep name pardir pathconf_names pathsep sep supports_bytes_environ supports_dir_fd supports_effective_ids supports_fd supports_follow_symlinks sysconf_names
+os	Function	WCOREDUMP WEXITSTATUS WIFCONTINUED WIFEXITED WIFSIGNALED WIFSTOPPED WSTOPSIG WTERMSIG _exit abort access add_dll_directory chdir chflags chmod chown chroot close closerange confstr copy_file_range cpu_count ctermid device_encoding dup dup2 eventfd eventfd_read eventfd_write execl execle execlp execlpe execv execve execvp execvpe fchdir fchmod fchown fdatasync fdopen fork forkpty fpathconf fsdecode fsencode fspath fstat fstatvfs fsync ftruncate fwalk get_blocking get_exec_path get_handle_inheritable get_inheritable get_terminal_size getcwd getcwdb getegid getenv getenvb geteuid getgid getgrouplist getgroups getloadavg getlogin getpgid getpgrp getpid getppid getpriority getrandom getresgid getresuid getsid getuid getxattr grantpt initgroups isatty kill killpg lchflags lchmod lchown link listdir listdrives listmounts listvolumes listxattr lockf login_tty lseek lstat major makedev makedirs memfd_create minor mkdir mkfifo mknod nice open openpty pathconf pidfd_open pipe pipe2 plock popen posix_fadvise posix_fallocate posix_openpt posix_spawn posix_spawnp pread preadv process_cpu_count ptsname putenv pwrite pwritev read readlink readv register_at_fork remove removedirs removexattr rename renames replace rmdir scandir sched_get_priority_max sched_get_priority_min sched_getaffinity sched_getparam sched_getscheduler sched_rr_get_interval sched_setaffinity sched_setparam sched_setscheduler sched_yield sendfile set_blocking set_handle_inheritable set_inheritable setegid seteuid setgid setgroups setns setpgid setpgrp setpriority setregid setresgid setresuid setreuid setsid setuid setxattr spawnl spawnle spawnlp spawnlpe spawnv spawnve spawnvp spawnvpe splice startfile stat statvfs strerror symlink sync sysconf system tcgetpgrp tcsetpgrp timerfd_create timerfd_gettime timerfd_gettime_ns timerfd_settime timerfd_settime_ns times truncate ttyname umask uname unlink unlockpt unsetenv unshare urandom utime wait wait3 wait4 waitid waitpid waitstatus_to_exitcode walk write writev
+os	Module	path
+os.DirEntry	Method	inode is_dir is_file is_junction is_symlink stat
+os.DirEntry	Property	name path
+os.PathLike	Method	__fspath__
+os.path	Constant	ALLOW_MISSING supports_unicode_filenames
+os.path	Function	abspath basename commonpath commonprefix dirname exists expanduser expandvars getatime getctime getmtime getsize isabs isdevdrive isdir isfile isjunction islink ismount isreserved join lexists normcase normpath realpath relpath samefile sameopenfile samestat split splitdrive splitext splitroot
+os.scandir	Method	close
+os.sched_param	Property	sched_priority
+os.stat_result	Property	st_atime st_atime_ns st_birthtime st_birthtime_ns st_blksize st_blocks st_creator st_ctime st_ctime_ns st_dev st_file_attributes st_flags st_fstype st_gen st_gid st_ino st_mode st_mtime st_mtime_ns st_nlink st_rdev st_reparse_tag st_rsize st_size st_type st_uid
+os.terminal_size	Property	columns lines
+pathlib	Class	Path PosixPath PurePath PurePosixPath PureWindowsPath UnsupportedOperation WindowsPath
+pathlib.Path	Method	absolute as_uri chmod cwd exists expanduser from_uri glob group hardlink_to home is_block_device is_char_device is_dir is_fifo is_file is_junction is_mount is_socket is_symlink iterdir lchmod lstat mkdir open owner read_bytes read_text readlink rename replace resolve rglob rmdir samefile stat symlink_to touch unlink walk write_bytes write_text
+pathlib.PurePath	Method	as_posix full_match is_absolute is_relative_to is_reserved joinpath match relative_to with_name with_segments with_stem with_suffix
+pathlib.PurePath	Property	anchor drive name parent parents parser parts root stem suffix suffixes
+pdb	Class	Pdb
+pdb	Function	pm post_mortem run runcall runeval set_trace
+pdb.Pdb	Method	run runcall runeval set_trace
+pickle	Class	PickleBuffer PickleError Pickler PicklingError Unpickler UnpicklingError
+pickle	Constant	DEFAULT_PROTOCOL HIGHEST_PROTOCOL
+pickle	Function	dump dumps load loads
+pickle.PickleBuffer	Method	raw release
+pickle.Pickler	Method	dump persistent_id reducer_override
+pickle.Pickler	Property	dispatch_table fast
+pickle.Unpickler	Method	find_class load persistent_load
+pickletools	Function	dis genops optimize
+pkgutil	Class	ModuleInfo
+pkgutil	Function	extend_path find_loader get_data get_importer get_loader iter_importers iter_modules resolve_name walk_packages
+platform	Function	android_ver architecture freedesktop_os_release ios_ver java_ver libc_ver mac_ver machine node platform processor python_branch python_build python_compiler python_implementation python_revision python_version python_version_tuple release system system_alias uname version win32_edition win32_is_iot win32_ver
+plistlib	Class	InvalidFileException UID
+plistlib	Constant	FMT_BINARY FMT_XML
+plistlib	Function	dump dumps load loads
+plistlib.UID	Property	data
+poplib	Class	POP3 POP3_SSL error_proto
+poplib.POP3	Method	apop capa dele getwelcome list noop pass_ quit retr rpop rset set_debuglevel stat stls top uidl user utf8
+posix	Constant	environ
+pprint	Class	PrettyPrinter
+pprint	Function	isreadable isrecursive pformat pp pprint saferepr
+pprint.PrettyPrinter	Method	format isreadable isrecursive pformat pprint
+profile	Class	Profile
+profile	Function	run runctx
+profile.Profile	Method	create_stats disable dump_stats enable print_stats run runcall runctx
+property	Function	deleter getter setter
+property	Property	__name__
+pstats	Class	Stats
+pstats.Stats	Method	add dump_stats get_stats_profile print_callees print_callers print_stats reverse_order sort_stats strip_dirs
+pty	Function	fork openpty spawn
+pwd	Function	getpwall getpwnam getpwuid
+py_compile	Class	PyCompileError PycInvalidationMode
+py_compile	Function	compile
+py_compile.PycInvalidationMode	Property	CHECKED_HASH TIMESTAMP UNCHECKED_HASH
+pyclbr	Class	Class Function
+pyclbr	Function	readmodule readmodule_ex
+pyclbr.Class	Property	children file lineno methods module name parent super
+pyclbr.Function	Property	children file is_async lineno module name parent
+queue	Class	Empty Full LifoQueue PriorityQueue Queue ShutDown SimpleQueue
+queue.Queue	Method	empty full get get_nowait join put put_nowait qsize shutdown task_done
+queue.SimpleQueue	Method	empty get get_nowait put put_nowait qsize
+quopri	Function	decode decodestring encode encodestring
+random	Class	Random SystemRandom
+random	Function	betavariate binomialvariate choice choices expovariate gammavariate gauss getrandbits getstate lognormvariate normalvariate paretovariate randbytes randint random randrange sample seed setstate shuffle triangular uniform vonmisesvariate weibullvariate
+random.Random	Method	getrandbits getstate randbytes random seed setstate
+range	Property	start step stop
+re	Class	Match Pattern PatternError RegexFlag
+re	Constant	A ASCII DEBUG DOTALL I IGNORECASE L LOCALE M MULTILINE NOFLAG S U UNICODE VERBOSE X
+re	Function	compile escape findall finditer fullmatch match purge search split sub subn
+re.Match	Method	__getitem__ end expand group groupdict groups span start
+re.Match	Property	endpos lastgroup lastindex pos re string
+re.Pattern	Method	findall finditer fullmatch match search split sub subn
+re.Pattern	Property	flags groupindex groups pattern
+re.PatternError	Property	colno lineno msg pattern pos
+readline	Constant	backend
+readline	Function	add_history append_history_file clear_history get_begidx get_completer get_completer_delims get_completion_type get_current_history_length get_endidx get_history_item get_history_length get_line_buffer insert_text parse_and_bind read_history_file read_init_file redisplay remove_history_item replace_history_item set_auto_history set_completer set_completer_delims set_completion_display_matches_hook set_history_length set_pre_input_hook set_startup_hook write_history_file
+reprlib	Class	Repr
+reprlib	Constant	aRepr
+reprlib	Function	recursive_repr repr
+reprlib.Repr	Method	repr repr1
+reprlib.Repr	Property	fillvalue indent maxarray maxdeque maxdict maxfrozenset maxlevel maxlist maxlong maxother maxset maxstring maxtuple
+resource	Class	error
+resource	Constant	RLIMIT_AS RLIMIT_CORE RLIMIT_CPU RLIMIT_DATA RLIMIT_FSIZE RLIMIT_KQUEUES RLIMIT_MEMLOCK RLIMIT_MSGQUEUE RLIMIT_NICE RLIMIT_NOFILE RLIMIT_NPROC RLIMIT_NPTS RLIMIT_OFILE RLIMIT_RSS RLIMIT_RTPRIO RLIMIT_RTTIME RLIMIT_SBSIZE RLIMIT_SIGPENDING RLIMIT_STACK RLIMIT_SWAP RLIMIT_VMEM RLIM_INFINITY RUSAGE_BOTH RUSAGE_CHILDREN RUSAGE_SELF RUSAGE_THREAD
+resource	Function	getpagesize getrlimit getrusage prlimit setrlimit
+rlcompleter	Class	Completer
+rlcompleter.Completer	Method	complete
+runpy	Function	run_module run_path
+sched	Class	scheduler
+sched.scheduler	Method	cancel empty enter enterabs run
+sched.scheduler	Property	queue
+secrets	Class	SystemRandom
+secrets	Function	choice compare_digest randbelow randbits token_bytes token_hex token_urlsafe
+select	Class	error
+select	Constant	PIPE_BUF
+select	Function	devpoll epoll kevent kqueue poll select
+select.devpoll	Method	close fileno modify poll register unregister
+select.devpoll	Property	closed
+select.epoll	Method	close fileno fromfd modify poll register unregister
+select.epoll	Property	closed
+select.kevent	Property	data fflags filter flags ident udata
+select.kqueue	Method	close control fileno fromfd
+select.kqueue	Property	closed
+select.poll	Method	modify poll register unregister
+selectors	Class	BaseSelector DefaultSelector DevpollSelector EpollSelector KqueueSelector PollSelector SelectSelector SelectorKey
+selectors	Constant	EVENT_READ EVENT_WRITE
+selectors.BaseSelector	Method	close get_key get_map modify register select unregister
+selectors.DevpollSelector	Method	fileno
+selectors.EpollSelector	Method	fileno
+selectors.KqueueSelector	Method	fileno
+selectors.SelectorKey	Property	data events fd fileobj
+shelve	Class	BsdDbShelf DbfilenameShelf Shelf
+shelve	Function	open
+shelve.Shelf	Method	close sync
+shlex	Class	shlex
+shlex	Function	join quote split
+shlex.shlex	Method	error_leader get_token pop_source push_source push_token read_token sourcehook
+shlex.shlex	Property	commenters debug eof escape escapedquotes infile instream lineno punctuation_chars quotes source token whitespace whitespace_split wordchars
+shutil	Class	Error SameFileError
+shutil	Function	chown copy copy2 copyfile copyfileobj copymode copystat copytree disk_usage get_archive_formats get_terminal_size get_unpack_formats ignore_patterns make_archive move register_archive_format register_unpack_format rmtree unpack_archive unregister_archive_format unregister_unpack_format which
+shutil.rmtree	Property	avoids_symlink_attacks
+signal	Class	Handlers ItimerError Sigmasks Signals
+signal	Constant	CTRL_BREAK_EVENT CTRL_C_EVENT ITIMER_PROF ITIMER_REAL ITIMER_VIRTUAL NSIG SIGABRT SIGALRM SIGBREAK SIGBUS SIGCHLD SIGCLD SIGCONT SIGFPE SIGHUP SIGILL SIGINT SIGKILL SIGPIPE SIGSEGV SIGSTKFLT SIGTERM SIGUSR1 SIGUSR2 SIGWINCH SIG_BLOCK SIG_DFL SIG_IGN SIG_SETMASK SIG_UNBLOCK
+signal	Function	alarm getitimer getsignal pause pidfd_send_signal pthread_kill pthread_sigmask raise_signal set_wakeup_fd setitimer siginterrupt signal sigpending sigtimedwait sigwait sigwaitinfo strsignal valid_signals
+site	Constant	ENABLE_USER_SITE PREFIXES USER_BASE USER_SITE
+site	Function	addsitedir getsitepackages getuserbase getusersitepackages main
+slice	Method	indices
+slice	Property	start step stop
+smtplib	Class	LMTP SMTP SMTPAuthenticationError SMTPConnectError SMTPDataError SMTPException SMTPHeloError SMTPNotSupportedError SMTPRecipientsRefused SMTPResponseException SMTPSenderRefused SMTPServerDisconnected SMTP_SSL
+smtplib.SMTP	Method	auth connect docmd ehlo ehlo_or_helo_if_needed has_extn helo login quit send_message sendmail set_debuglevel starttls verify
+socket	Class	error gaierror herror socket timeout
+socket	Constant	AF_ALG AF_CAN AF_DIVERT AF_HYPERV AF_INET AF_INET6 AF_LINK AF_PACKET AF_QIPCRTR AF_RDS AF_UNIX AF_UNSPEC AF_VSOCK BDADDR_ANY BDADDR_LOCAL CAN_BCM CAN_ISOTP CAN_J1939 CAN_RAW_FD_FRAMES CAN_RAW_JOIN_FILTERS ETHERTYPE_ARP ETHERTYPE_IP ETHERTYPE_IPV6 ETHERTYPE_VLAN ETH_P_ALL HCI_DATA_DIR HCI_FILTER HCI_TIME_STAMP HVSOCKET_ADDRESS_FLAG_PASSTHRU HVSOCKET_CONNECTED_SUSPEND HVSOCKET_CONNECT_TIMEOUT HVSOCKET_CONNECT_TIMEOUT_MAX HV_GUID_BROADCAST HV_GUID_CHILDREN HV_GUID_LOOPBACK HV_GUID_PARENT HV_GUID_WILDCARD HV_GUID_ZERO HV_PROTOCOL_RAW IOCTL_VM_SOCKETS_GET_LOCAL_CID LOCAL_CREDS LOCAL_CREDS_PERSISTENT PF_CAN PF_DIVERT PF_PACKET PF_RDS SCM_CREDS2 SHUT_RD SHUT_RDWR SHUT_WR SIO_KEEPALIVE_VALS SIO_LOOPBACK_FAST_PATH SIO_RCVALL SOCK_CLOEXEC SOCK_DGRAM SOCK_NONBLOCK SOCK_RAW SOCK_RDM SOCK_SEQPACKET SOCK_STREAM SOL_ALG SOL_RDS SOMAXCONN SO_INCOMING_CPU SocketType has_ipv6
+socket	Function	CMSG_LEN CMSG_SPACE close create_connection create_server fromfd fromshare getaddrinfo getdefaulttimeout getfqdn gethostbyaddr gethostbyname gethostbyname_ex gethostname getnameinfo getprotobyname getservbyname getservbyport has_dualstack_ipv6 htonl htons if_indextoname if_nameindex if_nametoindex inet_aton inet_ntoa inet_ntop inet_pton ntohl ntohs recv_fds send_fds setdefaulttimeout sethostname socketpair
+socket.socket	Method	accept bind close connect connect_ex detach dup fileno get_inheritable getblocking getpeername getsockname getsockopt gettimeout ioctl listen makefile recv recv_into recvfrom recvfrom_into recvmsg recvmsg_into send sendall sendfile sendmsg sendmsg_afalg sendto set_inheritable setblocking setsockopt settimeout share shutdown
+socket.socket	Property	family proto type
+socketserver	Class	BaseRequestHandler BaseServer DatagramRequestHandler ForkingMixIn ForkingTCPServer ForkingUDPServer ForkingUnixDatagramServer ForkingUnixStreamServer StreamRequestHandler TCPServer ThreadingMixIn ThreadingTCPServer ThreadingUDPServer ThreadingUnixDatagramServer ThreadingUnixStreamServer UDPServer UnixDatagramServer UnixStreamServer
+socketserver.BaseRequestHandler	Method	finish handle setup
+socketserver.BaseRequestHandler	Property	client_address request server
+socketserver.BaseServer	Method	fileno finish_request get_request handle_error handle_request handle_timeout process_request serve_forever server_activate server_bind server_close service_actions shutdown verify_request
+socketserver.BaseServer	Property	RequestHandlerClass address_family allow_reuse_address request_queue_size server_address socket socket_type timeout
+socketserver.DatagramRequestHandler	Property	rfile wfile
+socketserver.ThreadingMixIn	Property	block_on_close daemon_threads
+sqlite3	Class	Blob Connection Cursor DataError DatabaseError Error IntegrityError InterfaceError InternalError NotSupportedError OperationalError PrepareProtocol ProgrammingError Row Warning
+sqlite3	Constant	LEGACY_TRANSACTION_CONTROL PARSE_COLNAMES PARSE_DECLTYPES SQLITE_DBCONFIG_DEFENSIVE SQLITE_DBCONFIG_DQS_DDL SQLITE_DBCONFIG_DQS_DML SQLITE_DBCONFIG_ENABLE_FKEY SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION SQLITE_DBCONFIG_ENABLE_QPSG SQLITE_DBCONFIG_ENABLE_TRIGGER SQLITE_DBCONFIG_ENABLE_VIEW SQLITE_DBCONFIG_LEGACY_ALTER_TABLE SQLITE_DBCONFIG_LEGACY_FILE_FORMAT SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE SQLITE_DBCONFIG_RESET_DATABASE SQLITE_DBCONFIG_TRIGGER_EQP SQLITE_DBCONFIG_TRUSTED_SCHEMA SQLITE_DBCONFIG_WRITABLE_SCHEMA SQLITE_DENY SQLITE_IGNORE SQLITE_OK apilevel paramstyle sqlite_version sqlite_version_info threadsafety version version_info
+sqlite3	Function	complete_statement connect enable_callback_tracebacks register_adapter register_converter
+sqlite3.Blob	Method	close read seek tell write
+sqlite3.Connection	Method	backup blobopen close commit create_aggregate create_collation create_function create_window_function cursor deserialize enable_load_extension execute executemany executescript getconfig getlimit interrupt iterdump load_extension rollback serialize set_authorizer set_progress_handler set_trace_callback setconfig setlimit
+sqlite3.Connection	Property	autocommit in_transaction isolation_level row_factory text_factory total_changes
+sqlite3.Cursor	Method	close execute executemany executescript fetchall fetchmany fetchone setinputsizes setoutputsize
+sqlite3.Cursor	Property	arraysize connection description lastrowid row_factory rowcount
+sqlite3.Error	Property	sqlite_errorcode sqlite_errorname
+sqlite3.Row	Method	keys
+ssl	Class	AlertDescription CertificateError MemoryBIO Options SSLCertVerificationError SSLContext SSLEOFError SSLError SSLErrorNumber SSLObject SSLSession SSLSocket SSLSyscallError SSLWantReadError SSLWantWriteError SSLZeroReturnError TLSVersion VerifyFlags VerifyMode
+ssl	Constant	ALERT_DESCRIPTION_HANDSHAKE_FAILURE ALERT_DESCRIPTION_INTERNAL_ERROR CERT_NONE CERT_OPTIONAL CERT_REQUIRED CHANNEL_BINDING_TYPES HAS_ALPN HAS_ECDH HAS_NEVER_CHECK_COMMON_NAME HAS_NPN HAS_PSK HAS_SNI HAS_SSLv2 HAS_SSLv3 HAS_TLSv1 HAS_TLSv1_1 HAS_TLSv1_2 HAS_TLSv1_3 OPENSSL_VERSION OPENSSL_VERSION_INFO OPENSSL_VERSION_NUMBER OP_ALL OP_CIPHER_SERVER_PREFERENCE OP_ENABLE_KTLS OP_ENABLE_MIDDLEBOX_COMPAT OP_IGNORE_UNEXPECTED_EOF OP_LEGACY_SERVER_CONNECT OP_NO_COMPRESSION OP_NO_RENEGOTIATION OP_NO_SSLv2 OP_NO_SSLv3 OP_NO_TICKET OP_NO_TLSv1 OP_NO_TLSv1_1 OP_NO_TLSv1_2 OP_NO_TLSv1_3 OP_SINGLE_DH_USE OP_SINGLE_ECDH_USE PROTOCOL_SSLv23 PROTOCOL_SSLv3 PROTOCOL_TLS PROTOCOL_TLS_CLIENT PROTOCOL_TLS_SERVER PROTOCOL_TLSv1 PROTOCOL_TLSv1_1 PROTOCOL_TLSv1_2 VERIFY_ALLOW_PROXY_CERTS VERIFY_CRL_CHECK_CHAIN VERIFY_CRL_CHECK_LEAF VERIFY_DEFAULT VERIFY_X509_PARTIAL_CHAIN VERIFY_X509_STRICT VERIFY_X509_TRUSTED_FIRST
+ssl	Function	DER_cert_to_PEM_cert PEM_cert_to_DER_cert RAND_add RAND_bytes RAND_status cert_time_to_seconds create_default_context enum_certificates enum_crls get_default_verify_paths get_server_certificate
+ssl.MemoryBIO	Method	read write write_eof
+ssl.MemoryBIO	Property	eof pending
+ssl.Purpose	Constant	CLIENT_AUTH SERVER_AUTH
+ssl.SSLCertVerificationError	Property	verify_code verify_message
+ssl.SSLContext	Method	cert_store_stats get_ca_certs get_ciphers load_cert_chain load_default_certs load_dh_params load_verify_locations session_stats set_alpn_protocols set_ciphers set_default_verify_paths set_ecdh_curve set_npn_protocols set_psk_client_callback set_psk_server_callback wrap_bio wrap_socket
+ssl.SSLContext	Property	check_hostname hostname_checks_common_name keylog_filename maximum_version minimum_version num_tickets options post_handshake_auth protocol security_level set_servername_callback sni_callback sslobject_class sslsocket_class verify_flags verify_mode
+ssl.SSLError	Property	library reason
+ssl.SSLSession	Property	has_ticket id ticket_lifetime_hint time timeout
+ssl.SSLSocket	Method	cipher compression do_handshake get_channel_binding get_unverified_chain get_verified_chain getpeercert pending read selected_alpn_protocol selected_npn_protocol shared_ciphers unwrap verify_client_post_handshake version write
+ssl.SSLSocket	Property	context server_hostname server_side session session_reused
+ssl.TLSVersion	Property	MAXIMUM_SUPPORTED MINIMUM_SUPPORTED SSLv3 TLSv1 TLSv1_1 TLSv1_2 TLSv1_3
+stat	Constant	FILE_ATTRIBUTE_ARCHIVE FILE_ATTRIBUTE_COMPRESSED FILE_ATTRIBUTE_DEVICE FILE_ATTRIBUTE_DIRECTORY FILE_ATTRIBUTE_ENCRYPTED FILE_ATTRIBUTE_HIDDEN FILE_ATTRIBUTE_INTEGRITY_STREAM FILE_ATTRIBUTE_NORMAL FILE_ATTRIBUTE_NOT_CONTENT_INDEXED FILE_ATTRIBUTE_NO_SCRUB_DATA FILE_ATTRIBUTE_OFFLINE FILE_ATTRIBUTE_READONLY FILE_ATTRIBUTE_REPARSE_POINT FILE_ATTRIBUTE_SPARSE_FILE FILE_ATTRIBUTE_SYSTEM FILE_ATTRIBUTE_TEMPORARY FILE_ATTRIBUTE_VIRTUAL IO_REPARSE_TAG_APPEXECLINK IO_REPARSE_TAG_MOUNT_POINT IO_REPARSE_TAG_SYMLINK SF_APPEND SF_ARCHIVED SF_DATALESS SF_FIRMLINK SF_IMMUTABLE SF_NOUNLINK SF_RESTRICTED SF_SETTABLE SF_SNAPSHOT SF_SUPPORTED SF_SYNTHETIC ST_ATIME ST_CTIME ST_DEV ST_GID ST_INO ST_MODE ST_MTIME ST_NLINK ST_SIZE ST_UID S_ENFMT S_IEXEC S_IFBLK S_IFCHR S_IFDIR S_IFDOOR S_IFIFO S_IFLNK S_IFPORT S_IFREG S_IFSOCK S_IFWHT S_IREAD S_IRGRP S_IROTH S_IRUSR S_IRWXG S_IRWXO S_IRWXU S_ISGID S_ISUID S_ISVTX S_IWGRP S_IWOTH S_IWRITE S_IWUSR S_IXGRP S_IXOTH S_IXUSR UF_APPEND UF_COMPRESSED UF_DATAVAULT UF_HIDDEN UF_IMMUTABLE UF_NODUMP UF_NOUNLINK UF_OPAQUE UF_SETTABLE UF_TRACKED
+stat	Function	S_IFMT S_IMODE S_ISBLK S_ISCHR S_ISDIR S_ISDOOR S_ISFIFO S_ISLNK S_ISPORT S_ISREG S_ISSOCK S_ISWHT filemode
+statistics	Class	NormalDist StatisticsError
+statistics	Function	correlation covariance fmean geometric_mean harmonic_mean kde kde_random linear_regression mean median median_grouped median_high median_low mode multimode pstdev pvariance quantiles stdev variance
+statistics.NormalDist	Method	cdf from_samples inv_cdf overlap pdf quantiles samples zscore
+statistics.NormalDist	Property	mean median mode stdev variance
+str	Method	capitalize casefold center count encode endswith expandtabs find format format_map index isalnum isalpha isascii isdecimal isdigit isidentifier islower isnumeric isprintable isspace istitle isupper join ljust lower lstrip maketrans partition removeprefix removesuffix replace rfind rindex rjust rpartition rsplit rstrip split splitlines startswith strip swapcase title translate upper zfill
+string	Class	Formatter Template
+string	Constant	ascii_letters ascii_lowercase ascii_uppercase digits hexdigits octdigits printable punctuation whitespace
+string	Function	capwords
+string.Formatter	Method	check_unused_args convert_field format format_field get_field get_value parse vformat
+string.Template	Method	get_identifiers is_valid safe_substitute substitute
+string.Template	Property	template
+stringprep	Function	in_table_a1 in_table_b1 in_table_c11 in_table_c11_c12 in_table_c12 in_table_c21 in_table_c21_c22 in_table_c22 in_table_c3 in_table_c4 in_table_c5 in_table_c6 in_table_c7 in_table_c8 in_table_c9 in_table_d1 in_table_d2 map_table_b2 map_table_b3
+struct	Class	Struct error
+struct	Function	calcsize iter_unpack pack pack_into unpack unpack_from
+struct.Struct	Method	iter_unpack pack pack_into unpack unpack_from
+struct.Struct	Property	format size
+subprocess	Class	CalledProcessError CompletedProcess Popen STARTUPINFO SubprocessError TimeoutExpired
+subprocess	Constant	ABOVE_NORMAL_PRIORITY_CLASS BELOW_NORMAL_PRIORITY_CLASS CREATE_BREAKAWAY_FROM_JOB CREATE_DEFAULT_ERROR_MODE CREATE_NEW_CONSOLE CREATE_NEW_PROCESS_GROUP CREATE_NO_WINDOW DETACHED_PROCESS DEVNULL HIGH_PRIORITY_CLASS IDLE_PRIORITY_CLASS NORMAL_PRIORITY_CLASS PIPE REALTIME_PRIORITY_CLASS STARTF_FORCEOFFFEEDBACK STARTF_FORCEONFEEDBACK STARTF_USESHOWWINDOW STARTF_USESTDHANDLES STDOUT STD_ERROR_HANDLE STD_INPUT_HANDLE STD_OUTPUT_HANDLE SW_HIDE
+subprocess	Function	call check_call check_output getoutput getstatusoutput run
+subprocess.CalledProcessError	Property	cmd output returncode stderr stdout
+subprocess.CompletedProcess	Method	check_returncode
+subprocess.CompletedProcess	Property	args returncode stderr stdout
+subprocess.Popen	Method	communicate kill poll send_signal terminate wait
+subprocess.Popen	Property	args pid returncode stderr stdin stdout
+subprocess.STARTUPINFO	Property	dwFlags hStdError hStdInput hStdOutput lpAttributeList wShowWindow
+subprocess.TimeoutExpired	Property	cmd output stderr stdout timeout
+symtable	Class	Class Function Symbol SymbolTable SymbolTableType
+symtable	Function	symtable
+symtable.Class	Method	get_methods
+symtable.Function	Method	get_frees get_globals get_locals get_nonlocals get_parameters
+symtable.Symbol	Method	get_name get_namespace get_namespaces is_annotated is_assigned is_declared_global is_free is_global is_imported is_local is_namespace is_nonlocal is_parameter is_referenced
+symtable.SymbolTable	Method	get_children get_id get_identifiers get_lineno get_name get_symbols get_type has_children is_nested is_optimized lookup
+symtable.SymbolTableType	Property	ANNOTATION CLASS FUNCTION MODULE TYPE_ALIAS TYPE_PARAMETERS TYPE_VARIABLE
+sys	Constant	__breakpointhook__ __displayhook__ __excepthook__ __interactivehook__ __stderr__ __stdin__ __stdout__ __unraisablehook__ _emscripten_info _xoptions abiflags api_version argv base_exec_prefix base_prefix builtin_module_names byteorder copyright dllhandle dont_write_bytecode exec_prefix executable flags float_info float_repr_style hash_info hexversion implementation int_info last_exc last_traceback last_type last_value maxsize maxunicode meta_path modules orig_argv path path_hooks path_importer_cache platform platlibdir prefix ps1 ps2 pycache_prefix stderr stdin stdlib_module_names stdout thread_info tracebacklimit version version_info warnoptions winver
+sys	Function	_clear_internal_caches _clear_type_cache _current_exceptions _current_frames _debugmallocstats _enablelegacywindowsfsencoding _getframe _getframemodulename _is_gil_enabled _is_interned activate_stack_trampoline addaudithook audit breakpointhook call_tracing deactivate_stack_trampoline displayhook exc_info excepthook exception exit get_asyncgen_hooks get_coroutine_origin_tracking_depth get_int_max_str_digits getallocatedblocks getandroidapilevel getdefaultencoding getdlopenflags getfilesystemencodeerrors getfilesystemencoding getobjects getprofile getrecursionlimit getrefcount getsizeof getswitchinterval gettrace getunicodeinternedsize getwindowsversion intern is_finalizing is_stack_trampoline_active set_asyncgen_hooks set_coroutine_origin_tracking_depth set_int_max_str_digits setdlopenflags setprofile setrecursionlimit setswitchinterval settrace unraisablehook
+sys	Module	monitoring
+sys._emscripten_info	Property	emscripten_version pthreads runtime shared_memory
+sys.flags	Property	bytes_warning debug dev_mode dont_write_bytecode hash_randomization ignore_environment inspect int_max_str_digits interactive isolated no_site no_user_site optimize quiet safe_path utf8_mode verbose warn_default_encoding
+sys.float_info	Property	dig epsilon mant_dig max max_10_exp max_exp min min_10_exp min_exp radix rounds
+sys.hash_info	Property	algorithm hash_bits imag inf modulus nan seed_bits width
+sys.int_info	Property	bits_per_digit default_max_str_digits sizeof_digit str_digits_check_threshold
+sys.monitoring	Constant	DISABLE MISSING
+sys.monitoring	Function	free_tool_id get_events get_local_events get_tool register_callback restart_events set_events set_local_events use_tool_id
+sys.thread_info	Property	lock name version
+sysconfig	Function	_get_preferred_schemes get_config_h_filename get_config_var get_config_vars get_default_scheme get_makefile_filename get_path get_path_names get_paths get_platform get_preferred_scheme get_python_version get_scheme_names is_python_build parse_config_h
+syslog	Constant	LOG_ALERT LOG_AUTH LOG_AUTHPRIV LOG_CONS LOG_CRIT LOG_CRON LOG_DAEMON LOG_DEBUG LOG_EMERG LOG_ERR LOG_FTP LOG_INFO LOG_INSTALL LOG_KERN LOG_LAUNCHD LOG_LOCAL0 LOG_LOCAL1 LOG_LOCAL2 LOG_LOCAL3 LOG_LOCAL4 LOG_LOCAL5 LOG_LOCAL6 LOG_LOCAL7 LOG_LPR LOG_MAIL LOG_NDELAY LOG_NETINFO LOG_NEWS LOG_NOTICE LOG_NOWAIT LOG_ODELAY LOG_PERROR LOG_PID LOG_RAS LOG_REMOTEAUTH LOG_SYSLOG LOG_USER LOG_UUCP LOG_WARNING
+syslog	Function	closelog openlog setlogmask syslog
+tabnanny	Class	NannyNag
+tabnanny	Constant	filename_only verbose
+tabnanny	Function	check process_tokens
+tarfile	Class	AbsoluteLinkError AbsolutePathError CompressionError ExtractError FilterError HeaderError LinkFallbackError LinkOutsideDestinationError OutsideDestinationError ReadError SpecialFileError StreamError TarError TarFile TarInfo
+tarfile	Constant	AREGTYPE BLKTYPE CHRTYPE CONTTYPE DEFAULT_FORMAT DIRTYPE ENCODING FIFOTYPE GNUTYPE_LONGLINK GNUTYPE_LONGNAME GNUTYPE_SPARSE GNU_FORMAT LNKTYPE PAX_FORMAT REGTYPE SYMTYPE USTAR_FORMAT
+tarfile	Function	data_filter fully_trusted_filter is_tarfile open tar_filter
+tarfile.FilterError	Property	tarinfo
+tarfile.TarFile	Method	add addfile close extract extractall extractfile getmember getmembers getnames gettarinfo list next open
+tarfile.TarFile	Property	errorlevel extraction_filter pax_headers
+tarfile.TarInfo	Method	frombuf fromtarfile isblk ischr isdev isdir isfifo isfile islnk isreg issym replace tobuf
+tarfile.TarInfo	Property	chksum devmajor devminor gid gname linkname mode mtime name offset offset_data pax_headers size sparse type uid uname
+tempfile	Class	SpooledTemporaryFile TemporaryDirectory
+tempfile	Constant	tempdir
+tempfile	Function	NamedTemporaryFile TemporaryFile gettempdir gettempdirb gettempprefix gettempprefixb mkdtemp mkstemp mktemp
+tempfile.SpooledTemporaryFile	Method	rollover
+tempfile.TemporaryDirectory	Method	cleanup
+tempfile.TemporaryDirectory	Property	name
+termios	Constant	TCSADRAIN TCSAFLUSH TCSANOW
+termios	Function	tcdrain tcflow tcflush tcgetattr tcgetwinsize tcsendbreak tcsetattr tcsetwinsize
+test	Module	regrtest support
+test.support	Class	Matcher ResourceDenied SaveSignals SuppressCrashReport TestFailed
+test.support	Constant	ALWAYS_EQ HAVE_DOCSTRINGS INTERNET_TIMEOUT LARGEST LONG_TIMEOUT LOOPBACK_TIMEOUT MAX_Py_ssize_t MISSING_C_DOCSTRINGS NEVER_EQ PGO PIPE_MAX_SIZE Py_DEBUG SHORT_TIMEOUT SMALLEST SOCK_MAX_SIZE TEST_DATA_DIR TEST_HOME_DIR TEST_HTTP_URL TEST_SUPPORT_DIR is_android is_jython max_memuse real_max_memuse unix_shell verbose
+test.support	Function	adjust_int_max_str_digits anticipate_failure args_from_interpreter_flags bigaddrspacetest bigmemtest busy_retry calcobjsize calcvobjsize captured_stderr captured_stdin captured_stdout catch_unraisable_exception check__all__ check_disallow_instantiation check_free_after_iterating check_impl_detail check_syntax_error checksizeof cpython_only detect_api_mismatch disable_faulthandler disable_gc findfile flush_std_streams gc_collect get_attribute get_original_stdout get_pagesize impl_detail is_resource_enabled load_package_tests missing_compiler_executable no_tracing open_urlresource optim_args_from_interpreter_flags patch print_warning python_is_optimized reap_children record_original_stdout refcount_test requires requires_IEEE_754 requires_bz2 requires_docstrings requires_freebsd_version requires_gil_enabled requires_gzip requires_limited_api requires_linux_version requires_lzma requires_mac_version requires_resource requires_zlib run_in_subinterp run_with_locale run_with_tz set_memlimit setswitchinterval skip_if_broken_multiprocessing_synchronize sleeping_retry sortdict swap_attr swap_item system_must_validate_cert wait_process with_pymalloc
+test.support	Module	bytecode_helper import_helper os_helper script_helper socket_helper threading_helper warnings_helper
+test.support.Matcher	Method	match_value matches
+test.support.SaveSignals	Method	restore save
+test.support.bytecode_helper	Class	BytecodeTestCase
+test.support.bytecode_helper.BytecodeTestCase	Method	assertInBytecode assertNotInBytecode get_disassembly_as_string
+test.support.import_helper	Class	CleanImport DirsOnSysPath
+test.support.import_helper	Function	forget import_fresh_module import_module make_legacy_pyc modules_cleanup modules_setup unload
+test.support.os_helper	Class	EnvironmentVarGuard FakePath
+test.support.os_helper	Constant	FS_NONASCII SAVEDCWD TESTFN TESTFN_NONASCII TESTFN_UNDECODABLE TESTFN_UNENCODABLE TESTFN_UNICODE
+test.support.os_helper	Function	can_symlink can_xattr change_cwd create_empty_file fd_count fs_is_case_insensitive make_bad_fd rmdir rmtree skip_unless_symlink skip_unless_xattr temp_cwd temp_dir temp_umask unlink
+test.support.os_helper.EnvironmentVarGuard	Method	set unset
+test.support.script_helper	Function	assert_python_failure assert_python_ok interpreter_requires_environment kill_python make_pkg make_script make_zip_pkg make_zip_script run_python_until_end spawn_python
+test.support.socket_helper	Constant	IPV6_ENABLED
+test.support.socket_helper	Function	bind_port bind_unix_socket find_unused_port skip_unless_bind_unix_socket transient_internet
+test.support.threading_helper	Function	catch_threading_exception join_thread reap_threads start_threads threading_cleanup threading_setup wait_threads_exit
+test.support.warnings_helper	Class	WarningsRecorder
+test.support.warnings_helper	Function	check_no_resource_warning check_syntax_warning check_warnings ignore_warnings
+textwrap	Class	TextWrapper
+textwrap	Function	dedent fill indent shorten wrap
+textwrap.TextWrapper	Method	fill wrap
+textwrap.TextWrapper	Property	break_long_words break_on_hyphens drop_whitespace expand_tabs fix_sentence_endings initial_indent max_lines placeholder replace_whitespace subsequent_indent tabsize width
+threading	Class	Barrier BoundedSemaphore BrokenBarrierError Condition Event Lock RLock Semaphore Thread Timer local
+threading	Constant	TIMEOUT_MAX __excepthook__
+threading	Function	active_count current_thread enumerate excepthook get_ident get_native_id getprofile gettrace main_thread setprofile setprofile_all_threads settrace settrace_all_threads stack_size
+threading.Barrier	Method	abort reset wait
+threading.Barrier	Property	broken n_waiting parties
+threading.Condition	Method	acquire notify notify_all release wait wait_for
+threading.Event	Method	clear is_set set wait
+threading.Lock	Method	acquire locked release
+threading.RLock	Method	acquire release
+threading.Semaphore	Method	acquire release
+threading.Thread	Method	getName isDaemon is_alive join run setDaemon setName start
+threading.Thread	Property	daemon ident name native_id
+threading.Timer	Method	cancel
+time	Class	struct_time
+time	Constant	CLOCK_BOOTTIME CLOCK_HIGHRES CLOCK_MONOTONIC CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC_RAW_APPROX CLOCK_PROCESS_CPUTIME_ID CLOCK_PROF CLOCK_REALTIME CLOCK_TAI CLOCK_THREAD_CPUTIME_ID CLOCK_UPTIME CLOCK_UPTIME_RAW CLOCK_UPTIME_RAW_APPROX altzone daylight timezone tzname
+time	Function	asctime clock_getres clock_gettime clock_gettime_ns clock_settime clock_settime_ns ctime get_clock_info gmtime localtime mktime monotonic monotonic_ns perf_counter perf_counter_ns process_time process_time_ns pthread_getcpuclockid sleep strftime strptime thread_time thread_time_ns time time_ns tzset
+time.struct_time	Property	tm_gmtoff tm_hour tm_isdst tm_mday tm_min tm_mon tm_sec tm_wday tm_yday tm_year tm_zone
+timeit	Class	Timer
+timeit	Function	default_timer repeat timeit
+timeit.Timer	Method	autorange print_exc repeat timeit
+tkinter	Class	Tk
+tkinter	Function	Tcl
+tkinter	Module	colorchooser commondialog dnd filedialog font messagebox scrolledtext simpledialog ttk
+tkinter.Tk	Property	children master tk
+tkinter.colorchooser	Class	Chooser
+tkinter.colorchooser	Function	askcolor
+tkinter.commondialog	Class	Dialog
+tkinter.commondialog.Dialog	Method	show
+tkinter.dnd	Class	DndHandler
+tkinter.dnd	Function	dnd_start
+tkinter.dnd.DndHandler	Method	cancel finish on_motion on_release
+tkinter.filedialog	Class	Directory FileDialog LoadFileDialog Open SaveAs SaveFileDialog
+tkinter.filedialog	Function	askdirectory askopenfile askopenfilename askopenfilenames askopenfiles asksaveasfile asksaveasfilename
+tkinter.filedialog.FileDialog	Method	cancel_command dirs_double_event dirs_select_event files_double_event files_select_event filter_command get_filter get_selection go ok_event quit set_filter set_selection
+tkinter.filedialog.LoadFileDialog	Method	ok_command
+tkinter.filedialog.SaveFileDialog	Method	ok_command
+tkinter.font	Class	Font
+tkinter.font	Constant	BOLD ITALIC NORMAL ROMAN
+tkinter.font	Function	families names nametofont
+tkinter.font.Font	Method	actual cget config copy measure metrics
+tkinter.messagebox	Class	Message
+tkinter.messagebox	Constant	ABORT ABORTRETRYIGNORE CANCEL ERROR IGNORE INFO NO OK OKCANCEL QUESTION RETRY RETRYCANCEL WARNING YES YESNO YESNOCANCEL
+tkinter.messagebox	Function	askokcancel askquestion askretrycancel askyesno askyesnocancel showerror showinfo showwarning
+tkinter.messagebox.Message	Method	show
+tkinter.scrolledtext	Class	ScrolledText
+tkinter.scrolledtext.ScrolledText	Property	frame vbar
+tkinter.simpledialog	Class	Dialog
+tkinter.simpledialog	Function	askfloat askinteger askstring
+tkinter.simpledialog.Dialog	Method	body buttonbox
+tkinter.ttk	Class	Combobox Notebook Progressbar Spinbox Style Treeview Widget
+tkinter.ttk.Combobox	Method	current get set
+tkinter.ttk.Notebook	Method	add enable_traversal forget hide identify index insert select tab tabs
+tkinter.ttk.Progressbar	Method	start step stop
+tkinter.ttk.Spinbox	Method	get set
+tkinter.ttk.Style	Method	configure element_create element_names element_options layout lookup map theme_create theme_names theme_settings theme_use
+tkinter.ttk.Treeview	Method	bbox column delete detach exists focus get_children heading identify identify_column identify_element identify_region identify_row index insert item move next parent prev reattach see selection selection_add selection_remove selection_set selection_toggle set set_children tag_bind tag_configure tag_has xview yview
+tkinter.ttk.Widget	Method	identify instate state
+token	Constant	AMPER AMPEREQUAL AT ATEQUAL CIRCUMFLEX CIRCUMFLEXEQUAL COLON COLONEQUAL COMMA COMMENT DEDENT DOT DOUBLESLASH DOUBLESLASHEQUAL DOUBLESTAR DOUBLESTAREQUAL ELLIPSIS ENCODING ENDMARKER EQEQUAL EQUAL ERRORTOKEN EXACT_TOKEN_TYPES EXCLAMATION FSTRING_END FSTRING_MIDDLE FSTRING_START GREATER GREATEREQUAL INDENT LBRACE LEFTSHIFT LEFTSHIFTEQUAL LESS LESSEQUAL LPAR LSQB MINEQUAL MINUS NAME NEWLINE NL NOTEQUAL NUMBER N_TOKENS OP PERCENT PERCENTEQUAL PLUS PLUSEQUAL RARROW RBRACE RIGHTSHIFT RIGHTSHIFTEQUAL RPAR RSQB SEMI SLASH SLASHEQUAL SOFT_KEYWORD STAR STAREQUAL STRING TILDE TYPE_COMMENT TYPE_IGNORE VBAR VBAREQUAL tok_name
+token	Function	ISEOF ISNONTERMINAL ISTERMINAL
+tokenize	Class	TokenError
+tokenize	Function	detect_encoding generate_tokens open tokenize untokenize
+tomllib	Class	TOMLDecodeError
+tomllib	Function	load loads
+trace	Class	CoverageResults Trace
+trace.CoverageResults	Method	update write_results
+trace.Trace	Method	results run runctx runfunc
+traceback	Class	FrameSummary StackSummary TracebackException
+traceback	Function	clear_frames extract_stack extract_tb format_exc format_exception format_exception_only format_list format_stack format_tb print_exc print_exception print_last print_list print_stack print_tb walk_stack walk_tb
+traceback	Property	tb_frame tb_lasti tb_lineno tb_next
+traceback.FrameSummary	Property	colno end_colno end_lineno filename line lineno name
+traceback.StackSummary	Method	extract format format_frame_summary from_list
+traceback.TracebackException	Method	format format_exception_only from_exception print
+traceback.TracebackException	Property	__cause__ __context__ __notes__ __suppress_context__ end_lineno end_offset exc_type exc_type_str exceptions filename lineno msg offset stack text
+tracemalloc	Class	DomainFilter Filter Frame Snapshot Statistic StatisticDiff Trace Traceback
+tracemalloc	Function	clear_traces get_object_traceback get_traceback_limit get_traced_memory get_tracemalloc_memory is_tracing reset_peak start stop take_snapshot
+tracemalloc.DomainFilter	Property	domain inclusive
+tracemalloc.Filter	Property	all_frames domain filename_pattern inclusive lineno
+tracemalloc.Frame	Property	filename lineno
+tracemalloc.Snapshot	Method	compare_to dump filter_traces load statistics
+tracemalloc.Snapshot	Property	traceback_limit traces
+tracemalloc.Statistic	Property	count size traceback
+tracemalloc.StatisticDiff	Property	count count_diff size size_diff traceback
+tracemalloc.Trace	Property	domain size traceback
+tracemalloc.Traceback	Method	format
+tracemalloc.Traceback	Property	total_nframe
+tty	Function	cfmakecbreak cfmakeraw setcbreak setraw
+turtle	Class	RawPen RawTurtle Screen ScrolledCanvas Shape Turtle TurtleScreen Vec2D
+turtle	Function	addshape back backward begin_fill begin_poly bgcolor bgpic bk bye circle clear clearscreen clearstamp clearstamps clone color colormode degrees delay distance done dot down end_fill end_poly exitonclick fd fillcolor filling forward get_poly get_shapepoly getcanvas getpen getscreen getshapes getturtle goto heading hideturtle home ht isdown isvisible left listen lt mainloop mode numinput onclick ondrag onkey onkeypress onkeyrelease onrelease onscreenclick ontimer pd pen pencolor pendown pensize penup pos position pu radians register_shape reset resetscreen resizemode right rt screensize seth setheading setpos setposition setundobuffer setup setworldcoordinates setx sety shape shapesize shapetransform shearfactor showturtle speed st stamp teleport textinput tilt tiltangle title towards tracer turtles turtlesize undo undobufferentries up update width window_height window_width write write_docstringdict xcor ycor
+turtle.Shape	Method	addcomponent
+type	Method	__instancecheck__ __subclasscheck__ __subclasses__ mro
+type	Property	__annotations__ __bases__ __dict__ __doc__ __firstlineno__ __module__ __mro__ __name__ __qualname__ __static_attributes__ __type_params__
+types	Class	CapsuleType CodeType GenericAlias MappingProxyType ModuleType SimpleNamespace TracebackType UnionType
+types	Constant	AsyncGeneratorType BuiltinFunctionType BuiltinMethodType CellType ClassMethodDescriptorType CoroutineType EllipsisType FrameType FunctionType GeneratorType GetSetDescriptorType LambdaType MemberDescriptorType MethodDescriptorType MethodType MethodWrapperType NoneType NotImplementedType WrapperDescriptorType
+types	Function	DynamicClassAttribute coroutine get_original_bases new_class prepare_class resolve_bases
+types.MappingProxyType	Method	copy get items keys values
+typing	Class	AbstractSet AsyncContextManager AsyncGenerator AsyncIterable AsyncIterator Awaitable BinaryIO ByteString ChainMap Collection Container ContextManager Coroutine Counter DefaultDict Deque Dict ForwardRef FrozenSet Generator Generic Hashable IO ItemsView Iterable Iterator KeysView List Mapping MappingView Match MutableMapping MutableSequence MutableSet NamedTuple NewType OrderedDict ParamSpec Pattern Protocol Reversible Sequence Set Sized SupportsAbs SupportsBytes SupportsComplex SupportsFloat SupportsIndex SupportsInt SupportsRound Text TextIO Type TypeAliasType TypeVar TypeVarTuple TypedDict ValuesView
+typing	Constant	Annotated Any AnyStr Callable ClassVar Concatenate Final Literal LiteralString Never NoDefault NoReturn NotRequired Optional ParamSpecArgs ParamSpecKwargs ReadOnly Required Self TYPE_CHECKING Tuple TypeAlias TypeGuard TypeIs Union Unpack
+typing	Function	assert_never assert_type cast clear_overloads dataclass_transform final get_args get_origin get_overloads get_protocol_members get_type_hints is_protocol is_typeddict no_type_check no_type_check_decorator overload override reveal_type runtime_checkable type_check_only
+typing.NewType	Property	__module__ __name__ __supertype__
+typing.ParamSpec	Method	has_default
+typing.ParamSpec	Property	__default__ __name__ args kwargs
+typing.TypeAliasType	Property	__module__ __name__ __type_params__ __value__
+typing.TypeVar	Method	has_default
+typing.TypeVar	Property	__bound__ __constraints__ __contravariant__ __covariant__ __default__ __infer_variance__ __name__
+typing.TypeVarTuple	Method	has_default
+typing.TypeVarTuple	Property	__default__ __name__
+typing.TypedDict	Property	__mutable_keys__ __optional_keys__ __readonly_keys__ __required_keys__ __total__
+unicodedata	Constant	ucd_3_2_0 unidata_version
+unicodedata	Function	bidirectional category combining decimal decomposition digit east_asian_width is_normalized lookup mirrored name normalize numeric
+unittest	Class	FunctionTestCase IsolatedAsyncioTestCase SkipTest TestCase TestLoader TestResult TestSuite TextTestResult TextTestRunner
+unittest	Constant	defaultTestLoader
+unittest	Function	addModuleCleanup doModuleCleanups enterModuleContext expectedFailure installHandler main registerResult removeHandler removeResult skip skipIf skipUnless
+unittest	Module	mock
+unittest.IsolatedAsyncioTestCase	Method	addAsyncCleanup asyncSetUp asyncTearDown enterAsyncContext run
+unittest.IsolatedAsyncioTestCase	Property	loop_factory
+unittest.TestCase	Method	addClassCleanup addCleanup addTypeEqualityFunc assertAlmostEqual assertCountEqual assertDictEqual assertEqual assertFalse assertGreater assertGreaterEqual assertIn assertIs assertIsInstance assertIsNone assertIsNot assertIsNotNone assertLess assertLessEqual assertListEqual assertLogs assertMultiLineEqual assertNoLogs assertNotAlmostEqual assertNotEqual assertNotIn assertNotIsInstance assertNotRegex assertRaises assertRaisesRegex assertRegex assertSequenceEqual assertSetEqual assertTrue assertTupleEqual assertWarns assertWarnsRegex countTestCases debug defaultTestResult doClassCleanups doCleanups enterClassContext enterContext fail id run setUp setUpClass shortDescription skipTest subTest tearDown tearDownClass
+unittest.TestCase	Property	failureException longMessage maxDiff output records
+unittest.TestLoader	Method	discover getTestCaseNames loadTestsFromModule loadTestsFromName loadTestsFromNames loadTestsFromTestCase
+unittest.TestLoader	Property	errors sortTestMethodsUsing suiteClass testMethodPrefix testNamePatterns
+unittest.TestResult	Method	addDuration addError addExpectedFailure addFailure addSkip addSubTest addSuccess addUnexpectedSuccess startTest startTestRun stop stopTest stopTestRun wasSuccessful
+unittest.TestResult	Property	buffer collectedDurations errors expectedFailures failfast failures shouldStop skipped tb_locals testsRun unexpectedSuccesses
+unittest.TestSuite	Method	__iter__ addTest addTests countTestCases debug run
+unittest.TextTestRunner	Method	_makeResult run
+unittest.mock	Class	AsyncMock MagicMock Mock NonCallableMagicMock NonCallableMock PropertyMock ThreadingMock
+unittest.mock	Constant	ANY DEFAULT FILTER_DIR sentinel
+unittest.mock	Function	call create_autospec mock_open patch seal
+unittest.mock.AsyncMock	Method	assert_any_await assert_awaited assert_awaited_once assert_awaited_once_with assert_awaited_with assert_has_awaits assert_not_awaited reset_mock
+unittest.mock.AsyncMock	Property	await_args await_args_list await_count
+unittest.mock.Mock	Method	__dir__ _get_child_mock assert_any_call assert_called assert_called_once assert_called_once_with assert_called_with assert_has_calls assert_not_called attach_mock configure_mock mock_add_spec reset_mock
+unittest.mock.Mock	Property	__class__ call_args call_args_list call_count called method_calls mock_calls return_value side_effect
+unittest.mock.ThreadingMock	Method	wait_until_any_call_with wait_until_called
+unittest.mock.ThreadingMock	Property	DEFAULT_TIMEOUT
+unittest.mock.call	Method	call_list
+unittest.mock.patch	Function	dict multiple object stopall
+urllib	Module	error parse request response robotparser
+urllib.error	Class	ContentTooShortError HTTPError URLError
+urllib.error.ContentTooShortError	Property	content
+urllib.error.HTTPError	Property	code fp headers reason url
+urllib.error.URLError	Property	reason
+urllib.parse	Class	DefragResult DefragResultBytes ParseResult ParseResultBytes SplitResult SplitResultBytes
+urllib.parse	Function	parse_qs parse_qsl quote quote_from_bytes quote_plus unquote unquote_plus unquote_to_bytes unwrap urldefrag urlencode urljoin urlparse urlsplit urlunparse urlunsplit
+urllib.parse.urllib.parse.SplitResult	Method	geturl
+urllib.request	Class	AbstractBasicAuthHandler AbstractDigestAuthHandler BaseHandler CacheFTPHandler DataHandler FTPHandler FancyURLopener FileHandler HTTPBasicAuthHandler HTTPCookieProcessor HTTPDefaultErrorHandler HTTPDigestAuthHandler HTTPErrorProcessor HTTPHandler HTTPPasswordMgr HTTPPasswordMgrWithDefaultRealm HTTPPasswordMgrWithPriorAuth HTTPRedirectHandler HTTPSHandler OpenerDirector ProxyBasicAuthHandler ProxyDigestAuthHandler ProxyHandler Request URLopener UnknownHandler
+urllib.request	Function	build_opener getproxies install_opener pathname2url url2pathname urlcleanup urlopen urlretrieve
+urllib.request.AbstractBasicAuthHandler	Method	http_error_auth_reqed
+urllib.request.AbstractDigestAuthHandler	Method	http_error_auth_reqed
+urllib.request.BaseHandler	Method	add_parent close default_open http_error_default unknown_open
+urllib.request.BaseHandler	Property	parent
+urllib.request.CacheFTPHandler	Method	setMaxConns setTimeout
+urllib.request.DataHandler	Method	data_open
+urllib.request.FTPHandler	Method	ftp_open
+urllib.request.FancyURLopener	Method	prompt_user_passwd
+urllib.request.FileHandler	Method	file_open
+urllib.request.HTTPBasicAuthHandler	Method	http_error_401
+urllib.request.HTTPCookieProcessor	Property	cookiejar
+urllib.request.HTTPDigestAuthHandler	Method	http_error_401
+urllib.request.HTTPErrorProcessor	Method	http_response https_response
+urllib.request.HTTPHandler	Method	http_open
+urllib.request.HTTPPasswordMgr	Method	add_password find_user_password
+urllib.request.HTTPPasswordMgrWithPriorAuth	Method	add_password find_user_password is_authenticated update_authenticated
+urllib.request.HTTPRedirectHandler	Method	http_error_301 http_error_302 http_error_303 http_error_307 http_error_308 redirect_request
+urllib.request.HTTPSHandler	Method	https_open
+urllib.request.OpenerDirector	Method	add_handler error open
+urllib.request.ProxyBasicAuthHandler	Method	http_error_407
+urllib.request.ProxyDigestAuthHandler	Method	http_error_407
+urllib.request.Request	Method	add_header add_unredirected_header get_full_url get_header get_method has_header header_items remove_header set_proxy
+urllib.request.Request	Property	data full_url host method origin_req_host selector type unverifiable
+urllib.request.URLopener	Method	open open_unknown retrieve
+urllib.request.URLopener	Property	version
+urllib.request.UnknownHandler	Method	unknown_open
+urllib.response	Class	addinfourl
+urllib.response.addinfourl	Method	getcode geturl info
+urllib.response.addinfourl	Property	code headers status url
+urllib.robotparser	Class	RobotFileParser
+urllib.robotparser.RobotFileParser	Method	can_fetch crawl_delay modified mtime parse read request_rate set_url site_maps
+uuid	Class	SafeUUID UUID
+uuid	Constant	NAMESPACE_DNS NAMESPACE_OID NAMESPACE_URL NAMESPACE_X500 RESERVED_FUTURE RESERVED_MICROSOFT RESERVED_NCS RFC_4122
+uuid	Function	getnode uuid1 uuid3 uuid4 uuid5
+uuid.SafeUUID	Property	safe unknown unsafe
+uuid.UUID	Property	bytes bytes_le clock_seq clock_seq_hi_variant clock_seq_low fields hex int is_safe node time time_hi_version time_low time_mid urn variant version
+venv	Class	EnvBuilder
+venv	Function	create
+venv.EnvBuilder	Method	create create_configuration create_git_ignore_file ensure_directories install_scripts post_setup setup_python setup_scripts upgrade_dependencies
+warnings	Class	catch_warnings
+warnings	Function	deprecated filterwarnings formatwarning resetwarnings showwarning simplefilter warn warn_explicit
+wave	Class	Error Wave_read Wave_write
+wave	Function	open
+wave.Wave_read	Method	close getcompname getcomptype getframerate getmark getmarkers getnchannels getnframes getparams getsampwidth readframes rewind setpos tell
+wave.Wave_write	Method	close setcomptype setframerate setnchannels setnframes setparams setsampwidth tell writeframes writeframesraw
+weakref	Class	WeakKeyDictionary WeakMethod WeakSet WeakValueDictionary finalize ref
+weakref	Constant	CallableProxyType ProxyType ProxyTypes ReferenceType
+weakref	Function	getweakrefcount getweakrefs proxy
+weakref.WeakKeyDictionary	Method	keyrefs
+weakref.WeakValueDictionary	Method	valuerefs
+weakref.finalize	Method	__call__ detach peek
+weakref.finalize	Property	alive atexit
+weakref.ref	Property	__callback__
+webbrowser	Class	Error
+webbrowser	Function	get open open_new open_new_tab register
+webbrowser.controller	Method	open open_new open_new_tab
+webbrowser.controller	Property	name
+winreg	Constant	HKEY_CLASSES_ROOT HKEY_CURRENT_CONFIG HKEY_CURRENT_USER HKEY_DYN_DATA HKEY_LOCAL_MACHINE HKEY_PERFORMANCE_DATA HKEY_USERS KEY_ALL_ACCESS KEY_CREATE_LINK KEY_CREATE_SUB_KEY KEY_ENUMERATE_SUB_KEYS KEY_EXECUTE KEY_NOTIFY KEY_QUERY_VALUE KEY_READ KEY_SET_VALUE KEY_WOW64_32KEY KEY_WOW64_64KEY KEY_WRITE REG_BINARY REG_DWORD REG_DWORD_BIG_ENDIAN REG_DWORD_LITTLE_ENDIAN REG_EXPAND_SZ REG_FULL_RESOURCE_DESCRIPTOR REG_LINK REG_MULTI_SZ REG_NONE REG_QWORD REG_QWORD_LITTLE_ENDIAN REG_RESOURCE_LIST REG_RESOURCE_REQUIREMENTS_LIST REG_SZ
+winreg	Function	CloseKey ConnectRegistry CreateKey CreateKeyEx DeleteKey DeleteKeyEx DeleteValue DisableReflectionKey EnableReflectionKey EnumKey EnumValue ExpandEnvironmentStrings FlushKey LoadKey OpenKey OpenKeyEx QueryInfoKey QueryReflectionKey QueryValue QueryValueEx SaveKey SetValue SetValueEx
+winreg.PyHKEY	Method	Close Detach __enter__ __exit__
+winsound	Constant	MB_ICONASTERISK MB_ICONEXCLAMATION MB_ICONHAND MB_ICONQUESTION MB_OK SND_ALIAS SND_APPLICATION SND_ASYNC SND_FILENAME SND_LOOP SND_MEMORY SND_NODEFAULT SND_NOSTOP SND_NOWAIT SND_PURGE
+winsound	Function	Beep MessageBeep PlaySound
+wsgiref	Module	handlers headers simple_server types util validate
+wsgiref.handlers	Class	BaseCGIHandler BaseHandler CGIHandler IISCGIHandler SimpleHandler
+wsgiref.handlers	Function	read_environ
+wsgiref.handlers.BaseHandler	Method	_flush _write add_cgi_vars error_output get_scheme get_stderr get_stdin log_exception run sendfile setup_environ
+wsgiref.handlers.BaseHandler	Property	error_body error_headers error_status http_version origin_server os_environ server_software traceback_limit wsgi_file_wrapper wsgi_multiprocess wsgi_multithread wsgi_run_once
+wsgiref.headers	Class	Headers
+wsgiref.headers.Headers	Method	add_header get_all
+wsgiref.simple_server	Class	WSGIRequestHandler WSGIServer
+wsgiref.simple_server	Function	demo_app make_server
+wsgiref.simple_server.WSGIRequestHandler	Method	get_environ get_stderr handle
+wsgiref.simple_server.WSGIServer	Method	get_app set_app
+wsgiref.types	Class	ErrorStream FileWrapper InputStream StartResponse
+wsgiref.types	Constant	WSGIApplication WSGIEnvironment
+wsgiref.util	Class	FileWrapper
+wsgiref.util	Function	application_uri guess_scheme is_hop_by_hop request_uri setup_testing_defaults shift_path_info
+wsgiref.validate	Function	validator
+xml	Module	dom sax
+xml.dom	Class	DOMException DomstringSizeErr HierarchyRequestErr IndexSizeErr InuseAttributeErr InvalidAccessErr InvalidCharacterErr InvalidModificationErr InvalidStateErr NamespaceErr NoDataAllowedErr NoModificationAllowedErr NotFoundErr NotSupportedErr SyntaxErr WrongDocumentErr
+xml.dom	Constant	EMPTY_NAMESPACE XHTML_NAMESPACE XMLNS_NAMESPACE XML_NAMESPACE
+xml.dom	Function	getDOMImplementation registerDOMImplementation
+xml.dom	Module	minidom pulldom
+xml.dom.Attr	Property	localName name prefix value
+xml.dom.Comment	Property	data
+xml.dom.DOMImplementation	Method	createDocument createDocumentType hasFeature
+xml.dom.Document	Method	createAttribute createAttributeNS createComment createElement createElementNS createProcessingInstruction createTextNode getElementsByTagName getElementsByTagNameNS
+xml.dom.Document	Property	documentElement
+xml.dom.DocumentType	Property	entities internalSubset name notations publicId systemId
+xml.dom.Element	Method	getAttribute getAttributeNS getAttributeNode getAttributeNodeNS getElementsByTagName getElementsByTagNameNS hasAttribute hasAttributeNS removeAttribute removeAttributeNS removeAttributeNode setAttribute setAttributeNS setAttributeNode setAttributeNodeNS
+xml.dom.Element	Property	tagName
+xml.dom.NamedNodeMap	Method	item
+xml.dom.NamedNodeMap	Property	length
+xml.dom.Node	Method	appendChild cloneNode hasAttributes hasChildNodes insertBefore isSameNode normalize removeChild replaceChild
+xml.dom.Node	Property	attributes childNodes firstChild lastChild localName namespaceURI nextSibling nodeName nodeType nodeValue parentNode prefix previousSibling
+xml.dom.NodeList	Method	item
+xml.dom.NodeList	Property	length
+xml.dom.ProcessingInstruction	Property	data target
+xml.dom.Text	Property	data
+xml.dom.minidom	Function	parse parseString
+xml.dom.minidom.Node	Method	toprettyxml toxml unlink writexml
+xml.dom.pulldom	Class	DOMEventStream PullDom SAX2DOM
+xml.dom.pulldom	Constant	default_bufsize
+xml.dom.pulldom	Function	parse parseString
+xml.dom.pulldom.DOMEventStream	Method	expandNode getEvent reset
+xml.etree	Module	ElementInclude ElementTree
+xml.etree.ElementInclude	Function	default_loader include
+xml.etree.ElementTree	Class	C14NWriterTarget Element ElementTree ParseError QName TreeBuilder XMLParser XMLPullParser
+xml.etree.ElementTree	Function	Comment ProcessingInstruction SubElement XML XMLID canonicalize dump fromstring fromstringlist indent iselement iterparse parse register_namespace tostring tostringlist
+xml.etree.ElementTree.Element	Method	append clear extend find findall findtext get insert items iter iterfind itertext keys makeelement remove set
+xml.etree.ElementTree.Element	Property	attrib tag tail text
+xml.etree.ElementTree.ElementTree	Method	_setroot find findall findtext getroot iter iterfind parse write
+xml.etree.ElementTree.ParseError	Property	code position
+xml.etree.ElementTree.TreeBuilder	Method	close comment data doctype end end_ns pi start start_ns
+xml.etree.ElementTree.XMLParser	Method	close feed flush
+xml.etree.ElementTree.XMLPullParser	Method	close feed flush read_events
+xml.parsers	Module	expat
+xml.parsers.expat	Class	ExpatError error
+xml.parsers.expat	Constant	XMLParserType
+xml.parsers.expat	Function	ErrorString ParserCreate
+xml.parsers.expat	Module	errors model
+xml.parsers.expat.ExpatError	Property	code lineno offset
+xml.parsers.expat.errors	Constant	XML_ERROR_ABORTED XML_ERROR_AMPLIFICATION_LIMIT_BREACH XML_ERROR_ASYNC_ENTITY XML_ERROR_ATTRIBUTE_EXTERNAL_ENTITY_REF XML_ERROR_BAD_CHAR_REF XML_ERROR_BINARY_ENTITY_REF XML_ERROR_CANT_CHANGE_FEATURE_ONCE_PARSING XML_ERROR_DUPLICATE_ATTRIBUTE XML_ERROR_ENTITY_DECLARED_IN_PE XML_ERROR_EXTERNAL_ENTITY_HANDLING XML_ERROR_FEATURE_REQUIRES_XML_DTD XML_ERROR_FINISHED XML_ERROR_INCOMPLETE_PE XML_ERROR_INCORRECT_ENCODING XML_ERROR_INVALID_ARGUMENT XML_ERROR_INVALID_TOKEN XML_ERROR_JUNK_AFTER_DOC_ELEMENT XML_ERROR_MISPLACED_XML_PI XML_ERROR_NOT_STANDALONE XML_ERROR_NOT_SUSPENDED XML_ERROR_NO_BUFFER XML_ERROR_NO_ELEMENTS XML_ERROR_NO_MEMORY XML_ERROR_PARAM_ENTITY_REF XML_ERROR_PARTIAL_CHAR XML_ERROR_PUBLICID XML_ERROR_RECURSIVE_ENTITY_REF XML_ERROR_RESERVED_NAMESPACE_URI XML_ERROR_RESERVED_PREFIX_XML XML_ERROR_RESERVED_PREFIX_XMLNS XML_ERROR_SUSPENDED XML_ERROR_SUSPEND_PE XML_ERROR_SYNTAX XML_ERROR_TAG_MISMATCH XML_ERROR_TEXT_DECL XML_ERROR_UNBOUND_PREFIX XML_ERROR_UNCLOSED_CDATA_SECTION XML_ERROR_UNCLOSED_TOKEN XML_ERROR_UNDECLARING_PREFIX XML_ERROR_UNDEFINED_ENTITY XML_ERROR_UNEXPECTED_STATE XML_ERROR_UNKNOWN_ENCODING XML_ERROR_XML_DECL codes messages
+xml.parsers.expat.xmlparser	Method	AttlistDeclHandler CharacterDataHandler CommentHandler DefaultHandler DefaultHandlerExpand ElementDeclHandler EndCdataSectionHandler EndDoctypeDeclHandler EndElementHandler EndNamespaceDeclHandler EntityDeclHandler ExternalEntityParserCreate ExternalEntityRefHandler GetBase GetInputContext GetReparseDeferralEnabled NotStandaloneHandler NotationDeclHandler Parse ParseFile ProcessingInstructionHandler SetBase SetParamEntityParsing SetReparseDeferralEnabled StartCdataSectionHandler StartDoctypeDeclHandler StartElementHandler StartNamespaceDeclHandler UnparsedEntityDeclHandler UseForeignDTD XmlDeclHandler
+xml.parsers.expat.xmlparser	Property	CurrentByteIndex CurrentColumnNumber CurrentLineNumber ErrorByteIndex ErrorCode ErrorColumnNumber ErrorLineNumber buffer_size buffer_text buffer_used ordered_attributes specified_attributes
+xml.sax	Class	SAXException SAXNotRecognizedException SAXNotSupportedException SAXParseException
+xml.sax	Function	make_parser parse parseString
+xml.sax	Module	handler saxutils xmlreader
+xml.sax.SAXException	Method	getException getMessage
+xml.sax.handler	Class	ContentHandler DTDHandler EntityResolver ErrorHandler LexicalHandler
+xml.sax.handler	Constant	all_features all_properties feature_external_ges feature_external_pes feature_namespace_prefixes feature_namespaces feature_string_interning feature_validation property_declaration_handler property_dom_node property_lexical_handler property_xml_string
+xml.sax.handler.ContentHandler	Method	characters endDocument endElement endElementNS endPrefixMapping ignorableWhitespace processingInstruction setDocumentLocator skippedEntity startDocument startElement startElementNS startPrefixMapping
+xml.sax.handler.DTDHandler	Method	notationDecl unparsedEntityDecl
+xml.sax.handler.EntityResolver	Method	resolveEntity
+xml.sax.handler.ErrorHandler	Method	error fatalError warning
+xml.sax.handler.LexicalHandler	Method	comment endCDATA endDTD startCDATA startDTD
+xml.sax.saxutils	Class	XMLFilterBase XMLGenerator
+xml.sax.saxutils	Function	escape prepare_input_source quoteattr unescape
+xml.sax.xmlreader	Class	AttributesImpl AttributesNSImpl IncrementalParser InputSource Locator XMLReader
+xml.sax.xmlreader.Attributes	Method	getLength getNames getType getValue
+xml.sax.xmlreader.AttributesNS	Method	getNameByQName getQNameByName getQNames getValueByQName
+xml.sax.xmlreader.IncrementalParser	Method	close feed reset
+xml.sax.xmlreader.InputSource	Method	getByteStream getCharacterStream getEncoding getPublicId getSystemId setByteStream setCharacterStream setEncoding setPublicId setSystemId
+xml.sax.xmlreader.Locator	Method	getColumnNumber getLineNumber getPublicId getSystemId
+xml.sax.xmlreader.XMLReader	Method	getContentHandler getDTDHandler getEntityResolver getErrorHandler getFeature getProperty parse setContentHandler setDTDHandler setEntityResolver setErrorHandler setFeature setLocale setProperty
+xmlrpc	Module	client server
+xmlrpc.client	Class	Binary DateTime Fault MultiCall ProtocolError ServerProxy
+xmlrpc.client	Function	dumps loads
+xmlrpc.client.Binary	Method	decode encode
+xmlrpc.client.Binary	Property	data
+xmlrpc.client.DateTime	Method	decode encode
+xmlrpc.client.Fault	Property	faultCode faultString
+xmlrpc.client.ProtocolError	Property	errcode errmsg headers url
+xmlrpc.client.ServerProxy.system	Method	listMethods methodHelp methodSignature
+xmlrpc.server	Class	CGIXMLRPCRequestHandler DocCGIXMLRPCRequestHandler DocXMLRPCRequestHandler DocXMLRPCServer SimpleXMLRPCRequestHandler SimpleXMLRPCServer
+xmlrpc.server.CGIXMLRPCRequestHandler	Method	handle_request register_function register_instance register_introspection_functions register_multicall_functions
+xmlrpc.server.DocCGIXMLRPCRequestHandler	Method	set_server_documentation set_server_name set_server_title
+xmlrpc.server.DocXMLRPCServer	Method	set_server_documentation set_server_name set_server_title
+xmlrpc.server.SimpleXMLRPCRequestHandler	Property	rpc_paths
+xmlrpc.server.SimpleXMLRPCServer	Method	register_function register_instance register_introspection_functions register_multicall_functions
+zipapp	Function	create_archive get_interpreter
+zipfile	Class	BadZipFile BadZipfile LargeZipFile Path PyZipFile ZipFile ZipInfo
+zipfile	Constant	ZIP_BZIP2 ZIP_DEFLATED ZIP_LZMA ZIP_STORED
+zipfile	Function	is_zipfile
+zipfile.Path	Constant	stem suffix suffixes
+zipfile.Path	Method	exists is_dir is_file is_symlink iterdir joinpath open read_bytes read_text
+zipfile.Path	Property	name
+zipfile.PyZipFile	Method	writepy
+zipfile.ZipFile	Method	close extract extractall getinfo infolist mkdir namelist open printdir read setpassword testzip write writestr
+zipfile.ZipFile	Property	comment debug filename
+zipfile.ZipInfo	Method	from_file is_dir
+zipfile.ZipInfo	Property	CRC comment compress_size compress_type create_system create_version date_time external_attr extra extract_version file_size filename flag_bits header_offset internal_attr reserved volume
+zipimport	Class	ZipImportError zipimporter
+zipimport.zipimporter	Method	create_module exec_module find_spec get_code get_data get_filename get_source invalidate_caches is_package load_module
+zipimport.zipimporter	Property	archive prefix
+zlib	Class	error
+zlib	Constant	ZLIB_RUNTIME_VERSION ZLIB_VERSION
+zlib	Function	adler32 compress compressobj crc32 decompress decompressobj
+zlib.Compress	Method	compress copy flush
+zlib.Decompress	Method	copy decompress flush
+zlib.Decompress	Property	eof unconsumed_tail unused_data
+zoneinfo	Class	InvalidTZPathWarning ZoneInfo ZoneInfoNotFoundError
+zoneinfo	Constant	TZPATH
+zoneinfo	Function	available_timezones reset_tzpath
+zoneinfo.ZoneInfo	Method	clear_cache from_file no_cache
+zoneinfo.ZoneInfo	Property	key

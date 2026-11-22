@@ -1,3 +1,4 @@
+import { DropdownSelect } from '../ui/DropdownSelect';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BoardKind } from '../../types/board';
@@ -25,6 +26,7 @@ import './BoardOptionsModal.css';
 
 interface BoardOptionsModalProps {
   isOpen: boolean;
+  inline?: boolean;
   boardId: string;
   boardKind: BoardKind;
   /** User-given board name (optional); shown in the subtitle when set. */
@@ -73,6 +75,7 @@ async function readFileAsBase64(file: File): Promise<string> {
 
 export const BoardOptionsModal = ({
   isOpen,
+  inline = false,
   boardId,
   boardName,
   boardKind,
@@ -153,17 +156,17 @@ export const BoardOptionsModal = ({
     onSpiffsChange(spiffsFiles.filter((f) => f.name !== name));
   };
 
-  return (
-    <div className="bom-overlay" onClick={onClose}>
-      <div className="bom-modal" onClick={(e) => e.stopPropagation()}>
+  const content = (
+      <div className={inline ? 'bom-inline' : 'bom-modal'} onClick={inline ? undefined : (e) => e.stopPropagation()}>
+        {!inline && <>
         <div className="bom-header">
           <div className="bom-title">
-            <div className="bom-title-main">Board Options</div>
+            <div className="bom-title-main">{t('editor.boardOptions.title')}</div>
             <div className="bom-title-sub">
               {boardName?.trim() || BOARD_KIND_LABELS[boardKind]} - id {boardId}
             </div>
           </div>
-          <button className="bom-close" onClick={onClose} aria-label="Close">
+          <button className="bom-close" onClick={onClose} aria-label={t('editor.pi.close')}>
             &times;
           </button>
         </div>
@@ -173,7 +176,7 @@ export const BoardOptionsModal = ({
             className={`bom-tab ${tab === 'options' ? 'active' : ''}`}
             onClick={() => setTab('options')}
           >
-            Board Options
+            {t('editor.boardOptions.title')}
           </button>
           <button
             className={`bom-tab ${tab === 'files' ? 'active' : ''}`}
@@ -182,66 +185,67 @@ export const BoardOptionsModal = ({
             Filesystem Files ({spiffsFiles.length})
           </button>
         </div>
+        </>}
 
         <div className="bom-body">
           {tab === 'options' ? (
             <>
               <section className="bom-section">
-                <h4 className="bom-section-title">Memory</h4>
+                <h4 className="bom-section-title">{t('editor.boardOptions.memory')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">Partition Scheme</label>
+                  <label className="bom-label">{t('editor.boardOptions.partitionScheme')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.partitionScheme}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          partitionScheme: e.target.value as ESP32BoardOptions['partitionScheme'],
+                          partitionScheme: value as ESP32BoardOptions['partitionScheme'],
                         })
                       }
                     >
                       {PARTITION_SCHEMES.map((s) => (
                         <option key={s} value={s}>
-                          {PARTITION_SCHEME_LABELS[s]}
+                          {t(`editor.boardOptions.partition.${s}`, PARTITION_SCHEME_LABELS[s])}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
-                  <label className="bom-label">Flash Size</label>
+                  <label className="bom-label">{t('editor.boardOptions.flashSize')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashSize}
-                      onChange={(e) =>
-                        update({ flashSize: e.target.value as ESP32BoardOptions['flashSize'] })
+                      onValueChange={(value) =>
+                        update({ flashSize: value as ESP32BoardOptions['flashSize'] })
                       }
                     >
                       {FLASH_SIZE_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
-                          {o.label}
+                          {o.experimental ? t('editor.boardOptions.experimentalSize', { size: o.label }) : o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {draft.flashSize !== '4MB' && (
-                      <span className="bom-badge bom-badge-warn">QEMU image grows</span>
+                      <span className="bom-badge bom-badge-warn">{t('editor.boardOptions.imageGrows')}</span>
                     )}
                   </div>
                 </div>
               </section>
 
               <section className="bom-section">
-                <h4 className="bom-section-title">Speed</h4>
+                <h4 className="bom-section-title">{t('editor.boardOptions.speed')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">CPU Frequency</label>
+                  <label className="bom-label">{t('editor.boardOptions.cpuFrequency')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.cpuFreqMHz}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          cpuFreqMHz: Number(e.target.value) as ESP32BoardOptions['cpuFreqMHz'],
+                          cpuFreqMHz: Number(value) as ESP32BoardOptions['cpuFreqMHz'],
                         })
                       }
                     >
@@ -250,18 +254,18 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
-                  <label className="bom-label">Flash Frequency</label>
+                  <label className="bom-label">{t('editor.boardOptions.flashFrequency')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashFreqMHz}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          flashFreqMHz: e.target.value as ESP32BoardOptions['flashFreqMHz'],
+                          flashFreqMHz: value as ESP32BoardOptions['flashFreqMHz'],
                         })
                       }
                     >
@@ -270,21 +274,21 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
               </section>
 
               <section className="bom-section">
-                <h4 className="bom-section-title">Flash</h4>
+                <h4 className="bom-section-title">{t('editor.boardOptions.flashMemory')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">Flash Mode</label>
+                  <label className="bom-label">{t('editor.boardOptions.flashMode')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.flashMode}
-                      onChange={(e) =>
-                        update({ flashMode: e.target.value as ESP32BoardOptions['flashMode'] })
+                      onValueChange={(value) =>
+                        update({ flashMode: value as ESP32BoardOptions['flashMode'] })
                       }
                     >
                       {FLASH_MODE_OPTIONS.map((o) => (
@@ -292,10 +296,10 @@ export const BoardOptionsModal = ({
                           {o.label}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {nonDio && (
                       <span className="bom-badge bom-badge-error">
-                        QEMU may fail to boot
+                        {t('editor.boardOptions.qemuBootWarning')}
                       </span>
                     )}
                   </div>
@@ -306,98 +310,97 @@ export const BoardOptionsModal = ({
                 <section className="bom-section">
                   <h4 className="bom-section-title">PSRAM</h4>
                   <div className="bom-row">
-                    <label className="bom-label">External PSRAM</label>
+                    <label className="bom-label">{t('editor.boardOptions.externalPsram')}</label>
                     <div className="bom-control">
-                      <select
+                      <DropdownSelect
                         className="bom-select"
                         value={draft.psram}
-                        onChange={(e) =>
-                          update({ psram: e.target.value as ESP32BoardOptions['psram'] })
+                        onValueChange={(value) =>
+                          update({ psram: value as ESP32BoardOptions['psram'] })
                         }
                       >
-                        <option value="disabled">Disabled</option>
-                        <option value="enabled">Enabled</option>
+                        <option value="disabled">{t('editor.boardOptions.disabled')}</option>
+                        <option value="enabled">{t('editor.boardOptions.enabled')}</option>
                         {showOpi && <option value="opi">OPI PSRAM</option>}
-                      </select>
+                      </DropdownSelect>
                     </div>
                   </div>
                 </section>
               )}
 
               <section className="bom-section">
-                <h4 className="bom-section-title">Debug</h4>
+                <h4 className="bom-section-title">{t('editor.boardOptions.debug')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">Core Debug Level</label>
+                  <label className="bom-label">{t('editor.boardOptions.debugLevel')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.coreDebugLevel}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         update({
-                          coreDebugLevel: e.target
-                            .value as ESP32BoardOptions['coreDebugLevel'],
+                          coreDebugLevel: value as ESP32BoardOptions['coreDebugLevel'],
                         })
                       }
                     >
                       {DEBUG_LEVEL_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
-                          {o.label}
+                          {t(`editor.boardOptions.debugOption.${o.value}`, o.label)}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
               </section>
 
               <section className="bom-section">
-                <h4 className="bom-section-title">Concurrency</h4>
+                <h4 className="bom-section-title">{t('editor.boardOptions.concurrency')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">Events Run On</label>
+                  <label className="bom-label">{t('editor.boardOptions.eventsCore')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.eventsRunOnCore}
-                      onChange={(e) =>
-                        update({ eventsRunOnCore: Number(e.target.value) as ESP32CoreSelect })
+                      onValueChange={(value) =>
+                        update({ eventsRunOnCore: Number(value) as ESP32CoreSelect })
                       }
                     >
                       {CORE_SELECT_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
-                          {o.label}
+                          {t('editor.boardOptions.coreNumber', { number: o.value })}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 </div>
                 <div className="bom-row">
-                  <label className="bom-label">Arduino Runs On</label>
+                  <label className="bom-label">{t('editor.boardOptions.arduinoCore')}</label>
                   <div className="bom-control">
-                    <select
+                    <DropdownSelect
                       className="bom-select"
                       value={draft.arduinoRunsOnCore}
-                      onChange={(e) =>
-                        update({ arduinoRunsOnCore: Number(e.target.value) as ESP32CoreSelect })
+                      onValueChange={(value) =>
+                        update({ arduinoRunsOnCore: Number(value) as ESP32CoreSelect })
                       }
                     >
                       {CORE_SELECT_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
-                          {o.label}
+                          {t('editor.boardOptions.coreNumber', { number: o.value })}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                     {sameCore && (
                       <span className="bom-badge bom-badge-warn">
-                        Both on same core
+                        {t('editor.boardOptions.sameCore')}
                       </span>
                     )}
                   </div>
                 </div>
               </section>
 
-              <section className="bom-section">
-                <h4 className="bom-section-title">Tools</h4>
+              {!inline && <section className="bom-section">
+                <h4 className="bom-section-title">{t('editor.boardOptions.tools')}</h4>
                 <div className="bom-row">
-                  <label className="bom-label">Erase Flash on Upload</label>
+                  <label className="bom-label">{t('editor.boardOptions.eraseFlash')}</label>
                   <div className="bom-control">
                     <input
                       className="bom-check"
@@ -406,11 +409,11 @@ export const BoardOptionsModal = ({
                       onChange={(e) => update({ eraseFlashOnUpload: e.target.checked })}
                     />
                     <span style={{ fontSize: 11, color: '#888' }}>
-                      Zero NVS / SPIFFS before next run
+                      {t('editor.boardOptions.eraseFlashHint')}
                     </span>
                   </div>
                 </div>
-              </section>
+              </section>}
             </>
           ) : (
             <SpiffsPanel
@@ -428,16 +431,21 @@ export const BoardOptionsModal = ({
         </div>
 
         <div className="bom-footer">
+          {inline && (
+            <button className="bom-btn bom-btn-secondary" onClick={() => setDraft(getDefaultOptionsForKind(boardKind))}>
+              {t('editor.flash.resetDefaults', 'Reset to defaults')}
+            </button>
+          )}
           <button className="bom-btn bom-btn-secondary" onClick={onClose}>
-            Cancel
+            {t('editor.flash.cancel')}
           </button>
           <button className="bom-btn bom-btn-primary" onClick={handleApply}>
-            Apply
+            {t('editor.settings.applyTheme')}
           </button>
         </div>
       </div>
-    </div>
   );
+  return inline ? content : <div className="bom-overlay" onClick={onClose}>{content}</div>;
 };
 
 interface SpiffsPanelProps {

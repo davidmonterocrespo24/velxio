@@ -5,18 +5,15 @@
  * Shows pin roles, rotation, and delete options.
  */
 
+import { DropdownSelect } from '../ui/DropdownSelect';
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ComponentMetadata } from '../../types/component-metadata';
 import { SdCardPanel } from './SdCardPanel';
 import type { UploadedSdFile } from '../../utils/sdCardFiles';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
-import {
-  isKeyBindable,
-  isModifierKey,
-  normalizeKey,
-  formatKeyLabel,
-} from '../../utils/keyButtonBindings';
+import { isKeyBindable } from '../../utils/keyButtonBindings';
+import { useComponentKeyBinding } from '../../hooks/useComponentKeyBinding';
+import { ComponentKeyBindingField } from './ComponentKeyBindingField';
 import './ComponentPropertyDialog.css';
 
 function isEditable(prop: any): boolean {
@@ -71,46 +68,7 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
   // window.confirm() call which was visually jarring on mobile.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  // Keyboard binding capture (pushbuttons): while true, the next keydown
-  // becomes the component's `key` property. Escape cancels the capture.
-  const [capturingKey, setCapturingKey] = useState(false);
-  const allComponents = useSimulatorStore((s) => s.components);
-  const boundKey =
-    typeof componentProperties.key === 'string' && componentProperties.key
-      ? componentProperties.key
-      : '';
-  const keyInUseElsewhere =
-    !!boundKey &&
-    allComponents.some(
-      (c) =>
-        c.id !== componentId &&
-        isKeyBindable(c.metadataId) &&
-        typeof c.properties.key === 'string' &&
-        !!c.properties.key &&
-        normalizeKey(c.properties.key) === normalizeKey(boundKey),
-    );
-
-  useEffect(() => setCapturingKey(false), [componentId]);
-
-  useEffect(() => {
-    if (!capturingKey) return;
-    const onCaptureKey = (e: KeyboardEvent) => {
-      // Capture-phase + stopPropagation: the pressed key must not reach the
-      // dialog's Escape-close handler, the canvas delete handler, or the
-      // runtime key→button bridge while we're recording it.
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === 'Escape') {
-        setCapturingKey(false);
-        return;
-      }
-      if (isModifierKey(e.key)) return; // keep waiting for a real key
-      onPropertyChange?.(componentId, 'key', normalizeKey(e.key));
-      setCapturingKey(false);
-    };
-    window.addEventListener('keydown', onCaptureKey, true);
-    return () => window.removeEventListener('keydown', onCaptureKey, true);
-  }, [capturingKey, componentId, onPropertyChange]);
+  const keyBinding = useComponentKeyBinding(componentId, componentProperties.key, onPropertyChange);
 
   // Calculate dialog position on mount — clamp within canvas viewport
   useEffect(() => {
@@ -267,17 +225,17 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
                 return (
                   <div key={prop.name} className="property-edit-row">
                     <label className="property-edit-label">{prop.description || prop.name}</label>
-                    <select
+                    <DropdownSelect
                       className="property-edit-select"
                       value={current}
-                      onChange={(e) => onPropertyChange?.(componentId, prop.name, e.target.value)}
+                      onValueChange={(value) => onPropertyChange?.(componentId, prop.name, value)}
                     >
                       {prop.options.map((opt: string) => (
                         <option key={opt} value={opt}>
                           {opt.toUpperCase()}
                         </option>
                       ))}
-                    </select>
+                    </DropdownSelect>
                   </div>
                 );
               }
@@ -296,44 +254,8 @@ export const ComponentPropertyDialog: React.FC<ComponentPropertyDialogProps> = (
         </div>
       )}
 
-      {/* Keyboard binding — drive this pushbutton with a keyboard key */}
       {isKeyBindable(componentMetadata.id) && (
-        <div className="property-edit-section">
-          <div className="property-edit-row">
-            <label className="property-edit-label">
-              {t('editor.componentProps.keyboardKey')}
-            </label>
-            <div className="keybind-controls">
-              <button
-                type="button"
-                className={`keybind-chip${capturingKey ? ' keybind-chip--capturing' : ''}${
-                  !boundKey && !capturingKey ? ' keybind-chip--empty' : ''
-                }`}
-                onClick={() => setCapturingKey((c) => !c)}
-              >
-                {capturingKey
-                  ? t('editor.componentProps.pressAKey')
-                  : boundKey
-                    ? formatKeyLabel(boundKey)
-                    : t('editor.componentProps.assignKey')}
-              </button>
-              {boundKey && !capturingKey && (
-                <button
-                  type="button"
-                  className="keybind-clear"
-                  title={t('editor.componentProps.clearKey')}
-                  onClick={() => onPropertyChange?.(componentId, 'key', '')}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="keybind-help">{t('editor.componentProps.keyboardHint')}</div>
-          {keyInUseElsewhere && (
-            <div className="keybind-hint">{t('editor.componentProps.keyInUse')}</div>
-          )}
-        </div>
+        <ComponentKeyBindingField {...keyBinding} />
       )}
 
       {/* microSD card — upload your own files (paid). Free auto-copy of the

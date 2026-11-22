@@ -12,7 +12,7 @@
  *     "exportedAt": "ISO timestamp",
  *     "name": "project name (optional)",
  *     "boards": [...],
- *     "fileGroups": { "<groupId>": [{ name, content }, ...] },
+ *     "fileGroups": { "<groupId>": [{ id, name, content }, ...] },
  *     "components": [...],
  *     "wires": [...],
  *     "activeBoardId": "..." | null
@@ -30,11 +30,13 @@
  */
 
 import type { BoardInstance } from '../types/board';
-import type { Component } from '../types/component';
 import type { Wire } from '../types/wire';
 import { useEditorStore, chipFileGroupId } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useProjectStore } from '../store/useProjectStore';
+import { savedWorkspaceFileId, type SavedWorkspaceFile } from './savedWorkspaceFile';
+
+type Component = ReturnType<typeof useSimulatorStore.getState>['components'][number];
 
 const VLX_FORMAT = 'velxio-project';
 const VLX_VERSION = 1;
@@ -53,6 +55,8 @@ export interface VlxPayload {
     activeFileGroupId: string;
     languageMode?: string;
     serialBaudRate?: number;
+    boardOptions?: BoardInstance['boardOptions'];
+    spiffsFiles?: BoardInstance['spiffsFiles'];
     /** Quarter turns; absent when unrotated. */
     rotation?: number;
     /** Breadboard component id the board is plugged into, and the drawing
@@ -63,7 +67,7 @@ export interface VlxPayload {
     /** Declared library manifest (compile scope). Absent in old files. */
     libraries?: string[];
   }>;
-  fileGroups: Record<string, Array<{ name: string; content: string }>>;
+  fileGroups: Record<string, SavedWorkspaceFile[]>;
   /** EMPTY folders per group (folders holding files exist via name prefixes).
    *  Optional — absent in projects saved before folders shipped. */
   folderGroups?: Record<string, string[]>;
@@ -94,6 +98,8 @@ function serialisableBoard(b: BoardInstance) {
     activeFileGroupId: b.activeFileGroupId,
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,
+    boardOptions: b.boardOptions,
+    spiffsFiles: b.spiffsFiles,
     // Built-in SD slot uploads (XIAO Sense etc.) travel with the project,
     // exactly like a microsd-card component's properties.sdFiles do.
     sdFiles: b.sdFiles,
@@ -125,6 +131,7 @@ export function buildVlxPayload(opts: { name?: string } = {}): VlxPayload {
   const folderGroups: NonNullable<VlxPayload['folderGroups']> = {};
   for (const gid of referencedGroupIds) {
     fileGroups[gid] = (editor.fileGroups[gid] ?? []).map((f) => ({
+      id: f.id,
       name: f.name,
       content: f.content,
     }));
@@ -268,6 +275,11 @@ export async function parseVlxFile(file: File): Promise<VlxPayload> {
  */
 export async function importVlxFile(file: File): Promise<VlxPayload> {
   const payload = await parseVlxFile(file);
+  loadVlxPayload(payload);
+  return payload;
+}
+
+export function loadVlxPayload(payload: VlxPayload): void {
   // CRITICAL — sever the current project identity BEFORE mutating any store
   // (same guard as loadExample.ts). With a saved project open, the auto-save
   // hook would otherwise see the imported content as dirty edits on the OLD
@@ -276,11 +288,13 @@ export async function importVlxFile(file: File): Promise<VlxPayload> {
   useProjectStore.getState().clearCurrentProject();
   useSimulatorStore.getState().loadProjectState({
     boards: payload.boards as unknown as BoardInstance[],
-    fileGroups: payload.fileGroups,
+    fileGroups: Object.fromEntries(Object.entries(payload.fileGroups).map(([groupId, files]) => [
+      groupId,
+      files.map((file) => ({ ...file, id: savedWorkspaceFileId(file) })),
+    ])),
     folderGroups: payload.folderGroups,
     components: payload.components,
     wires: payload.wires,
     activeBoardId: payload.activeBoardId,
   });
-  return payload;
 }

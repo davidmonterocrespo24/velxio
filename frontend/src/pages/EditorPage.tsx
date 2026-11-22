@@ -2,74 +2,86 @@
  * Editor Page — main editor + simulator with resizable panels
  */
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useSyncExternalStore, useCallback, useEffect, useLayoutEffect } from 'react';
+import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, HardDrive, Package, PanelsLeftRight, Plus, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { startSimulation } from '../simulation/spice/start';
 import { useSEO } from '../utils/useSEO';
-import { getLocaleFromPath, localizedPath } from '../i18n/path';
-import { restoreStashedWorkspace } from '../utils/workspaceDraft';
-import { CodeEditor } from '../components/editor/CodeEditor';
+import { CodeEditor, type CodeEditorHandle } from '../components/editor/CodeEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { FileExplorer } from '../components/editor/FileExplorer';
+import { EditorSettings } from '../components/editor/EditorSettings';
+import { EditorQuickPick } from '../components/editor/EditorQuickPick';
+import { LocalProjectsDialog } from '../components/editor/LocalProjectsDialog';
+import {
+  WorkspaceActivityBar, WorkspaceLibraries, WorkspaceSearch, WorkspaceToolButton,
+  type WorkspaceTool, type WorkspaceView,
+} from '../components/editor/WorkspaceSidebar';
 
 // Lazy-load Pi workspace so xterm.js isn't in the main bundle
 import { CompilationConsole } from '../components/editor/CompilationConsole';
 import { CompileProgressCard } from '../components/editor/CompileProgressCard';
 import { SimulatorCanvas } from '../components/simulator/SimulatorCanvas';
-import { SerialMonitor } from '../components/simulator/SerialMonitor';
+import { SerialMonitor, type SerialMonitorSource } from '../components/simulator/SerialMonitor';
 import { Oscilloscope } from '../components/simulator/Oscilloscope';
 import { AppHeader } from '../components/layout/AppHeader';
 import { triggerSaveAction } from '../lib/proSaveAction';
+import {
+  canOpenProjectFile,
+  canSaveProjectFile,
+  openProjectFile,
+  saveProjectFileAs,
+  upgradeWorkspaceLibraryVersions,
+  useLocalWorkspace,
+  watchLocalWorkspace,
+} from '../lib/localWorkspace';
+import { useEditorPreferences } from '../store/useEditorPreferences';
 import { GitHubStarBanner } from '../components/layout/GitHubStarBanner';
 import { NewsAnnouncer } from '../components/layout/NewsAnnouncer';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useEditorStore } from '../store/useEditorStore';
+import { useProjectStore } from '../store/useProjectStore';
 import { useCompileLogsStore } from '../store/useCompileLogsStore';
 import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
-import { useProjectStore } from '../store/useProjectStore';
-import {
-  NewProjectDialog,
-  clearWorkspaceForStarter,
-} from '../components/editor/NewProjectDialog';
+import { boardDisplayName } from '../types/board';
+import { trackToggleSerialMonitor } from '../utils/analytics';
+import { clearWorkspaceForStarter } from '../components/editor/NewProjectDialog';
 import { useAutoSaveProject } from '../hooks/useAutoSaveProject';
-import { registerEditorCommand } from '../lib/editorCommands';
-import { whenNewsClear } from '../lib/newsGate';
+import { useEditorProjectRoute } from '../hooks/useEditorProjectRoute';
+import { registerEditorCommand, runEditorCommand } from '../lib/editorCommands';
+import { WorkspaceFlash } from '../components/editor/WorkspaceFlash';
+import { getBrowserFlashSelection, subscribeBrowserFlashSelection } from '../lib/browserFlashSerial';
 import { EditorMenuBar } from '../components/editor/EditorMenuBar';
-import type { CompilationLog } from '../utils/compilationLogger';
 import '../App.css';
+import '../components/editor/Workspace.css';
 
 const MOBILE_BREAKPOINT = 768;
 
 const BOTTOM_PANEL_MIN = 80;
+const SERIAL_PANEL_MIN = 140;
 const BOTTOM_PANEL_MAX = 600;
 const BOTTOM_PANEL_DEFAULT = 200;
 
 const EXPLORER_MIN = 100;
 const EXPLORER_MAX = 500;
-// Narrow by default: the explorer rows are compact and both headers stack
-// their actions ABOVE their label instead of beside it (see
-// FileExplorer.css), so nothing has to share a line — 124px fits a board
-// name and typical file names, and every px saved here goes to the code
-// editor.
-const EXPLORER_DEFAULT = 124;
+const EXPLORER_COLLAPSE_WIDTH = 92;
+const EXPLORER_OPEN_DRAG = 28;
+const EDITOR_MIN_WIDTH = 160;
+const EXPLORER_HANDLE_WIDTH = 4;
+const ACTIVITY_BAR_WIDTH = 34;
+const SPLIT_HANDLE_WIDTH = 5;
+const DESKTOP_VIEWS = [
+  { mode: 'code', Icon: CodeXml },
+  { mode: 'both', Icon: PanelsLeftRight },
+  { mode: 'circuit', Icon: CircuitBoard },
+] as const;
 
-// Once per full page load: the pristine-visit starter dialog must not pop
-// again when the user closes it and later navigates away from and back to
-// /editor within the same SPA session.
-let starterDialogShownThisLoad = false;
+type ProjectDialog = 'start' | 'templates' | 'saved' | 'saved-from-start' | 'save' | 'save-copy';
+type BottomPanel = 'console' | 'serial' | 'scope';
 
 function announceStarBanner(action: 'shown' | 'click' | 'dismiss', round: 1 | 2): void {
   window.dispatchEvent(new CustomEvent('velxio-star-banner', { detail: { action, round } }));
 }
-
-const resizeHandleStyle: React.CSSProperties = {
-  height: 5,
-  flexShrink: 0,
-  cursor: 'row-resize',
-  background: 'var(--wb-5)',
-  borderTop: '1px solid var(--wb-7)',
-  borderBottom: '1px solid var(--wb-7)',
-};
 
 export const EditorPage: React.FC = () => {
   const { t } = useTranslation();
@@ -80,9 +92,56 @@ export const EditorPage: React.FC = () => {
     url: 'https://velxio.dev/editor',
   });
 
-  // Silent auto-save for the loaded project (only fires when authed AND
-  // currentProject has a UUID — see useAutoSaveProject for the gating rules).
-  const autoSave = useAutoSaveProject();
+  useAutoSaveProject();
+  const sidebarView = useEditorPreferences((state) => state.sidebarView);
+  const savedExplorerWidth = useEditorPreferences((state) => state.sidebarWidth);
+  const [draggedExplorerWidth, setDraggedExplorerWidth] = useState<number | null>(null);
+  const explorerWidth = draggedExplorerWidth ?? savedExplorerWidth;
+  const updatePreferences = useEditorPreferences((state) => state.update);
+  const [projectDialog, setProjectDialog] = useState<ProjectDialog | null>(null);
+  const [startupWorkspaceVersion, setStartupWorkspaceVersion] = useState<number | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const codeEditorRef = useRef<CodeEditorHandle>(null);
+  const [showBoardPicker, setShowBoardPicker] = useState(false);
+  const toggleBoardPicker = useCallback(() => setShowBoardPicker((open) => !open), []);
+  const [statusBarHost, setStatusBarHost] = useState<HTMLDivElement | null>(null);
+  const localProjectName = useLocalWorkspace((state) => state.name);
+  const isBrowserProject = useLocalWorkspace((state) => state.browserId !== null);
+  const localSaveStatus = useLocalWorkspace((state) => state.status);
+  const hasLocalProject = localProjectName !== null;
+  const hasCloudProject = useProjectStore((state) => state.currentProject !== null);
+  const statusFile = useEditorStore((state) => state.manifestViewBoardId
+    ? undefined
+    : state.files.find(({ id }) => id === state.activeFileId));
+  const workspaceVersion = useProjectStore((state) => state.workspaceVersion);
+  const emptyCircuit = useSimulatorStore(
+    (state) => !state.boards.length && !state.components.length && !state.wires.length,
+  );
+  const emptyFiles = useEditorStore(
+    (state) => !Object.values(state.fileGroups).some((files) => files.length) &&
+      !Object.values(state.folderGroups).some((folders) => folders.length),
+  );
+  const closeProjectDialog = useCallback(() => setProjectDialog(null), []);
+  const dismissProjectStart = () => {
+    setStartupWorkspaceVersion(null);
+    closeProjectDialog();
+  };
+  const showProjectStart = useCallback(() => setProjectDialog('start'), []);
+  const showStartup = useCallback(() => {
+    setStartupWorkspaceVersion(useProjectStore.getState().workspaceVersion);
+    setProjectDialog((dialog) => dialog ?? 'start');
+  }, []);
+  useLayoutEffect(() => watchLocalWorkspace(), []);
+  useEffect(() => {
+    const request = new AbortController();
+    void upgradeWorkspaceLibraryVersions(request.signal);
+    return () => request.abort();
+  }, [workspaceVersion]);
+  const projectRoute = useEditorProjectRoute({
+    clearWorkspace: clearWorkspaceForStarter,
+    showStartup,
+    closeProjectDialog,
+  });
 
   const [editorWidthPct, setEditorWidthPct] = useState(45);
   // Desktop-only 3-way layout switch (code-only / circuit-only / both).
@@ -91,11 +150,25 @@ export const EditorPage: React.FC = () => {
   const setViewMode = useEditorStore((s) => s.setViewMode);
   const explorerOpen = useEditorStore((s) => s.explorerOpen);
   const setExplorerOpen = useEditorStore((s) => s.setExplorerOpen);
-  const toggleExplorer = useEditorStore((s) => s.toggleExplorer);
   const containerRef = useRef<HTMLDivElement>(null);
-  const resizingRef = useRef(false);
+  const editorPanelRef = useRef<HTMLDivElement>(null);
+  const explorerRef = useRef<HTMLElement>(null);
+  const editorMainRef = useRef<HTMLDivElement>(null);
+  const simulatorPanelRef = useRef<HTMLDivElement>(null);
+  const workspaceStatusRef = useRef<HTMLElement>(null);
+  const splitHandleRef = useRef<HTMLDivElement>(null);
+  const viewToggleRef = useRef<HTMLDivElement>(null);
+  const stopResize = useRef<(() => void) | null>(null);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
-  const activeBoardId = useSimulatorStore((s) => s.activeBoardId);
+  const [serialSource, setSerialSource] = useState<SerialMonitorSource>('simulation');
+  const componentCount = useSimulatorStore((state) => state.components.length);
+  const componentCountLabel = t('editor.canvas.componentCount', { count: componentCount });
+  const boardChoices = useSimulatorStore((state) => showBoardPicker ? state.boards : undefined);
+  const activeBoardId = useSimulatorStore((state) => state.activeBoardId);
+  const activeBoardName = useSimulatorStore((state) => {
+    const board = state.boards.find((item) => item.id === state.activeBoardId);
+    return board ? boardDisplayName(board) : '';
+  });
   const oscilloscopeOpen = useOscilloscopeStore((s) => s.open);
   const [consoleOpen, setConsoleOpen] = useState(false);
   // compileLogs live in a Zustand store so the velxio-pro agent overlay
@@ -103,7 +176,11 @@ export const EditorPage: React.FC = () => {
   // build a "diagnose this failure" prompt without prop-drilling.
   const compileLogs = useCompileLogsStore((s) => s.logs);
   const setCompileLogs = useCompileLogsStore((s) => s.setLogs);
-  const [bottomPanelHeight, setBottomPanelHeight] = useState(BOTTOM_PANEL_DEFAULT);
+  const [bottomPanelHeights, setBottomPanelHeights] = useState<Record<BottomPanel, number>>({
+    console: BOTTOM_PANEL_DEFAULT,
+    serial: BOTTOM_PANEL_DEFAULT,
+    scope: BOTTOM_PANEL_DEFAULT,
+  });
   const [showStarBanner, setShowStarBanner] = useState(false);
   const [starRound, setStarRound] = useState<1 | 2>(1);
 
@@ -114,56 +191,6 @@ export const EditorPage: React.FC = () => {
   // WASM ngspice (via NgSpiceWorkerAdapter) is the only solver.
   useEffect(() => {
     return startSimulation();
-  }, []);
-
-  // Restore an in-progress workspace stashed before a login redirect, so a
-  // user who was building something and signed in lands back on their circuit
-  // (not the empty starter board). One-shot; see utils/workspaceDraft.
-  useEffect(() => {
-    restoreStashedWorkspace();
-  }, []);
-
-  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-
-  // Pristine-visit starter dialog: a bare /editor landing still holds the
-  // hardcoded Uno + LED starter (see useSimulatorStore INITIAL_BOARD /
-  // builtin components). Clear it and offer the template picker over an
-  // EMPTY canvas instead of silently dropping the user into the Arduino
-  // blink (cancelling the dialog leaves a blank workspace). Guarded so it
-  // never fires over a loaded project/example URL, a restored login draft
-  // (both leave the stores non-pristine), or twice per page load. Declared
-  // AFTER the restoreStashedWorkspace effect — mount order is what makes
-  // the pristine check see the restored draft.
-  //
-  // Sequenced BEHIND the news announcement: the canvas is cleared right
-  // away, but the dialog itself waits until NewsAnnouncer reports the
-  // announcement flow is done (nothing to show, or its modal was closed).
-  // The 2.5s bound applies only while the news decision is pending, so a
-  // dead feed can't hold the dialog hostage — see lib/newsGate.ts.
-  useEffect(() => {
-    if (starterDialogShownThisLoad) return;
-    const locale = getLocaleFromPath(window.location.pathname);
-    // /editor is prerendered, so a fresh load arrives as /editor/ (nginx
-    // adds the slash); client-side navigation lands on /editor. Both count.
-    if (window.location.pathname.replace(/\/+$/, '') !== localizedPath('/editor', locale)) return;
-    if (window.location.search) return;
-    if (useProjectStore.getState().currentProject) return;
-    const sim = useSimulatorStore.getState();
-    const pristine =
-      sim.boards.length === 1 &&
-      sim.boards[0].id === 'arduino-uno' &&
-      sim.components.length === 2 &&
-      sim.components.every((c) => c.id === 'led_builtin' || c.id === 'r_builtin');
-    if (!pristine) return;
-    starterDialogShownThisLoad = true;
-    clearWorkspaceForStarter();
-    let cancelled = false;
-    void whenNewsClear(2500).then(() => {
-      if (!cancelled) setShowNewProjectDialog(true);
-    });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   // ── GitHub star prompt (show twice at most, after 10 min in the editor) ────
@@ -248,15 +275,12 @@ export const EditorPage: React.FC = () => {
     announceStarBanner('click', starRound);
     setShowStarBanner(false);
   };
-  const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT);
   const [isMobile, setIsMobile] = useState(
     () => window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches,
   );
-  // Slot element for SimulatorCanvas to portal its header into. When set, the
-  // canvas board selector / Serial / Scope / zoom / Add buttons render here
-  // instead of above the canvas — keeping the top bar a single full-width row
-  // that doesn't reflow when the editor/canvas splitter is dragged.
+  // The canvas portals its board selector and Add button into the desktop toolbar.
   const [canvasHeaderSlot, setCanvasHeaderSlot] = useState<HTMLDivElement | null>(null);
+  const [addComponentSlot, setAddComponentSlot] = useState<HTMLDivElement | null>(null);
   // Default to 'code' on mobile — show the editor so users can write/view code
   const [mobileView, setMobileView] = useState<'code' | 'circuit'>('code');
 
@@ -265,21 +289,131 @@ export const EditorPage: React.FC = () => {
   // card has to move to the editor pane instead of disappearing with it.
   const simulatorHidden =
     (isMobile && mobileView !== 'circuit') || (!isMobile && viewMode === 'code');
+  const codeVisible = isMobile ? mobileView === 'code' : viewMode !== 'circuit';
+  useLayoutEffect(() => {
+    const status = workspaceStatusRef.current;
+    const editor = editorMainRef.current;
+    const circuit = simulatorPanelRef.current;
+    if (!status || !editor || !circuit) return;
 
-  // Save is dispatched to the pro overlay, which inspects auth state and
-  // shows the right modal (Save vs Login prompt). In OSS without the
-  // overlay this is a no-op today and becomes the .vlx Export entry
-  // point in Phase 4 of the OSS split.
+    const alignDividers = () => {
+      const footer = status.getBoundingClientRect();
+      const rtl = getComputedStyle(status).direction === 'rtl';
+      const paneStart = (pane: HTMLElement) => {
+        const rect = pane.getBoundingClientRect();
+        return Math.max(0, rtl ? footer.right - rect.right : rect.left - footer.left);
+      };
+      const editorStart = isMobile || !codeVisible ? 0 : paneStart(editor);
+      const circuitStart = isMobile || simulatorHidden ? 0 : paneStart(circuit);
+      const split = splitHandleRef.current;
+      status.style.setProperty('--status-leading', `${codeVisible ? editorStart : circuitStart}px`);
+      status.style.setProperty('--status-editor-width', codeVisible
+        ? simulatorHidden ? 'minmax(0, 1fr)' : `${Math.max(0, circuitStart - editorStart)}px`
+        : '0px');
+      status.style.setProperty('--status-circuit-width', simulatorHidden ? '0px' : 'minmax(0, 1fr)');
+      status.style.setProperty('--status-editor-line', `${Math.max(0, editorStart - 1)}px`);
+      status.style.setProperty('--status-circuit-line', `${split ? paneStart(split) : circuitStart}px`);
+    };
+
+    alignDividers();
+    const observer = new ResizeObserver(alignDividers);
+    for (const element of [status, editor, circuit]) observer.observe(element);
+    return () => observer.disconnect();
+  }, [isMobile, codeVisible, simulatorHidden, t]);
+
+  useLayoutEffect(() => {
+    const toggle = viewToggleRef.current;
+    if (!toggle) return;
+    const positionPill = () => {
+      const selected = toggle.querySelector('[aria-pressed="true"]');
+      if (!selected) return;
+      const rect = selected.getBoundingClientRect();
+      toggle.style.setProperty('--view-pill-x', `${rect.left - toggle.getBoundingClientRect().left}px`);
+      toggle.style.setProperty('--view-pill-width', `${rect.width}px`);
+    };
+    positionPill();
+    const observer = new ResizeObserver(positionPill);
+    observer.observe(toggle);
+    toggle.querySelectorAll('button').forEach((button) => observer.observe(button));
+    return () => observer.disconnect();
+  }, [isMobile, viewMode, t]);
+
   const handleSaveClick = useCallback(() => {
-    triggerSaveAction();
-  }, []);
+    if (!projectRoute.openingProject) triggerSaveAction(() => setProjectDialog('save'));
+  }, [projectRoute.openingProject]);
 
-  // "New workspace" opens the starter-template dialog. Destruction moved
-  // from here into the dialog's selection handler — Cancel/ESC now leaves
-  // the current workspace untouched, so the old confirm dialog is gone.
-  const handleNewClick = useCallback(() => {
-    setShowNewProjectDialog(true);
-  }, []);
+  const openWorkspaceView = useCallback((view: WorkspaceView) => {
+    updatePreferences({ sidebarView: view });
+    setExplorerOpen(true);
+    if (isMobile) setMobileView('code');
+    else if (useEditorStore.getState().viewMode === 'circuit') setViewMode('code');
+  }, [isMobile, setExplorerOpen, setViewMode, updatePreferences]);
+  const openFlash = useCallback(() => openWorkspaceView('flash'), [openWorkspaceView]);
+  const openFlashOutput = useCallback(() => setConsoleOpen(true), []);
+  const flashPort = useSyncExternalStore(subscribeBrowserFlashSelection, getBrowserFlashSelection, () => null);
+  const flashBoardName = useSimulatorStore((s) => {
+    if (!flashPort || flashPort.workspaceVersion !== workspaceVersion || flashPort.port.connected === false) return undefined;
+    const board = s.boards.find((item) => item.id === flashPort.boardId);
+    return board ? boardDisplayName(board) : undefined;
+  });
+  const openExplorer = useCallback(() => openWorkspaceView('explorer'), [openWorkspaceView]);
+
+  const selectWorkspaceView = (view: WorkspaceView) => {
+    if (view === sidebarView && explorerOpen && codeVisible) setExplorerOpen(false);
+    else openWorkspaceView(view);
+  };
+
+  const hardwareSerialOpen = serialMonitorOpen && serialSource === 'hardware' && !simulatorHidden;
+
+  const openSerialMonitor = () => {
+    if (simulatorHidden) {
+      if (isMobile) setMobileView('circuit');
+      else setViewMode('both');
+    }
+    if (!serialMonitorOpen) {
+      setSerialSource('simulation');
+      useSimulatorStore.getState().toggleSerialMonitor();
+      trackToggleSerialMonitor(true);
+    }
+  };
+
+  const closeSerialMonitor = () => {
+    useSimulatorStore.getState().toggleSerialMonitor();
+    setSerialSource('simulation');
+    trackToggleSerialMonitor(false);
+  };
+
+  const toggleWorkspaceTool = (tool: WorkspaceTool) => {
+    if (tool === 'terminal') {
+      if (!consoleOpen && !codeVisible) {
+        if (isMobile) setMobileView('code');
+        else setViewMode('both');
+      }
+      setConsoleOpen(!consoleOpen);
+      return;
+    }
+    if (tool === 'serial') {
+      if (serialMonitorOpen && !simulatorHidden) closeSerialMonitor();
+      else openSerialMonitor();
+      return;
+    }
+    if (!oscilloscopeOpen && simulatorHidden) {
+      if (isMobile) setMobileView('circuit');
+      else setViewMode('both');
+    }
+    useOscilloscopeStore.getState().toggleOscilloscope();
+  };
+
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'p') return;
+      event.preventDefault();
+      openWorkspaceView('search');
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.workspace-search input')?.focus());
+    };
+    window.addEventListener('keydown', openSearch);
+    return () => window.removeEventListener('keydown', openSearch);
+  }, [openWorkspaceView]);
 
   // Track mobile breakpoint
   useEffect(() => {
@@ -297,29 +431,44 @@ export const EditorPage: React.FC = () => {
   // Ctrl+S shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSaveClick();
+        if (!e.repeat) runEditorCommand('project.save');
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [handleSaveClick]);
+  }, []);
 
   // File-menu commands owned by this page. Registered here (not in the
   // menu) so the menu never duplicates the confirm-dialog / autosave logic.
   useEffect(() => {
     const offSave = registerEditorCommand('project.save', handleSaveClick);
-    const offNew = registerEditorCommand('project.new', () => {
-      void handleNewClick();
+    const offNew = registerEditorCommand('project.new', showProjectStart);
+    const offExplorer = registerEditorCommand('view.toggleExplorer', () => {
+      const state = useEditorStore.getState();
+      const codeVisible = isMobile ? mobileView === 'code' : state.viewMode !== 'circuit';
+      if (state.explorerOpen && sidebarView === 'explorer' && codeVisible) setExplorerOpen(false);
+      else openWorkspaceView('explorer');
     });
-    const offExplorer = registerEditorCommand('view.toggleExplorer', () => toggleExplorer());
+    const offSettings = registerEditorCommand('view.settings', () => setShowSettings(true));
+    const offLocal = registerEditorCommand('project.openLocal', () => setProjectDialog('saved'));
+    const offDisk = canOpenProjectFile()
+      ? registerEditorCommand('project.openDisk', () => void openProjectFile())
+      : undefined;
+    const offSaveAs = canSaveProjectFile()
+      ? registerEditorCommand('project.saveAs', () => void saveProjectFileAs())
+      : undefined;
     return () => {
       offSave();
       offNew();
       offExplorer();
+      offSettings();
+      offLocal();
+      offDisk?.();
+      offSaveAs?.();
     };
-  }, [handleSaveClick, handleNewClick, toggleExplorer]);
+  }, [handleSaveClick, showProjectStart, isMobile, mobileView, openWorkspaceView, setExplorerOpen, sidebarView]);
 
   // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — canvas undo/redo. Skipped when the
   // user is typing in any input/textarea/contenteditable so the Monaco
@@ -362,12 +511,45 @@ export const EditorPage: React.FC = () => {
     };
   }, []);
 
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = true;
+  useEffect(() => () => stopResize.current?.(), []);
 
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!resizingRef.current || !containerRef.current) return;
+  const beginResize = useCallback((
+    event: React.MouseEvent<HTMLElement>,
+    cursor: 'ew-resize' | 'ns-resize',
+    onMove: (event: MouseEvent) => void,
+    onFinish?: () => void,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    stopResize.current?.();
+
+    const handle = event.currentTarget;
+    const bodyStyle = document.body.style;
+    const previousCursor = bodyStyle.cursor;
+    const previousUserSelect = bodyStyle.userSelect;
+    const finish = () => {
+      stopResize.current = null;
+      delete handle.dataset.resizing;
+      bodyStyle.cursor = previousCursor;
+      bodyStyle.userSelect = previousUserSelect;
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', finish, true);
+      window.removeEventListener('blur', finish);
+      onFinish?.();
+    };
+    stopResize.current = finish;
+    handle.dataset.resizing = 'true';
+    bodyStyle.cursor = cursor;
+    bodyStyle.userSelect = 'none';
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', finish, true);
+    window.addEventListener('blur', finish);
+  }, []);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const grabOffset = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    beginResize(e, 'ew-resize', (ev) => {
+      if (!containerRef.current) return;
       const el = containerRef.current;
       const rect = el.getBoundingClientRect();
       // The panels' percentage widths resolve against the container's CONTENT
@@ -378,207 +560,167 @@ export const EditorPage: React.FC = () => {
       const cs = getComputedStyle(el);
       const padLeft = parseFloat(cs.paddingLeft) || 0;
       const padRight = parseFloat(cs.paddingRight) || 0;
-      const contentLeft = rect.left + el.clientLeft + padLeft;
-      const contentWidth = el.clientWidth - padLeft - padRight;
-      if (contentWidth <= 0) return;
-      const pct = ((ev.clientX - contentLeft) / contentWidth) * 100;
-      setEditorWidthPct(Math.max(20, Math.min(80, pct)));
-    };
-
-    const handleMouseUp = () => {
-      resizingRef.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, []);
+      const panelsLeft = rect.left + el.clientLeft + padLeft + ACTIVITY_BAR_WIDTH;
+      const panelsWidth = el.clientWidth - padLeft - padRight - ACTIVITY_BAR_WIDTH - SPLIT_HANDLE_WIDTH;
+      if (panelsWidth <= 0) return;
+      const sidebarWidth = explorerRef.current?.getBoundingClientRect().width ?? 0;
+      const maxWidth = panelsWidth * 0.8;
+      const minWidth = Math.min(
+        maxWidth,
+        Math.max(panelsWidth * 0.2, sidebarWidth + EXPLORER_HANDLE_WIDTH + EDITOR_MIN_WIDTH),
+      );
+      const width = Math.max(minWidth, Math.min(maxWidth, ev.clientX - panelsLeft - grabOffset));
+      setEditorWidthPct((width / panelsWidth) * 100);
+    });
+  }, [beginResize]);
 
   const handleBottomPanelResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
+    (e: React.MouseEvent<HTMLDivElement>, panel: BottomPanel) => {
       const startY = e.clientY;
-      const startHeight = bottomPanelHeight;
+      const startHeight = e.currentTarget.nextElementSibling?.getBoundingClientRect().height ??
+        bottomPanelHeights[panel];
 
-      const onMove = (ev: MouseEvent) => {
+      beginResize(e, 'ns-resize', (ev) => {
         const delta = startY - ev.clientY;
-        setBottomPanelHeight(
-          Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, startHeight + delta)),
-        );
-      };
-      const onUp = () => {
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-      document.body.style.cursor = 'row-resize';
-      document.body.style.userSelect = 'none';
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+        const minHeight = panel === 'serial' ? SERIAL_PANEL_MIN : BOTTOM_PANEL_MIN;
+        const height = Math.max(minHeight, Math.min(BOTTOM_PANEL_MAX, startHeight + delta));
+        setBottomPanelHeights((heights) => ({ ...heights, [panel]: height }));
+      });
     },
-    [bottomPanelHeight],
+    [beginResize, bottomPanelHeights],
   );
 
   const handleExplorerResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
+    (e: React.MouseEvent<HTMLDivElement>) => {
       const startX = e.clientX;
-      const startWidth = explorerWidth;
+      const startWidth = explorerOpen ? explorerRef.current?.getBoundingClientRect().width ?? explorerWidth : 0;
+      const openAt = explorerOpen ? EXPLORER_MIN : EXPLORER_OPEN_DRAG;
+      const collapseAt = explorerOpen ? EXPLORER_COLLAPSE_WIDTH : EXPLORER_OPEN_DRAG - 8;
+      let open = explorerOpen;
+      let nextWidth = explorerWidth;
 
-      const onMove = (ev: MouseEvent) => {
-        const delta = ev.clientX - startX;
-        setExplorerWidth(Math.max(EXPLORER_MIN, Math.min(EXPLORER_MAX, startWidth + delta)));
-      };
-      const onUp = () => {
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      beginResize(e, 'ew-resize', (ev) => {
+        const width = startWidth + ev.clientX - startX;
+        if (open && width < collapseAt) {
+          open = false;
+          setExplorerOpen(false);
+        } else if (!open && width >= openAt) {
+          open = true;
+          setExplorerOpen(true);
+        }
+        if (!open) return;
+        const panelWidth = editorPanelRef.current?.clientWidth ?? 0;
+        const maxWidth = Math.max(
+          EXPLORER_MIN,
+          Math.min(EXPLORER_MAX, panelWidth - EDITOR_MIN_WIDTH - EXPLORER_HANDLE_WIDTH),
+        );
+        nextWidth = Math.round(Math.max(EXPLORER_MIN, Math.min(maxWidth, width)));
+        setDraggedExplorerWidth(nextWidth);
+      }, () => {
+        if (open) updatePreferences({ sidebarWidth: nextWidth });
+        setDraggedExplorerWidth(null);
+      });
     },
-    [explorerWidth],
+    [beginResize, explorerOpen, explorerWidth, setExplorerOpen, updatePreferences],
   );
 
   /* ── Unified toolbar (desktop) ──
-     Editor controls + canvas controls in one strip; the canvas side is
-     portaled into `canvasHeaderSlot` from SimulatorCanvas. Since the
-     marketing nav left the editor header, the header's middle is empty
-     space — so this strip now rides INSIDE the AppHeader row (via the
-     editorToolbar prop) instead of being a second bar: one 44px row where
-     there used to be 44+38. On narrow widths the strip wraps internally
-     and the header grows; the docked AI chat is avoided by the same
-     padding-right the strip always had. */
-  /* Account block. Fused as the explorer panel's footer so a long file
-     tree scrolls ABOVE it instead of disappearing underneath a floating
-     box; when the explorer is collapsed it falls back to the small fixed
-     corner box (avatar only there — no room for a name). */
-  const accountBlock = !isMobile ? (
-    // Just the account button. Language lives in the menubar's Language
-    // menu (for everyone) and inside the account menu (for signed-in
-    // users) — the standalone globe crowded the footer for no gain.
-    <div data-velxio-slot="header-auth" style={{ display: 'contents' }} />
-  ) : undefined;
-
+     SimulatorCanvas portals its board controls and Add button into
+     separate slots so the execution controls sit between them. */
   const unifiedToolbar = !isMobile ? (
         <div className="unified-toolbar">
-          {/* View-mode toggle: explorer | Code / Both / Circuit — one
-              segmented group so the four pane switches read as one control.
-              Hidden on mobile — there's already a code/circuit toggle in
-              the mobile bottom-nav. */}
+          <div className="unified-toolbar-spacer" aria-hidden />
+          {/* The three desktop layouts share one segmented control. */}
           <div
             role="group"
             aria-label={t('editor.shell.viewMode')}
             className="view-mode-toggle"
-            style={{
-              // display comes from App.css (flex; none on a narrow bar or mobile).
-              // Never squeezed below its buttons: flexbox used to crush
-              // this block to a third of its width and clip two of them.
-              flexShrink: 0,
-              gap: 1,
-              background: 'var(--wb-3)',
-              border: '1px solid var(--wb-7)',
-              borderRadius: 4,
-              overflow: 'hidden',
-              alignSelf: 'center',
-              margin: '0 6px',
+            ref={viewToggleRef}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              const buttons = Array.from(event.currentTarget.querySelectorAll('button'));
+              const index = buttons.findIndex((button) => button === event.target);
+              if (index < 0) return;
+              event.preventDefault();
+              const step = event.key === 'ArrowRight' ? 1 : -1;
+              const next = (index + step + DESKTOP_VIEWS.length) % DESKTOP_VIEWS.length;
+              setViewMode(DESKTOP_VIEWS[next].mode);
+              buttons[next]?.focus();
             }}
           >
-            <button
-              onClick={() => toggleExplorer()}
-              aria-pressed={explorerOpen}
-              title={explorerOpen ? t('editor.menu.hideExplorer', 'Hide file explorer') : t('editor.menu.showExplorer', 'Show file explorer')}
-              style={{
-                background: explorerOpen ? 'var(--color-action-primary)' : 'transparent',
-                color: explorerOpen ? 'white' : 'var(--wb-11)',
-                border: 'none',
-                height: 28,
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-            </button>
-            <div style={{ width: 1, background: 'var(--wb-7)', alignSelf: 'stretch' }} />
-            {(
-              [
-                { key: 'code', label: t('editor.shell.code'), path: 'M16 18l6-6-6-6M8 6l-6 6 6 6' },
-                { key: 'both', label: t('editor.shell.both'), path: 'M3 3h7v18H3zM14 3h7v18h-7z' },
-                { key: 'circuit', label: t('editor.shell.circuit'), path: 'M5 12h14M12 5v14' },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.key}
-                onClick={() => setViewMode(m.key)}
-                aria-pressed={viewMode === m.key}
-                style={{
-                  background: viewMode === m.key ? 'var(--color-action-primary)' : 'transparent',
-                  color: viewMode === m.key ? 'white' : 'var(--wb-11)',
-                  border: 'none',
-                  height: 28,
-                  padding: '0 10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontFamily: 'inherit',
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+            {DESKTOP_VIEWS.map(({ mode, Icon }) => {
+              const label = t(`editor.shell.${mode}`);
+              const selected = viewMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  className="view-mode-button"
+                  onClick={() => setViewMode(mode)}
+                  tabIndex={selected ? 0 : -1}
+                  aria-pressed={selected}
+                  aria-label={label}
+                  title={label}
                 >
-                  <path d={m.path} />
-                </svg>
-                <span className="vm-label">{m.label}</span>
-              </button>
-            ))}
+                  <Icon size={14} aria-hidden />
+                  <span className="vm-label">{label}</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="unified-toolbar-editor">
-            <EditorToolbar
-              consoleOpen={consoleOpen}
-              setConsoleOpen={setConsoleOpen}
-              compileLogs={compileLogs}
-              setCompileLogs={setCompileLogs}
-            />
+          <div className="unified-toolbar-tools">
+            <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
+            <div className="unified-toolbar-editor">
+              <EditorToolbar
+                consoleOpen={consoleOpen}
+                setConsoleOpen={setConsoleOpen}
+                compileLogs={compileLogs}
+                setCompileLogs={setCompileLogs}
+              />
+            </div>
+            <div className="unified-toolbar-add" ref={setAddComponentSlot} />
           </div>
-          <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
         </div>
   ) : undefined;
 
+  const openingProject = projectRoute.openingProject && !projectDialog;
+  const awaitingStarterProject = !hasLocalProject && workspaceVersion === startupWorkspaceVersion && emptyCircuit && emptyFiles;
+  const showEmptyProjectActions = !projectDialog && !openingProject && awaitingStarterProject;
+  const unsavedLocal = !hasCloudProject && (
+    statusFile?.modified || localSaveStatus === 'dirty' || localSaveStatus === 'error'
+  );
+  const statusName = localProjectName ?? (unsavedLocal ? statusFile?.name : undefined);
+  const unsavedLabel = t('editor.localProjects.unsavedStatus', 'Unsaved changes');
+  const statusTitle = unsavedLocal ? `${unsavedLabel} · ${statusName}` : statusName;
+  const statusContent = (
+    <>
+      {unsavedLocal && <TriangleAlert size={13} className="workspace-status-unsaved" aria-label={unsavedLabel} role="img" />}
+      <span>{statusName}</span>
+    </>
+  );
+  const projectStatus = statusName && (isBrowserProject ? (
+    <button type="button" className="workspace-status-board workspace-status-project"
+      title={statusTitle}
+      aria-label={t('editor.localProjects.openList', 'Saved projects · {{name}}', { name: statusTitle })}
+      onClick={() => setProjectDialog('saved')}>
+      {statusContent}
+    </button>
+  ) : (
+    <span className="workspace-status-board workspace-status-project" title={statusTitle}>
+      {statusContent}
+    </span>
+  ));
   return (
-    <div className="app">
+    <>
+    {openingProject && (
+      <div className="workspace-project-loading" role="status">
+        {t('editor.localProjects.opening', 'Opening saved project…')}
+      </div>
+    )}
+    <div className="app editor-workspace" inert={openingProject}
+      style={{ '--workspace-activity-width': `${ACTIVITY_BAR_WIDTH}px` } as React.CSSProperties}>
       <AppHeader
-        editorMenu={!isMobile ? <EditorMenuBar /> : undefined}
+        editorMenu={<EditorMenuBar mobileView={isMobile ? mobileView : undefined} onSetMobileView={setMobileView} />}
         editorToolbar={unifiedToolbar}
       />
 
@@ -630,58 +772,88 @@ export const EditorPage: React.FC = () => {
 
 
       <div className="app-container" ref={containerRef}>
+        <WorkspaceActivityBar
+          view={explorerOpen && codeVisible ? sidebarView : null}
+          settingsOpen={showSettings}
+          openTools={{ terminal: consoleOpen, scope: oscilloscopeOpen, serial: serialMonitorOpen }}
+          onSelect={selectWorkspaceView}
+          flashBoardName={flashBoardName}
+          onToggleTool={toggleWorkspaceTool}
+          onSettings={() => setShowSettings(true)}
+        />
         {/* ── Editor side ── */}
         <div
           className="editor-panel"
+          ref={editorPanelRef}
           style={{
             width: isMobile
               ? '100%'
               : viewMode === 'code'
-              ? '100%'
+              ? `calc(100% - ${ACTIVITY_BAR_WIDTH}px)`
               : viewMode === 'circuit'
               ? '0%'
-              : `${editorWidthPct}%`,
+              : `calc(${editorWidthPct}% - ${((ACTIVITY_BAR_WIDTH + SPLIT_HANDLE_WIDTH) * editorWidthPct) / 100}px)`,
             display:
               (isMobile && mobileView !== 'code') || (!isMobile && viewMode === 'circuit')
                 ? 'none'
                 : 'flex',
+            maxWidth: 'none',
+            minWidth: isMobile ? undefined : `min(${EDITOR_MIN_WIDTH +
+              (explorerOpen ? EXPLORER_MIN : 0) + EXPLORER_HANDLE_WIDTH}px, 70%)`,
             flexDirection: 'row',
           }}
         >
-          {/* File explorer sidebar + resize handle */}
-          {explorerOpen && (
-            <>
-              <div
-                style={{
-                  width: explorerWidth,
-                  flexShrink: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }}
-              >
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                  <FileExplorer onSaveClick={handleSaveClick} onNewClick={handleNewClick} autoSave={autoSave} />
-                </div>
-                {accountBlock && (
-                  <div className="explorer-account-footer">{accountBlock}</div>
-                )}
-              </div>
-              {!isMobile && (
-                <div
-                  className="explorer-resize-handle"
-                  onMouseDown={handleExplorerResizeMouseDown}
-                />
-              )}
-            </>
-          )}
-
-          {!explorerOpen && accountBlock && (
-            <div className="editor-corner-box">{accountBlock}</div>
+          <aside
+            ref={explorerRef}
+            className="workspace-sidebar"
+            style={{ width: isMobile ? explorerWidth :
+              `min(${explorerWidth}px, max(0px, calc(100% - ${EDITOR_MIN_WIDTH + EXPLORER_HANDLE_WIDTH}px)))` }}
+            hidden={!explorerOpen}
+          >
+            {/* Keep the explorer mounted so File > Import and New File can
+                still use its picker and tree when another view is selected. */}
+            <div className="workspace-explorer-view" hidden={sidebarView !== 'explorer'}>
+              <FileExplorer onShowExplorer={openExplorer} />
+            </div>
+            {sidebarView === 'search' && <WorkspaceSearch onOpen={() => {
+              if (isMobile) setExplorerOpen(false);
+            }} />}
+            {sidebarView === 'libraries' && <WorkspaceLibraries />}
+            <WorkspaceFlash key={workspaceVersion} active={sidebarView === 'flash'} onOpen={openFlash} onShowOutput={openFlashOutput} />
+          </aside>
+          {!isMobile && (
+            <div
+              className={`explorer-resize-handle${explorerOpen ? '' : ' explorer-resize-handle--collapsed'}`}
+              style={{ width: EXPLORER_HANDLE_WIDTH }}
+              role="separator"
+              tabIndex={0}
+              aria-label={t('editor.workspace.resizeSidebar', 'Resize sidebar')}
+              aria-orientation="vertical"
+              title={explorerOpen
+                ? t('editor.workspace.resizeSidebar', 'Resize sidebar')
+                : t('editor.workspace.dragOpenSidebar', 'Drag to open sidebar')}
+              aria-valuemin={0}
+              aria-valuemax={EXPLORER_MAX}
+              aria-valuenow={explorerOpen ? explorerWidth : 0}
+              onMouseDown={handleExplorerResizeMouseDown}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                event.preventDefault();
+                if (!explorerOpen) {
+                  if (event.key === 'ArrowRight') setExplorerOpen(true);
+                  return;
+                }
+                const currentWidth = explorerRef.current?.getBoundingClientRect().width ?? explorerWidth;
+                const width = Math.round(currentWidth + (event.key === 'ArrowLeft' ? -10 : 10));
+                if (width < EXPLORER_MIN) setExplorerOpen(false);
+                else updatePreferences({ sidebarWidth: Math.min(EXPLORER_MAX, width) });
+              }}
+            />
           )}
 
           {/* Editor main area */}
           <div
+            ref={editorMainRef}
             style={{
               flex: 1,
               display: 'flex',
@@ -690,36 +862,15 @@ export const EditorPage: React.FC = () => {
               minWidth: 0,
             }}
           >
-            {/* Mobile-only: explorer toggle + editor toolbar inside the panel.
-                On desktop these are hoisted into the unified top toolbar. */}
+            {/* On desktop the editor controls share the top toolbar. */}
             {isMobile && (
-              <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
-                <button
-                  className="explorer-toggle-btn"
-                  onClick={() => toggleExplorer()}
-                  title={explorerOpen ? t('editor.menu.hideExplorer', 'Hide file explorer') : t('editor.menu.showExplorer', 'Show file explorer')}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                </button>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <EditorToolbar
-                    consoleOpen={consoleOpen}
-                    setConsoleOpen={setConsoleOpen}
-                    compileLogs={compileLogs}
-                    setCompileLogs={setCompileLogs}
-                  />
-                </div>
+              <div className="editor-mobile-toolbar">
+                <EditorToolbar
+                  consoleOpen={consoleOpen}
+                  setConsoleOpen={setConsoleOpen}
+                  compileLogs={compileLogs}
+                  setCompileLogs={setCompileLogs}
+                />
               </div>
             )}
 
@@ -733,7 +884,7 @@ export const EditorPage: React.FC = () => {
               className="editor-wrapper"
               style={{ flex: 1, overflow: 'hidden', minHeight: 0, position: 'relative' }}
             >
-              <CodeEditor />
+              <CodeEditor ref={codeEditorRef} statusBarHost={codeVisible ? statusBarHost : null} />
               {/* The compile card lives over the simulator canvas, which is
                   where the build's result appears. In code-only view (and on
                   a phone showing the editor) that pane is display:none, so it
@@ -748,11 +899,11 @@ export const EditorPage: React.FC = () => {
             {consoleOpen && (
               <>
                 <div
-                  onMouseDown={handleBottomPanelResizeMouseDown}
-                  style={resizeHandleStyle}
+                  onMouseDown={(event) => handleBottomPanelResizeMouseDown(event, 'console')}
+                  className="bottom-panel-resize-handle"
                   title={t('editor.shell.dragResize')}
                 />
-                <div style={{ height: bottomPanelHeight, flexShrink: 0 }}>
+                <div style={{ height: bottomPanelHeights.console, maxHeight: 'calc(100% - 150px)', flexShrink: 0 }}>
                   <CompilationConsole
                     isOpen={consoleOpen}
                     onClose={() => setConsoleOpen(false)}
@@ -767,14 +918,14 @@ export const EditorPage: React.FC = () => {
 
         {/* Resize handle (desktop only, and only when both panes are visible) */}
         {!isMobile && viewMode === 'both' && (
-          <div className="resize-handle" onMouseDown={handleResizeMouseDown}>
-            <div className="resize-handle-grip" />
-          </div>
+          <div ref={splitHandleRef} className="resize-handle" style={{ width: SPLIT_HANDLE_WIDTH }}
+            onMouseDown={handleResizeMouseDown} />
         )}
 
         {/* ── Simulator side ── */}
         <div
           className="simulator-panel"
+          ref={simulatorPanelRef}
           style={{
             width: isMobile
               ? '100%'
@@ -788,7 +939,12 @@ export const EditorPage: React.FC = () => {
           }}
         >
           <div style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
-            <SimulatorCanvas headerSlot={!isMobile ? canvasHeaderSlot : null} />
+            <SimulatorCanvas
+              headerSlot={!isMobile ? canvasHeaderSlot : null}
+              addComponentSlot={!isMobile ? addComponentSlot : null}
+              boardPickerOpen={showBoardPicker}
+              onToggleBoardPicker={toggleBoardPicker}
+            />
             {/* Guarded rather than left to `display: none` on the panel: a
                 hidden copy still keeps its 100ms timer running and duplicates
                 the aria-live region a screen reader reads out. */}
@@ -797,29 +953,110 @@ export const EditorPage: React.FC = () => {
           {serialMonitorOpen && (
             <>
               <div
-                onMouseDown={handleBottomPanelResizeMouseDown}
-                style={resizeHandleStyle}
+                onMouseDown={(event) => handleBottomPanelResizeMouseDown(event, 'serial')}
+                className="bottom-panel-resize-handle"
                 title={t('editor.shell.dragResize')}
               />
-              <div style={{ height: bottomPanelHeight, flexShrink: 0 }}>
-                <SerialMonitor />
+              <div style={{ height: bottomPanelHeights.serial, flexShrink: 0 }}>
+                <SerialMonitor
+                  key={workspaceVersion}
+                  source={serialSource}
+                  onSourceChange={setSerialSource}
+                  onClose={closeSerialMonitor}
+                />
               </div>
             </>
           )}
           {oscilloscopeOpen && (
             <>
               <div
-                onMouseDown={handleBottomPanelResizeMouseDown}
-                style={resizeHandleStyle}
+                onMouseDown={(event) => handleBottomPanelResizeMouseDown(event, 'scope')}
+                className="bottom-panel-resize-handle"
                 title={t('editor.shell.dragResize')}
               />
-              <div style={{ height: bottomPanelHeight, flexShrink: 0 }}>
-                <Oscilloscope />
+              <div style={{ height: bottomPanelHeights.scope, flexShrink: 0 }}>
+                <Oscilloscope onClose={() => toggleWorkspaceTool('scope')} />
               </div>
             </>
           )}
         </div>
+        {showEmptyProjectActions && !hardwareSerialOpen && (
+          <div className="workspace-project-start">
+            <section aria-labelledby="workspace-project-start-title">
+              <h2 id="workspace-project-start-title">
+                {t('editor.localProjects.startTitle', 'Start a project')}
+              </h2>
+              <div className="workspace-project-start-actions">
+                <button type="button" className="workspace-project-start-new"
+                  onClick={() => setProjectDialog('templates')}>
+                  <Plus size={16} aria-hidden />
+                  {t('editor.localProjects.new', 'New project')}
+                </button>
+                <button type="button" onClick={() => setProjectDialog('saved-from-start')}>
+                  <FolderOpen size={16} aria-hidden />
+                  {t('editor.localProjects.title', 'Saved projects')}
+                </button>
+                {canOpenProjectFile() && (
+                  <button type="button" onClick={() => void openProjectFile()}>
+                    <HardDrive size={16} aria-hidden />
+                    {t('editor.menu.openDisk', 'Open .vlx from disk…')}
+                  </button>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
+
+      <footer
+        className="workspace-status-bar"
+        ref={workspaceStatusRef}
+        aria-label={t('editor.workspace.status', 'Workspace status')}
+      >
+        {!isMobile && codeVisible && explorerOpen && (
+          <span className="workspace-status-divider workspace-status-divider--editor" aria-hidden />
+        )}
+        {!isMobile && codeVisible && !simulatorHidden && (
+          <span className="workspace-status-divider workspace-status-divider--circuit" aria-hidden />
+        )}
+        {codeVisible && (
+          <div className="workspace-status-pane workspace-status-pane--editor">
+            <WorkspaceToolButton compact tool="terminal" pressed={consoleOpen} onToggle={toggleWorkspaceTool} />
+            <div className="workspace-status-controls">
+              {projectStatus}
+              <div className="workspace-status-editor" ref={setStatusBarHost} />
+            </div>
+          </div>
+        )}
+        {!simulatorHidden && (
+          <div className="workspace-status-pane workspace-status-pane--circuit">
+            <div className="workspace-status-tools">
+              <WorkspaceToolButton compact tool="serial" pressed={serialMonitorOpen} onToggle={toggleWorkspaceTool} />
+              <WorkspaceToolButton compact tool="scope" pressed={oscilloscopeOpen} onToggle={toggleWorkspaceTool} />
+            </div>
+            <div className="workspace-status-controls">
+              {!codeVisible && projectStatus}
+              {activeBoardName && (
+            <button
+              type="button"
+              className="workspace-status-board"
+              title={t('editor.workspace.switchBoard', 'Switch board')}
+              aria-haspopup="dialog"
+              aria-expanded={showBoardPicker}
+              onClick={toggleBoardPicker}
+            >
+              <span>{activeBoardName}</span>
+              <ChevronDown size={11} aria-hidden />
+            </button>
+              )}
+              <span className="workspace-component-count" role="img" aria-label={componentCountLabel} title={componentCountLabel}>
+                <Package size={13} aria-hidden />
+                {componentCount}
+              </span>
+            </div>
+          </div>
+        )}
+      </footer>
 
       {showStarBanner && (
         <GitHubStarBanner
@@ -829,13 +1066,52 @@ export const EditorPage: React.FC = () => {
         />
       )}
       <NewsAnnouncer />
-      <NewProjectDialog
-        isOpen={showNewProjectDialog}
-        onClose={() => setShowNewProjectDialog(false)}
-      />
+      {boardChoices && (
+        <EditorQuickPick
+          label={t('editor.workspace.selectBoard', 'Select board')}
+          onClose={() => setShowBoardPicker(false)}
+          groups={[{
+            items: boardChoices.map((board) => ({
+              id: board.id,
+              label: boardDisplayName(board),
+              detail: boardChoices.some((other) =>
+                other.id !== board.id && boardDisplayName(other) === boardDisplayName(board),
+              ) ? board.id : undefined,
+              selected: board.id === activeBoardId,
+              run: () => {
+                useSimulatorStore.getState().setActiveBoardId(board.id);
+                setShowBoardPicker(false);
+              },
+            })),
+          }]}
+        />
+      )}
+      {showSettings && (
+        <EditorSettings
+          onClose={() => setShowSettings(false)}
+          onIndentationChange={(previous) => codeEditorRef.current?.applyIndentationPreferences(previous)}
+        />
+      )}
+      {projectDialog === 'start' ? (
+        <LocalProjectsDialog view="start" onClose={dismissProjectStart}
+          onNew={() => setProjectDialog('templates')} onSaved={() => setProjectDialog('saved-from-start')}
+          onOpenDisk={canOpenProjectFile() ? () => openProjectFile(closeProjectDialog) : undefined} />
+      ) : projectDialog === 'templates' ? (
+        <LocalProjectsDialog view="templates" onClose={closeProjectDialog} onBack={showProjectStart}
+          onSaveFailed={projectRoute.leaveProjectRoute} />
+      ) : projectDialog === 'saved' || projectDialog === 'saved-from-start' ? (
+        <LocalProjectsDialog view="saved" onClose={closeProjectDialog}
+          onOpen={projectRoute.openProject}
+          onBack={projectDialog === 'saved-from-start' ? showProjectStart : undefined}
+          onSaveCopy={projectDialog === 'saved' ? () => setProjectDialog('save-copy') : undefined} />
+      ) : projectDialog === 'save' || projectDialog === 'save-copy' ? (
+        <LocalProjectsDialog view="save" copy={projectDialog === 'save-copy'}
+          onClose={closeProjectDialog} />
+      ) : null}
       {/* Slot reserved for the private pro overlay (e.g. agent chat panel).
           Self-hosted builds without an overlay see nothing here. */}
       <div data-velxio-slot="agent-chat" />
     </div>
+    </>
   );
 };

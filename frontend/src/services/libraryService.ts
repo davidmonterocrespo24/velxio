@@ -1,5 +1,11 @@
 import { getApiBase } from '../lib/apiBase';
+import { bareLibName, libraryVersionFromSpec } from '../utils/libraryManifest';
 const apiBase = () => `${getApiBase()}/libraries`;
+export const ARDUINO_LIBRARIES_CHANGED = 'velxio-arduino-libraries-changed';
+
+function librariesChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(ARDUINO_LIBRARIES_CHANGED));
+}
 
 export interface ArduinoLibrary {
   name: string;
@@ -10,14 +16,17 @@ export interface ArduinoLibrary {
   website?: string;
   category?: string;
   types?: string[];
-  releases?: Record<string, { version: string }>;
-  latest?: {
-    version: string;
-    sentence?: string;
-    paragraph?: string;
-    author?: string;
-    website?: string;
-  };
+  releases?: Record<string, ArduinoLibraryRelease>;
+  latest?: ArduinoLibraryRelease;
+}
+
+interface ArduinoLibraryRelease {
+  version?: string;
+  sentence?: string;
+  paragraph?: string;
+  author?: string;
+  website?: string;
+  category?: string;
 }
 
 export interface InstalledLibrary {
@@ -36,14 +45,61 @@ export interface InstalledLibrary {
   custom?: boolean;
 }
 
-export async function searchLibraries(query: string): Promise<ArduinoLibrary[]> {
-  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`);
+/** Match Arduino's library names independently of case and separators. */
+export function normalizeArduinoLibraryName(name: string): string {
+  return bareLibName(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+export function findInstalledArduinoLibrary(libraries: InstalledLibrary[], spec: string): InstalledLibrary | undefined {
+  const name = normalizeArduinoLibraryName(spec);
+  const version = libraryVersionFromSpec(spec);
+  return libraries.find((library) =>
+    normalizeArduinoLibraryName(library.library?.name || library.name || '') === name
+    && (!version || (library.library?.version || library.version) === version),
+  );
+}
+
+export async function searchLibraries(query: string, signal?: AbortSignal): Promise<ArduinoLibrary[]> {
+  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`, signal && { signal });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
     throw new Error(err.detail || 'Failed to search libraries');
   }
   const data = await res.json();
   return data.libraries || [];
+}
+
+export async function findArduinoLibrary(name: string, signal?: AbortSignal): Promise<ArduinoLibrary | null> {
+  const escaped = name.replace(/[\\"]/g, '\\$&');
+  const libraries = await searchLibraries(`name="${escaped}"`, signal);
+  return libraries.find((library) => library.name.toLowerCase() === name.toLowerCase()) ?? null;
+}
+
+export async function getCatalogLibraryVersion(name: string, signal?: AbortSignal): Promise<string | undefined> {
+  try {
+    const library = await findArduinoLibrary(name, signal);
+    const version = library?.latest?.version || library?.version;
+    return typeof version === 'string' ? version.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMissingLibraryVersions(
+  specs: readonly string[], signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const spec of specs) {
+    if (typeof spec !== 'string' || libraryVersionFromSpec(spec)) continue;
+    const name = bareLibName(spec).trim();
+    if (name) names.set(name.toLowerCase(), name);
+  }
+  const pinned = new Map<string, string>();
+  await Promise.all([...names].map(async ([key, name]) => {
+    const version = await getCatalogLibraryVersion(name, signal);
+    if (version && !signal?.aborted) pinned.set(key, version);
+  }));
+  return pinned;
 }
 
 export async function installLibrary(name: string, version?: string): Promise<{ success: boolean; error?: string; fallback?: boolean; requested_version?: string }> {
@@ -53,6 +109,7 @@ export async function installLibrary(name: string, version?: string): Promise<{ 
     body: JSON.stringify({ name, version: version ?? null }),
   });
   const data = await res.json();
+  if (res.ok && data.success) librariesChanged();
   return data;
 }
 
@@ -63,6 +120,7 @@ export async function uninstallLibrary(name: string): Promise<{ success: boolean
     body: JSON.stringify({ name }),
   });
   const data = await res.json();
+  if (res.ok && data.success) librariesChanged();
   return data;
 }
 
@@ -106,6 +164,7 @@ export async function deleteCustomLibrary(
       const err = await res.json().catch(() => ({ detail: 'Failed to remove' }));
       return { success: false, error: err.detail || 'Failed to remove' };
     }
+    librariesChanged();
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'network error' };

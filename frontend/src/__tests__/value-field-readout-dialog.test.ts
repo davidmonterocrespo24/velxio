@@ -64,7 +64,6 @@ function openDialog(id: string, metadata: ComponentMetadata, properties: Record<
         componentId: id,
         componentMetadata: metadata,
         componentProperties: comp.properties,
-        position: { x: 0, y: 0 },
         pinInfo: [],
         onClose: () => {},
         onDelete: () => {},

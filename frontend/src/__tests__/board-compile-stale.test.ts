@@ -30,4 +30,18 @@ describe('fingerprintSources (stale-build detection for Flash)', () => {
       ),
     ).not.toBe(base);
   });
+
+  it('changes when a library is pinned to another version or SPIFFS bytes change', () => {
+    const files = [{ name: 'sketch.ino', content: 'void setup(){}' }];
+    const settings = {
+      ...board,
+      libraries: ['Servo@1.0.0'],
+      spiffsFiles: [{ name: 'data.txt', contentB64: 'YQ==', size: 1 }],
+    };
+    const compiled = fingerprintSources(settings, files);
+    expect(fingerprintSources({ ...settings, libraries: ['Servo@1.1.0'] }, files)).not.toBe(compiled);
+    const spiffsFiles = [{ ...settings.spiffsFiles[0], contentB64: 'Yg==' }];
+    expect(fingerprintSources({ ...settings, spiffsFiles }, files)).not.toBe(compiled);
+    expect(fingerprintSources({ ...settings, spiffsFiles: [...settings.spiffsFiles] }, files)).toBe(compiled);
+  });
 });

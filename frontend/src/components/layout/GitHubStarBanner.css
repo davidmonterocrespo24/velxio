@@ -1,7 +1,7 @@
 .gh-star-banner {
   position: fixed;
-  bottom: 28px;
-  right: 28px;
+  inset-block-end: calc(var(--workspace-status-height, 0px) + 14px + env(safe-area-inset-bottom, 0px));
+  inset-inline-end: 14px;
   z-index: 9999;
   display: flex;
   align-items: flex-start;
@@ -10,7 +10,7 @@
   border: 1px solid var(--wb-6);
   border-radius: 12px;
   padding: 16px 18px;
-  width: 320px;
+  width: min(320px, calc(100% - 28px));
   box-shadow: var(--shadow-3);
   animation: gh-banner-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -18,12 +18,16 @@
 @keyframes gh-banner-in {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.97);
+    transform: translateY(10px) scale(0.97);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-star-banner { animation: none; }
 }
 
 .gh-star-banner__icon {

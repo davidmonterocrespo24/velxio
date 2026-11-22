@@ -165,10 +165,6 @@
   min-width: 200px;
 }
 
-.bom-select:focus {
-  outline: 1px solid var(--color-action-primary);
-}
-
 .bom-check {
   accent-color: var(--color-action-primary);
 }

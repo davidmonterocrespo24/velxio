@@ -1,9 +1,8 @@
 /**
  * NewProjectDialog — starter-template picker.
  *
- * Shown (a) on a pristine `/editor` visit (over an emptied canvas), and
- * (b) from the "New workspace" button / File menu entry. Offers a blank
- * workspace plus a ready-to-run Blink starter per board family — Arduino,
+ * Shown after the user chooses New project. Offers a blank workspace plus
+ * a ready-to-run Blink starter per board family — Arduino,
  * ESP32 (one card per chip generation, XIAO variant preferred), M5Stack
  * (overlay-registered all-in-ones, listed ahead of STM32), STM32, Raspberry
  * Pi — each card carrying the same circuit thumbnail the examples gallery
@@ -15,8 +14,8 @@
  * Raspberry Pi) carry the same PRO pill as the component picker and go
  * through the same board-gate seam ('add' action) before anything is created.
  */
-import React, { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { ArrowLeft, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BoardKind } from '../../types/board';
 import { BOARD_KIND_LABELS } from '../../types/board';
@@ -31,16 +30,19 @@ import { useSimulatorStore, DEFAULT_BOARD_POSITION } from '../../store/useSimula
 import { useProjectStore } from '../../store/useProjectStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
-import { getLocaleFromPath, localizedPath } from '../../i18n/path';
+import { useCompileLogsStore } from '../../store/useCompileLogsStore';
+import { hasUnsavedLocalChanges, saveLocalWorkspace } from '../../lib/localWorkspace';
 import { loadExample } from '../../utils/loadExample';
 import type { ExampleProject } from '../../data/examples';
 import { ExampleThumbnail } from '../examples/ExampleThumbnail';
 import { trackSelectBoard } from '../../utils/analytics';
 import './NewProjectDialog.css';
 
-interface NewProjectDialogProps {
-  isOpen: boolean;
+interface NewProjectTemplatesProps {
+  ref: React.Ref<{ cancel: () => void }>;
   onClose: () => void;
+  onBack: () => void;
+  onSaveFailed: () => void;
 }
 
 /** Card blurbs (same voice as the component picker's board descriptions). */
@@ -115,9 +117,11 @@ export function clearWorkspaceForStarter(): void {
   sim.boards.map((b) => b.id).forEach((id) => sim.removeBoard(id));
   sim.setComponents([]);
   sim.setWires([]);
+  sim.clearHistory();
   // An empty canvas has nothing for the old scope channels to watch
   // (velxio/velxio-prod#119).
   useOscilloscopeStore.getState().resetChannels();
+  useCompileLogsStore.getState().clear();
   const editor = useEditorStore.getState();
   Object.keys(editor.fileGroups).forEach((g) => editor.deleteFileGroup(g));
   editor.setActiveGroup('');
@@ -194,18 +198,14 @@ async function findBlinkExample(kind: string): Promise<ExampleProject | undefine
  * otherwise a fresh board whose default sketch already blinks the on-board
  * LED (createFileGroup picks the per-board/language blink content).
  */
-async function applyStarter(kind: string | 'blank'): Promise<void> {
+async function applyStarter(kind: string, signal: AbortSignal): Promise<void> {
+  const example = kind === 'blank' ? undefined : await findBlinkExample(kind).catch(() => undefined);
+  if (signal.aborted) return;
   clearWorkspaceForStarter();
 
   if (kind !== 'blank') {
-    let example: ExampleProject | undefined;
-    try {
-      example = await findBlinkExample(kind);
-    } catch {
-      example = undefined;
-    }
     if (example) {
-      await loadExample(example);
+      await loadExample(example, undefined, signal);
     } else {
       const fresh = useSimulatorStore.getState();
       const newId = fresh.addBoard(
@@ -215,16 +215,6 @@ async function applyStarter(kind: string | 'blank'): Promise<void> {
       );
       fresh.setActiveBoardId(newId);
     }
-  }
-
-  // The workspace no longer belongs to whatever project URL we were on —
-  // leaving it would silently reload the OLD project over this fresh
-  // workspace on refresh. replaceState, not pushState (a back-entry at the
-  // stale project URL would remount the project route and reload it).
-  const locale = getLocaleFromPath(window.location.pathname);
-  const editorPath = localizedPath('/editor', locale);
-  if (window.location.pathname !== editorPath) {
-    window.history.replaceState(null, '', editorPath);
   }
 }
 
@@ -318,8 +308,23 @@ const ProPill: React.FC = () => (
   </span>
 );
 
-export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({ isOpen, onClose }) => {
+export const NewProjectTemplates: React.FC<NewProjectTemplatesProps> = ({
+  ref,
+  onClose,
+  onBack,
+  onSaveFailed,
+}) => {
   const { t } = useTranslation();
+  const creation = useRef<AbortController | null>(null);
+  const [name, setName] = useState(() => t('editor.localProjects.untitled', 'Untitled project'));
+  const [pendingKind, setPendingKind] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const cancel = () => {
+    if (busy) return;
+    if (pendingKind) setPendingKind(null);
+    else onBack();
+  };
+  useImperativeHandle(ref, () => ({ cancel }));
 
   // Late-overlay registrations (the @pro import is dynamic) must re-render an
   // already-mounted dialog — same contract as the component picker.
@@ -332,107 +337,149 @@ export const NewProjectDialog: React.FC<NewProjectDialogProps> = ({ isOpen, onCl
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const sections = useMemo(() => buildStarterSections(listProBoards()), [proBoardsVersion]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  useEffect(() => () => creation.current?.abort(), []);
 
-  if (!isOpen) return null;
-
-  const handleSelect = (kind: string | 'blank') => {
+  const handleSelect = async (kind: string, confirmed = false) => {
+    const projectName = name.trim();
+    if (!projectName || creation.current) return;
     if (kind !== 'blank' && blockedByBoardGate(kind as BoardKind, 'add')) {
-      // Same gate as adding the board from the picker ('add' action): the
-      // prompt is already up; close and create nothing. Both land in the
-      // same render, so the order does not show.
       onClose();
       return;
     }
+    if (!confirmed && hasUnsavedLocalChanges()) {
+      setPendingKind(kind);
+      return;
+    }
+    const request = new AbortController();
+    creation.current = request;
+    setBusy(true);
     if (kind !== 'blank') trackSelectBoard(kind);
-    onClose();
-    applyStarter(kind).catch((err) => {
-      // eslint-disable-next-line no-console
+    try {
+      await applyStarter(kind, request.signal);
+      if (request.signal.aborted) return;
+      const saved = await saveLocalWorkspace({ copyName: projectName });
+      if (request.signal.aborted) return;
+      if (!saved) onSaveFailed();
+      onClose();
+    } catch (err) {
+      if (request.signal.aborted) return;
+      onSaveFailed();
+      onClose();
       console.warn('[editor] starter template failed to load:', err);
-    });
+    } finally {
+      creation.current = null;
+    }
   };
 
-  // Portal to <body>: escape the canvas subtree so no ancestor stacking
-  // context can pin the dialog below floating panels (e.g. the AI chat).
-  return createPortal(
-    <div className="new-project-overlay" onClick={onClose}>
-      <div
-        className="new-project-dialog"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="new-project-head">
-          <h3 className="new-project-title">{t('editor.newProject.title')}</h3>
-          <p className="new-project-sub">{t('editor.newProject.subtitle')}</p>
+  return (
+    <div className="new-project-content">
+      <header className="new-project-head">
+        <div className="new-project-heading">
+          <button
+            type="button"
+            className="new-project-cancel"
+            onClick={onBack}
+            disabled={busy}
+            aria-label={t('editor.localProjects.back', 'Back')}
+          >
+            <ArrowLeft size={16} aria-hidden />
+          </button>
+          <h2 id="local-projects-title" className="new-project-title">
+            {t('editor.localProjects.startTitle', 'Start a project')}
+          </h2>
         </div>
+        <p className="new-project-sub">{t('editor.newProject.subtitle')}</p>
+        <label className="new-project-name">
+          {t('editor.localProjects.projectName', 'Project name')}
+          <input
+            value={name}
+            maxLength={100}
+            required
+            disabled={busy}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+      </header>
 
-        <div className="new-project-body">
-          <div className="new-project-grid">
-            <button
-              className="new-project-card new-project-card-blank"
-              onClick={() => handleSelect('blank')}
-            >
-              <span className="new-project-card-thumb new-project-card-thumb-blank">+</span>
-              <span className="new-project-card-info">
-                <span className="new-project-card-name">
-                  {t('editor.newProject.blankTitle')}
-                </span>
-                <span className="new-project-card-desc">
-                  {t('editor.newProject.blankDesc')}
-                </span>
+      <div className="new-project-body">
+        <div className="new-project-grid">
+          <button
+            type="button"
+            className="new-project-card new-project-card-blank"
+            disabled={!name.trim() || busy}
+            onClick={() => void handleSelect('blank')}
+          >
+            <span className="new-project-card-thumb new-project-card-thumb-blank">
+              <span className="new-project-blank-icon">
+                <Plus size={24} aria-hidden />
               </span>
-            </button>
-          </div>
-
-          {sections.map((section) =>
-            section.entries.length === 0 ? null : (
-              <React.Fragment key={section.title}>
-                <div className="new-project-section-title">{section.title}</div>
-                <div className="new-project-grid">
-                  {section.entries.map(({ kind, blurb }) => {
-                    const label = BOARD_KIND_LABELS[kind as BoardKind] ?? kind;
-                    return (
-                      <button
-                        key={kind}
-                        className="new-project-card"
-                        onClick={() => handleSelect(kind)}
-                      >
-                        <span className="new-project-card-thumb">
-                          <ExampleThumbnail
-                            example={thumbStubFor(kind, label)}
-                            width={300}
-                            height={180}
-                          />
-                        </span>
-                        {isProBoardKind(kind) && <ProPill />}
-                        <span className="new-project-card-info">
-                          <span className="new-project-card-name">{label}</span>
-                          <span className="new-project-card-desc">{blurb}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </React.Fragment>
-            ),
-          )}
-        </div>
-
-        <div className="new-project-foot">
-          <button className="new-project-cancel" onClick={onClose}>
-            {t('editor.newProject.cancel')}
+            </span>
+            <span className="new-project-card-info">
+              <span className="new-project-card-name">{t('editor.newProject.blankTitle')}</span>
+              <span className="new-project-card-desc">{t('editor.newProject.blankDesc')}</span>
+            </span>
           </button>
         </div>
+
+        {sections.map((section) =>
+          section.entries.length === 0 ? null : (
+            <React.Fragment key={section.title}>
+              <div className="new-project-section-title">{section.title}</div>
+              <div className="new-project-grid">
+                {section.entries.map(({ kind, blurb }) => {
+                  const label = BOARD_KIND_LABELS[kind as BoardKind] ?? kind;
+                  return (
+                    <button
+                      type="button"
+                      key={kind}
+                      className="new-project-card"
+                      disabled={!name.trim() || busy}
+                      onClick={() => void handleSelect(kind)}
+                    >
+                      <span className="new-project-card-thumb">
+                        <ExampleThumbnail
+                          example={thumbStubFor(kind, label)}
+                          width={300}
+                          height={180}
+                        />
+                      </span>
+                      {isProBoardKind(kind) && <ProPill />}
+                      <span className="new-project-card-info">
+                        <span className="new-project-card-name">{label}</span>
+                        <span className="new-project-card-desc">{blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </React.Fragment>
+          ),
+        )}
       </div>
-    </div>,
-    document.body,
+
+      <footer className="new-project-foot">
+        {busy && (
+          <span role="status">{t('editor.localProjects.creating', 'Creating project…')}</span>
+        )}
+        {pendingKind && !busy && (
+          <>
+            <span role="status">
+              {t('editor.localProjects.unsaved', 'This workspace has unsaved changes.')}
+            </span>
+            <button
+              type="button"
+              className="new-project-cancel"
+              disabled={!name.trim()}
+              onClick={() => void handleSelect(pendingKind, true)}
+            >
+              {t('editor.localProjects.discardAndCreate', 'Discard changes and create')}
+            </button>
+          </>
+        )}
+        <button type="button" className="new-project-cancel" disabled={busy} onClick={cancel}>
+          {t('editor.newProject.cancel')}
+        </button>
+      </footer>
+    </div>
   );
 };

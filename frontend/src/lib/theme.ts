@@ -27,11 +27,14 @@
  * third, opt-in mode — never the fallback.
  */
 
+import { decodeWorkspaceTheme, workspaceThemeVariables, type WorkspaceTheme } from './workspaceTheme';
+
 export type ThemeMode = 'dark' | 'light' | 'system';
 /** What `system` resolves to. This is what lands on `<html data-theme>`. */
 export type ResolvedTheme = 'dark' | 'light';
 
 export const THEME_STORAGE_KEY = 'velxio-theme';
+const WORKSPACE_THEMES_KEY = 'velxio-workspace-themes';
 
 /** Storage keys owned by the other two velxio.dev surfaces. Kept in sync on
  *  every change so their built-in toggles show the right state. */
@@ -110,16 +113,29 @@ export function cssVar(name: string, fallback = '#000'): string {
 
 /** Paint the resolved theme onto the document and tell the browser which
  *  scheme its own widgets (scrollbars, form controls, the caret) should use. */
-function paint(resolved: ResolvedTheme): void {
+const paintedVariables = new Set<string>();
+
+function paint(resolved: ResolvedTheme, theme: WorkspaceTheme | null): void {
   if (typeof document === 'undefined') return;
   varCache.clear();
   const root = document.documentElement;
   root.setAttribute('data-theme', resolved);
   root.style.colorScheme = resolved;
+  for (const name of paintedVariables) root.style.removeProperty(name);
+  paintedVariables.clear();
+  if (theme) {
+    for (const [name, value] of Object.entries(workspaceThemeVariables(theme))) {
+      root.style.setProperty(name, value);
+      paintedVariables.add(name);
+    }
+  }
 
   // The address-bar tint on mobile. Matches --color-bg-canvas per theme.
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', resolved === 'light' ? '#f5f5f7' : '#0a0a0c');
+  if (meta) {
+    const fallback = resolved === 'light' ? '#f5f5f7' : '#0a0a0c';
+    meta.setAttribute('content', root.style.getPropertyValue('--color-bg-canvas') || fallback);
+  }
 }
 
 // ── Subscribable state ──────────────────────────────────────────────────
@@ -129,9 +145,21 @@ function paint(resolved: ResolvedTheme): void {
 
 let currentMode: ThemeMode = 'dark';
 let currentResolved: ResolvedTheme = 'dark';
+interface WorkspaceThemes {
+  themes: readonly WorkspaceTheme[];
+  active: string | null;
+}
+export const EMPTY_WORKSPACE_THEMES: WorkspaceThemes = { themes: [], active: null };
+let workspaceThemes = EMPTY_WORKSPACE_THEMES;
+let preview: WorkspaceTheme | null = null;
+let themeRevision = 0;
 const listeners = new Set<() => void>();
 
-function emit(): void {
+function refresh(): void {
+  const theme = getActiveWorkspaceTheme();
+  currentResolved = theme?.base ?? resolveMode(currentMode);
+  paint(currentResolved, theme);
+  themeRevision += 1;
   for (const l of listeners) l();
 }
 
@@ -143,6 +171,63 @@ export function getResolvedTheme(): ResolvedTheme {
   return currentResolved;
 }
 
+export function getThemeRevision(): number {
+  return themeRevision;
+}
+
+export function getWorkspaceThemes(): WorkspaceThemes {
+  return workspaceThemes;
+}
+
+export function getActiveWorkspaceTheme(): WorkspaceTheme | null {
+  return preview ?? workspaceThemes.themes.find((item) => item.name === workspaceThemes.active) ?? null;
+}
+
+function readWorkspaceThemes(): WorkspaceThemes {
+  const raw = readKey(WORKSPACE_THEMES_KEY);
+  if (!raw) return EMPTY_WORKSPACE_THEMES;
+  try {
+    const stored = JSON.parse(raw);
+    if (!Array.isArray(stored?.themes)) return EMPTY_WORKSPACE_THEMES;
+    const unique = new Map<string, WorkspaceTheme>();
+    for (const value of stored.themes) {
+      const theme = decodeWorkspaceTheme(value);
+      if (theme) unique.set(theme.name, theme);
+    }
+    return {
+      themes: [...unique.values()],
+      active: typeof stored.active === 'string' && unique.has(stored.active) ? stored.active : null,
+    };
+  } catch {
+    return EMPTY_WORKSPACE_THEMES;
+  }
+}
+
+function saveWorkspaceThemes(state: WorkspaceThemes): void {
+  workspaceThemes = state;
+  writeKey(WORKSPACE_THEMES_KEY, JSON.stringify(state));
+}
+
+export function previewWorkspaceTheme(theme: WorkspaceTheme | null): void {
+  if (theme === preview) return;
+  preview = theme;
+  refresh();
+}
+
+export function applyWorkspaceTheme(theme: WorkspaceTheme): void {
+  const themes = new Map(workspaceThemes.themes.map((item) => [item.name, item]));
+  themes.set(theme.name, theme);
+  preview = null;
+  saveWorkspaceThemes({ themes: [...themes.values()], active: theme.name });
+  refresh();
+}
+
+export function resetWorkspaceTheme(): void {
+  preview = null;
+  if (workspaceThemes.active) saveWorkspaceThemes({ ...workspaceThemes, active: null });
+  refresh();
+}
+
 export function subscribeTheme(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -150,24 +235,27 @@ export function subscribeTheme(listener: () => void): () => void {
 
 /** Apply a mode, persist it, and mirror it to the blog and docs keys. */
 export function setThemeMode(mode: ThemeMode): void {
+  preview = null;
+  if (workspaceThemes.active) saveWorkspaceThemes({ ...workspaceThemes, active: null });
+  writeMode(mode);
+}
+
+function writeMode(mode: ThemeMode): void {
   currentMode = mode;
-  currentResolved = resolveMode(mode);
-  paint(currentResolved);
 
   writeKey(THEME_STORAGE_KEY, mode);
   writeKey(MIRROR_STARLIGHT, mode === 'system' ? 'auto' : mode);
-  writeKey(MIRROR_BLOG, currentResolved);
+  writeKey(MIRROR_BLOG, resolveMode(mode));
 
-  emit();
+  refresh();
 }
 
 /** Apply the stored preference without rewriting it — used on boot and when
  *  another tab (or another velxio.dev surface) changes the preference. */
 function adoptStored(): void {
   currentMode = readStoredMode();
-  currentResolved = resolveMode(currentMode);
-  paint(currentResolved);
-  emit();
+  workspaceThemes = readWorkspaceThemes();
+  refresh();
 }
 
 let started = false;
@@ -182,12 +270,12 @@ export function initTheme(): void {
   adoptStored();
 
   // The OS flipping while the user is in `system` mode.
-  const mq = window.matchMedia(DARK_QUERY);
+  const mq = window.matchMedia?.(DARK_QUERY);
   const onSystemChange = () => {
-    if (currentMode === 'system') adoptStored();
+    if (currentMode === 'system' && !getActiveWorkspaceTheme()) refresh();
   };
-  if (mq.addEventListener) mq.addEventListener('change', onSystemChange);
-  else mq.addListener(onSystemChange);
+  if (mq?.addEventListener) mq.addEventListener('change', onSystemChange);
+  else mq?.addListener(onSystemChange);
 
   // Another tab on this origin changing the preference — including the docs
   // portal and the blog. A reader with the simulator and the docs open side
@@ -197,7 +285,7 @@ export function initTheme(): void {
       adoptStored(); // storage cleared wholesale
       return;
     }
-    if (e.key === THEME_STORAGE_KEY) {
+    if (e.key === THEME_STORAGE_KEY || e.key === WORKSPACE_THEMES_KEY) {
       adoptStored();
       return;
     }
@@ -208,14 +296,17 @@ export function initTheme(): void {
     // does not re-fire this event in this tab, so there is no loop.
     if (e.key === MIRROR_STARLIGHT) {
       const v = e.newValue;
-      setThemeMode(v === 'auto' ? 'system' : isMode(v) ? v : readStoredMode());
+      const mode = v === 'auto' ? 'system' : isMode(v) ? v : readStoredMode();
+      if (mode !== currentMode) writeMode(mode);
       return;
     }
     if (e.key === MIRROR_BLOG) {
       const v = e.newValue;
       // The blog stores a resolved value. Adopting it as an explicit mode is
       // right: the reader made an explicit choice over there.
-      if (v === 'dark' || v === 'light') setThemeMode(v);
+      if ((v === 'dark' || v === 'light') && (currentMode !== 'system' || v !== resolveMode('system'))) {
+        if (v !== currentMode) writeMode(v);
+      }
     }
   });
 }

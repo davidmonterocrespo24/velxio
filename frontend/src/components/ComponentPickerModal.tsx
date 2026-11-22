@@ -9,9 +9,11 @@
  * - Click to select and add component
  */
 
-import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
+import { SearchBar } from './ui/SearchBar';
 import { ComponentRegistry } from '../services/ComponentRegistry';
 import type { ComponentMetadata, ComponentCategory } from '../types/component-metadata';
 import { ComponentInfoPanel, HOVER_DELAY, type HoverTarget, type PanelData } from './ComponentInfoPanel';
@@ -262,6 +264,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   onSelectBoard,
 }) => {
   const { t } = useTranslation();
+  const categoriesLabelId = useId();
   const [searchQuery, setSearchQuery] = useState('');
   // Which branch of the left rail is active. 'all' / 'boards' / 'recent', or
   // 'cat:<category>' / 'cat:<category>/<subgroup>'.
@@ -721,65 +724,42 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   // stacking context can pin it below floating panels (e.g. the AI chat).
   return createPortal(
     <div className="component-picker-overlay" onClick={onClose}>
-      <div className="component-picker-modal" onClick={(e) => e.stopPropagation()}>
-        {/* Header: title + inline search + category filter + close, all on
-            one row to maximise the space left for the components grid. */}
-        <div className="modal-header">
-          <h2>{t('editor.componentPicker.title')}</h2>
-
-          <div className="header-search-wrapper">
-            <svg
-              className="search-icon"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              className="search-input"
+      <div className="component-picker-modal" role="dialog" aria-modal="true"
+        aria-label={t('editor.componentPicker.title')} onClick={(e) => e.stopPropagation()}>
+        <div className="picker-body">
+          <div className="picker-sidebar">
+            <h3 id={categoriesLabelId} className="picker-tree-label">
+              {t('editor.componentPicker.categoriesTree', 'Categories')}
+            </h3>
+            <ComponentTree
+              nodes={treeNodes}
+              selected={selectedKey}
+              onSelect={selectBranch}
+              expanded={expandedKeys}
+              onToggle={toggleBranch}
+              labelId={categoriesLabelId}
+            />
+          </div>
+          <div className="component-picker-header" onMouseEnter={clearHover}>
+            <SearchBar
               placeholder={t('editor.componentPicker.searchPlaceholder')}
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
+              clearLabel={t('editor.componentPicker.clearSearch')}
+              onValueChange={(next) => {
+                setSearchQuery(next);
                 clearHover();
               }}
               autoFocus
             />
-            {searchQuery && (
-              <button
-                className="clear-search-btn"
-                onClick={() => setSearchQuery('')}
-                aria-label={t('editor.componentPicker.clearSearch')}
-              >
-                X
-              </button>
-            )}
+            <button
+              type="button"
+              className="component-picker-close"
+              onClick={onClose}
+              aria-label={t('editor.componentPicker.close')}
+            >
+              <X size={18} aria-hidden />
+            </button>
           </div>
-
-          <button className="close-btn" onClick={onClose} aria-label={t('editor.componentPicker.close')}>
-            X
-          </button>
-        </div>
-
-        <div className="picker-body">
-          <ComponentTree
-            nodes={treeNodes}
-            selected={selectedKey}
-            onSelect={selectBranch}
-            expanded={expandedKeys}
-            onToggle={toggleBranch}
-            label={t('editor.componentPicker.categoriesTree', 'Component categories')}
-          />
-
           <div className="picker-results">
             {(activeBranchLabel || searchQuery) && (
               <div className="picker-chips">
@@ -861,7 +841,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                               />
                             ))}
                             {section.ads.map((ad) => (
-                              <OnlineOnlyBoardCard key={ad.id} ad={ad} />
+                              <OnlineOnlyCard key={ad.id} ad={ad} board />
                             ))}
                           </>
                         ) : (
@@ -884,21 +864,19 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                   {visibleComponentAds.length > 0 && (
                     <div className="components-grid components-grid--inline">
                       {visibleComponentAds.map((ad) => (
-                        <OnlineOnlyComponentCard key={ad.id} ad={ad} />
+                        <OnlineOnlyCard key={ad.id} ad={ad} />
                       ))}
                     </div>
                   )}
                 </>
               )}
             </div>
+            <div className="modal-footer">
+              <span className="component-count">
+                {shownCount} {shownCount === 1 ? 'item' : 'items'}
+              </span>
+            </div>
           </div>
-        </div>
-
-        {/* Footer Info */}
-        <div className="modal-footer">
-          <span className="component-count">
-            {shownCount} {shownCount === 1 ? 'item' : 'items'}
-          </span>
         </div>
       </div>
 
@@ -944,6 +922,49 @@ function useCardHover(buildData: () => PanelData, api: CardHoverApi) {
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return { onMouseEnter: start, onMouseLeave: end, onFocus: start, onBlur: end };
+}
+
+interface PickerCardProps {
+  name: string;
+  description: string | null;
+  thumbnail: React.ReactNode;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+  onClick: () => void;
+  ref?: React.Ref<HTMLButtonElement>;
+  hover?: ReturnType<typeof useCardHover>;
+  title?: string;
+}
+
+function PickerCard({
+  name,
+  description,
+  thumbnail,
+  badge,
+  children,
+  onClick,
+  ref,
+  hover,
+  title,
+}: PickerCardProps) {
+  return (
+    <button
+      className="component-card"
+      ref={ref}
+      onClick={onClick}
+      style={{ position: 'relative' }}
+      title={title}
+      {...hover}
+    >
+      {badge}
+      <div className="card-thumbnail">{thumbnail}</div>
+      <div className="card-content">
+        <div className="card-name">{name}</div>
+        {description !== null && <div className="card-description">{description}</div>}
+        {children}
+      </div>
+    </button>
+  );
 }
 
 /**
@@ -1122,16 +1143,15 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect, hove
   }, [component.tagName, component.defaultValues, usePresetSvg, boardArt, nearViewport]);
 
   return (
-    <button
-      className="component-card"
+    <PickerCard
       ref={cardRef}
       onClick={onSelect}
-      style={{ position: 'relative' }}
-      {...hover}
-    >
-      {component.custom ? <CustomBadge /> : isProBoardKind(component.id) && <ProBadge />}
-      <div className="card-thumbnail">
-        {boardArt ? (
+      hover={hover}
+      name={component.name}
+      description={component.description || null}
+      badge={component.custom ? <CustomBadge /> : isProBoardKind(component.id) && <ProBadge />}
+      thumbnail={
+        boardArt ? (
           <img
             src={boardArt}
             alt={component.name}
@@ -1144,17 +1164,14 @@ const ComponentCard: React.FC<ComponentCardProps> = ({ component, onSelect, hove
           />
         ) : (
           <div ref={thumbnailRef} className="component-preview" />
-        )}
+        )
+      }
+    >
+      <div className="card-meta">
+        <span className="card-category">{component.category}</span>
+        {component.pinCount > 0 && <span className="card-pins">{component.pinCount} pins</span>}
       </div>
-      <div className="card-content">
-        <div className="card-name">{component.name}</div>
-        {component.description && <div className="card-description">{component.description}</div>}
-        <div className="card-meta">
-          <span className="card-category">{component.category}</span>
-          {component.pinCount > 0 && <span className="card-pins">{component.pinCount} pins</span>}
-        </div>
-      </div>
-    </button>
+    </PickerCard>
   );
 };
 
@@ -1282,22 +1299,15 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect, hoverApi }) => {
     ) : null;
 
   return (
-    <button
-      className="component-card"
+    <PickerCard
       ref={cardRef}
       onClick={onSelect}
-      style={{ position: 'relative' }}
-      {...hover}
-    >
-      {isProBoardKind(kind) && <ProBadge />}
-      <div className="card-thumbnail">
-        {reactThumbnail ? reactThumbnail : <div ref={thumbnailRef} className="component-preview" />}
-      </div>
-      <div className="card-content">
-        <div className="card-name">{BOARD_KIND_LABELS[kind]}</div>
-        <div className="card-description">{BOARD_DESCRIPTIONS[kind] ?? getProBoard(kind)?.description}</div>
-      </div>
-    </button>
+      hover={hover}
+      name={BOARD_KIND_LABELS[kind]}
+      description={BOARD_DESCRIPTIONS[kind] ?? getProBoard(kind)?.description ?? ''}
+      badge={isProBoardKind(kind) && <ProBadge />}
+      thumbnail={reactThumbnail ?? <div ref={thumbnailRef} className="component-preview" />}
+    />
   );
 };
 
@@ -1334,46 +1344,22 @@ const OnlineBadge: React.FC = () => (
   </span>
 );
 
-/** Advertisement card for a component only available in the hosted editor. */
-const OnlineOnlyComponentCard: React.FC<{ ad: OnlineOnlyComponentAd }> = ({ ad }) => (
-  <button
-    className="component-card"
-    style={{ position: 'relative' }}
-    title={`${ad.label}: available in the online editor at velxio.dev`}
+/** Advertisement card for a part only available in the hosted editor. */
+const OnlineOnlyCard: React.FC<{ ad: OnlineOnlyBoardAd | OnlineOnlyComponentAd; board?: boolean }> = ({
+  ad,
+  board,
+}) => (
+  <PickerCard
+    name={ad.label}
+    description={ad.description}
+    badge={<OnlineBadge />}
+    title={`${ad.label}: ${board ? 'free to use' : 'available'} in the online editor at velxio.dev`}
     onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
-  >
-    <OnlineBadge />
-    <div className="card-thumbnail">
+    thumbnail={
       <div
         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         dangerouslySetInnerHTML={{ __html: ad.thumbnailSvg }}
       />
-    </div>
-    <div className="card-content">
-      <div className="card-name">{ad.label}</div>
-      <div className="card-description">{ad.description}</div>
-    </div>
-  </button>
-);
-
-/** Advertisement card for a board only available in the hosted editor. */
-const OnlineOnlyBoardCard: React.FC<{ ad: OnlineOnlyBoardAd }> = ({ ad }) => (
-  <button
-    className="component-card"
-    style={{ position: 'relative' }}
-    title={`${ad.label}: free to use in the online editor at velxio.dev`}
-    onClick={() => window.open(ONLINE_EDITOR_URL, '_blank', 'noopener')}
-  >
-    <OnlineBadge />
-    <div className="card-thumbnail">
-      <div
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        dangerouslySetInnerHTML={{ __html: ad.thumbnailSvg }}
-      />
-    </div>
-    <div className="card-content">
-      <div className="card-name">{ad.label}</div>
-      <div className="card-description">{ad.description}</div>
-    </div>
-  </button>
+    }
+  />
 );

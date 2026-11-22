@@ -1,14 +1,12 @@
 /**
- * Pro web-flash registry.
+ * Browser hardware flash implementations.
  *
  * Flashing a real board over Web Serial (esptool-js) is implemented in the
  * pro overlay; the OSS app only knows the doorbell. Mirrors the other
  * OSS->Pro seams (`proBoardGate.ts`, `proSaveAction.ts`, `proRoutes.ts`):
  * the OSS app defines a stable interface, the overlay plugs in.
  *
- *   - OSS without an overlay -> no impl installed. The board context menu
- *     keeps its desktop-only gate and the web build behaves exactly as
- *     before this seam existed.
+ *   - OSS web builds include the Arduino Uno Web Serial uploader.
  *   - With the pro overlay   -> installWebFlashImpl() provides the real
  *     flasher; the "Flash to real board" menu item appears in supported
  *     browsers for supported board kinds.
@@ -16,6 +14,8 @@
  * The seam speaks plain data only (base64 program, progress callbacks) —
  * OSS must never see esptool-js types.
  */
+import { arduinoUnoWebFlash } from './arduinoUnoWebFlash';
+import type { BrowserFlashTarget } from './browserFlashSerial';
 
 export interface WebFlashProgress {
   phase: 'connecting' | 'erasing' | 'writing' | 'uploading' | 'resetting';
@@ -34,8 +34,10 @@ export interface WebFlashRequest {
    * so the flasher checks the image against THAT chip.
    */
   fqbn?: string;
-  /** The board's compiled program: base64 of the merged flash image. */
+  /** The compiled program: Intel HEX for AVR, base64 for binary images. */
   binaryBase64: string;
+  /** Serial upload speed when supplied by the board's Flash settings. */
+  baudRate?: number;
   onProgress: (p: WebFlashProgress) => void;
   /** Aborting disconnects the transport; the chip stays recoverable. */
   signal: AbortSignal;
@@ -129,12 +131,10 @@ export interface WebFlashImpl {
   flashMicroPython?(req: MicroPythonFlashRequest): Promise<WebFlashResult>;
   /**
    * Ask the browser for the serial port NOW, from a user gesture, without
-   * flashing. The Flash dialog calls this at the click, then compiles (which
-   * can take minutes — long past any gesture window), then flashes to the
-   * port already granted. Optional — without it the dialog compiles first
-   * and asks for a second click to connect.
+   * flashing. Implementations may return a per-port uploader or retain the
+   * selected port themselves. A connection request can ask for a new port.
    */
-  preparePort?(boardKind: string): Promise<void>;
+  preparePort?(boardKind: string, target?: BrowserFlashTarget, chooseNewPort?: boolean): Promise<void | WebFlashImpl['flash']>;
   /**
    * Bootloader step for families that need one (see BootloaderHint).
    * Optional — absent (or returning null) means the dialog shows no
@@ -185,25 +185,25 @@ export function onWebFlashImplChange(fn: () => void): () => void {
   };
 }
 
-/** The overlay's flasher, or null in a pure OSS build. */
-export function getWebFlashImpl(): WebFlashImpl | null {
-  return _impl;
-}
-
-/**
- * Whether the installed flasher (if any) supports `boardKind` here.
- * Safe to call unconditionally — false in OSS builds and on browsers
- * without Web Serial.
- */
-export function webFlashAvailable(boardKind: string): boolean {
-  if (!_impl) return false;
+/** With no board kind, returns the registered overlay as before. */
+export function getWebFlashImpl(boardKind?: string): WebFlashImpl | null {
+  if (boardKind === undefined) return _impl;
+  if (arduinoUnoWebFlash.available(boardKind)) return arduinoUnoWebFlash;
+  if (!_impl) return null;
   try {
-    return _impl.available(boardKind);
+    return _impl.available(boardKind) ? _impl : null;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[oss] web-flash impl threw in available():', err);
-    return false;
+    return null;
   }
+}
+
+/**
+ * Whether a browser flasher supports this board kind.
+ */
+export function webFlashAvailable(boardKind: string): boolean {
+  return getWebFlashImpl(boardKind) !== null;
 }
 
 /**
@@ -212,8 +212,7 @@ export function webFlashAvailable(boardKind: string): boolean {
  * MicroPython path.
  */
 export function webFlashMpyAvailable(boardKind: string): boolean {
-  if (!_impl?.flashMicroPython) return false;
-  return webFlashAvailable(boardKind);
+  return !!getWebFlashImpl(boardKind)?.flashMicroPython;
 }
 
 /**
@@ -221,9 +220,8 @@ export function webFlashMpyAvailable(boardKind: string): boolean {
  * (no impl, no method, or a family that needs none).
  */
 export function webFlashBootloaderHint(boardKind: string): BootloaderHint | null {
-  if (!_impl?.bootloaderHint) return null;
   try {
-    return _impl.bootloaderHint(boardKind);
+    return getWebFlashImpl(boardKind)?.bootloaderHint?.(boardKind) ?? null;
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[oss] web-flash impl threw in bootloaderHint():', err);
@@ -233,9 +231,8 @@ export function webFlashBootloaderHint(boardKind: string): BootloaderHint | null
 
 /** The revisions the installed flasher lists for `boardKind`, or null. */
 export function webFlashHardwareRevisions(boardKind: string): HardwareRevision[] | null {
-  if (!_impl?.hardwareRevisions) return null;
   try {
-    const list = _impl.hardwareRevisions(boardKind);
+    const list = getWebFlashImpl(boardKind)?.hardwareRevisions?.(boardKind);
     return list && list.length > 1 ? list : null;
   } catch (err) {
     // eslint-disable-next-line no-console

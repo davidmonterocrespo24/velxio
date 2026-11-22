@@ -1,0 +1,212 @@
+/* Share the popup treatment while each control owns its size and placement. */
+.dropdown-panel {
+  padding: 4px;
+  border: 1px solid var(--wb-7);
+  border-radius: 8px;
+  background: var(--workspace-menu-background, var(--wb-5));
+  color: var(--wb-13);
+  box-shadow: var(--shadow-2);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
+}
+
+.dropdown-panel :where(button:enabled):focus-visible {
+  background: var(--color-accent-soft-strong);
+  outline: none;
+}
+
+select:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+select option {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}
+
+@supports (appearance: base-select) and selector(::picker(select)) {
+  select:where(:not([multiple]):is(:not([size]), [size='1'])),
+  select:where(:not([multiple]):is(:not([size]), [size='1']))::picker(select) {
+    appearance: base-select;
+  }
+
+  select::picker-icon {
+    color: var(--wb-11);
+  }
+
+  select::picker(select) {
+    inline-size: max-content;
+    min-inline-size: anchor-size(width);
+    max-inline-size: min(360px, calc(100dvw - 16px));
+    max-block-size: min(320px, 55dvh);
+    margin-block: 4px;
+    padding: 4px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-scrollbar-thumb) transparent;
+    border: 1px solid var(--wb-7);
+    border-radius: 8px;
+    background: var(--workspace-menu-background, var(--wb-5));
+    color: var(--workspace-menu-foreground, var(--wb-13));
+    box-shadow: var(--shadow-2);
+    font-size: 12px;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+
+  select option {
+    min-block-size: 32px;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  select option:enabled {
+    cursor: pointer;
+  }
+
+  select option::checkmark {
+    order: 1;
+    color: var(--color-accent-fg);
+  }
+
+  select option:checked {
+    background: var(--color-accent-soft);
+  }
+
+  select option:enabled:hover,
+  select option:focus-visible {
+    outline: none;
+    background: var(--color-accent-soft-strong);
+    color: inherit;
+  }
+}
+
+.dropdown-select {
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--wb-7);
+  border-radius: 5px;
+  background: var(--wb-2);
+  color: var(--wb-13);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dropdown-select:disabled, .dropdown-select-options button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.dropdown-select-trigger:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+.dropdown-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: start;
+}
+
+.dropdown-select-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-select-trigger svg {
+  flex-shrink: 0;
+  color: var(--wb-11);
+}
+
+.dropdown-select-native {
+  appearance: none;
+  padding-inline-end: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.dropdown-select-native:dir(rtl) {
+  background-position: left 8px center;
+}
+
+.dropdown-select-options {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  margin: 0;
+  overflow: auto;
+  font: inherit;
+}
+
+.dropdown-select-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.dropdown-select-options button[aria-selected='true'] {
+  background: var(--color-accent-soft);
+}
+
+.dropdown-select-options button:enabled:hover,
+.dropdown-select-options button:focus-visible {
+  background: var(--color-accent-soft-strong);
+}
+
+.dropdown-select-options button svg {
+  flex-shrink: 0;
+  color: var(--color-accent-fg);
+}
+
+.dropdown-select.dropdown-select--compact {
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 2px 8px;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.dropdown-select-trigger.dropdown-select--compact svg,
+.dropdown-select-options.dropdown-select--compact button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.dropdown-select-native.dropdown-select--compact {
+  padding-inline-end: 24px;
+}
+
+.dropdown-select-options.dropdown-select--compact {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.dropdown-select-options.dropdown-select--compact button {
+  min-height: 22px;
+  padding: 3px 8px;
+}

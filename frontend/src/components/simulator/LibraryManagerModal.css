@@ -8,7 +8,6 @@
   justify-content: center;
   /* Above the agent side panel (z 8000): a modal is always the top task. */
   z-index: 9000;
-  backdrop-filter: blur(4px);
   animation: lib-fadeIn 0.15s ease;
 }
 
@@ -24,18 +23,17 @@
 
 /* Modal */
 .lib-modal {
-  background: var(--wb-1);
-  border: 1px solid var(--wb-6);
-  border-radius: 8px;
-  width: 680px;
-  max-width: 95vw;
+  background: var(--wb-2);
+  color: var(--wb-12);
+  border: 1px solid var(--wb-7);
+  border-radius: 12px;
+  width: min(760px, calc(100% - 28px));
   /* Fixed tall height (not just a cap): the list is the modal's whole
      point, so give it the room instead of jumping sizes per search. */
-  height: min(86vh, 1000px);
-  max-height: 92vh;
+  height: min(720px, calc(100dvh - 40px));
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-4);
+  box-shadow: var(--shadow-3);
   animation: lib-slideIn 0.2s ease;
   overflow: hidden;
 }
@@ -57,75 +55,98 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  background: var(--wb-0);
-  border-bottom: 1px solid var(--wb-4);
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--wb-3);
 }
 
 .lib-modal-title {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  flex: 1;
   gap: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--wb-12);
-  text-transform: uppercase;
+  min-width: 0;
+  color: var(--wb-13);
+}
+
+.lib-modal-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.lib-modal-board {
+  max-inline-size: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--wb-7);
+  border-radius: 5px;
+  background: var(--wb-2);
+  color: var(--wb-11);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .lib-icon {
   width: 18px;
   height: 18px;
-  color: var(--color-action-primary);
+  color: var(--wb-11);
   flex-shrink: 0;
 }
 
 .lib-close-btn {
-  background: none;
-  border: none;
-  color: var(--wb-10);
-  font-size: 18px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-11);
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: all 0.15s;
-  line-height: 1;
 }
 
 .lib-close-btn:hover {
-  background: var(--wb-4);
+  background: var(--color-wash-hover);
   color: var(--wb-13);
 }
 
 /* Tabs */
 .lib-tabs {
   display: flex;
-  background: var(--wb-0);
-  border-bottom: 1px solid var(--wb-4);
+  background: var(--wb-3);
+  border-bottom: 1px solid var(--wb-6);
   padding: 0 18px;
   gap: 4px;
 }
 
 .lib-tab {
-  background: none;
-  border: none;
+  background: transparent;
+  border: 0;
   border-bottom: 2px solid transparent;
   color: var(--wb-10);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   padding: 10px 14px;
-  transition: all 0.15s;
   letter-spacing: 0.03em;
+  transition: color 0.15s, border-bottom-color 0.15s;
 }
 
 .lib-tab:hover {
   color: var(--wb-12);
 }
 
-.lib-tab.active {
-  color: var(--color-action-primary);
+.lib-tab[aria-selected='true'] {
+  color: var(--color-accent-fg);
   border-bottom-color: var(--color-action-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lib-tab {
+    transition: none;
+  }
 }
 
 /* Status bar */
@@ -158,33 +179,10 @@
 
 /* Search bar */
 .lib-search-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   padding: 12px 18px;
-  border-bottom: 1px solid var(--wb-4);
-  background: var(--wb-0);
-}
-
-.lib-search-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--wb-8);
-  flex-shrink: 0;
-}
-
-.lib-search-bar input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--wb-13);
-  font-size: 14px;
-  caret-color: var(--color-action-primary);
-}
-
-.lib-search-bar input::placeholder {
-  color: var(--wb-8);
+  border-bottom: 1px solid var(--wb-6);
+  background: var(--wb-3);
+  font-size: 13px;
 }
 
 .lib-spinner {
@@ -218,16 +216,24 @@
   padding: 8px 0;
 }
 
+.lib-featured-heading {
+  margin: 0;
+  padding: 8px 18px 4px;
+  color: var(--wb-11);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .lib-list::-webkit-scrollbar {
   width: 6px;
 }
 
 .lib-list::-webkit-scrollbar-track {
-  background: var(--wb-0);
+  background: var(--color-scrollbar-track);
 }
 
 .lib-list::-webkit-scrollbar-thumb {
-  background: var(--wb-6);
+  background: var(--color-scrollbar-thumb);
   border-radius: 3px;
 }
 
@@ -238,7 +244,7 @@
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: var(--wb-8);
+  color: var(--wb-11);
   font-size: 14px;
   gap: 8px;
   text-align: center;
@@ -256,12 +262,23 @@
   justify-content: space-between;
   gap: 16px;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--wb-2);
+  border-bottom: 1px solid var(--wb-6);
   transition: background 0.1s;
 }
 
 .lib-item:hover {
-  background: var(--wb-2);
+  background: var(--wb-3);
+}
+
+.lib-item[inert] {
+  opacity: 0.5;
+}
+
+.lib-checking-inventory {
+  margin: 0;
+  padding: 6px 18px;
+  color: var(--wb-11);
+  font-size: 12px;
 }
 
 .lib-item-info {
@@ -269,18 +286,86 @@
   min-width: 0;
 }
 
+.lib-item-summary {
+  display: block;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.lib-item-summary::-webkit-details-marker {
+  display: none;
+}
+
+.lib-item-summary:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: 2px;
+}
+
 .lib-item-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 4px;
+}
+
+.lib-item-chevron {
+  flex: none;
+  color: var(--wb-10);
+}
+
+.lib-missing-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-feedback-warning);
+}
+
+.lib-item-info[open] .lib-item-chevron {
+  transform: rotate(90deg);
+}
+
+.lib-item-info[open] .lib-item-preview {
+  display: none;
+}
+
+.lib-item-details {
+  margin-top: 6px;
+  padding-inline-start: 22px;
+  color: var(--wb-12);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.lib-item-details p {
+  margin: 0 0 6px;
+  white-space: pre-line;
+}
+
+.lib-item-details dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0 0 6px;
+}
+
+.lib-item-details dt {
+  color: var(--wb-10);
+}
+
+.lib-item-details dd {
+  margin: 0;
+}
+
+.lib-item-details a {
+  color: var(--color-accent-fg);
 }
 
 .lib-item-name {
   font-weight: 700;
   color: var(--wb-13);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .lib-item-author {
@@ -308,6 +393,18 @@
   flex-shrink: 0;
 }
 
+.lib-dependency-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lib-dependency-actions .lib-install-btn {
+  box-sizing: border-box;
+  height: 28px;
+  padding-block: 0;
+}
+
 .lib-item-version {
   font-size: 11px;
   color: var(--wb-9);
@@ -324,25 +421,59 @@
   background: var(--color-feedback-success-soft);
 }
 
+.lib-remove-btn,
+.lib-uninstall-btn {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-feedback-error-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-feedback-error);
+  cursor: pointer;
+}
+
+.lib-remove-btn {
+  width: 28px;
+}
+
+.lib-uninstall-btn {
+  padding-inline: 8px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.lib-remove-btn:hover:enabled,
+.lib-uninstall-btn:hover:enabled {
+  background: var(--color-feedback-error-soft);
+}
+
+.lib-remove-btn:disabled,
+.lib-uninstall-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Install button */
 .lib-install-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   background: var(--color-action-primary);
-  color: #000;
-  border: none;
-  border-radius: 20px;
-  padding: 6px 18px;
+  color: var(--color-fg-on-action);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 6px 10px;
   font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
   white-space: nowrap;
 }
 
 .lib-install-btn:hover:not(:disabled) {
-  background: var(--color-accent-fg);
-  box-shadow: 0 0 12px var(--color-accent-border);
-  transform: translateY(-1px);
+  background: var(--color-action-primary-hover);
 }
 
 .lib-install-btn:disabled {

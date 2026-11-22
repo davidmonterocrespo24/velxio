@@ -6,10 +6,16 @@
 
 .simulator-canvas {
   flex: 1;
+  min-width: 0;
   background-color: var(--wb-1);
   color: var(--wb-13);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.simulator-canvas > .canvas-header {
+  grid-row: 1;
 }
 
 /* ── Canvas header ───────────────────────────────── */
@@ -62,7 +68,7 @@
 }
 
 .status-dot.stopped {
-  background: var(--wb-8);
+  background: var(--wb-10);
   box-shadow: none;
 }
 
@@ -76,33 +82,83 @@
   }
 }
 
-/* ── Board Selector ──────────────────────────────── */
+/* ── Board selector ────────────────────────────────── */
 .board-selector {
-  padding: 4px 8px;
-  background: var(--color-accent-soft);
-  color: var(--wb-12);
-  border: 1px solid var(--color-accent-border);
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color 0.15s;
   height: 28px;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 22px;
+  padding: 0 8px;
+  background: var(--wb-2);
+  color: var(--wb-12);
+  border: 1px solid var(--wb-7);
+  border-radius: 9999px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-color);
 }
 
-.board-selector:hover:not(:disabled) {
-  border-color: var(--color-action-primary);
+.canvas-board-select {
+  position: relative;
+  display: flex;
+  min-inline-size: 0;
 }
 
-.board-selector:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.board-selector {
+  box-sizing: border-box;
+  border-color: var(--wb-6);
+  min-inline-size: 0;
+  min-height: 0;
+  padding-block: 0;
+  max-inline-size: 190px;
+  white-space: nowrap;
+  align-items: center;
+  gap: 6px;
+  line-height: normal;
+}
+
+button.board-selector {
+  display: flex;
+  text-align: start;
+}
+
+.board-selector > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-selector svg {
+  flex-shrink: 0;
+  color: var(--wb-11);
+}
+
+.board-selector.board-selector--empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--wb-12);
+  cursor: default;
+}
+
+.board-selector[aria-expanded='true'] {
+  background: var(--wb-4);
+  color: var(--wb-13);
+}
+
+button.board-selector:enabled:hover {
+  background: var(--wb-6);
+  border-color: var(--wb-7);
+  color: var(--wb-13);
+}
+
+button.board-selector:enabled:hover svg {
+  color: inherit;
+}
+
+button.board-selector:focus-visible {
+  outline: 1px solid var(--wb-11);
+  outline-offset: 1px;
 }
 
 /* ── Camera / Microphone toggles ─────────────────────
@@ -185,35 +241,37 @@
   cursor: not-allowed;
 }
 
-/* ── Component count ─────────────────────────────── */
-.component-count {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--wb-9);
-}
-
-/* ── Add Component button ────────────────────────── */
 .add-component-btn {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 0 10px;
-  height: 28px;
-  background: var(--color-action-primary);
-  color: var(--color-fg-on-action);
-  border: none;
-  border-radius: 5px;
-  font-size: 12px;
+  height: var(--workspace-control-height, 28px);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  font: inherit;
+  font-size: 11px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
   white-space: nowrap;
+  background: var(--color-action-primary);
+  color: var(--color-action-primary-fg);
+  cursor: pointer;
+  transition: var(--transition-color);
 }
 
-.add-component-btn:hover:not(:disabled) {
+.add-component-btn:enabled:hover {
   background: var(--color-action-primary-hover);
+}
+
+.add-component-btn:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: 1px;
+}
+
+.add-component-btn > svg {
+  width: var(--add-component-icon-size, 15px);
+  height: var(--add-component-icon-size, 15px);
+  flex-shrink: 0;
 }
 
 .add-component-btn:disabled {
@@ -222,8 +280,126 @@
 }
 
 /* ── Canvas content (viewport) ───────────────────── */
+.canvas-content,
+.canvas-diagnostics {
+  grid-area: 2 / 1;
+}
+
+/* This layer shares the canvas's grid cell so scrolling the menu never zooms
+   the circuit. Only the diagnostics button and open panel take pointer input. */
+.canvas-diagnostics {
+  position: relative;
+  z-index: 55;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 0;
+  margin: 12px;
+  pointer-events: none;
+}
+
+.canvas-diagnostics-trigger,
+.canvas-diagnostics-panel {
+  pointer-events: auto;
+}
+
+.canvas-diagnostics-trigger,
+.canvas-diagnostics-dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid var(--wb-7);
+  border-radius: 5px;
+  background: var(--wb-3);
+  color: var(--wb-12);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.canvas-diagnostics-trigger {
+  height: 26px;
+  border-color: var(--issue-border);
+}
+
+.canvas-diagnostics-trigger:hover,
+.canvas-diagnostics-trigger[aria-expanded='true'],
+.canvas-diagnostics-dismiss:hover {
+  background: var(--wb-5);
+}
+
+.canvas-diagnostics [data-severity='warning'] {
+  --issue-border: var(--color-feedback-warning-border);
+  color: var(--color-feedback-warning);
+}
+
+.canvas-diagnostics [data-severity='error'] {
+  --issue-border: var(--color-feedback-error-border);
+  color: var(--color-feedback-error);
+}
+
+.canvas-diagnostics-panel {
+  position: absolute;
+  inset-block-start: 32px;
+  inset-inline-start: 0;
+  inline-size: min(360px, 100%);
+  max-block-size: calc(100% - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--wb-7);
+  border-radius: 7px;
+  background: var(--wb-3);
+  color: var(--wb-12);
+  box-shadow: var(--shadow-3);
+  font-size: 12px;
+  user-select: text;
+}
+
+.canvas-diagnostics-panel h2 {
+  margin: 0;
+  padding: 9px 10px;
+  border-block-end: 1px solid var(--wb-6);
+  color: var(--wb-13);
+  font-size: 12px;
+}
+
+.canvas-diagnostics-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-diagnostics-panel li {
+  padding: 9px 10px;
+}
+
+.canvas-diagnostics-panel li + li {
+  border-block-start: 1px solid var(--wb-6);
+}
+
+.canvas-diagnostics-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.canvas-diagnostics-panel p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.canvas-diagnostics-dismiss {
+  margin-block-start: 8px;
+}
+
+.canvas-diagnostics section:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
 .canvas-content {
-  flex: 1;
   position: relative;
   overflow: hidden;
   background-color: var(--wb-1);
@@ -244,6 +420,35 @@
     );
   user-select: none;
   touch-action: none; /* Disable browser scroll/zoom so JS handlers take full control */
+}
+
+.canvas-content:focus {
+  outline: none;
+}
+
+.canvas-objects {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+}
+
+.canvas-board-indicator {
+  position: absolute;
+  z-index: 10;
+  transform-origin: top left;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--wb-3);
+  color: var(--color-accent-fg);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.canvas-board-indicator[data-board-selection='selected'] {
+  background: var(--color-action-primary);
+  color: var(--color-action-primary-fg);
 }
 
 /* ── Infinite canvas world ───────────────────────── */
@@ -282,16 +487,34 @@
   height: 28px;
 }
 
-/* Floating variant: pinned to the canvas' bottom-right corner (the header
-   got too tight once the AI chat panel docks on the right). Sits above the
+/* Floating variant: pinned to the canvas' bottom-left corner. Sits above the
    canvas layers; dialogs/modals portal to <body> so they stay on top. */
 .zoom-controls--floating {
   position: absolute;
-  right: 14px;
+  left: 14px;
   bottom: 14px;
-  z-index: 60;
+  z-index: 10;
   height: 32px;
-  box-shadow: var(--shadow-2);
+}
+
+.canvas-content .canvas-center-btn {
+  position: absolute;
+  inset-inline-end: 14px;
+  inset-block-end: 14px;
+  z-index: 10;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--wb-6);
+  border-radius: 5px;
+  background: var(--wb-2);
+}
+
+.canvas-content .canvas-center-btn:hover {
+  background: var(--wb-5);
+}
+
+.canvas-content:has(.wire-mode-banner) .canvas-center-btn {
+  inset-block-end: 58px;
 }
 
 .zoom-btn {
@@ -408,28 +631,20 @@
   }
 
   .add-component-btn {
-    padding: 0 8px;
+    --add-component-icon-size: 18px;
     font-size: 0; /* hide text, show icon only */
-  }
-
-  .add-component-btn svg {
-    width: 18px;
-    height: 18px;
   }
 
   .board-selector {
     font-size: 11px;
     max-width: 90px;
-    padding: 4px 20px 4px 6px;
+    padding-inline: 6px;
   }
 
   .zoom-controls {
     display: none; /* Use pinch-to-zoom on mobile */
   }
 
-  .component-count {
-    display: none;
-  }
 
   .wire-mode-banner {
     font-size: 12px;
@@ -475,32 +690,22 @@
   font-size: 0;
 }
 .unified-toolbar.unified-toolbar--compact .add-component-btn {
-  padding: 0 9px;
+  --add-component-icon-size: 18px;
+  padding-inline: 9px;
   font-size: 0; /* hide "Add" text, keep the icon */
-}
-.unified-toolbar.unified-toolbar--compact .add-component-btn svg {
-  width: 18px;
-  height: 18px;
 }
 .unified-toolbar.unified-toolbar--compact .board-selector {
   /* 88px still shows enough of "ESP32 DevKit…" to tell boards apart, and the
      full name is one hover away in the select itself. The 32px this gives
      back is 32px of not wrapping the whole bar onto a second row. */
   max-width: 88px;
+  gap: 4px;
+  padding-inline: 5px;
   text-overflow: ellipsis;
   overflow: hidden;
 }
 
-/* The component count is the first thing to go when the row is tight: it is
-   a number you can also read on the canvas, and it costs 24px next to the
-   controls you actually press. */
-.unified-toolbar.unified-toolbar--compact .component-count {
-  display: none;
-}
 @container unified-toolbar (max-width: 905px) {
-  .component-count {
-    display: none;
-  }
   .board-selector {
     max-width: 96px;
   }
@@ -573,10 +778,6 @@
 }
 .selection-action-bar button:active {
   transform: scale(0.97);
-}
-.selection-action-bar button:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
 }
 
 /* Hide button labels on narrow viewports — keep just the icons */

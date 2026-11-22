@@ -7,6 +7,8 @@
  */
 
 @import './tokens/index.css';
+@import './components/ui/Dropdown.css';
+@import './components/ui/Checkbox.css';
 
 :root {
   font-family: var(--font-sans);
@@ -46,6 +48,20 @@ body {
 #root {
   width: 100%;
   min-height: 100vh;
+}
+
+:where(
+  textarea,
+  input:not([type]),
+  input:is([type='text'], [type='search'], [type='number'], [type='email'], [type='password'], [type='tel'], [type='url'])
+):focus {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+:where(button, [role='button']):focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
 }
 
 /* ── Auth / page utility classes (legacy — migrate to <Button>, <Card>, <Input>) ─ */

@@ -17,6 +17,7 @@
  * expand, Enter or Space to select.
  */
 
+import { ChevronRight } from 'lucide-react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 export interface TreeNode {
@@ -33,8 +34,8 @@ interface ComponentTreeProps {
   onSelect: (key: string) => void;
   expanded: Set<string>;
   onToggle: (key: string) => void;
-  /** Accessible name for the tree, e.g. "Component categories". */
-  label: string;
+  /** ID of the visible heading that labels the tree. */
+  labelId: string;
 }
 
 interface FlatRow {
@@ -58,20 +59,7 @@ function flatten(nodes: TreeNode[], expanded: Set<string>, level = 1): FlatRow[]
 }
 
 const Chevron: React.FC<{ open: boolean }> = ({ open }) => (
-  <svg
-    className={`tree-chevron${open ? ' tree-chevron--open' : ''}`}
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polyline points="9 6 15 12 9 18" />
-  </svg>
+  <ChevronRight size={12} strokeWidth={2.5} aria-hidden className={`tree-chevron${open ? ' tree-chevron--open' : ''}`} />
 );
 
 export const ComponentTree: React.FC<ComponentTreeProps> = ({
@@ -80,7 +68,7 @@ export const ComponentTree: React.FC<ComponentTreeProps> = ({
   onSelect,
   expanded,
   onToggle,
-  label,
+  labelId,
 }) => {
   const visible = useMemo(
     () => flatten(nodes.filter((n) => n.count > 0), expanded),
@@ -168,53 +156,55 @@ export const ComponentTree: React.FC<ComponentTreeProps> = ({
   };
 
   return (
-    <div className="picker-tree" role="tree" aria-label={label} onKeyDown={onKeyDown}>
-      {visible.map((row) => {
-        const isSelected = row.node.key === selected;
-        return (
-          <div
-            key={row.node.key}
-            ref={(el) => {
-              if (el) rowRefs.current.set(row.node.key, el);
-              else rowRefs.current.delete(row.node.key);
-            }}
-            role="treeitem"
-            aria-level={row.level}
-            aria-selected={isSelected}
-            aria-expanded={row.hasChildren ? row.isExpanded : undefined}
-            tabIndex={row.node.key === focused ? 0 : -1}
-            className={`tree-row${isSelected ? ' tree-row--selected' : ''}${
-              row.level > 1 ? ' tree-row--child' : ''
-            }`}
-            onClick={() => {
-              setFocusKey(row.node.key);
-              onSelect(row.node.key);
-            }}
-            onFocus={() => setFocusKey(row.node.key)}
-          >
-            {row.hasChildren ? (
-              <button
-                type="button"
-                className="tree-twisty"
-                // The twisty only opens the branch; the row selects it. Both
-                // live in the same row, so the click must not do both.
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle(row.node.key);
-                }}
-                tabIndex={-1}
-                aria-hidden="true"
-              >
-                <Chevron open={row.isExpanded} />
-              </button>
-            ) : (
-              <span className="tree-twisty tree-twisty--empty" aria-hidden="true" />
-            )}
-            <span className="tree-label">{row.node.label}</span>
-            <span className="tree-count">{row.node.count}</span>
-          </div>
-        );
-      })}
+    <div className="picker-tree">
+      <div role="tree" aria-labelledby={labelId} onKeyDown={onKeyDown}>
+        {visible.map((row) => {
+          const isSelected = row.node.key === selected;
+          return (
+            <div
+              key={row.node.key}
+              ref={(el) => {
+                if (el) rowRefs.current.set(row.node.key, el);
+                else rowRefs.current.delete(row.node.key);
+              }}
+              role="treeitem"
+              aria-level={row.level}
+              aria-selected={isSelected}
+              aria-expanded={row.hasChildren ? row.isExpanded : undefined}
+              tabIndex={row.node.key === focused ? 0 : -1}
+              className={`tree-row${isSelected ? ' tree-row--selected' : ''}${
+                row.level > 1 ? ' tree-row--child' : ''
+              }`}
+              onClick={() => {
+                setFocusKey(row.node.key);
+                onSelect(row.node.key);
+              }}
+              onFocus={() => setFocusKey(row.node.key)}
+            >
+              {row.hasChildren ? (
+                <button
+                  type="button"
+                  className="tree-twisty"
+                  // The twisty only opens the branch; the row selects it. Both
+                  // live in the same row, so the click must not do both.
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggle(row.node.key);
+                  }}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                >
+                  <Chevron open={row.isExpanded} />
+                </button>
+              ) : (
+                <span className="tree-twisty tree-twisty--empty" aria-hidden="true" />
+              )}
+              <span className="tree-label">{row.node.label}</span>
+              <span className="tree-count">{row.node.count}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

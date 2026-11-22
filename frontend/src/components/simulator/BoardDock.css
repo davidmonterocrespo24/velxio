@@ -75,10 +75,6 @@
 .board-dock-group--edit > button:nth-last-child(2) {
   margin-left: 4px;
 }
-.board-dock-btn:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: -2px;
-}
 .board-dock-btn--sd {
   color: var(--color-action-primary);
 }

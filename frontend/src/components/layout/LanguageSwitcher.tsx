@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Globe } from 'lucide-react';
 import {
   LOCALES,
@@ -21,6 +22,7 @@ import {
 } from '../../i18n/path';
 
 export const LanguageSwitcher: React.FC = () => {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -58,8 +60,8 @@ export const LanguageSwitcher: React.FC = () => {
         className="velxio-language-btn"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label="Language"
-        title="Language"
+        aria-label={t('header.language')}
+        title={t('header.language')}
         onClick={() => setOpen((v) => !v)}
       >
         <Globe size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -67,9 +69,9 @@ export const LanguageSwitcher: React.FC = () => {
       </button>
       {open && (
         <ul
-          className="velxio-language-menu"
+          className="velxio-language-menu dropdown-panel"
           role="listbox"
-          aria-label="Language"
+          aria-label={t('header.language')}
         >
           {LOCALES.map((loc) => {
             const meta = LOCALE_META[loc];

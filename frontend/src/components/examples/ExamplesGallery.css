@@ -47,9 +47,7 @@
 }
 
 .examples-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 9px 30px 9px 14px;
+  padding: 9px 14px;
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
@@ -57,12 +55,7 @@
   font-family: var(--font);
   font-size: 13px;
   cursor: pointer;
-  outline: none;
   transition: background 0.15s, border-color 0.15s;
-  /* chevron */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
 }
 
 .examples-select:hover {
@@ -92,8 +85,8 @@
   background: var(--bg-elevated);
 }
 .examples-facet:focus-visible {
-  outline: 2px solid var(--accent, var(--color-action-primary));
-  outline-offset: 2px;
+  outline: 1px solid var(--accent, var(--color-action-primary));
+  outline-offset: -1px;
 }
 .examples-facet--on {
   border-color: var(--accent, var(--color-action-primary));
@@ -469,76 +462,6 @@
 .examples-search-wrap {
   flex: 1 1 260px;
   min-width: 220px;
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.examples-search-icon {
-  position: absolute;
-  left: 14px;
-  pointer-events: none;
-  color: var(--text-muted);
-}
-
-.examples-search-input {
-  width: 100%;
-  padding: 11px 38px 11px 42px;
-  background: var(--bg-card);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  font-family: var(--font);
-  font-size: 14px;
-  outline: none;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-  /* kill the native search-cancel button — we render our own */
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.examples-search-input::-webkit-search-cancel-button {
-  display: none;
-}
-
-.examples-search-input::placeholder {
-  color: var(--text-dim);
-}
-
-.examples-search-input:hover {
-  background: var(--bg-elevated);
-}
-
-.examples-search-input:focus {
-  border-color: var(--accent, var(--color-action-primary));
-  background: var(--bg-elevated);
-}
-
-.examples-search-clear {
-  position: absolute;
-  right: 10px;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 50%;
-  transition:
-    background 0.15s,
-    color 0.15s;
-}
-
-.examples-search-clear:hover {
-  background: var(--bg-elevated);
-  color: var(--text);
 }
 
 .examples-search-count {

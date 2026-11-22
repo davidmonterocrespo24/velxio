@@ -45,7 +45,8 @@ import { createEsp32Bridge } from '../simulation/Esp32BridgeFactory';
 import { Stm32Bridge, stm32PinNameToLinear } from '../simulation/Stm32Bridge';
 import { STM32_LED } from '../components/velxio-components/Stm32BluePillElement';
 import { useEditorStore } from './useEditorStore';
-import { fingerprintSources } from '../utils/sourceFingerprint';
+import { fingerprintSources, type BoardBuildSettings } from '../utils/sourceFingerprint';
+import type { SavedWorkspaceFile } from '../utils/savedWorkspaceFile';
 import { useVfsStore } from './useVfsStore';
 import { b64ToBytes, buildProjectSdImage, decodeSdFiles, bytesToB64 } from '../utils/sdCardFiles';
 import {
@@ -1721,7 +1722,7 @@ interface SimulatorState {
    *  endpoints remain valid), restores file groups, components, wires. */
   loadProjectState: (payload: {
     boards: BoardInstance[];
-    fileGroups: Record<string, { name: string; content: string }[]>;
+    fileGroups: Record<string, SavedWorkspaceFile[]>;
     folderGroups?: Record<string, string[]>;
     components: Component[];
     wires: Wire[];
@@ -1796,7 +1797,11 @@ interface SimulatorState {
    * Record a board's build. `extras.uf2` is the RP2 hardware-flash artifact
    * (see BoardInstance.compiledUf2); omitted/null for every other family.
    */
-  compileBoardProgram: (boardId: string, program: string, extras?: { uf2?: string | null }) => void;
+  compileBoardProgram: (boardId: string, program: string, extras?: {
+    uf2?: string | null;
+    buildSettings?: BoardBuildSettings;
+    sourceHash?: string | null;
+  }) => void;
   loadMicroPythonProgram: (
     boardId: string,
     files: Array<{ name: string; content: string }>,
@@ -2515,8 +2520,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         esp32BridgeEpoch: s.esp32BridgeEpoch + 1,
       }));
       // A build that finished while the board waited goes into the new runtime.
-      const program = get().boards.find((b) => b.id === id)?.compiledProgram;
-      if (program) get().compileBoardProgram(id, program);
+      const compiled = get().boards.find((b) => b.id === id);
+      if (compiled?.compiledProgram) {
+        get().compileBoardProgram(id, compiled.compiledProgram, {
+          uf2: compiled.compiledUf2,
+          sourceHash: compiled.compiledSourceHash,
+        });
+      }
     }
   }
 
@@ -3744,6 +3754,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // Apply the rest of the saved fields that addBoard doesn't set.
         const patch: Partial<BoardInstance> = {};
         if (b.languageMode && b.languageMode !== 'arduino') patch.languageMode = b.languageMode;
+        if (Number.isFinite(b.serialBaudRate) && b.serialBaudRate > 0) patch.serialBaudRate = b.serialBaudRate;
         if (b.name && b.name.trim()) patch.name = b.name;
         if (b.rotation) patch.rotation = normalizeRotation(b.rotation);
         // A board plugged into a breadboard: its seat wires ride in `wires`,
@@ -3758,7 +3769,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (b.boardOptions) patch.boardOptions = b.boardOptions;
         if (b.spiffsFiles) patch.spiffsFiles = b.spiffsFiles;
         if (b.sdFiles?.length) patch.sdFiles = b.sdFiles;
-        if (b.libraries && b.libraries.length) patch.libraries = b.libraries;
+        if (Array.isArray(b.libraries)) patch.libraries = b.libraries;
         if (Object.keys(patch).length > 0) {
           set((s) => ({
             boards: s.boards.map((bb) => (bb.id === b.id ? { ...bb, ...patch } : bb)),
@@ -3866,7 +3877,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       useEditorStore.getState().setActiveGroup(board.activeFileGroupId);
     },
 
-    compileBoardProgram: (boardId: string, program: string, extras?: { uf2?: string | null }) => {
+    compileBoardProgram: (boardId, program, extras) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) {
         console.warn(`[compileBoardProgram] board not found: ${boardId}`);
@@ -3927,8 +3938,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
       // Remember what this program was built from, so the Flash dialog can
       // tell a fresh build from one the user has edited past.
-      const compiledSourceHash = fingerprintSources(
-        board,
+      const settings = extras?.buildSettings ?? board;
+      const compiledSourceHash = extras?.sourceHash !== undefined ? extras.sourceHash : fingerprintSources(
+        {
+          languageMode: board.languageMode,
+          boardOptions: settings.boardOptions,
+          libraries: settings.libraries,
+          spiffsFiles: settings.spiffsFiles,
+        },
         useEditorStore.getState().getGroupFiles(board.activeFileGroupId),
       );
       // The .uf2 rides along for RP2 boards (hardware flash); everything

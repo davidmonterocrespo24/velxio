@@ -118,7 +118,6 @@ function open(metadata: ComponentMetadata) {
         componentId: 'p1',
         componentMetadata: metadata,
         componentProperties: {},
-        position: { x: 0, y: 0 },
         pinInfo: [],
         onClose: () => {},
         onDelete: () => {},

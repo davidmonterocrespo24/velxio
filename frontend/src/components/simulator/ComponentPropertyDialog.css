@@ -153,8 +153,8 @@
   background-color: var(--wb-4);
 }
 .pin-role-item--interactive:focus-visible {
-  outline: 2px solid var(--color-action-primary);
-  outline-offset: 1px;
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
 }
 
 .pin-role-action {
@@ -236,12 +236,6 @@
 
 .property-edit-select:focus {
   border-color: var(--color-action-primary);
-  box-shadow: 0 0 0 2px var(--color-accent-soft-strong);
-}
-
-.property-edit-select option {
-  background-color: var(--wb-5);
-  color: var(--wb-13);
 }
 
 .property-edit-input {
@@ -265,7 +259,6 @@
 
 .property-edit-input:focus {
   border-color: var(--color-action-primary);
-  box-shadow: 0 0 0 2px var(--color-accent-soft-strong);
 }
 
 .property-actions {

@@ -3,6 +3,8 @@
  */
 
 import type { CompileResult } from '../services/compilation';
+import { compilerLocation, type BuildLocation } from '../lib/compileDiagnostics';
+import type { WorkspaceFile } from '../store/useEditorStore';
 
 /** Which run target a log line belongs to — lets the console group output by
  *  board / chip, the way multiple Arduinos already stream. Optional: lines with
@@ -18,7 +20,9 @@ export interface CompilationLog {
   timestamp: Date;
   type: 'info' | 'success' | 'error' | 'warning' | 'core-install';
   message: string;
+  source?: 'flash';
   target?: CompileTarget;
+  location?: BuildLocation;
 }
 
 /** The target of the console's "Circuit check" group: the pre-run findings
@@ -67,6 +71,7 @@ export function parseCompileResult(
    *  success, and on failure re-emits only the error/warning lines (for the
    *  red/yellow highlighting the plain live stream lacked). */
   streamedLive = false,
+  sources?: { groupId: string; files: readonly WorkspaceFile[] },
 ): CompilationLog[] {
   const logs: CompilationLog[] = [];
   const now = new Date();
@@ -158,5 +163,11 @@ export function parseCompileResult(
     logs.push({ timestamp: now, type: 'error', message: `✕ ${errorMsg}` });
   }
 
-  return target ? logs.map((l) => ({ ...l, target })) : logs;
+  return logs.map((log) => ({
+    ...log,
+    ...(target ? { target } : {}),
+    ...(sources && (log.type === 'error' || log.type === 'warning')
+      ? { location: compilerLocation(log.message, sources.groupId, sources.files) }
+      : {}),
+  }));
 }

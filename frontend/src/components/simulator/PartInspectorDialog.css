@@ -6,6 +6,9 @@
 
 .part-inspector-dialog {
   position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
   background-color: var(--wb-5);
   border: 1px solid var(--wb-8);
   border-radius: 10px;
@@ -13,7 +16,7 @@
      scrolling, and clamped so the dialog can never run off the right edge. */
   width: 720px;
   max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-3);
@@ -639,12 +642,9 @@
 
 @media (max-width: 560px) {
   .part-inspector-dialog {
-    left: 8px !important;
-    right: 8px !important;
-    top: 8px !important;
-    bottom: 8px !important;
-    width: auto;
-    max-height: none;
+    width: calc(100vw - 16px);
+    max-width: none;
+    max-height: calc(100dvh - 16px);
   }
 
   .pid-columns {

@@ -173,7 +173,6 @@ function openDialog(properties: Record<string, unknown>) {
         componentId: 'lt',
         componentMetadata: META,
         componentProperties: comp.properties,
-        position: { x: 0, y: 0 },
         pinInfo: [],
         onClose: () => {},
         onDelete: () => {},

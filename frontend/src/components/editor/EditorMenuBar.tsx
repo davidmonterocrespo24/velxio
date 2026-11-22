@@ -11,8 +11,8 @@
  * Actions are invoked through the editorCommands registry — their real
  * owners (EditorPage, FileExplorer, EditorToolbar, SimulatorCanvas)
  * register handlers on mount, so nothing here duplicates logic and an
- * item whose owner is not mounted renders disabled. Undo/redo read the
- * canvas history from the store directly, mirroring the canvas buttons.
+ * item whose owner is not mounted renders disabled. Undo and redo follow
+ * the last focused editing pane and use its history.
  *
  * Menubar behaviour follows the desktop convention: click opens, click
  * again closes, hovering a sibling while open switches menus, Escape and
@@ -20,15 +20,12 @@
  */
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../../store/useOscilloscopeStore';
 import { useEditorStore, type EditorViewMode } from '../../store/useEditorStore';
-import { useThemeMode } from '../../hooks/useTheme';
-import type { ThemeMode } from '../../lib/theme';
-import { LOCALES, LOCALE_META, type Locale } from '../../i18n/config';
-import { getLocaleFromPath, switchLocale } from '../../i18n/path';
+import { useEditorPreferences } from '../../store/useEditorPreferences';
 import {
+  getEditingPane,
   hasEditorCommand,
   runEditorCommand,
   subscribeEditorCommands,
@@ -66,17 +63,18 @@ const DISCORD_URL = 'https://discord.gg/3mARjJrh4E';
 // like the desktop app's Help menu does.
 const SITE = import.meta.env.VITE_PRO_BUILD ? '' : 'https://velxio.dev';
 
-export const EditorMenuBar: React.FC = () => {
+export const EditorMenuBar: React.FC<{
+  mobileView?: 'code' | 'circuit';
+  onSetMobileView: (mode: 'code' | 'circuit') => void;
+}> = ({ mobileView, onSetMobileView }) => {
   const { t } = useTranslation();
-  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'account' | 'help' | null>(null);
+  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'run' | 'help' | null>(null);
+  const [compact, setCompact] = useState(() => matchMedia('(max-width: 1280px)').matches);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Re-render when owners (un)register their commands.
   useSyncExternalStore(subscribeEditorCommands, getEditorCommandsVersion);
 
-  const location = useLocation();
-  const navigate = useNavigate();
-  const currentLocale = getLocaleFromPath(location.pathname);
   const serialOpen = useSimulatorStore((s) => s.serialMonitorOpen);
   const toggleSerialMonitor = useSimulatorStore((s) => s.toggleSerialMonitor);
   const scopeOpen = useOscilloscopeStore((s) => s.open);
@@ -85,14 +83,25 @@ export const EditorMenuBar: React.FC = () => {
   // Circuit toggle, which hides on a narrow bar (App.css) — the menu is then
   // the only way to reach them, so they carry live checkmarks.
   const explorerOpen = useEditorStore((s) => s.explorerOpen);
-  const toggleExplorer = useEditorStore((s) => s.toggleExplorer);
+  const sidebarView = useEditorPreferences((s) => s.sidebarView);
   const viewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
-  const [themeMode, setThemeMode] = useThemeMode();
   const undo = useSimulatorStore((s) => s.undo);
   const redo = useSimulatorStore((s) => s.redo);
   const history = useSimulatorStore((s) => s.history);
   const historyIndex = useSimulatorStore((s) => s.historyIndex);
+  const codeHistory = (mobileView ?? viewMode) === 'code' ||
+    ((mobileView ?? viewMode) === 'both' && getEditingPane() === 'code');
+
+  useEffect(() => {
+    const query = matchMedia('(max-width: 1280px)');
+    const onChange = () => {
+      setCompact(query.matches);
+      setOpen(null);
+    };
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -100,7 +109,10 @@ export const EditorMenuBar: React.FC = () => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(null);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(null);
+      if (e.key !== 'Escape') return;
+      const trigger = rootRef.current?.querySelector<HTMLButtonElement>('.emb-trigger-open');
+      setOpen(null);
+      if (rootRef.current?.contains(document.activeElement)) trigger?.focus();
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -123,13 +135,16 @@ export const EditorMenuBar: React.FC = () => {
       label: t('header.auth.myProjects', 'My projects'),
       optional: true,
     },
-    { kind: 'command', id: 'project.open', label: t('editor.menu.open', 'Open project…') },
+    { kind: 'command', id: 'project.openLocal', label: t('editor.menu.openLocal', 'Open local project…') },
+    { kind: 'command', id: 'project.openDisk', label: t('editor.menu.openDisk', 'Open .vlx from disk…'), optional: true },
+    { kind: 'command', id: 'project.open', label: t('editor.menu.importFromDisk', 'Import from disk…') },
     {
       kind: 'command',
       id: 'project.save',
       label: t('editor.menu.save', 'Save project'),
       shortcut: 'Ctrl+S',
     },
+    { kind: 'command', id: 'project.saveAs', label: t('editor.menu.saveAs', 'Save As…'), optional: true },
     { kind: 'separator' },
     { kind: 'command', id: 'project.import', label: t('editor.toolbar.importLabel', 'Import project') },
     { kind: 'command', id: 'project.exportVlx', label: t('editor.toolbar.exportVlxLabel', 'Export project (.vlx)') },
@@ -159,25 +174,6 @@ export const EditorMenuBar: React.FC = () => {
     { kind: 'command', id: 'sim.record', label: t('editor.toolbar.recordLabel', 'Record simulation'), pro: true },
   ];
 
-  // Sign in / My projects for the Account menu. The bottom-left account
-  // dropdown gets these from its own (pro) markup; this menubar only ever
-  // hosted the shared `user-menu` slot, which is why the editor's Account
-  // menu had no way in or out of a session.
-  const accountItems: Item[] = [
-    {
-      kind: 'command',
-      id: 'account.myProjects',
-      label: t('header.auth.myProjects', 'My projects'),
-      optional: true,
-    },
-    {
-      kind: 'command',
-      id: 'account.login',
-      label: t('header.auth.signIn', 'Sign in'),
-      optional: true,
-    },
-  ];
-
   const helpItems: Item[] = [
     // Only present once a post has been delivered — the announcement is a
     // toast now, and this is how it stays reachable after it retires.
@@ -199,11 +195,22 @@ export const EditorMenuBar: React.FC = () => {
     { kind: 'link', href: GITHUB_URL, label: t('editor.menu.github', 'GitHub Repository') },
   ];
 
-  // Undo/redo render specially above (live canvas history state); the rest
-  // of Edit is the code editor's own actions. Everything view-shaped lives
-  // in the View menu, like the desktop app.
+  // Undo and redo use the history of the current editing pane.
   const editItems: Item[] = [
     { kind: 'separator' },
+    { kind: 'command', id: 'edit.cut', label: t('editor.menu.cut', 'Cut'), shortcut: 'Ctrl+X' },
+    { kind: 'command', id: 'edit.copy', label: t('editor.menu.copy', 'Copy'), shortcut: 'Ctrl+C' },
+    { kind: 'command', id: 'edit.paste', label: t('editor.menu.paste', 'Paste'), shortcut: 'Ctrl+V' },
+    { kind: 'separator' },
+    { kind: 'command', id: 'edit.find', label: t('editor.menu.find', 'Find'), shortcut: 'Ctrl+F' },
+    { kind: 'command', id: 'edit.replace', label: t('editor.menu.replace', 'Replace'), shortcut: 'Ctrl+H' },
+    { kind: 'separator' },
+    {
+      kind: 'command',
+      id: 'edit.triggerSuggestions',
+      label: t('editor.menu.triggerSuggestions', 'Trigger Suggestions'),
+      shortcut: 'Ctrl+Space',
+    },
     {
       kind: 'command',
       id: 'edit.formatDocument',
@@ -212,25 +219,21 @@ export const EditorMenuBar: React.FC = () => {
     },
   ];
 
-  // File Explorer is rendered as a checkmarked row in the View block below
-  // (it reads the store), not as a plain command here.
-  const viewItems: Item[] = [
+  const runItems: Item[] = [
     { kind: 'command', id: 'sim.compile', label: t('editor.menu.compile', 'Compile'), shortcut: 'Ctrl+B' },
     { kind: 'command', id: 'sim.run', label: t('editor.menu.run', 'Run') },
     { kind: 'command', id: 'sim.stop', label: t('editor.toolbar.stop', 'Stop') },
     { kind: 'command', id: 'sim.resetBoard', label: t('editor.toolbar.reset', 'Reset') },
-    { kind: 'separator' },
+  ];
+
+  // File Explorer is rendered as a checkmarked row in the View block below.
+  const viewItems: Item[] = [
     { kind: 'command', id: 'view.toggleConsole', label: t('editor.menu.toggleConsole', 'Output Console') },
+    { kind: 'command', id: 'view.settings', label: t('editor.settings.title', 'Settings') },
     { kind: 'separator' },
     { kind: 'command', id: 'view.reset', label: t('editor.menu.centerView', 'Center canvas view') },
     { kind: 'command', id: 'view.zoomIn', label: t('editor.canvas.zoomIn', 'Zoom in') },
     { kind: 'command', id: 'view.zoomOut', label: t('editor.canvas.zoomOut', 'Zoom out') },
-  ];
-
-  const themeModes: { key: ThemeMode; label: string }[] = [
-    { key: 'dark', label: t('editor.menu.themeDark', 'Dark') },
-    { key: 'light', label: t('editor.menu.themeLight', 'Light') },
-    { key: 'system', label: t('editor.menu.themeSystem', 'Match system') },
   ];
 
   const layoutModes: { key: EditorViewMode; label: string }[] = [
@@ -272,19 +275,49 @@ export const EditorMenuBar: React.FC = () => {
     </button>
   );
 
-  const menu = (which: 'file' | 'edit' | 'view' | 'account' | 'help', label: string, items: Item[]): React.ReactNode => (
-    <div className="emb-root" key={which}>
+  const menus = [
+    { key: 'file', label: t('editor.menu.file', 'File'), items: fileItems },
+    { key: 'edit', label: t('editor.menu.edit', 'Edit'), items: editItems },
+    { key: 'view', label: t('editor.menu.view', 'View'), items: viewItems },
+    { key: 'run', label: t('editor.menu.run', 'Run'), items: runItems },
+    { key: 'help', label: t('editor.menu.help', 'Help'), items: helpItems },
+  ] as const;
+
+  const menu = ({ key: which, label, items }: typeof menus[number]): React.ReactNode => (
+    <div className="emb-root" key={compact ? 'compact' : which}>
       <button
         className={`emb-trigger${open === which ? ' emb-trigger-open' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open === which}
         onClick={() => setOpen((cur) => (cur === which ? null : which))}
-        onMouseEnter={() => setOpen((cur) => (cur && cur !== which ? which : cur))}
+        onMouseEnter={() => {
+          if (!compact) setOpen((cur) => (cur && cur !== which ? which : cur));
+        }}
       >
-        {label}
+        {compact ? t('editor.menu.mainMenu', 'Menu') : label}
       </button>
       {open === which && (
-        <div className="emb-menu" role="menu">
+        <div className="emb-menu dropdown-panel" role="menu" onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), a[href]',
+          )).filter((item) => item.getClientRects().length > 0);
+          if (!items.length) return;
+          event.preventDefault();
+          const index = items.findIndex((item) => item === document.activeElement);
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          items[(index + step + items.length) % items.length]?.focus();
+        }}>
+          {compact && (
+            <div className="emb-categories">
+              {menus.map((entry) => (
+                <button type="button" key={entry.key} aria-pressed={open === entry.key}
+                  onClick={() => setOpen(entry.key)}>
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+          )}
           {which === 'view' && (
             <>
               <button
@@ -318,106 +351,33 @@ export const EditorMenuBar: React.FC = () => {
               <div className="emb-section-label">{t('editor.shell.viewMode', 'View mode')}</div>
               <button
                 role="menuitemcheckbox"
-                aria-checked={explorerOpen}
+                aria-checked={explorerOpen && sidebarView === 'explorer'}
                 className="emb-item"
                 onClick={() => {
                   setOpen(null);
-                  toggleExplorer();
+                  runEditorCommand('view.toggleExplorer');
                 }}
               >
                 <span>{t('editor.menu.toggleExplorer', 'File Explorer')}</span>
-                <span className="emb-shortcut">{explorerOpen ? '✓' : ''}</span>
+                <span className="emb-shortcut">{explorerOpen && sidebarView === 'explorer' ? '✓' : ''}</span>
               </button>
-              {layoutModes.map((m) => (
+              {layoutModes.filter((m) => !mobileView || m.key !== 'both').map((m) => (
                 <button
                   key={m.key}
                   role="menuitemradio"
-                  aria-checked={viewMode === m.key}
+                  aria-checked={(mobileView ?? viewMode) === m.key}
                   className="emb-item"
                   onClick={() => {
                     setOpen(null);
-                    setViewMode(m.key);
+                    if (mobileView && m.key !== 'both') onSetMobileView(m.key);
+                    else setViewMode(m.key);
                   }}
                 >
                   <span>{m.label}</span>
-                  <span className="emb-shortcut">{viewMode === m.key ? '✓' : ''}</span>
+                  <span className="emb-shortcut">{(mobileView ?? viewMode) === m.key ? '✓' : ''}</span>
                 </button>
               ))}
               <div className="emb-separator" />
-              {/* Appearance. Not an editor setting — the choice is stored per
-                  origin and the blog and docs portal read the same key, so
-                  flipping it here flips velxio.dev. "System" is opt-in, never
-                  the default: an unset preference is dark. */}
-              <div className="emb-section-label">
-                {t('editor.menu.appearance', 'Appearance')}
-              </div>
-              {themeModes.map((m) => (
-                <button
-                  key={m.key}
-                  role="menuitemradio"
-                  aria-checked={themeMode === m.key}
-                  className="emb-item"
-                  onClick={() => {
-                    setOpen(null);
-                    setThemeMode(m.key);
-                  }}
-                >
-                  <span>{m.label}</span>
-                  <span className="emb-shortcut">{themeMode === m.key ? '✓' : ''}</span>
-                </button>
-              ))}
-              <div className="emb-separator" />
-            </>
-          )}
-          {which === 'account' && (
-            <>
-              {/* Session entry points, above the pro extras. Exactly one of
-                  the two is registered at a time (pro registers by session
-                  state) and neither exists in OSS, so this block renders
-                  nothing in an OSS build. */}
-              {accountItems
-                .filter((item) => item.kind !== 'command' || hasEditorCommand(item.id))
-                .map((item) => (item.kind === 'command' ? renderCommand(item) : null))}
-              {accountItems.some(
-                (item) => item.kind === 'command' && hasEditorCommand(item.id),
-              ) && <div className="emb-separator" />}
-              {/* Pro account items (PRO badge, Subscribe / Manage
-                  subscription, licenses, history, replays, Privacy) mount
-                  here via the SAME user-menu slot the bottom-left account
-                  dropdown uses — one overlay renderer, two hosts. Clicking
-                  any of them closes this menu (they navigate or open their
-                  own modal). Empty in OSS builds. */}
-              <div
-                data-velxio-slot="user-menu"
-                style={{ display: 'contents' }}
-                onClick={() => setOpen(null)}
-              />
-              <div className="emb-separator" />
-              {/* Language moved in here from its own top-level menu — the
-                  menubar was one trigger too wide once the AI chat docks. */}
-              <div className="emb-section-label">
-                {t('editor.menu.language', 'Language')}
-              </div>
-              {LOCALES.map((loc) => (
-                <button
-                  key={loc}
-                  role="menuitemradio"
-                  aria-checked={currentLocale === loc}
-                  className="emb-item"
-                  onClick={() => {
-                    setOpen(null);
-                    if (loc === currentLocale) return;
-                    navigate(
-                      switchLocale(location.pathname, loc as Locale) +
-                        location.search +
-                        location.hash,
-                    );
-                  }}
-                >
-                  <span>{LOCALE_META[loc].nativeName}</span>
-                  <span className="emb-shortcut">{currentLocale === loc ? '✓' : ''}</span>
-                </button>
-              ))}
             </>
           )}
           {which === 'edit' && (
@@ -425,10 +385,11 @@ export const EditorMenuBar: React.FC = () => {
               <button
                 role="menuitem"
                 className="emb-item"
-                disabled={historyIndex < 0}
+                disabled={codeHistory ? !hasEditorCommand('edit.undo') : historyIndex < 0}
                 onClick={() => {
                   setOpen(null);
-                  undo();
+                  if (codeHistory) runEditorCommand('edit.undo');
+                  else undo();
                 }}
               >
                 <span>{t('editor.menu.undo', 'Undo')}</span>
@@ -437,10 +398,11 @@ export const EditorMenuBar: React.FC = () => {
               <button
                 role="menuitem"
                 className="emb-item"
-                disabled={historyIndex >= history.length - 1}
+                disabled={codeHistory ? !hasEditorCommand('edit.redo') : historyIndex >= history.length - 1}
                 onClick={() => {
                   setOpen(null);
-                  redo();
+                  if (codeHistory) runEditorCommand('edit.redo');
+                  else redo();
                 }}
               >
                 <span>{t('editor.menu.redo', 'Redo')}</span>
@@ -469,11 +431,7 @@ export const EditorMenuBar: React.FC = () => {
 
   return (
     <div className="editor-menubar" ref={rootRef}>
-      {menu('file', t('editor.menu.file', 'File'), fileItems)}
-      {menu('edit', t('editor.menu.edit', 'Edit'), editItems)}
-      {menu('view', t('editor.menu.view', 'View'), viewItems)}
-      {menu('account', t('editor.menu.account', 'Account'), [])}
-      {menu('help', t('editor.menu.help', 'Help'), helpItems)}
+      {compact ? menu(menus.find((entry) => entry.key === open) ?? menus[0]) : menus.map(menu)}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 .file-explorer {
+  container: explorer / inline-size;
   width: 100%;
   background: var(--wb-3);
   border-right: 1px solid var(--wb-6);
@@ -9,103 +10,57 @@
   font-family: 'Segoe UI', sans-serif;
 }
 
-/* Two rows, not one: the title on top, the three actions under it. Side by
-   side they set the pane's minimum width between them (a truncated "WORK..."
-   next to buttons that must stay reachable); stacked, the panel is free to be
-   narrow and the code editor takes the px that frees up. Vertical space is
-   what this column has to spare. */
 .file-explorer-header {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 3px;
-  padding: 6px 6px 6px 8px;
-  color: var(--wb-11);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  border-bottom: 1px solid var(--wb-6);
-  flex-shrink: 0;
+  position: relative;
 }
 
-.file-explorer-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-explorer-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: -2px; /* optical: line the first glyph up with the title */
-}
-
-.file-explorer-new-btn {
-  background: none;
-  border: none;
-  color: var(--wb-11);
+.file-explorer-overflow summary {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
   cursor: pointer;
-  padding: 2px;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
+  list-style: none;
 }
 
-.file-explorer-new-btn svg,
-.file-explorer-save-btn svg {
-  width: 16px;
-  height: 16px;
+.file-explorer-overflow summary::-webkit-details-marker {
+  display: none;
 }
 
-.file-explorer-new-btn:hover {
-  background: var(--color-wash-hover);
+.file-explorer-overflow summary:hover,
+.file-explorer-overflow[open] summary {
+  background: var(--wb-5);
   color: var(--wb-13);
 }
 
-.file-explorer-save-btn {
-  background: none;
-  border: none;
-  color: var(--wb-11);
-  cursor: pointer;
-  padding: 2px;
+.file-explorer-overflow-menu {
+  position: absolute;
+  top: calc(100% + 3px);
+  inset-inline: 4px;
+  z-index: 5;
+  display: grid;
+}
+
+.file-explorer-overflow-menu button {
+  padding: 6px 8px;
+  border: 0;
   border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
+  background: transparent;
+  color: var(--wb-13);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: start;
 }
 
-.file-explorer-save-btn:hover {
-  background: var(--color-wash-hover);
-  color: var(--color-action-primary);
+.file-explorer-overflow-menu button:hover:enabled {
+  background: var(--color-accent-soft);
 }
 
-/* The Save button doubles as the auto-save indicator once a project is
-   loaded (replaces the "Unsaved changes" text pill in the header). */
-.file-explorer-save-btn.is-saved {
-  color: var(--color-feedback-success);
-}
-.file-explorer-save-btn.is-dirty {
-  color: var(--color-feedback-warning);
-}
-.file-explorer-save-btn.is-saving {
-  color: var(--color-feedback-success);
-  animation: velxio-pulse 1s ease-in-out infinite;
-}
-.file-explorer-save-btn.is-error {
-  color: var(--color-feedback-error);
-}
-.file-explorer-save-btn.is-saved:hover,
-.file-explorer-save-btn.is-dirty:hover,
-.file-explorer-save-btn.is-error:hover {
-  filter: brightness(1.25);
+.file-explorer-overflow-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .file-explorer-list {
@@ -190,15 +145,22 @@
 /* Context menu */
 .file-explorer-context-menu {
   position: fixed;
-  background: var(--wb-5);
-  border: 1px solid var(--wb-7);
-  border-radius: 4px;
   z-index: 2000;
   display: flex;
   flex-direction: column;
   min-width: 120px;
-  box-shadow: var(--shadow-2);
-  overflow: hidden;
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+}
+
+.file-explorer-context-menu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--wb-7);
+}
+
+.file-explorer-item[data-cut='true'] {
+  opacity: 0.55;
 }
 
 .file-explorer-context-menu button {
@@ -206,6 +168,7 @@
   border: none;
   color: var(--wb-12);
   padding: 7px 14px;
+  border-radius: 4px;
   text-align: left;
   cursor: pointer;
   font-size: 12px;
@@ -213,7 +176,7 @@
 }
 
 .file-explorer-context-menu button:hover:not(:disabled) {
-  background: var(--color-wash-hover);
+  background: var(--color-accent-soft);
   color: var(--wb-13);
 }
 
@@ -262,14 +225,31 @@
 .fe-board-actions-row {
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 3px;
   min-height: 16px;
   padding-left: 2px;
 }
 
-/* Pushes the buttons to the right end and leaves the status dot at the left. */
+/* Align the board actions to the end of the row. */
 .fe-board-actions-spacer {
   flex: 1 1 auto;
+}
+
+@container explorer (min-width: 165px) {
+  .fe-board-header--board {
+    flex-direction: row;
+    align-items: center;
+    min-height: 24px;
+  }
+
+  .fe-board-header--board .fe-board-name-row {
+    order: -1;
+    flex: 1 1 auto;
+  }
+
+  .fe-board-header--board .fe-board-actions-row {
+    flex: 0 0 auto;
+  }
 }
 
 .fe-board-header:hover {
@@ -321,13 +301,6 @@
   min-width: 0;
   font-size: 11px;
   font-weight: 600;
-}
-
-.fe-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .fe-board-new-btn {
@@ -394,10 +367,11 @@
   display: none;
   margin-left: auto;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
-.fe-folder-item:hover .fe-folder-actions {
+.fe-folder-item:hover .fe-folder-actions,
+.fe-folder-item:focus-within .fe-folder-actions {
   display: inline-flex;
 }
 
@@ -422,4 +396,284 @@
 
 .fe-folder-actions .fe-folder-delete:hover {
   color: var(--color-feedback-error);
+}
+.file-explorer-timeline {
+  flex-shrink: 0;
+  max-height: min(40%, 220px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--wb-7) transparent;
+  border-top: 1px solid var(--wb-6);
+  color: var(--wb-12);
+  font-size: 12px;
+}
+
+.file-explorer-timeline summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-block-size: 24px;
+  padding-inline: 7px;
+  background: var(--wb-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.file-explorer-timeline summary::-webkit-details-marker {
+  display: none;
+}
+
+.file-explorer-timeline-chevron {
+  flex: none;
+}
+
+.file-explorer-timeline[open] .file-explorer-timeline-chevron {
+  transform: rotate(90deg);
+}
+
+.file-explorer-timeline-text-container {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.file-explorer-timeline-title {
+  flex: none;
+  color: var(--wb-11);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.file-explorer-timeline-file {
+  flex: none;
+  min-width: 0;
+  margin-inline-start: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--wb-11);
+  font-size: 10px;
+}
+
+.file-explorer-timeline ol {
+  list-style: none;
+  padding: 0 0 3px;
+  margin: 0;
+}
+
+.file-explorer-timeline-entry {
+  display: grid;
+  inline-size: 100%;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 22px;
+  padding: 1px 7px 1px 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.file-explorer-timeline-entry:is(:hover, [data-active]) {
+  background: var(--color-accent-soft);
+  color: var(--wb-13);
+}
+
+.file-explorer-timeline-entry:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+.file-explorer-timeline-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border: 1.5px solid var(--wb-11);
+  border-radius: 50%;
+}
+
+.file-explorer-timeline-entry > span:nth-child(2) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-explorer-timeline-entry > time {
+  color: var(--wb-11);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.file-explorer-timeline > p {
+  margin: 0;
+  padding: 3px 12px 8px;
+  color: var(--wb-11);
+}
+
+.file-explorer-timeline-tooltip {
+  position: fixed;
+  z-index: 200;
+  visibility: hidden;
+  max-inline-size: min(250px, calc(100vw - 16px));
+  padding: 5px 8px;
+  border: 1px solid var(--wb-7);
+  border-radius: 4px;
+  background: var(--workspace-menu-background, var(--wb-5));
+  color: var(--workspace-menu-foreground, var(--wb-13));
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+}
+
+.file-explorer-timeline-tooltip time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-block-end: 4px;
+  padding-block-end: 4px;
+  border-block-end: 1px solid var(--wb-7);
+}
+
+.file-explorer-timeline-tooltip svg {
+  flex: none;
+}
+
+.file-version-comparison {
+  inline-size: min(1240px, calc(100vw - 24px));
+  block-size: min(820px, calc(100dvh - 24px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--wb-7);
+  border-radius: 10px;
+  background: var(--wb-2);
+  color: var(--wb-13);
+  box-shadow: var(--shadow-3);
+}
+
+.file-version-comparison[open] {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.file-version-comparison::backdrop {
+  background: var(--color-bg-overlay);
+}
+
+.file-version-comparison :is(header, footer) {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--wb-3);
+}
+
+.file-version-comparison header {
+  justify-content: space-between;
+  gap: 12px;
+  border-block-end: 1px solid var(--wb-6);
+}
+
+.file-version-comparison-heading {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.file-version-comparison h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.file-version-comparison :is(.file-version-comparison-heading span, time) {
+  color: var(--wb-11);
+  font-size: 12px;
+}
+
+.file-version-comparison-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-version-comparison-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  block-size: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--wb-11);
+  cursor: pointer;
+}
+
+.file-version-comparison-close:hover {
+  background: var(--wb-5);
+  color: var(--wb-13);
+}
+
+.file-version-comparison-labels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--wb-3);
+  border-block-end: 1px solid var(--wb-6);
+  font-size: 12px;
+}
+
+.file-version-comparison-labels > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  padding: 6px 14px;
+}
+
+.file-version-comparison-labels > div + div {
+  border-inline-start: 1px solid var(--wb-6);
+}
+
+.file-version-comparison-labels span {
+  font-weight: 600;
+}
+
+.file-version-comparison footer {
+  justify-content: flex-end;
+  border-block-start: 1px solid var(--wb-6);
+}
+
+.file-version-comparison footer button {
+  padding: 6px 12px;
+  border: 1px solid var(--color-action-primary);
+  border-radius: 5px;
+  background: var(--color-action-primary);
+  color: var(--color-action-primary-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.file-version-comparison footer button:enabled:hover {
+  background: var(--color-action-primary-hover);
+}
+
+.file-version-comparison footer button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.file-explorer [data-drop-target="true"] {
+  background: var(--color-accent-soft);
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
+}
+
+.file-explorer [data-workspace-row]:focus-visible {
+  outline: 1px solid var(--color-action-primary);
+  outline-offset: -1px;
 }

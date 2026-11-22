@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import { isBoardSeated } from '../../utils/socketSnap';
 import { getProBoard } from '../../lib/proBoardRegistry';
@@ -43,6 +44,7 @@ interface BoardOnCanvasProps {
    * polarity already applied: `led: true` is a lit user LED. */
   onboardLeds?: BoardLedVisuals;
   isActive?: boolean;
+  isSelected?: boolean;
   /** When false, the pin overlay is hidden — keeps the canvas uncluttered when
    * the user isn't hovering, isn't selecting, and isn't actively wiring. */
   showPins?: boolean;
@@ -62,6 +64,7 @@ export const BoardOnCanvas = ({
   running,
   onboardLeds,
   isActive = false,
+  isSelected = false,
   showPins = true,
   wiring = false,
   onMouseDown,
@@ -71,6 +74,7 @@ export const BoardOnCanvas = ({
   onPinClick,
   zoom = 1,
 }: BoardOnCanvasProps) => {
+  const { t } = useTranslation();
   const { id, boardKind, x, y } = board;
   // The AVR elements take one boolean for their single LED.
   const led13 = onboardLeds?.led === true;
@@ -265,23 +269,6 @@ export const BoardOnCanvas = ({
       >
       {boardEl}
 
-      {/* Active board highlight ring */}
-      {isActive && (
-        <div
-          style={{
-            position: 'absolute',
-            left: x - 3,
-            top: y - 3,
-            width: size.w + 6,
-            height: size.h + 6,
-            border: '2px solid #007acc',
-            borderRadius: 6,
-            pointerEvents: 'none',
-            zIndex: 2,
-          }}
-        />
-      )}
-
       {/* Drag overlay — hidden during simulation */}
       {!running && (
         <div
@@ -304,6 +291,15 @@ export const BoardOnCanvas = ({
       )}
 
       </div>
+      {(isActive || isSelected) && (
+        <span
+          className="canvas-board-indicator"
+          data-board-selection={isSelected ? 'selected' : 'active'}
+          style={{ left: box.left, top: box.top, transform: `scale(${1 / zoom}) translateY(-100%)` }}
+        >
+          {isSelected ? t('editor.canvas.selectedBoard', 'Selected board') : t('editor.canvas.activeBoard')}
+        </span>
+      )}
 
       {/* Status dot — top-right corner */}
       <div

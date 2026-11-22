@@ -42,7 +42,7 @@ const SHORT = line(
 );
 const BURNT = line('error', 'LED burnt out — nothing limits its current (no series resistor).', CIRCUIT);
 
-describe('the console counts compiler errors for the Diagnose slot', () => {
+describe('the terminal', () => {
   let host: HTMLDivElement;
   let root: Root;
 
@@ -100,5 +100,24 @@ describe('the console counts compiler errors for the Diagnose slot', () => {
     // Narration without a target (a multi-target "Done — 1 failed") is the compile's.
     expect(compileErrorCount([line('error', 'Done — 0 boards ok, 1 failed')])).toBe(1);
     expect(compileErrorCount([line('warning', 'x.ino:1:1: warning: y', BOARD)])).toBe(0);
+  });
+
+  it('shows all output when flashing starts and keeps the progress visible after an upload error', async () => {
+    const buildLogs = [
+      line('info', 'Compiling sketch', BOARD),
+      line('error', 'Build diagnostic', BOARD),
+    ];
+    await render(buildLogs);
+    expect(host.textContent).not.toContain('Compiling sketch');
+
+    const reset: CompilationLog = { ...line('info', 'Resetting the board', BOARD), source: 'flash' };
+    await render([...buildLogs, reset]);
+    expect(host.textContent).toContain('Compiling sketch');
+    expect(host.textContent).toContain('Resetting the board');
+
+    const timeout: CompilationLog = { ...line('error', 'Bootloader timed out', BOARD), source: 'flash' };
+    await render([...buildLogs, reset, timeout]);
+    expect(host.textContent).toContain('Resetting the board');
+    expect(host.textContent).toContain('Bootloader timed out');
   });
 });

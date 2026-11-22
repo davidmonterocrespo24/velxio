@@ -19,8 +19,9 @@
 .osc-header {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 4px 10px;
   background: var(--wb-3);
   border-bottom: 1px solid var(--wb-6);
   flex-shrink: 0;
@@ -29,11 +30,7 @@
 }
 
 .osc-title {
-  color: var(--wb-12);
-  font-weight: 600;
-  font-size: 12px;
-  white-space: nowrap;
-  margin-right: 4px;
+  margin-inline-end: auto;
 }
 
 .osc-btn {
@@ -61,16 +58,6 @@
   color: var(--color-action-primary);
 }
 
-.osc-btn-danger {
-  border-color: var(--color-feedback-error-border);
-  color: var(--color-feedback-error);
-}
-
-.osc-btn-danger:hover {
-  background: var(--color-feedback-error-soft);
-  border-color: var(--color-feedback-error);
-}
-
 .osc-label {
   color: var(--wb-10);
   font-size: 11px;
@@ -81,9 +68,7 @@
   background: var(--wb-2);
   border: 1px solid var(--wb-7);
   color: var(--wb-12);
-  padding: 2px 4px;
   border-radius: 3px;
-  font-size: 11px;
   outline: none;
   cursor: pointer;
 }
@@ -120,15 +105,10 @@
 
 .osc-picker-dropdown {
   /* position/left/bottom/z-index set via inline style (portal) */
-  background: var(--wb-3);
-  border: 1px solid var(--wb-8);
-  border-radius: 4px;
-  padding: 4px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 3px;
   min-width: 200px;
-  box-shadow: 0 -4px 20px var(--color-canvas-shadow);
 }
 
 /* Multi-board picker layout */

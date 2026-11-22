@@ -9,6 +9,7 @@
  * user drags the editor/canvas divider.
  */
 .editor-toolbar-wrapper {
+  position: relative;
   container-type: inline-size;
   container-name: editor-toolbar;
 }
@@ -75,7 +76,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 4px;
+  border-radius: 9999px;
   cursor: pointer;
   background: transparent;
   color: var(--wb-11);
@@ -87,7 +88,7 @@
 }
 
 .tb-btn:disabled {
-  opacity: 0.35;
+  color: var(--wb-11);
   cursor: not-allowed;
 }
 
@@ -112,6 +113,10 @@
   color: var(--color-feedback-success);
 }
 
+.tb-action-label {
+  display: none;
+}
+
 /* Stop — semantic error red (token) */
 .tb-btn-stop {
   color: var(--color-feedback-error);
@@ -121,81 +126,12 @@
   color: var(--color-feedback-error);
 }
 
-/* Flash to real board — labelled on purpose: as an icon in a context menu
-   nobody found it. Same accent as Compile; the label drops in compact mode. */
-.tb-btn-flash {
-  width: auto;
-  min-width: 28px;
-  gap: 4px;
-  padding: 0 5px;
-  /* The accent colour, like Compile, sets it apart from the grey Reset; no
-     resting background: a filled square is how this strip says "toggled on"
-     (the 3D view button), and the first version read exactly like that. */
-  color: var(--color-action-primary);
-  font-size: 12px;
-  font-family: inherit;
-  font-weight: 600;
-}
-.tb-btn-flash:hover:not(:disabled) {
-  background: var(--color-accent-soft);
-  color: var(--color-action-primary-hover);
-}
-.tb-btn-flash:active:not(:disabled) {
-  background: var(--color-accent-soft-strong);
-}
-.unified-toolbar.unified-toolbar--compact .tb-flash-label {
-  display: none;
-}
-
 /* Reset */
 .tb-btn-reset:hover:not(:disabled) {
   background: var(--wb-4);
   color: var(--wb-12);
 }
 
-/* Libraries button (always visible, with label) */
-.tb-btn-libraries {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 8px 0 7px;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  background: var(--color-action-primary);
-  color: var(--color-fg-on-action);
-  font-size: 11px;
-  font-weight: 500;
-  font-family: inherit;
-  white-space: nowrap;
-  transition:
-    background 0.15s,
-    color 0.15s;
-  flex-shrink: 0;
-  align-self: center;
-}
-.tb-btn-libraries:hover {
-  background: var(--color-action-primary-hover);
-  color: var(--color-fg-on-action);
-}
-.tb-libraries-label {
-  line-height: 1;
-}
-/* Hide the label only when the toolbar is genuinely cramped — keep the
-   "Libraries" text visible in the default 50/50 split (~376px toolbar) so
-   the button reads clearly. Below 360px the icon alone keeps it reachable
-   without stealing horizontal space from the file tabs. The container query
-   reacts to the toolbar's own width, so it triggers when the user drags the
-   editor/canvas divider very narrow, not just on small viewports. */
-@container editor-toolbar (max-width: 360px) {
-  .tb-libraries-label {
-    display: none;
-  }
-  .tb-btn-libraries {
-    padding: 0 6px;
-  }
-}
 /* When even narrower, also collapse the board pill label. */
 @container editor-toolbar (max-width: 460px) {
   .tb-board-pill-label {
@@ -204,31 +140,6 @@
   .tb-board-pill {
     padding: 3px 6px;
   }
-}
-
-/* Same two collapses when the toolbar rides inside the shared desktop bar
-   (App.css turns the wrapper's own containment off there so the bar can
-   wrap instead of overlap). The Libraries label goes with the first tier —
-   the `unified-toolbar--compact` class AppHeader sets when it measures that
-   the labelled strip does not fit (see SimulatorCanvas.css) — and the board
-   pill label with the bar's own 905px tier, so the whole row degrades in
-   step. */
-.unified-toolbar.unified-toolbar--compact .tb-libraries-label {
-  display: none;
-}
-.unified-toolbar.unified-toolbar--compact .tb-btn-libraries {
-  padding: 0 6px;
-}
-
-/* ── Second-tier reclaims ─────────────────────────────────────────────
-   Everything below buys width for the SAME goal: keeping the strip on one
-   row when the AI chat is docked. Measured on a 1300px window with a board
-   loaded and the chat open, together they take the compact strip from
-   805px to 699px. Two rows is the failure state -- an orphan group of
-   canvas controls under a tall header -- so trimming a label or a dropdown
-   is the cheaper trade every time. */
-.unified-toolbar.unified-toolbar--compact .tb-lang-select {
-  max-width: 74px;
 }
 
 .unified-toolbar.unified-toolbar--compact .tb-btn {
@@ -368,15 +279,7 @@
   white-space: nowrap;
 }
 
-/* ── Compile All / Run All buttons ─────────────── */
-.tb-btn-compile-all {
-  color: var(--color-action-primary);
-}
-.tb-btn-compile-all:hover:not(:disabled) {
-  background: var(--color-accent-soft);
-  color: var(--color-action-primary-hover);
-}
-
+/* ── Run All button for mixed board and chip workspaces ──────────── */
 .tb-btn-run-all {
   color: var(--color-feedback-success);
 }
@@ -456,14 +359,11 @@
 .tb-run-menu {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  inset-inline-start: 0;
   z-index: 200;
-  background: var(--wb-4);
-  border: 1px solid var(--wb-6);
-  border-radius: 10px;
-  padding: 6px;
-  min-width: 200px;
-  box-shadow: var(--shadow-3);
+  inline-size: max-content;
+  min-inline-size: 170px;
+  max-inline-size: min(260px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -472,23 +372,31 @@
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 8px 10px;
+  min-height: 30px;
+  gap: 8px;
+  padding: 5px 8px;
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--wb-12);
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
+  text-align: start;
+  overflow-wrap: anywhere;
   transition:
     background 0.12s,
     color 0.12s;
 }
-.tb-run-menu-item:hover:not(:disabled) {
-  background: var(--color-wash-hover);
+.tb-run-menu-item:hover:not(:disabled),
+.tb-run-menu-item:focus-visible {
+  background: var(--color-accent-soft);
   color: var(--wb-13);
+}
+
+.tb-run-menu-icon {
+  flex: 0 0 auto;
+  color: var(--wb-10);
 }
 .tb-run-menu-title {
   padding: 4px 10px 6px;
@@ -511,16 +419,53 @@
    clicks. Used in place of a hidden gate so free users aren't surprised
    by an upgrade prompt on what looked like a free button. */
 
-/* ── Error detail bar (for long compiler errors) ── */
 .toolbar-error-detail {
-  background: var(--color-feedback-error-soft);
-  border-bottom: 1px solid var(--color-feedback-error-border);
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  inline-size: min(25rem, 100%);
+  padding: 8px;
+  border: 1px solid var(--color-feedback-error-border);
+  border-radius: 8px;
+  background: var(--wb-3);
   color: var(--color-feedback-error);
-  font-size: 11px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  padding: 4px 12px;
-  max-height: 80px;
-  overflow-y: auto;
+  box-shadow: var(--shadow-2);
+}
+
+.toolbar-error-detail > svg {
+  margin-block-start: 2px;
+}
+
+.toolbar-error-detail p {
+  max-block-size: min(12rem, 35dvh);
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--wb-13);
+  font: 12px/1.45 var(--font-mono);
   white-space: pre-wrap;
-  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toolbar-error-detail button {
+  display: grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wb-11);
+  cursor: pointer;
+}
+
+.toolbar-error-detail button:hover {
+  background: var(--wb-5);
+  color: var(--wb-13);
 }

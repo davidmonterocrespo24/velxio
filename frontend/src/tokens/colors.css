@@ -86,6 +86,12 @@
   --wb-12: #cccccc;  /* body text */
   --wb-13: #f0f0f0;  /* strong text — titles, active tab */
 
+  /* Preserve the inherited palette when a surface supplies an override. */
+  --workspace-base-surface: var(--wb-2);
+  --workspace-base-panel: var(--wb-3);
+  --workspace-base-text: var(--wb-12);
+  --workspace-base-strong-text: var(--wb-13);
+
   /* Semantic — backgrounds (dark theme baseline) */
   /* Canvas uses gray-950 (#0a0a0c), NOT gray-1000 (#000000). Pure-black
    * canvas collides with the slightly-lighter card surfaces (gray-900
@@ -155,7 +161,7 @@
   --color-feedback-warning-border: rgba(255, 159, 10, 0.32);
   --color-accent-border:           rgba(0, 113, 227, 0.38);
 
-  /* Focus ring — used by *:focus-visible across all interactives */
+  /* Focus ring for controls that set an explicit focus shadow. */
   --color-focus-ring: 0 0 0 2px var(--color-action-primary);
 
   /* Tier badges (pro overlay reads these) */

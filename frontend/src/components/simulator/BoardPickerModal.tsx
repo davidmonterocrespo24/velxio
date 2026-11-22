@@ -1,3 +1,4 @@
+import { BoardFallbackIcon } from '../ui/CustomIcons';
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -6,10 +7,7 @@ import { BOARD_KIND_LABELS } from '../../types/board';
 
 /** Neutral chip glyph for overlay-registered boards without a bespoke icon. */
 const PRO_FALLBACK_ICON = (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <rect x="3" y="3" width="10" height="10" rx="2" fill="#8b5cf6" />
-    <rect x="5.5" y="5.5" width="5" height="5" rx="1" fill="#1e1b2e" />
-  </svg>
+  <BoardFallbackIcon />
 );
 
 

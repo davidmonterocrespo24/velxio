@@ -12,9 +12,13 @@
  * colors from VS Code and the Arduino IDE.
  */
 import type { Monaco } from '@monaco-editor/react';
+import { useActiveWorkspaceTheme, useResolvedTheme } from '../../hooks/useTheme';
+import { getActiveWorkspaceTheme, subscribeTheme } from '../../lib/theme';
+import { readableEditorColors, type WorkspaceTheme } from '../../lib/workspaceTheme';
 
 export const MONACO_DARK = 'velxio-dark';
 export const MONACO_LIGHT = 'velxio-light';
+const MONACO_CUSTOM = 'velxio-custom';
 
 /** Editor chrome per theme. Mirrors --wb-* in tokens/colors.css. */
 const DARK = {
@@ -27,6 +31,7 @@ const DARK = {
   selection: '#264f78',
   widgetBg: '#252526', // --wb-3
   widgetBorder: '#454545',
+  widgetSelection: '#34475e',
   scrollShadow: '#000000',
 };
 
@@ -40,6 +45,7 @@ const LIGHT = {
   selection: '#add6ff',
   widgetBg: '#f3f3f4', // --wb-3 (light)
   widgetBorder: '#d0d0d6',
+  widgetSelection: '#dceafa',
   scrollShadow: '#dddddd',
 };
 
@@ -52,13 +58,12 @@ function colors(c: typeof DARK): Record<string, string> {
     'editorIndentGuide.background1': c.indentGuide,
     'editor.lineHighlightBackground': c.currentLine,
     'editor.selectionBackground': c.selection,
-    // The hover / suggest / signature popups. They escape the editor box as
-    // fixed overlays (fixedOverflowWidgets), so they land on top of the
-    // canvas and have to read as app chrome, not as a stray dark rectangle.
+    // The hover, suggestion, and signature popups use the editor's chrome.
     'editorWidget.background': c.widgetBg,
     'editorWidget.border': c.widgetBorder,
     'editorSuggestWidget.background': c.widgetBg,
     'editorSuggestWidget.border': c.widgetBorder,
+    'editorSuggestWidget.selectedBackground': c.widgetSelection,
     'editorHoverWidget.background': c.widgetBg,
     'editorHoverWidget.border': c.widgetBorder,
     'input.background': c.bg,
@@ -89,8 +94,29 @@ export function defineVelxioThemes(monaco: Monaco): void {
     rules: [],
     colors: colors(LIGHT),
   });
+
+  let registered: WorkspaceTheme | null = null;
+  const registerCustom = () => {
+    const theme = getActiveWorkspaceTheme();
+    if (!theme || theme === registered) return;
+    registered = theme;
+    const palette = theme.base === 'light' ? LIGHT : DARK;
+    monaco.editor.defineTheme(MONACO_CUSTOM, {
+      base: theme.base === 'light' ? 'vs' : 'vs-dark',
+      inherit: true,
+      rules: theme.monaco.rules,
+      colors: { ...colors(palette), ...readableEditorColors(theme, palette.bg) },
+    });
+  };
+  registerCustom();
+  subscribeTheme(registerCustom);
 }
 
 export function monacoThemeFor(resolved: 'dark' | 'light'): string {
   return resolved === 'light' ? MONACO_LIGHT : MONACO_DARK;
+}
+
+export function useMonacoTheme(): string {
+  const resolved = useResolvedTheme();
+  return useActiveWorkspaceTheme() ? MONACO_CUSTOM : monacoThemeFor(resolved);
 }

@@ -171,9 +171,16 @@ export function applyStripLayout(header: HTMLElement): StripLayout | null {
   if (!m) return null;
   const layout = decideStripLayout(m);
   header.classList.toggle(STRIP_BELOW_CLASS, layout.below);
-  const strip = header.querySelector<HTMLElement>(
-    ':scope > .header-content > .header-editor-toolbar > *',
-  );
-  strip?.classList.toggle(STRIP_COMPACT_CLASS, layout.compact);
+  const content = header.querySelector<HTMLElement>(':scope > .header-content');
+  const strip = content?.querySelector<HTMLElement>(':scope > .header-editor-toolbar > *');
+  if (content && strip) {
+    strip.classList.toggle(STRIP_COMPACT_CLASS, layout.compact);
+    // The brand and menus live outside the strip. Balance their width on
+    // the other side so the layout switch stays centered in the whole row.
+    const row = content.getBoundingClientRect();
+    const toolbar = strip.getBoundingClientRect();
+    const imbalance = toolbar.left - row.left - (row.right - toolbar.right);
+    strip.style.setProperty('--workspace-toolbar-balance', `${Math.max(0, imbalance)}px`);
+  }
   return layout;
 }

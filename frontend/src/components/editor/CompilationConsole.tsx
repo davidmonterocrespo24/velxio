@@ -3,9 +3,13 @@
  * Rendered below the code editor when open. Similar to VS Code's output panel.
  */
 
+import { X } from 'lucide-react';
+import { DropdownSelect } from '../ui/DropdownSelect';
+import { WorkspaceClearButton } from './WorkspaceClearButton';
 import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { compileErrorCount, type CompilationLog, type CompileTarget } from '../../utils/compilationLogger';
+import { revealWorkspaceFile } from '../../lib/workspaceNavigation';
 
 /** One contiguous run of log lines for the same target (or none). */
 interface LogGroup {
@@ -63,7 +67,7 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
     if (autoscroll && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [logs, autoscroll]);
+  }, [logs, autoscroll, filter]);
 
   // Auto-switch to "Errors" filter when a new batch of logs arrives with
   // errors — but reset to "all" the moment a fresh compile clears/shrinks
@@ -83,8 +87,11 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
     if (logs.length === prevLogsLenRef.current) return;
     const newLogs = logs.slice(prevLogsLenRef.current);
     prevLogsLenRef.current = logs.length;
-    const hasNewErrors = newLogs.some((l) => l.type === 'error');
-    if (hasNewErrors) setFilter('errors');
+    if (newLogs.some((log) => log.source === 'flash')) {
+      setFilter('all');
+    } else if (newLogs.some((log) => log.type === 'error')) {
+      setFilter('errors');
+    }
   }, [logs]);
 
   const filteredLogs = logs.filter((log) => {
@@ -106,7 +113,7 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.title}>{t('editor.console.title')}</span>
+          <span className="workspace-panel-title">{t('editor.console.title')}</span>
           <div style={styles.badges}>
             {errorCount > 0 && (
               <span
@@ -135,15 +142,17 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
         </div>
         <div style={styles.headerRight}>
           {/* Filter */}
-          <select
+          <DropdownSelect
+            compact
+            align="right"
             value={filter}
-            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            onValueChange={(value) => setFilter(value as typeof filter)}
             style={styles.filterSelect}
           >
             <option value="all">{t('editor.console.filterAll')}</option>
             <option value="errors">{t('editor.console.filterErrors')}</option>
             <option value="warnings">{t('editor.console.filterWarnings')}</option>
-          </select>
+          </DropdownSelect>
 
           {/* Autoscroll */}
           <label style={styles.checkboxLabel}>
@@ -157,36 +166,11 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = React.memo(
           </label>
 
           {/* Clear */}
-          <button onClick={onClear} style={styles.iconBtn} title={t('editor.console.clear')}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-          </button>
+          <WorkspaceClearButton onClear={onClear} title={t('editor.console.clear')} />
 
           {/* Close */}
           <button onClick={onClose} style={styles.iconBtn} title={t('editor.console.close')}>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <X size={14} />
           </button>
         </div>
       </div>
@@ -239,15 +223,26 @@ const TIME_FORMAT = new Intl.DateTimeFormat('en-US', {
 
 // Memoized: a log entry is immutable once appended, so a line never needs to
 // re-render — appends only mount NEW lines instead of re-rendering all.
-const LogLine = React.memo<{ log: CompilationLog }>(({ log }) => (
-  <div style={styles.logLine}>
-    <span style={styles.timestamp}>{TIME_FORMAT.format(log.timestamp)}</span>
-    <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
-      {log.type === 'core-install' && <span style={styles.coreTag}>CORE </span>}
-      {log.message}
-    </span>
-  </div>
-));
+const LogLine = React.memo<{ log: CompilationLog }>(({ log }) => {
+  const { location } = log;
+  return (
+    <div style={styles.logLine}>
+      <span style={styles.timestamp}>{TIME_FORMAT.format(log.timestamp)}</span>
+      <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
+        {log.type === 'core-install' && <span style={styles.coreTag}>CORE </span>}
+        {location ? (
+          <button
+            type="button"
+            className="compile-source-link"
+            onClick={() => revealWorkspaceFile(location.groupId, location.fileId, location.position)}
+          >
+            {log.message}
+          </button>
+        ) : log.message}
+      </span>
+    </div>
+  );
+});
 LogLine.displayName = 'LogLine';
 
 function statusColor(status: 'error' | 'success' | 'running'): string {
@@ -273,7 +268,7 @@ function logColor(type: CompilationLog['type']): string {
     case 'core-install':
       return '#4fc3f7';
     default:
-      return 'var(--wb-12)';
+      return 'var(--workspace-console-foreground, var(--wb-12))';
   }
 }
 
@@ -283,7 +278,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--wb-2)',
+    background: 'var(--workspace-console-background, var(--wb-2))',
     borderTop: '1px solid var(--wb-6)',
     fontSize: 12,
     fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
@@ -310,14 +305,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 6,
   },
-  title: {
-    color: 'var(--wb-12)',
-    fontWeight: 600,
-    fontSize: 12,
-    fontFamily: 'system-ui, sans-serif',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.5px',
-  },
   badges: {
     display: 'flex',
     gap: 6,
@@ -343,8 +330,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--wb-12)',
     border: '1px solid var(--wb-8)',
     borderRadius: 3,
-    fontSize: 11,
-    padding: '2px 4px',
     cursor: 'pointer',
     fontFamily: 'system-ui, sans-serif',
   },

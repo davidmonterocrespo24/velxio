@@ -47,7 +47,7 @@ const ROOT_ELEMENT: ReactElement = <RootRoute />;
 
 const ROUTES: { path: string; element: ReactElement; index?: boolean }[] = [
   { path: '/', element: ROOT_ELEMENT, index: true },
-  { path: 'editor', element: <EditorPage /> },
+  { path: 'editor/:localProjectId?', element: <EditorPage /> },
   { path: 'examples', element: <ExamplesPage /> },
   // /examples/<id> = SEO landing (preview, badges, "Open in Simulator" CTA).
   // /example/<id>  = live editor with the example pre-loaded; the URL
