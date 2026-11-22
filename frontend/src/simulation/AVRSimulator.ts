@@ -775,6 +775,163 @@ class AvrCpu extends CPU {
   }
 }
 
+/** avr8js's TimerMode.FastPWM; the enum is not exported. */
+const AVR8JS_FAST_PWM = 3;
+
+type CompareChannel = 'A' | 'B' | 'C';
+
+/**
+ * The parts of an avr8js 0.21.0 AVRTimer that chipFastPwm reaches. Its
+ * typings declare them private, so the timer is seen through this shape.
+ */
+interface AvrTimerInternals {
+  cpu: CPU;
+  config: AVRTimerConfig;
+  timerMode: number;
+  readonly TOP: number;
+  hasOCRC: boolean;
+  ocrA: number;
+  ocrB: number;
+  ocrC: number;
+  nextOcrA: number;
+  nextOcrB: number;
+  nextOcrC: number;
+  compA: number;
+  compB: number;
+  compC: number;
+  OCFA: AVRInterruptConfig;
+  OCFB: AVRInterruptConfig;
+  OCFC: AVRInterruptConfig;
+  timerUpdated(value: number, prevValue: number): void;
+  updateCompPin(compValue: number, pinName: CompareChannel, bottom?: boolean): void;
+}
+
+/**
+ * An avr8js timer whose fast PWM compare matches land where the chip's do
+ * (velxio/velxio-prod#155).
+ *
+ * "Whenever TCNT0 equals OCR0A or OCR0B, the comparator signals a match. A
+ * match will set the Output Compare Flag (OCF0A or OCF0B) at the next timer
+ * clock cycle" (ATmega328P datasheet DS40002061B, section 15.5; the same for
+ * the 16-bit timers), and the waveform generator acts on the match then. In
+ * fast PWM the pin is set at BOTTOM and cleared as TCNT leaves OCR, so it is
+ * HIGH for OCR + 1 of TOP + 1 ticks: OCR at BOTTOM is a one-tick spike and
+ * OCR at TOP a constant HIGH (section 15.7.3), and inverting mode is the
+ * complement. avr8js acts on a match when TCNT reaches OCR, one tick early:
+ * the pin was HIGH for OCR ticks (256 us of 1024 for analogWrite(6, 64),
+ * where the chip gives 260), OCR = 0 was a constant HIGH and OCR = TOP fell
+ * for one tick. Its fast PWM also never set channel C at BOTTOM, so OC1C,
+ * OC3C, OC4C and OC5C on the Mega stayed LOW.
+ *
+ * In fast PWM only, each count step here applies its matches as the chip
+ * does, flag and pin together and in order: the matches before the wrap,
+ * then BOTTOM, then the matches after it against the OCR that BOTTOM loads
+ * (OCR is double-buffered in this mode). A match at TOP is the wrap itself:
+ * BOTTOM wins, and a toggle still toggles. A CPU write to TCNT blocks the
+ * match of the next timer clock (section 15.5.2). Every other mode is left to
+ * avr8js, so millis() (the overflow), tone() (CTC), Servo (normal mode) and
+ * the phase-correct pins, whose duty avr8js gets right, run as before.
+ */
+function chipFastPwm(timer: AVRTimer): AVRTimer {
+  const t = timer as unknown as AvrTimerInternals;
+  const stock = AVRTimer.prototype as unknown as AvrTimerInternals;
+  const stockUpdated = stock.timerUpdated;
+  const stockCompPin = stock.updateCompPin;
+  const cpu = t.cpu;
+  const { OCFA, OCFB, OCFC, hasOCRC } = t;
+
+  /**
+   * One channel's part of a count step from prevValue to value: TCNT leaves
+   * OCR before the wrap (or in a step without one), then at the wrap itself
+   * when OCR is TOP, then BOTTOM, then the matches after the wrap against the
+   * OCR that BOTTOM loads.
+   */
+  const step = (
+    ch: CompareChannel,
+    flag: AVRInterruptConfig,
+    comp: number,
+    ocr: number,
+    nextOcr: number,
+    prevValue: number,
+    value: number,
+    wrapped: boolean,
+    top: number,
+    blockedAt: number,
+  ): void => {
+    const free = ocr !== blockedAt;
+    if (free && prevValue <= ocr && ocr < (wrapped ? top : value)) {
+      cpu.setInterruptFlag(flag);
+      if (comp) stockCompPin.call(t, comp, ch, false);
+    }
+    if (!wrapped) return;
+    if (free && ocr === top) {
+      cpu.setInterruptFlag(flag);
+      if (comp === 1) stockCompPin.call(t, comp, ch, false);
+    }
+    if (comp) stockCompPin.call(t, comp, ch, true);
+    if (nextOcr < value) {
+      cpu.setInterruptFlag(flag);
+      if (comp) stockCompPin.call(t, comp, ch, false);
+    }
+  };
+
+  // A write to TCNT: avr8js's hook runs a compare on the written value (a
+  // no-op, nothing counted), and the next count step must not match on it.
+  let inTcntWrite = false;
+  let tcntWritten = false;
+  const tcntAddr = t.config.TCNT;
+  const stockTcntWrite = cpu.writeHooks[tcntAddr];
+  cpu.writeHooks[tcntAddr] = (value, oldValue, addr, mask) => {
+    tcntWritten = true;
+    inTcntWrite = true;
+    try {
+      return stockTcntWrite(value, oldValue, addr, mask);
+    } finally {
+      inTcntWrite = false;
+    }
+  };
+
+  // avr8js applies fast PWM's BOTTOM after the step's matches; the step
+  // applies it in its place, so that call does nothing.
+  t.updateCompPin = (compValue, pinName, bottom = false) => {
+    if (bottom) return;
+    stockCompPin.call(t, compValue, pinName, false);
+  };
+
+  t.timerUpdated = (value, prevValue) => {
+    if (inTcntWrite) return;
+    let blockedAt = -1;
+    if (tcntWritten) {
+      blockedAt = prevValue;
+      tcntWritten = false;
+    }
+    if (t.timerMode !== AVR8JS_FAST_PWM) {
+      stockUpdated.call(t, value, prevValue);
+      return;
+    }
+    // A count step is at least one tick, so a step back to the same value
+    // went round once.
+    const wrapped = prevValue >= value;
+    // Most steps leave no OCR behind: nothing to do (a prescaler of 1 steps
+    // after every instruction).
+    if (
+      !wrapped &&
+      (t.ocrA < prevValue || t.ocrA >= value) &&
+      (t.ocrB < prevValue || t.ocrB >= value) &&
+      (!hasOCRC || t.ocrC < prevValue || t.ocrC >= value)
+    ) {
+      return;
+    }
+    const top = t.TOP;
+    step('A', OCFA, t.compA, t.ocrA, t.nextOcrA, prevValue, value, wrapped, top, blockedAt);
+    step('B', OCFB, t.compB, t.ocrB, t.nextOcrB, prevValue, value, wrapped, top, blockedAt);
+    if (hasOCRC) {
+      step('C', OCFC, t.compC, t.ocrC, t.nextOcrC, prevValue, value, wrapped, top, blockedAt);
+    }
+  };
+  return timer;
+}
+
 /**
  * Peripheral configs of each ATmega variant. The ATmega2560 keeps the
  * ATmega328P's register addresses for Timer0-2, USART0, SPI, TWI, ADC and
@@ -1615,7 +1772,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       this.adc = new AVRADC(cpu, attiny85AdcConfig);
       this.usart = null;
       this.peripherals = [
-        new AVRTimer(cpu, attiny85Timer0Config),
+        chipFastPwm(new AVRTimer(cpu, attiny85Timer0Config)),
         new ATtinyTimer1(cpu, attinyTimer1Config),
         // The ATtiny85 also has no hardware TWI: TinyWireM / Tiny4kOLED drive
         // I2C through the USI peripheral in two-wire mode, PB0 (SDA) / PB2
@@ -1645,9 +1802,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       this.i2cBus.attachMaster(this.twi);
 
       this.peripherals = [
-        new AVRTimer(cpu, cfg.timer0),
-        new AVRTimer(cpu, cfg.timer1),
-        new AVRTimer(cpu, cfg.timer2),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer0)),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer1)),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer2)),
         ...usarts,
         spi,
         this.twi,
@@ -1658,9 +1815,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // usual choice for user-defined CTC / ISR timing, so they have to
         // tick like the others (#356).
         this.peripherals.push(
-          new AVRTimer(cpu, megaTimer3Config),
-          new AVRTimer(cpu, megaTimer4Config),
-          new AVRTimer(cpu, megaTimer5Config),
+          chipFastPwm(new AVRTimer(cpu, megaTimer3Config)),
+          chipFastPwm(new AVRTimer(cpu, megaTimer4Config)),
+          chipFastPwm(new AVRTimer(cpu, megaTimer5Config)),
         );
       }
 
