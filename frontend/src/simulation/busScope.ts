@@ -89,7 +89,11 @@ class Line {
   pending: ScopeSample[] = [];
   /** The pin `pending` was drawn for. */
   pendingPin = -1;
-  constructor(readonly pin: () => number | undefined) {}
+  /** The pad the line is routed to now. */
+  readonly pin: () => number | undefined;
+  constructor(pin: () => number | undefined) {
+    this.pin = pin;
+  }
 }
 
 /** The lines of one synthesizer, and the scope their samples go to. */

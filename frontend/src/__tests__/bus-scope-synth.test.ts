@@ -82,7 +82,7 @@ function readSpi(edges: ScopeEdge[], mode: SpiMode, bits: number, lsb = false) {
     if (e.pin === MOSI) mosi = e.state;
     else if (e.pin === MISO) miso = e.state;
     else if (e.pin === SCK) {
-      const was = sck;
+      const was: boolean | null = sck;
       sck = e.state;
       if (was === null || was === sck) continue;
       const leading = sck !== cpol;
