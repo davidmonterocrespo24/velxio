@@ -3,10 +3,10 @@
  *
  * The full LM358 macro-model is vendored at simulation/spice/models/
  * lm358Subckt.ts, and componentToSpice runs it for opamp-lm358 (since
- * 54936ef6, which replaced the behavioural B-source clamp). What it does is
- * checked where it matters: its swing and inputs in
- * opamp-texts-match-models.test.ts (velxio/velxio-prod#128), its supply
- * pins in spice-opamp-supply-pins.test.ts.
+ * 54936ef6, which replaced the behavioural B-source clamp) and for
+ * opamp-lm324 (velxio/velxio-prod#128). What it does is checked where it
+ * matters: its swing and inputs in opamp-texts-match-models.test.ts, its
+ * supply pins in spice-opamp-supply-pins.test.ts.
  *
  * This test locks the asset itself: pin order, presence of the
  * `.SUBCKT LM358 1 2 99 50 28` header, and the renamed internal

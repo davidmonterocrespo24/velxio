@@ -120,6 +120,27 @@ function behaviouralOpamp(
   return { cards, modelsUsed: new Set() };
 }
 
+/**
+ * One LM358 amplifier: the macro-model subcircuit (National's, with the local
+ * changes models/lm358Subckt.ts lists). Slew rate (0.49 V/µs), GBW (about
+ * 1 MHz) and the output's swing to each rail come with it, where the
+ * behavioural B-source clamp it replaced had none. Its supply pins take the
+ * part's V+ / V- nets, unwired the logic rail and ground. The subcircuit's
+ * output is no V, B or E card, so the part says it drives OUT.
+ */
+function lm358MacroModel(comp: ComponentForSpice, netLookup: NetLookup): SpiceEmission | null {
+  const inp = netLookup('IN+');
+  const inn = netLookup('IN-');
+  const out = netLookup('OUT');
+  if (!inp || !inn || !out) return null;
+  const { vp, vm } = opampSupply(netLookup);
+  return {
+    cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
+    modelsUsed: new Set([LM358_SUBCKT]),
+    drives: [out],
+  };
+}
+
 /** A volt figure for a card, without float noise (0.55 * 5 is 2.7500000000000004). */
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
@@ -788,49 +809,34 @@ const MAPPERS: Record<string, Mapper> = {
   },
 
   // ── Real op-amp part numbers ───────────────────────────────────────────────
-  // The LM741, the TL072 and the LM324 are behavioural and follow the same
-  // shape:
+  // The LM741 and the TL072 are behavioural and follow the same shape:
   //   V_out = clamp(A · (V_in+ − V_in-), Vsat_lo, Vsat_hi)
   // The output saturates between a low rail (V- + headroom) and a high rail
   // (V+ − headroom): 1.5 V from each rail for the LM741, 2 V for the TL072
-  // (the original die, specified on ±15 V), 0.05 V and 1.5 V for the LM324.
-  // The LM358 is a real macro-model whose output swings from 5 mV above V- to
-  // about 1 V below V+ (models/lm358Subckt.ts lists what it measures).
+  // (the original die, specified on ±15 V).
+  // The LM358, and the LM324, its quad sibling, run the LM358 macro-model,
+  // whose output swings from 5 mV above V- to about 1 V below V+
+  // (models/lm358Subckt.ts lists what it measures).
   //
   // The rails are the part's V+ and V- pins (see opampSupply). Unwired, they
   // are the board's logic rail and ground, the only supply an op-amp had
   // before the pins existed, so a circuit drawn then solves as it always did.
   //
   // The behavioural parts load each input with their `rin` to ground. The
-  // LM358's inputs are its macro-model's: the input transistors' bias
-  // current, tens of nanoamperes, and 100 MOhm between the inputs.
-  'opamp-lm358': (comp, netLookup) => {
-    const inp = netLookup('IN+');
-    const inn = netLookup('IN-');
-    const out = netLookup('OUT');
-    if (!inp || !inn || !out) return null;
-    // The LM358 macro-model subcircuit (National's, with the local changes
-    // models/lm358Subckt.ts lists): slew rate (~0.5 V/µs), GBW (~1 MHz) and
-    // the output's swing to each rail come with it, where the behavioural
-    // B-source clamp it replaced had none. Its supply pins take the part's
-    // V+ / V- nets.
-    const { vp, vm } = opampSupply(netLookup);
-    return {
-      cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
-      modelsUsed: new Set([LM358_SUBCKT]),
-      drives: [out],
-    };
-  },
+  // macro-model's inputs are the input transistors' bias current, tens of
+  // nanoamperes, and 100 MOhm between the inputs.
+  'opamp-lm358': (comp, netLookup) => lm358MacroModel(comp, netLookup),
   'opamp-lm741': (comp, netLookup, ctx) =>
     behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' }),
   // JFET input: huge Z_in, modelled with 1 TΩ
   'opamp-tl072': (comp, netLookup, ctx) =>
     behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' }),
-  // The LM324 is the LM358's amplifier design, four to a package, but this
-  // is not the LM358's model: a clamp, gain 10^5, no slew or bandwidth limit
-  // (velxio/velxio-prod#128).
-  'opamp-lm324': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 1e5, rin: '10Meg', lo: 0.05, hi: 1.5, iq: '82k' }),
+  // The LM324 is the LM358's amplifier design, four to a package, and one
+  // part here is one of them. It was a behavioural clamp between V- + 0.05 V
+  // and V+ − 1.5 V, with no slew or bandwidth limit, while its catalog text
+  // called it electrically the LM358 (velxio/velxio-prod#128): it runs the
+  // LM358's macro-model now.
+  'opamp-lm324': (comp, netLookup) => lm358MacroModel(comp, netLookup),
 
   // ── Linear voltage regulators ────────────────────────────────────────────
   // Behavioral model: V_out = min(V_in - V_dropout, V_nom). Dropout voltage

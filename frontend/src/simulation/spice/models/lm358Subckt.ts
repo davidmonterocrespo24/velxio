@@ -52,10 +52,11 @@
  * Neither change moves a stage in its linear range: a follower of 2.5 V
  * reads the same 2.502 V.
  *
- * Used by componentToSpice.ts:opamp-lm358 to replace the prior
- * behavioural B-source clamp with a real macro-model. Provides true
- * slew limiting, GBW roll-off, and saturation curves so AC analyses
- * (Bode plots, oscillator startup) produce textbook results.
+ * Used by componentToSpice.ts for opamp-lm358, and for opamp-lm324, the
+ * LM358's quad sibling, to replace the prior behavioural B-source clamps
+ * with a real macro-model. Provides true slew limiting, GBW roll-off, and
+ * saturation curves so AC analyses (Bode plots, oscillator startup)
+ * produce textbook results.
  *
  * Local change to National's text: F6 was `F6 50 99 POLY(1) V6 300U 1` and
  * is now `F6 50 99 POLY(1) V6 0 1`. The 300U constant pulled 300 uA out of

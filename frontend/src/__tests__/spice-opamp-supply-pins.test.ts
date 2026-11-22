@@ -135,7 +135,6 @@ describe('op-amp supply pins', () => {
   for (const [part, hi] of [
     ['opamp-lm741', 1.5],
     ['opamp-tl072', 2.0],
-    ['opamp-lm324', 1.5],
   ] as const) {
     it(
       `${part} on 15 V gives the full 11.1 V; on 9 V it clips ${hi} V below V+`,
@@ -165,7 +164,8 @@ describe('op-amp supply pins', () => {
   );
 
   it('unwired supply pins emit the netlist the 3-pin parts always did', () => {
-    // The legacy cards, verbatim from before the pins existed, for a 5 V board.
+    // The legacy cards, verbatim from before the pins existed, for a 5 V board
+    // (all but the LM324's, below).
     const nets: Record<string, string> = { 'IN+': 'n1', 'IN-': 'n2', OUT: 'n3' };
     const lookup = (pin: string) => nets[pin] ?? null;
     const emit = (id: string) =>
@@ -183,11 +183,8 @@ describe('op-amp supply pins', () => {
       'B_u1 n3 0 V = max(2, min(3, 200000*(V(n1)-V(n2))))',
       'R_u1_out n3 0 1Meg',
     ]);
-    expect(emit('opamp-lm324')).toEqual([
-      'R_u1_inp n1 0 10Meg',
-      'R_u1_inn n2 0 10Meg',
-      'B_u1 n3 0 V = max(0.05, min(3.5, 100000*(V(n1)-V(n2))))',
-      'R_u1_out n3 0 1Meg',
-    ]);
+    // The LM324 was a behavioural clamp too; it runs the LM358's
+    // macro-model since velxio/velxio-prod#128, with the same supply.
+    expect(emit('opamp-lm324')).toEqual(['X_u1 n1 n2 vcc_rail 0 n3 LM358']);
   });
 });

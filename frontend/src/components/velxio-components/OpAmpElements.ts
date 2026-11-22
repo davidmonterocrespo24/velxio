@@ -14,7 +14,7 @@
  *                         V-, the output stops about 1 V below V+
  *   wokwi-opamp-lm741   — single, conventional
  *   wokwi-opamp-tl072   — dual, JFET input (audio)
- *   wokwi-opamp-lm324   — quad, single supply (a behavioural clamp)
+ *   wokwi-opamp-lm324   — quad, the LM358's sibling (the same model)
  *
  * Pin layout (CSS pixels, 80 × 76):
  *   IN+  (0, 12)   IN-  (0, 52)   OUT  (80, 32)   V+  (40, 0)   V-  (40, 64)

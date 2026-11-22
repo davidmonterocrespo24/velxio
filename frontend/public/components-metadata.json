@@ -461,7 +461,7 @@
       "tagName": "wokwi-opamp-lm324",
       "name": "LM324 (Quad Op-Amp)",
       "category": "analog",
-      "description": "Quad single-supply op-amp (one channel per part). Velxio models it as an ideal amplifier clamped between V- + 0.05 V and V+ - 1.5 V, with no slew-rate or bandwidth limit (the LM358 runs a full macro-model). Power it through V+ and V-. Unwired, it runs from the board's logic rail and ground."
+      "description": "Quad single-supply op-amp (one channel per part), the LM358's quad sibling: it runs the same model and swings like it, from near V- to about 1 V below V+ at light load. Power it through V+ and V-. Unwired, it runs from the board's logic rail and ground."
     },
     {
       "thumbnail": "",

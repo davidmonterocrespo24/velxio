@@ -12,10 +12,11 @@
  *   - "Rail-to-rail input" in the model's header: a real LM358's common-mode
  *     range ends at V+ - 1.5 V. The model takes inputs up to V+, and the
  *     header says both.
- *   - The LM324's text called it electrically the LM358 while it is a
+ *   - The LM324's text called it electrically the LM358 while it was a
  *     behavioural clamp, from V- + 0.05 V to V+ - 1.5 V with no slew or
- *     bandwidth limit: 3.5 V on 5 V where the LM358 gives 4.0 V. Its texts
- *     now say what it is.
+ *     bandwidth limit: 3.5 V on 5 V where the LM358 gives 4.0 V. It is the
+ *     LM358's amplifier design, four to a package, and it runs the LM358
+ *     model now. No gallery example uses one.
  *   - The ideal op-amp's text said "infinite gain"; its VCVS has 10^6.
  *   - The follower example said it tracks its input "exactly", with
  *     "infinite input impedance"; on the LM358 that is within the 2 mV input
@@ -33,6 +34,7 @@ import { buildNetlist } from '../simulation/spice/NetlistBuilder';
 import { componentToSpice } from '../simulation/spice/componentToSpice';
 import { LM358_SUBCKT } from '../simulation/spice/models/lm358Subckt';
 import { runNetlist } from './helpers/testSolver';
+import type { BuildNetlistInput } from '../simulation/spice/types';
 
 const source = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
@@ -130,16 +132,70 @@ describe("the LM358's inputs, as the model takes them (velxio/velxio-prod#128)",
   });
 });
 
-describe('the LM324 (velxio/velxio-prod#128)', () => {
-  it('its text and its mapper describe the clamp it is, not the LM358', () => {
-    const nets: Record<string, string> = { 'IN+': 'a', 'IN-': 'b', OUT: 'c' };
+describe('the LM324 is the LM358 model (velxio/velxio-prod#128)', () => {
+  type Wire = BuildNetlistInput['wires'][number];
+  function stage(part: string, vplus: number | null, vin: number, gain: boolean): BuildNetlistInput {
+    const wires: Wire[] = [];
+    const w = (a: [string, string], b: [string, string]) =>
+      wires.push({
+        id: `w${wires.length}`,
+        start: { componentId: a[0], pinName: a[1] },
+        end: { componentId: b[0], pinName: b[1] },
+      } as Wire);
+    const components: BuildNetlistInput['components'] = [
+      { id: 'u1', metadataId: part, properties: {} },
+      { id: 'src', metadataId: 'power-supply', properties: { mode: 'dc', voltage: String(vin), currentLimit: '1' } },
+      { id: 'rl', metadataId: 'resistor', properties: { value: '10000' } },
+    ];
+    w(['src', 'SIG'], ['u1', 'IN+']);
+    w(['src', 'GND'], ['rl', '2']);
+    w(['u1', 'OUT'], ['rl', '1']);
+    if (gain) {
+      // Non-inverting, x3.7: 27k from OUT to IN-, 10k from IN- to ground.
+      components.push({ id: 'rf', metadataId: 'resistor', properties: { value: '27000' } });
+      components.push({ id: 'rg', metadataId: 'resistor', properties: { value: '10000' } });
+      w(['u1', 'OUT'], ['rf', '1']);
+      w(['rf', '2'], ['u1', 'IN-']);
+      w(['u1', 'IN-'], ['rg', '1']);
+      w(['rg', '2'], ['src', 'GND']);
+    } else {
+      w(['u1', 'OUT'], ['u1', 'IN-']);
+    }
+    if (vplus !== null) {
+      components.push({ id: 'pp', metadataId: 'power-supply', properties: { mode: 'dc', voltage: String(vplus), currentLimit: '1' } });
+      w(['pp', 'SIG'], ['u1', 'V+']);
+      w(['pp', 'GND'], ['src', 'GND']);
+      w(['u1', 'V-'], ['src', 'GND']);
+    }
+    return { components, wires, boards: [], analysis: { kind: 'op' } };
+  }
+  async function vout(part: string, vplus: number | null, vin: number, gain: boolean): Promise<number> {
+    const { netlist, pinNetMap } = buildNetlist(stage(part, vplus, vin, gain));
+    return (await runNetlist(netlist)).dcValue(`v(${pinNetMap.get('u1:OUT')})`);
+  }
+
+  it.each([
+    ['a follower of 2.5 V, V+ unwired (5 V rail)', null, 2.5, false],
+    ['x3.7 of 3.0 V on 15 V: 11.1 V', 15, 3.0, true],
+    ['x3.7 of 3.0 V on 9 V: saturated about 1 V below V+', 9, 3.0, true],
+    ['x3.7 of 3.0 V, V+ unwired: saturated below the 5 V rail', null, 3.0, true],
+  ] as const)('%s: the same output as an LM358', { timeout: 60_000 }, async (_name, vplus, vin, gain) => {
+    const lm358 = await vout('opamp-lm358', vplus, vin, gain);
+    const lm324 = await vout('opamp-lm324', vplus, vin, gain);
+    expect(Math.abs(lm324 - lm358)).toBeLessThan(1e-6);
+  });
+
+  it('emits the LM358 subcircuit, and its text says so instead of a 1.5 V headroom', () => {
+    const nets: Record<string, string> = { 'IN+': 'a', 'IN-': 'b', OUT: 'c', 'V+': 'p' };
     const e = componentToSpice({ id: 'q', metadataId: 'opamp-lm324', properties: {} }, (pin) => nets[pin] ?? null, {
       vcc: 5,
     })!;
-    expect(e.cards).toContain('B_q c 0 V = max(0.05, min(3.5, 100000*(V(a)-V(b))))');
+    expect(e.cards).toEqual(['X_q a b p 0 c LM358']);
+    expect([...e.modelsUsed]).toEqual([LM358_SUBCKT]);
+    expect(e.drives).toEqual(['c']);
     const text = catalogText('opamp-lm324');
-    expect(text).not.toMatch(/electrically like the LM358/);
-    expect(text).toMatch(/clamped between V- \+ 0\.05 V and V\+ - 1\.5 V/);
+    expect(text).not.toMatch(/1\.5 V/);
+    expect(text).toMatch(/runs the same model/);
     expect(source('../simulation/spice/componentToSpice.ts')).not.toMatch(/electrically identical to LM358/);
   });
 });
