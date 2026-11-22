@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "実行するボードを追加",
         "runMicropython": "MicroPythonを実行",
-        "run": "実行 (必要に応じて自動コンパイル)"
+        "run": "実行 (必要に応じて自動コンパイル)",
+        "runActiveOnly": "{{name}} のみ実行",
+        "options": "実行オプション",
+        "verifying": "回路を確認中…",
+        "emptyCircuit": "実行するにはボードまたは部品を追加してください",
+        "digitalRunning": "デジタルシミュレーション実行中",
+        "resumeDigital": "デジタルシミュレーションを再開"
       },
       "stop": "停止",
       "reset": "リセット",
@@ -194,7 +200,8 @@
         "rotate": "回転 (R)",
         "copy": "ボードをコピー (Ctrl+C)",
         "paste": "貼り付け (Ctrl+V)"
-      }
+      },
+      "circuitCanvas": "回路キャンバス"
     },
     "componentPicker": {
       "title": "コンポーネントを追加",
@@ -434,7 +441,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "切り取り",
+      "copy": "コピー",
+      "paste": "貼り付け",
+      "find": "検索",
+      "replace": "置換"
     },
     "inspector": {
       "propertiesTab": "プロパティ",

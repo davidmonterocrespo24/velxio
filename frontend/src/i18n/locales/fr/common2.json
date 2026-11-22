@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "Ajouter une carte à exécuter",
         "runMicropython": "Exécuter MicroPython",
-        "run": "Exécuter (auto-compilation si nécessaire)"
+        "run": "Exécuter (auto-compilation si nécessaire)",
+        "runActiveOnly": "Exécuter uniquement {{name}}",
+        "options": "Options d’exécution",
+        "verifying": "Vérification du circuit…",
+        "emptyCircuit": "Ajoutez une carte ou un composant pour lancer la simulation",
+        "digitalRunning": "Simulation numérique en cours",
+        "resumeDigital": "Reprendre la simulation numérique"
       },
       "stop": "Arrêter",
       "reset": "Réinitialiser",
@@ -194,7 +200,8 @@
         "rotate": "Pivoter (R)",
         "copy": "Copier la carte (Ctrl+C)",
         "paste": "Coller (Ctrl+V)"
-      }
+      },
+      "circuitCanvas": "Zone du circuit"
     },
     "componentPicker": {
       "title": "Ajouter un composant",
@@ -434,7 +441,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "Couper",
+      "copy": "Copier",
+      "paste": "Coller",
+      "find": "Rechercher",
+      "replace": "Remplacer"
     },
     "inspector": {
       "propertiesTab": "Propriétés",

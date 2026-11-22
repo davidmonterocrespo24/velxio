@@ -50,7 +50,7 @@ import { calculatePinPosition } from '../../utils/pinPositionCalculator';
 import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping';
 import { isBreadboard } from '../../utils/breadboardNets';
 import { pickDropSlot } from '../../utils/dropSlot';
-import { registerEditorCommand } from '../../lib/editorCommands';
+import { registerEditorCommand, setEditingPane } from '../../lib/editorCommands';
 import {
   autoWireColor,
   railWireColor,
@@ -3453,6 +3453,22 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         <div
           ref={canvasRef}
           className="canvas-content"
+          role="region"
+          aria-label={t('editor.canvas.circuitCanvas', 'Circuit canvas')}
+          tabIndex={0}
+          onFocus={() => setEditingPane('circuit')}
+          onMouseDownCapture={(event) => {
+            // Parts and drag handles can stop the mouse event before it
+            // reaches the canvas. Focus the canvas without interrupting inputs.
+            const target = event.target;
+            if (
+              target instanceof Element &&
+              target.closest('button, input, textarea, select, a[href], [contenteditable]')
+            ) {
+              return;
+            }
+            event.currentTarget.focus({ preventScroll: true });
+          }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
