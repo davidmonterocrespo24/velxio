@@ -64,6 +64,8 @@ import { hexToUint8Array } from '../utils/hexParser';
 import type { SerialLink } from '../store/serialWire';
 import { I2CBusManager, nullI2CMaster } from './I2CBusManager';
 import { boardPinsFromPinManager } from './buses/boardPins';
+import { I2cScopeSynth, SpiScopeSynth, type ScopeSink } from './busScope';
+import { ATMEGA328P_TABLE, ATMEGA2560_TABLE } from './buses/boardPinTables/avr';
 
 /**
  * AVRSimulator - Emulates Arduino Uno (ATmega328p) using avr8js
@@ -1196,6 +1198,8 @@ class AvrSpiPort implements SpiControllerPort {
   private cpu: CPU | null = null;
   private spcr = spiConfig.SPCR;
   private handler: ((mosi: number, bits: number) => number) | null = null;
+  /** Hears every frame with its answer, to draw it on the scope (busScope.ts). */
+  scopeFrame: ((mosi: number, miso: number) => void) | null = null;
   /** The CPU was (re)built: take over its SPI peripheral. */
   attach(engine: AVRSPI, cpu: CPU, config: SPIConfig): void {
     this.engine = engine;
@@ -1217,6 +1221,7 @@ class AvrSpiPort implements SpiControllerPort {
     // write, 64 bytes at 125 kHz took 56 us instead of 4.1 ms
     // (velxio/velxio-prod#159).
     const miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
+    this.scopeFrame?.(mosi & 0xff, miso);
     cpu.addClockEvent(() => engine.completeTransfer(miso), engine.transferCycles);
   }
 
@@ -1347,6 +1352,15 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    */
   private lastTxEnable: boolean[] = [];
 
+  /**
+   * Wire and SPI on the scope (velxio/velxio-prod#160): avr8js moves no pin
+   * for a TWI or SPI transfer, so these draw each step on SDA/SCL and
+   * SCK/MOSI/MISO, for the scope only (busScope.ts). None on the ATtiny85,
+   * whose USI the fabric decodes from its pins.
+   */
+  private twiScope: I2cScopeSynth | null = null;
+  private spiScope: SpiScopeSynth | null = null;
+
   /** What getBusBinding() hands the fabric, built once. */
   private busBinding: EngineBinding | null = null;
   /** Told about every MCU reset, after the board's pins went back to undriven. */
@@ -1390,10 +1404,10 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         complete();
         return;
       }
-      const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
-      const sclCycles = 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+      const sclCycles = this.twiSclCycles(cpu);
       cpu.addClockEvent(complete, phase === 'byte' ? 9 * sclCycles : sclCycles);
     });
+    if (boardVariant !== 'tiny85') this.attachBusScopes(boardVariant);
     // Seed the input register to the pull's resting level the instant the
     // firmware enables it (INPUT_PULLUP -> HIGH). Real silicon does this in
     // nanoseconds; without the seed, digitalRead returned 0 from pinMode
@@ -1413,6 +1427,64 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     if (this.boardVariant === 'mega') return PWM_PINS_MEGA;
     if (this.boardVariant === 'tiny85') return PWM_PINS_TINY85;
     return PWM_PINS_UNO;
+  }
+
+  /**
+   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts). The
+   * frame loop calls it once a frame; a caller that steps the CPU itself
+   * calls it before it reads the scope.
+   */
+  flushScopeEdges(): void {
+    this.twiScope?.flush();
+    this.spiScope?.flush();
+  }
+
+  /** One SCL period in CPU cycles: 16 + 2 * TWBR * 4^TWPS (ATmega328P 22.5.2). */
+  private twiSclCycles(cpu: CPU): number {
+    const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
+    return 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+  }
+
+  /**
+   * Draw Wire and SPI on the scope: the TWI's steps on SDA and SCL, each SPI
+   * frame on SCK, MOSI and MISO, at the pins the board table fixes, timed on
+   * the same clock and the same SCL period the TWI spends (velxio/velxio-prod#160).
+   */
+  private attachBusScopes(variant: 'uno' | 'mega'): void {
+    const table = variant === 'mega' ? ATMEGA2560_TABLE : ATMEGA328P_TABLE;
+    const pins = (bus: 'i2c' | 'spi') =>
+      table.controllers.find((c) => c.bus === bus && c.unit === 0)?.defaultPins ?? {};
+    const first = (p: number | number[] | undefined) => (Array.isArray(p) ? p[0] : p);
+    const i2c = pins('i2c');
+    const spi = pins('spi');
+    const sink = () => this.onPinChangeWithTime as ScopeSink | null;
+    const nowMs = () => this.scopeClockMs();
+    this.twiScope = new I2cScopeSynth({
+      sink,
+      sda: () => first(i2c.sda),
+      scl: () => first(i2c.scl),
+      nowMs,
+      timing: () => {
+        const cpu = this.cpu;
+        if (!cpu) return null;
+        // SCL's two halves, in ms at 16 MHz.
+        const halfMs = this.twiSclCycles(cpu) / 16_000 / 2;
+        return { lowMs: halfMs, highMs: halfMs };
+      },
+    });
+    this.i2cBus.setScopeTap(this.twiScope);
+    const port = this.spiPort;
+    if (!port) return;
+    this.spiScope = new SpiScopeSynth({
+      sink,
+      sck: () => first(spi.sck),
+      mosi: () => first(spi.mosi),
+      miso: () => first(spi.miso),
+      nowMs,
+      config: () => port.config(),
+    });
+    const scope = this.spiScope;
+    port.scopeFrame = (mosi, miso) => scope.frame(mosi, miso, 8);
   }
 
   /** The USARTs this variant has, with their pins. */
@@ -1612,6 +1684,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    */
   private announceMcuReset(): void {
     this.pinManager.hardResetPinStates();
+    // The new CPU's clock starts at 0, and the bus with it.
+    this.twiScope?.reset();
+    this.spiScope?.reset();
     this.busResetHandler?.();
   }
 
@@ -2015,6 +2090,8 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // self-heal across both startup races and Serial.end()/begin()
         // toggles in the sketch.
         for (const port of this.uartPorts) port.retryPending();
+        // The Wire and SPI edges drawn this frame reach the scope in one go.
+        this.flushScopeEdges();
 
         frameCount++;
         if (frameCount % 60 === 0) {
@@ -2046,6 +2123,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.scheduledPinChanges = [];
     this.lines?.reset();
     this.externalScope.reset();
+    this.flushScopeEdges();
 
     // Drop any bytes the previous run had queued for the sketch's RX
     // but never delivered (RX disabled, busy, or the sketch hadn't
