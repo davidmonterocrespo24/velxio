@@ -21,6 +21,10 @@
  *   - The follower example said it tracks its input "exactly", with
  *     "infinite input impedance"; on the LM358 that is within the 2 mV input
  *     offset, with the bias current, about 50 nA, flowing in the input.
+ *   - Two Uno examples gave the textbook formulas: the inverting amplifier
+ *     "Vout = -(Rf/Rin) * Vin", while IN+ sits at 2.5 V and the output can
+ *     only be 0 to 4 V, and the follower "Vout = Vin" for a pot that goes
+ *     to 5 V while the output stops at 4.02 V.
  *   - Comments: phase-2-lm358-subckt.test.ts said the subcircuit was not
  *     wired in (it has been since 54936ef6), and componentToSpice.ts called
  *     the LM324 identical to the LM358 next to its clamp.
@@ -29,6 +33,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import metadataJson from '../../public/components-metadata.json' with { type: 'json' };
 import { analogExamples } from '../data/examples-analog';
+import { circuitExamples } from '../data/examples-circuits';
 import { exampleToBuildNetlistInput } from '../utils/exampleToBuildNetlistInput';
 import { buildNetlist } from '../simulation/spice/NetlistBuilder';
 import { componentToSpice } from '../simulation/spice/componentToSpice';
@@ -239,6 +244,57 @@ describe('the ideal op-amp and the follower example (velxio/velxio-prod#128)', (
     const { netlist, pinNetMap } = buildNetlist(exampleToBuildNetlistInput(raised, { analysis: { kind: 'op' } }));
     const out = (await runNetlist(netlist)).dcValue(`v(${pinNetMap.get('u1:OUT')})`);
     expect(Math.abs(out - top)).toBeLessThan(0.06);
+  });
+});
+
+describe("the Uno's op-amp examples (velxio/velxio-prod#128)", () => {
+  /** OUT (and the pot's wiper) of a Uno example with its pot(s) at `pots` (0-1023), the Uno's rails on. */
+  async function uno(id: string, pots: Record<string, number>) {
+    const ex = circuitExamples.find((e) => e.id === id)!;
+    const set = {
+      ...ex,
+      components: ex.components.map((c) => (c.id in pots ? { ...c, properties: { ...c.properties, value: pots[c.id] } } : c)),
+    };
+    const input = exampleToBuildNetlistInput(set, {
+      analysis: { kind: 'op' },
+      boards: [{ id: 'arduino-uno', boardKind: 'arduino-uno', pinStates: {} }],
+    });
+    const { netlist, pinNetMap } = buildNetlist(input);
+    const r = await runNetlist(netlist);
+    return (pin: string) => r.dcValue(`v(${pinNetMap.get(pin)})`);
+  }
+  const text = (id: string) => circuitExamples.find((e) => e.id === id)!.description;
+
+  it('the inverting amplifier: Vout = 2.5 - 10 * (Vin - 2.5), unclipped only between the Vin its text gives', { timeout: 60_000 }, async () => {
+    const t = text('opamp-inverting');
+    expect(t).not.toMatch(/Vout = -\(Rf\/Rin\) \* Vin/);
+    expect(t).toMatch(/Vout = 2\.5 - 10 \* \(Vin - 2\.5\)/);
+    // In its linear range the output is the formula (within the 2 mV offset x 11).
+    for (const pot of [480, 520, 560]) {
+      const v = await uno('opamp-inverting', { pot });
+      expect(Math.abs(v('u1:OUT') - (2.5 - 10 * (v('pot:SIG') - 2.5)))).toBeLessThan(0.03);
+    }
+    // The range it gives is where the output leaves its rails, 0 and about 4 V.
+    const [lo, hi] = /between about ([\d.]+) and ([\d.]+) V comes out unclipped/.exec(t)!.slice(1).map(Number);
+    const top = (await uno('opamp-inverting', { pot: 0 }))('u1:OUT');
+    expect(top).toBeCloseTo(4, 0);
+    expect(Math.abs(lo! - (2.5 - (top - 2.5) / 10))).toBeLessThan(0.01);
+    expect(Math.abs(hi! - (2.5 + 2.5 / 10))).toBeLessThan(0.01);
+  });
+
+  it('the follower: Vout = Vin up to about 4 V, then about 4.0 V while the pot goes on to 5 V', { timeout: 60_000 }, async () => {
+    const t = text('opamp-voltage-follower');
+    expect(t).not.toMatch(/Vout = Vin\. /);
+    expect(t).toMatch(/up to about 4 V/);
+    const mid = await uno('opamp-voltage-follower', { pot: 512 });
+    expect(Math.abs(mid('u1:OUT') - mid('u1:IN+'))).toBeLessThan(0.003);
+    // The last fifth of the travel: from 82 % up, A1 (OUT) holds about 4.0 V.
+    for (const pot of [840, 1023]) {
+      const v = await uno('opamp-voltage-follower', { pot });
+      expect(v('u1:OUT')).toBeCloseTo(4.0, 1);
+      expect(v('u1:IN+')).toBeGreaterThan(4.1);
+    }
+    expect((await uno('opamp-voltage-follower', { pot: 800 }))('u1:OUT')).toBeLessThan(3.95);
   });
 });
 
