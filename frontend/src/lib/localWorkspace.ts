@@ -400,15 +400,18 @@ export function canSaveProjectFile(): boolean {
   return typeof (window as PickerWindow).showSaveFilePicker === 'function';
 }
 
-export async function openProjectFile(): Promise<void> {
+export async function openProjectFile(dismissPickerHost?: () => void): Promise<void> {
   const version = workspaceVersion();
+  let handle: DiskHandle | undefined;
   try {
-    const [handle] =
+    [handle] =
       (await (window as PickerWindow).showOpenFilePicker?.({
         types: [fileType],
         excludeAcceptAllOption: true,
       })) ?? [];
-    if (!handle) return;
+    if (!handle || version !== workspaceVersion()) return;
+    // A native modal would block the workspace confirmation or error dialog.
+    dismissPickerHost?.();
     const file = await handle.getFile();
     const payload = await parseVlxFile(file);
     if (
@@ -429,6 +432,7 @@ export async function openProjectFile(): Promise<void> {
     loadDiskWorkspace(handle, file, payload, historyId, id);
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      if (!handle && version === workspaceVersion()) dismissPickerHost?.();
       showMessageDialog(String(error), { kind: 'error', title: 'Could not open project' });
     }
   }

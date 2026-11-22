@@ -1,5 +1,5 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
-import { ArrowLeft, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, FolderOpen, HardDrive, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   deleteBrowserWorkspace,
@@ -13,7 +13,7 @@ import { SearchBar } from '../ui/SearchBar';
 import { NewProjectTemplates } from './NewProjectDialog';
 
 type LocalProjectsContentProps =
-  | { view: 'start'; onNew: () => void; onSaved: () => void; onClose: () => void }
+  | { view: 'start'; onNew: () => void; onSaved: () => void; onOpenDisk?: () => Promise<void>; onClose: () => void }
   | { view: 'saved'; onOpen: (id: string) => void; onBack?: () => void; onSaveCopy?: () => void; onClose: () => void }
   | { view: 'save'; copy: boolean; onClose: () => void };
 
@@ -57,7 +57,7 @@ export function LocalProjectsDialog(props: LocalProjectsDialogProps) {
         if (props.view !== 'start' || event.target !== event.currentTarget) return;
         const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect();
         if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
-          props.onClose();
+          content.current?.cancel();
         }
       }}
       onCancel={(event) => {
@@ -148,6 +148,16 @@ function LocalProjectsContent(
     }
     setConfirmation(null);
     props.onOpen(id);
+  };
+
+  const openDisk = async () => {
+    if (props.view !== 'start' || !props.onOpenDisk || busy) return;
+    setBusy(true);
+    try {
+      await props.onOpenDisk();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const refreshProjects = () => listLocalProjects().then(setProjects, () => undefined);
@@ -259,7 +269,7 @@ function LocalProjectsContent(
 
       {props.view === 'start' && (
         <div className="local-projects-start">
-          <button type="button" className="local-projects-start-new" onClick={props.onNew}>
+          <button type="button" className="local-projects-start-new" onClick={props.onNew} disabled={busy}>
             <span className="local-projects-start-icon">
               <Plus size={21} aria-hidden />
             </span>
@@ -273,7 +283,7 @@ function LocalProjectsContent(
               </small>
             </span>
           </button>
-          <button type="button" onClick={props.onSaved}>
+          <button type="button" onClick={props.onSaved} disabled={busy}>
             <span className="local-projects-start-icon">
               <FolderOpen size={21} aria-hidden />
             </span>
@@ -287,6 +297,14 @@ function LocalProjectsContent(
               </small>
             </span>
           </button>
+          {props.onOpenDisk && (
+            <button type="button" className="local-projects-start-disk" onClick={() => void openDisk()} disabled={busy}>
+              <span className="local-projects-start-icon">
+                <HardDrive size={21} aria-hidden />
+              </span>
+              <strong>{t('editor.menu.openDisk', 'Open .vlx from disk…')}</strong>
+            </button>
+          )}
         </div>
       )}
 

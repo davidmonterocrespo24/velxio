@@ -3,7 +3,7 @@
  */
 
 import React, { useRef, useState, useSyncExternalStore, useCallback, useEffect, useLayoutEffect } from 'react';
-import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, Package, PanelsLeftRight, Plus, TriangleAlert } from 'lucide-react';
+import { ChevronDown, CircuitBoard, CodeXml, FolderOpen, HardDrive, Package, PanelsLeftRight, Plus, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { startSimulation } from '../simulation/spice/start';
 import { useSEO } from '../utils/useSEO';
@@ -996,6 +996,12 @@ export const EditorPage: React.FC = () => {
                   <FolderOpen size={16} aria-hidden />
                   {t('editor.localProjects.title', 'Saved projects')}
                 </button>
+                {canOpenProjectFile() && (
+                  <button type="button" onClick={() => void openProjectFile()}>
+                    <HardDrive size={16} aria-hidden />
+                    {t('editor.menu.openDisk', 'Open .vlx from disk…')}
+                  </button>
+                )}
               </div>
             </section>
           </div>
@@ -1088,7 +1094,8 @@ export const EditorPage: React.FC = () => {
       )}
       {projectDialog === 'start' ? (
         <LocalProjectsDialog view="start" onClose={dismissProjectStart}
-          onNew={() => setProjectDialog('templates')} onSaved={() => setProjectDialog('saved-from-start')} />
+          onNew={() => setProjectDialog('templates')} onSaved={() => setProjectDialog('saved-from-start')}
+          onOpenDisk={canOpenProjectFile() ? () => openProjectFile(closeProjectDialog) : undefined} />
       ) : projectDialog === 'templates' ? (
         <LocalProjectsDialog view="templates" onClose={closeProjectDialog} onBack={showProjectStart}
           onSaveFailed={projectRoute.leaveProjectRoute} />

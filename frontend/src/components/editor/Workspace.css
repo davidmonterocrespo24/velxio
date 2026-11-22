@@ -1340,9 +1340,16 @@ button.workspace-status-board:hover,
   text-align: start;
 }
 
-.local-projects-dialog .local-projects-start button:hover {
+.local-projects-dialog .local-projects-start button:hover:enabled {
   border-color: var(--color-accent-border);
   background: var(--wb-4);
+}
+
+.local-projects-dialog .local-projects-start .local-projects-start-disk {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  min-height: 66px;
 }
 
 .local-projects-start button .local-projects-start-icon {
