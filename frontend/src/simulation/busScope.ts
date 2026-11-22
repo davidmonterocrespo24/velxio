@@ -40,8 +40,8 @@
  * a set it keeps per channel list). When the scope watches the bus, each
  * edge is one sample object, appended as it will be stored, and they are
  * handed over a run per pin in one store update: when the engine's frame
- * ends, so once a frame for a bus that is not saturated, and in between once
- * FLUSH_EDGES samples wait.
+ * ends, so once a frame for a bus that is not saturated, and in between each
+ * time FLUSH_EDGES more were drawn.
  *
  * I2C (NXP UM10204, sections 3.1.4 to 3.1.6): both lines idle HIGH; START is
  * SDA falling while SCL is HIGH, STOP is SDA rising while SCL is HIGH; data
@@ -90,7 +90,7 @@ export type ScopeSink = ((pin: number, state: boolean, timeMs: number) => void) 
 export const MAX_LEAD_MS = 50;
 
 /**
- * Samples a synthesizer lets wait before it hands the scope, within a frame,
+ * Samples a synthesizer draws, within a frame, before it hands the scope
  * those the clock has reached. The ones still ahead of the clock wait on (at
  * most MAX_LEAD_MS of drawing and the transfer that crosses it).
  */
@@ -125,6 +125,8 @@ class Drawing {
   private sink: ScopeSink | null = null;
   /** Samples drawn that the scope has not been handed yet, on every line. */
   private count = 0;
+  /** Samples drawn since settle() last handed some over. */
+  private drawnSinceSettle = 0;
   private readonly lines: Line[];
 
   constructor(lines: Line[]) {
@@ -144,6 +146,7 @@ class Drawing {
     line.pendingPin = pin;
     line.pending.push({ timeMs: at, state: level });
     this.count++;
+    this.drawnSinceSettle++;
   }
 
   /** Put `line` back to `level` at `at` where the drawing left it at the other level. */
@@ -153,9 +156,17 @@ class Drawing {
     }
   }
 
-  /** Hand over what the clock (`nowMs`) has reached once a batch's worth waits. */
+  /**
+   * Hand over what the clock (`nowMs`) has reached each time a batch's worth
+   * more was drawn: counted from the last time, not from what waits, which a
+   * drawing ahead of the clock keeps above a batch for a whole frame (one
+   * store update per byte cost a Pico streaming SSD1306 frames 1.35 times
+   * the CPU with the scope on SDA and SCL).
+   */
   settle(nowMs: number): void {
-    if (this.count >= FLUSH_EDGES) this.flush(nowMs);
+    if (this.drawnSinceSettle < FLUSH_EDGES) return;
+    this.drawnSinceSettle = 0;
+    this.flush(nowMs);
   }
 
   /**

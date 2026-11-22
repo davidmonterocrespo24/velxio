@@ -364,6 +364,26 @@ describe('handing the edges over', () => {
     expect(batches()).toBeLessThanOrEqual(Math.ceil(edges.length / FLUSH_EDGES) + 1);
     expect(batches()).toBeLessThan(20);
   });
+
+  it('a drawing ahead of the clock still goes over a batch at a time, not at every byte', () => {
+    // An RP2040 queues an SSD1306 frame almost at once: at 400 kHz the
+    // drawing runs ahead of the clock, which moves a microsecond a byte, and
+    // what waits for it stays above a batch for the whole frame.
+    const { sink, edges, batches } = sinkFor([SDA, SCL]);
+    const clock = { now: 0 };
+    const synth = i2c(clock, sink, 0.00125, 0.00125);
+    synth.start();
+    synth.address(0x3c, false, true);
+    for (let k = 0; k < 1024; k++) {
+      synth.write(k & 0xff, true);
+      clock.now += 0.001;
+    }
+    synth.stop();
+    synth.flush();
+    expect(edges.length).toBeGreaterThan(1024 * 18);
+    expect(batches()).toBeLessThanOrEqual(Math.ceil(edges.length / FLUSH_EDGES) + 1);
+    for (let i = 1; i < edges.length; i++) expect(edges[i]!.timeMs).toBeGreaterThanOrEqual(edges[i - 1]!.timeMs);
+  });
 });
 
 describe('the clock and the pads', () => {
