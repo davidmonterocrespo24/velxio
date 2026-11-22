@@ -365,3 +365,92 @@ describe('handing the edges over', () => {
     expect(batches()).toBeLessThan(20);
   });
 });
+
+describe('the clock and the pads', () => {
+  // The scope stores a line's samples in the order they arrive, and a pad's
+  // own edges (the GPIO path, the circuit) arrive at the board clock. A drawn
+  // edge is therefore handed over once the clock has reached it, and a pad
+  // edge on a line the drawing is on makes the drawing give way (review of
+  // book-r, note 1).
+
+  it('release() hands over only what the clock has reached; the rest waits for it', () => {
+    const { sink, edges } = sinkFor([SDA, SCL]);
+    const clock = { now: 0 };
+    const synth = i2c(clock, sink);
+    writeTransaction(synth, 2); // 290 us on the wire, drawn at once
+    clock.now = 0.1;
+    synth.release();
+    expect(edges.length).toBeGreaterThan(10);
+    expect(edges.every((e) => e.timeMs <= 0.1)).toBe(true);
+    const n = edges.length;
+    clock.now = 1;
+    synth.release();
+    expect(edges.length).toBeGreaterThan(n);
+    for (let i = 1; i < edges.length; i++) expect(edges[i]!.timeMs).toBeGreaterThanOrEqual(edges[i - 1]!.timeMs);
+  });
+
+  it('a pad edge inside the drawing: what was drawn up to it is handed over, the rest never is', () => {
+    const { sink, edges } = sinkFor([SDA, SCL]);
+    const clock = { now: 0 };
+    const synth = i2c(clock, sink);
+    writeTransaction(synth, 2);
+    // 52 us: in the fifth bit of the address, SCL LOW since 50 us.
+    const t = 0.052;
+    synth.padEdge(SDA, t);
+    expect(edges.length).toBeGreaterThan(5);
+    expect(edges.every((e) => e.timeMs <= t)).toBe(true);
+    // SCL, which the pad edge did not move, is back at the idle HIGH a
+    // pad nothing drives rests at, so SDA's own edge next reads right.
+    expect(edges.filter((e) => e.pin === SCL).at(-1)).toEqual({ pin: SCL, state: true, timeMs: t });
+    const n = edges.length;
+    synth.flush(); // even at a stop, nothing drawn after the pad edge comes
+    expect(edges.length).toBe(n);
+    // The next transaction starts at the clock, not where the one cut short
+    // would have ended.
+    clock.now = 0.06;
+    writeTransaction(synth, 1);
+    synth.flush();
+    expect(edges[n]!.timeMs).toBeGreaterThanOrEqual(0.06);
+    expect(edges[n]!.timeMs).toBeLessThan(0.07);
+  });
+
+  it('a pad edge after the drawing ended hands it over first and takes nothing back', () => {
+    const { sink, edges, batches } = sinkFor([SDA, SCL]);
+    const synth = i2c({ now: 0 }, sink);
+    writeTransaction(synth, 1); // 200 us
+    synth.padEdge(SCL, 0.5);
+    expect(batches()).toBe(1);
+    const n = edges.length;
+    expect(edges.filter((e) => e.pin === SCL && e.state)).toHaveLength(1 + 18 + 1);
+    synth.flush();
+    expect(edges.length).toBe(n);
+  });
+
+  it('a pad edge on a pin the synthesizer never drew on changes nothing', () => {
+    const { sink, edges, batches } = sinkFor([SDA, SCL]);
+    const synth = i2c({ now: 0 }, sink);
+    writeTransaction(synth, 1);
+    synth.padEdge(7, 0.05);
+    expect(batches()).toBe(0);
+    synth.flush();
+    expect(edges.filter((e) => e.pin === SCL && e.state)).toHaveLength(1 + 18 + 1);
+  });
+
+  it('SPI: frames drawn ahead give way to a pad edge on MOSI', () => {
+    const { sink, edges } = sinkFor([SCK, MOSI, MISO]);
+    const clock = { now: 0 };
+    const synth = spi({ enabled: true, mode: 0, bitOrder: 'msb', bits: 8, hz: 1_000_000 }, clock, sink);
+    synth.frame(0xa5, 0x3c, 8);
+    synth.frame(0x0f, 0xf0, 8); // 16.5 us
+    synth.padEdge(MOSI, 0.004);
+    synth.flush();
+    expect(edges.length).toBeGreaterThan(5);
+    expect(edges.every((e) => e.timeMs <= 0.004)).toBe(true);
+    const n = edges.length;
+    clock.now = 0.01;
+    synth.frame(0x55, 0x00, 8);
+    synth.flush();
+    expect(edges.length).toBeGreaterThan(n);
+    expect(Math.min(...edges.slice(n).map((e) => e.timeMs))).toBeGreaterThanOrEqual(0.01);
+  });
+});

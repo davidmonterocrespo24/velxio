@@ -65,6 +65,21 @@ function scopeFeed(pins: number[]) {
 /** The edges of one pin, with the times they arrived at. */
 const on = (edges: Edge[], pin: number) => edges.filter((e) => e.pin === pin);
 
+/**
+ * How many of a pin's samples arrived after one later than them: the scope
+ * stores a channel's samples in the order they arrive, and draws each such
+ * sample as a stroke backwards.
+ */
+function late(edges: Edge[]): number {
+  let latest = -Infinity;
+  let n = 0;
+  for (const e of edges) {
+    if (e.timeMs < latest) n++;
+    else latest = e.timeMs;
+  }
+  return n;
+}
+
 type I2cEvent =
   | { kind: 'S' | 'Sr' | 'P'; t: number }
   | { kind: 'byte'; value: number; ack: boolean; t: number };
@@ -346,5 +361,122 @@ describe('Raspberry Pi Pico: Wire and SPI on the scope', () => {
     // Every edge of SDA and SCL arrives at or after the one before it.
     const { problems } = decodeI2c(edges, PICO.sda, PICO.scl);
     expect(problems.join('; ')).toBe('');
+  });
+});
+
+// ── Raspberry Pi Pico: a probe bit-banged on the pads of a drawn transfer ──
+
+describe('Raspberry Pi Pico: an address probe bit-banged on the pads of a drawn write', () => {
+  // arduino-pico bit-bangs a zero-length write (Wire.beginTransmission(a);
+  // Wire.endTransmission(), the presence check of scanners and of most
+  // Adafruit begin() calls) through the SIO on SDA and SCL, which its
+  // controller cannot send. Those pad edges reach the scope at the clock,
+  // while the drawing of the write before it ran ahead of the clock (every
+  // step completes at once on this engine) and reached the scope only at
+  // the end of the frame: the trace stroked backwards (review of book-r,
+  // note 1). rp2040-i2c-probe-scope writes 16 bytes to 0x3C and probes 0x3D
+  // twice a round: 3 ms after the write, then right behind it.
+  const SDA = 4;
+  const SCL = 5;
+  let edges: Edge[] = [];
+  const lines: string[] = [];
+
+  beforeAll(() => {
+    const sim = new RP2040Simulator(new PinManager());
+    sim.loadBinary(fixture('rp2040-i2c-probe-scope', 'bin').toString('base64'));
+    const scope = scopeFeed([SDA, SCL]);
+    sim.onPinChangeWithTime = scope.feed;
+    edges = scope.edges;
+    // A display at 0x3C takes the writes; nobody answers 0x3D.
+    sim.getBusBinding().i2c![0]!.setTransactionHandler({
+      start: (address) => address === 0x3c,
+      write: () => true,
+      read: () => 0xff,
+      stop: () => {},
+    });
+    let out = '';
+    sim.onSerialData = (ch) => {
+      if (ch === '\n') {
+        lines.push(out.replace(/\r$/, ''));
+        out = '';
+      } else out += ch;
+    };
+    for (let f = 0; f < 600 && lines.length < 2; f++) sim.runFrameForTime(16);
+  });
+
+  it('the sketch ran its rounds, and nobody answered the probes', () => {
+    expect(lines.slice(0, 2)).toEqual(['a=2 b=2', 'a=2 b=2']);
+  });
+
+  it('SDA and SCL reach the scope in time order', () => {
+    for (const pin of [SDA, SCL]) {
+      expect(`GP${pin}: ${late(on(edges, pin))} samples behind one the scope already had`).toBe(
+        `GP${pin}: 0 samples behind one the scope already had`,
+      );
+    }
+  });
+
+  it('a probe 3 ms after the write follows the whole write; one right behind it cuts the drawing short', () => {
+    const { events } = decodeI2c(edges, SDA, SCL);
+    const data = Array.from({ length: 16 }, (_, i) => `${(0x40 + i).toString(16).toUpperCase()}+`).join(' ');
+    const write = `S 78+ ${data} P`;
+    // The second write's START, then the probe's START at once: the write
+    // was drawn up to the probe's first edge (SCL put back to its idle HIGH
+    // there) and no further, and the probe reads as a repeated START.
+    const round = `${write} S 7A- P S Sr 7A- P`;
+    expect(asText(events)).toContain(`${round} ${round}`);
+    const i = asText(events).split(' ').indexOf('Sr');
+    expect(events[i]!.t - events[i - 1]!.t).toBeLessThan(0.1);
+  });
+});
+
+// ── Arduino Uno: A4 moved by the circuit or the sketch after a drawn transfer ──
+
+describe('Arduino Uno: A4 moved by the circuit or the sketch while a drawn transfer waits', () => {
+  // The drawing of a Wire transfer reaches the scope when the frame ends; an
+  // edge the pad itself makes reaches it at once. Stepped by hand, as here,
+  // nothing is handed over until the end, so every edge below comes while
+  // the transfer's drawing waits: it has to be handed over first.
+  const SDA = 18;
+  const SCL = 19;
+  let edges: Edge[] = [];
+
+  beforeAll(() => {
+    const sim = new AVRSimulator(new PinManager(), 'uno');
+    sim.loadHex(fixture('avr-i2c-spi-bus-time', 'hex').toString('utf8'));
+    const scope = scopeFeed([SDA, SCL]);
+    sim.onPinChangeWithTime = scope.feed;
+    edges = scope.edges;
+    sim.getBusBinding().i2c![0]!.setTransactionHandler({
+      start: (address) => address === 0x76,
+      write: () => true,
+      read: () => 0x58,
+      stop: () => {},
+    });
+    let line = '';
+    let out = '';
+    sim.onSerialData = (ch) => {
+      if (ch !== '\n') out += ch;
+      else if (!line) line = out;
+    };
+    const cpu = (sim as unknown as { cpu: { cycles: number; data: Uint8Array; writeData(a: number, v: number): void } }).cpu;
+    while (!line && cpu.cycles < 300 * 16_000) sim.step();
+    // A part on the bus pulls SDA low and lets it go (the circuit's door).
+    sim.setPinState(SDA, false);
+    sim.setPinState(SDA, true);
+    // The sketch takes A4 as an output and drives it LOW (the GPIO path):
+    // DDRC and PORTC, bit 4.
+    cpu.writeData(0x27, cpu.data[0x27]! | 0x10);
+    cpu.writeData(0x28, cpu.data[0x28]! & ~0x10);
+    sim.flushScopeEdges();
+  });
+
+  it('the transfer comes first, then the pad edges, all in time order', () => {
+    expect(late(on(edges, SDA))).toBe(0);
+    expect(late(on(edges, SCL))).toBe(0);
+    const { events } = decodeI2c(edges, SDA, SCL);
+    // The register read, then the part's pulse on SDA with SCL HIGH (a
+    // START and a STOP to a decoder), then the sketch's LOW.
+    expect(asText(events)).toBe('S EC+ D0+ Sr ED+ 58- P S P S');
   });
 });

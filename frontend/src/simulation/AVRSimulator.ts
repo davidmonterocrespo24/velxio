@@ -1433,14 +1433,38 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   }
 
   /**
-   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts). The
-   * frame loop calls it once a frame; a caller that steps the CPU itself
-   * calls it before it reads the scope.
+   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts), reached
+   * by the clock or not: the run stopped, or a caller that steps the CPU
+   * itself is about to read the scope.
    */
   flushScopeEdges(): void {
     this.twiScope?.flush();
     this.spiScope?.flush();
   }
+
+  /** Hand the scope the Wire and SPI edges the clock has reached: once a frame. */
+  releaseScopeEdges(): void {
+    this.twiScope?.release();
+    this.spiScope?.release();
+  }
+
+  /**
+   * A pad's own edge is about to reach the scope (the sketch's PORT write, a
+   * level the circuit put on it): a Wire or SPI drawing on that pad gives way
+   * first, so the scope gets the pad's samples in time order (busScope.ts).
+   */
+  private padScopeEdge(pin: number, timeMs: number): void {
+    this.twiScope?.padEdge(pin, timeMs);
+    this.spiScope?.padEdge(pin, timeMs);
+  }
+
+  /** The scope slot, for the levels the circuit puts on a pad (externalScope). */
+  private readonly padScope = (pin: number, state: boolean, timeMs: number): void => {
+    const sink = this.onPinChangeWithTime;
+    if (!sink) return;
+    this.padScopeEdge(pin, timeMs);
+    sink(pin, state, timeMs);
+  };
 
   /** One SCL period in CPU cycles: 16 + 2 * TWBR * 4^TWPS (ATmega328P 22.5.2). */
   private twiSclCycles(cpu: CPU): number {
@@ -1866,6 +1890,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // reported here is stale: the next injected level must be reported
         // even when it repeats that memory.
         this.externalScope.forget(pin);
+        this.padScopeEdge(pin, timeMs);
         this.onPinChangeWithTime(pin, state, timeMs);
       }
     }
@@ -2093,8 +2118,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // self-heal across both startup races and Serial.end()/begin()
         // toggles in the sketch.
         for (const port of this.uartPorts) port.retryPending();
-        // The Wire and SPI edges drawn this frame reach the scope in one go.
-        this.flushScopeEdges();
+        // The Wire and SPI edges the clock reached this frame go to the
+        // scope in one go.
+        this.releaseScopeEdges();
 
         frameCount++;
         if (frameCount % 60 === 0) {
@@ -2242,7 +2268,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // drives the pad, as the register is: the injected level is not on the
     // wire then.
     this.pinManager.triggerPinChange(arduinoPin, state, 'external');
-    this.externalScope.emit(this.onPinChangeWithTime, arduinoPin, state);
+    this.externalScope.emit(this.padScope, arduinoPin, state);
   }
 
   /**

@@ -19,16 +19,29 @@
  * the wire carries them: the cursor runs ahead of the clock, and once it is
  * more than MAX_LEAD_MS ahead, the transfers that start then are left out of
  * the picture whole (an I2C transaction from START to STOP, an SPI frame)
- * until the clock catches up. What is drawn is always a complete, correctly
- * timed transfer.
+ * until the clock catches up. What is drawn is a complete, correctly timed
+ * transfer, unless a pad cuts it short (below).
+ *
+ * Order. The scope stores each line's samples in the order it gets them, and
+ * the pads' own edges (the GPIO path, the levels the circuit puts on a pad)
+ * reach it at the board clock as they happen. So a drawn edge is handed over
+ * only once the clock has reached it (release(), when the engine's frame
+ * ends), never ahead of it but at a stop; and before a pad's own edge reaches
+ * the scope, the engine tells the synthesizer that drew on that pad
+ * (padEdge()), which hands over what it drew up to that moment and takes
+ * back what it drew after. That happens on the RP2040 when arduino-pico
+ * bit-bangs an address probe (a zero-length write, which its controller
+ * cannot send) on the I2C pads while the transfer before is still being
+ * drawn: that transfer is drawn cut short where the probe starts, and the
+ * probe follows in order (velxio/velxio-prod#160).
  *
  * Cost. Nothing is built or read for a pin the scope does not watch, so a
  * sketch that streams Wire or SPI pays a lookup per step (the feed's `wants`,
  * a set it keeps per channel list). When the scope watches the bus, each
  * edge is one sample object, appended as it will be stored, and they are
- * handed over a run per pin in one store update: every FLUSH_EDGES samples,
- * and when the engine's frame ends (flush()), so once a frame for a bus that
- * is not saturated.
+ * handed over a run per pin in one store update: when the engine's frame
+ * ends, so once a frame for a bus that is not saturated, and in between once
+ * FLUSH_EDGES samples wait.
  *
  * I2C (NXP UM10204, sections 3.1.4 to 3.1.6): both lines idle HIGH; START is
  * SDA falling while SCL is HIGH, STOP is SDA rising while SCL is HIGH; data
@@ -76,22 +89,30 @@ export type ScopeSink = ((pin: number, state: boolean, timeMs: number) => void) 
  */
 export const MAX_LEAD_MS = 50;
 
-/** Samples a synthesizer holds at most before it hands them to the scope. */
+/**
+ * Samples a synthesizer lets wait before it hands the scope, within a frame,
+ * those the clock has reached. The ones still ahead of the clock wait on (at
+ * most MAX_LEAD_MS of drawing and the transfer that crosses it).
+ */
 export const FLUSH_EDGES = 4096;
 
 /**
  * A line's level as the synthesizer last drew it, and the samples drawn on
- * it that the scope has not been handed yet. `level` null: not known, because
- * nothing was drawn on it since a reset or since a step nobody looked at. The
- * next step then draws every level it sets, so the trace never keeps a level
- * the scope did not get from here (the HIGH a pull-up seeded, the LOW
- * SPI.begin() left on MOSI).
+ * it. `level` null: not known, because nothing was drawn on it since a reset
+ * or since a step nobody looked at, or the pad moved by itself since. The next
+ * step then draws every level it sets, so the trace never keeps a level the
+ * scope did not get from here (the HIGH a pull-up seeded, the LOW SPI.begin()
+ * left on MOSI).
  */
 class Line {
   level: boolean | null = null;
+  /** The samples drawn, oldest first; the scope has those before `head`. */
   pending: ScopeSample[] = [];
+  head = 0;
   /** The pin `pending` was drawn for. */
   pendingPin = -1;
+  /** The level of the last sample the scope was handed on this line. */
+  handedLevel: boolean | null = null;
   /** The pad the line is routed to now. */
   readonly pin: () => number | undefined;
   constructor(pin: () => number | undefined) {
@@ -102,6 +123,7 @@ class Line {
 /** The lines of one synthesizer, and the scope their samples go to. */
 class Drawing {
   private sink: ScopeSink | null = null;
+  /** Samples drawn that the scope has not been handed yet, on every line. */
   private count = 0;
   private readonly lines: Line[];
 
@@ -117,29 +139,58 @@ class Drawing {
     }
     if (line.level === level) return;
     line.level = level;
-    if (this.sink !== sink || (line.pending.length > 0 && line.pendingPin !== pin)) this.flush();
+    if (this.sink !== sink || (line.pending.length > line.head && line.pendingPin !== pin)) this.flush();
     this.sink = sink;
     line.pendingPin = pin;
     line.pending.push({ timeMs: at, state: level });
     this.count++;
   }
 
-  /** Hand over what was drawn when there is a batch's worth of it. */
-  settle(): void {
-    if (this.count >= FLUSH_EDGES) this.flush();
+  /** Put `line` back to `level` at `at` where the drawing left it at the other level. */
+  restore(line: Line, at: number, level: boolean): void {
+    if (this.sink && line.pendingPin >= 0 && line.level === !level) {
+      this.put(this.sink, line, line.pendingPin, true, at, level);
+    }
   }
 
-  /** Hand every sample drawn so far to the scope: a run per pin, in one update. */
-  flush(): void {
+  /** Hand over what the clock (`nowMs`) has reached once a batch's worth waits. */
+  settle(nowMs: number): void {
+    if (this.count >= FLUSH_EDGES) this.flush(nowMs);
+  }
+
+  /**
+   * Hand the scope the samples drawn up to `uptoMs`, all of them by default: a
+   * run per pin, in one update. The rest wait for a later call.
+   */
+  flush(uptoMs = Infinity): void {
     const sink = this.sink;
     if (!sink || this.count === 0) return;
-    const runs: ScopeRun[] = [];
+    let runs: ScopeRun[] | null = null;
     for (const line of this.lines) {
-      if (line.pending.length === 0) continue;
-      runs.push({ pin: line.pendingPin, samples: line.pending });
-      line.pending = [];
+      const p = line.pending;
+      const from = line.head;
+      let to = from;
+      while (to < p.length && p[to]!.timeMs <= uptoMs) to++;
+      if (to === from) continue;
+      (runs ??= []).push({
+        pin: line.pendingPin,
+        samples: from === 0 && to === p.length ? p : p.slice(from, to),
+      });
+      line.handedLevel = p[to - 1]!.state;
+      this.count -= to - from;
+      if (to === p.length) {
+        line.pending = [];
+        line.head = 0;
+      } else if (2 * to > p.length) {
+        // What waits moves down once most of the array is handed over: a
+        // copy of fewer samples than were just handed.
+        line.pending = p.slice(to);
+        line.head = 0;
+      } else {
+        line.head = to;
+      }
     }
-    this.count = 0;
+    if (!runs) return;
     if (sink.runs) {
       sink.runs(runs);
       return;
@@ -151,6 +202,27 @@ class Drawing {
     const edges = runs.flatMap((r) => r.samples.map((x) => ({ pin: r.pin, ...x })));
     edges.sort((a, b) => a.timeMs - b.timeMs);
     for (const e of edges) sink(e.pin, e.state, e.timeMs);
+  }
+
+  /**
+   * Take back every sample drawn after `t`. The scope was never handed one
+   * (flush hands nothing later than the clock but at a stop), so nothing it
+   * shows is taken back. Returns whether there was any.
+   */
+  dropAfter(t: number): boolean {
+    let dropped = false;
+    for (const line of this.lines) {
+      const p = line.pending;
+      let k = p.length;
+      while (k > line.head && p[k - 1]!.timeMs > t) k--;
+      if (k === p.length) continue;
+      this.count -= p.length - k;
+      p.length = k;
+      dropped = true;
+      // What the trace shows from `t` on: the last sample it keeps.
+      line.level = k > 0 ? p[k - 1]!.state : line.handedLevel;
+    }
+    return dropped;
   }
 }
 
@@ -212,9 +284,40 @@ export class I2cScopeSynth implements I2cScopeTap {
     this.drawing = new Drawing([this.sdaLine, this.sclLine]);
   }
 
-  /** Hand the scope every edge drawn so far (the engine's frame ended). */
+  /** Hand the scope the edges the board clock has reached (the engine's frame ended). */
+  release(): void {
+    this.drawing.flush(this.opts.nowMs());
+  }
+
+  /** Hand the scope every edge drawn so far, reached or not (the run stopped). */
   flush(): void {
     this.drawing.flush();
+  }
+
+  /**
+   * The pad `pin` moved by itself at `t` (the sketch drove it through the
+   * GPIO path, or the circuit put a level on it), and the scope gets that edge
+   * next. If this synthesizer draws on that pad, the drawing gives way, so the
+   * scope keeps both lines in time order: what was drawn up to `t` is handed
+   * over, what was drawn after `t` is taken back (the clock had not reached
+   * it, so the scope never had it), and the other line goes back to the idle
+   * HIGH its pull-up holds a pad at that nothing drives. arduino-pico
+   * bit-bangs its address probes on these pads while the drawing of the
+   * transfer before is still ahead of the clock; that transfer is then drawn
+   * cut short where the probe starts.
+   */
+  padEdge(pin: number, t: number): void {
+    const onSda = pin === this.sdaLine.pendingPin;
+    if (!onSda && pin !== this.sclLine.pendingPin) return;
+    const d = this.drawing;
+    if (d.dropAfter(t)) {
+      if (this.cursorMs > t) this.cursorMs = t;
+      // Nor is the rest of a transaction cut short drawn.
+      if (this.open) this.skipping = true;
+      d.restore(onSda ? this.sclLine : this.sdaLine, t, true);
+    }
+    d.flush(t);
+    (onSda ? this.sdaLine : this.sclLine).level = null;
   }
 
   /** The MCU was reset: the bus is idle and the cursor starts over. */
@@ -326,7 +429,7 @@ export class I2cScopeSynth implements I2cScopeTap {
       (at, level) => d.put(sink, this.sdaLine, sdaPin, wantSda, at, level),
       (at, level) => d.put(sink, this.sclLine, sclPin, wantScl, at, level),
     );
-    d.settle();
+    d.settle(now);
   }
 }
 
@@ -362,9 +465,36 @@ export class SpiScopeSynth {
     this.drawing = new Drawing([this.sckLine, this.mosiLine, this.misoLine]);
   }
 
-  /** Hand the scope every edge drawn so far (the engine's frame ended). */
+  /** Hand the scope the edges the board clock has reached (the engine's frame ended). */
+  release(): void {
+    this.drawing.flush(this.opts.nowMs());
+  }
+
+  /** Hand the scope every edge drawn so far, reached or not (the run stopped). */
   flush(): void {
     this.drawing.flush();
+  }
+
+  /**
+   * The pad `pin` moved by itself at `t`: as I2cScopeSynth.padEdge, the
+   * drawing on it hands over what it drew up to `t` and takes back the rest.
+   * The other lines keep the level the drawing left them at: nothing says
+   * where an SPI pad rests that no frame drives.
+   */
+  padEdge(pin: number, t: number): void {
+    const line =
+      pin === this.sckLine.pendingPin
+        ? this.sckLine
+        : pin === this.mosiLine.pendingPin
+          ? this.mosiLine
+          : pin === this.misoLine.pendingPin
+            ? this.misoLine
+            : null;
+    if (!line) return;
+    const d = this.drawing;
+    if (d.dropAfter(t) && this.cursorMs > t) this.cursorMs = t;
+    d.flush(t);
+    line.level = null;
   }
 
   /** The MCU was reset: the cursor starts over. */
@@ -446,6 +576,6 @@ export class SpiScopeSynth {
         sck(ti + P / 2, cpol);
       }
     }
-    d.settle();
+    d.settle(now);
   }
 }

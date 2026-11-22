@@ -1637,7 +1637,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
         // The core owns the pad now, so the external door's memory of this pin
         // is stale (see externalPinScope).
         this.externalScope.forget(pin);
-        this.onPinChangeWithTime?.(pin, isHigh, this.clockMs());
+        if (this.onPinChangeWithTime) this.padScope(pin, isHigh, this.clockMs());
       });
       this.gpioUnsubscribers.push(unsub);
     }
@@ -1750,20 +1750,42 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
         instructionsExecuted++;
       }
     }
-    // The Wire and SPI edges drawn this frame reach the scope in one go.
-    this.flushScopeEdges();
+    // The Wire and SPI edges the clock reached this frame go to the scope
+    // in one go; the ones drawn ahead of it wait (busScope.ts).
+    this.releaseScopeEdges();
     return { cyclesAdvanced: cyclesDone, instructionsExecuted };
   }
 
   /**
-   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts). Every
-   * frame ends with it; a caller that steps the CPU itself calls it before
-   * it reads the scope.
+   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts), reached
+   * by the clock or not: the run stopped, or a caller that steps the CPU
+   * itself is about to read the scope.
    */
   flushScopeEdges(): void {
     for (const scope of this.i2cScopes) scope.flush();
     for (const scope of this.spiScopes) scope.flush();
   }
+
+  /** Hand the scope the Wire and SPI edges the clock has reached: once a frame. */
+  releaseScopeEdges(): void {
+    for (const scope of this.i2cScopes) scope.release();
+    for (const scope of this.spiScopes) scope.release();
+  }
+
+  /**
+   * The scope slot for a pad's own edges (the core driving it, the level the
+   * circuit or a pull puts on it). A Wire or SPI drawing on that pad gives
+   * way first, so the scope gets the pad's samples in time order: arduino-pico
+   * bit-bangs its address probes on the I2C pads while the drawing of the
+   * transfer before is still ahead of the clock (busScope.ts).
+   */
+  private readonly padScope = (pin: number, state: boolean, timeMs: number): void => {
+    const sink = this.onPinChangeWithTime;
+    if (!sink) return;
+    for (const scope of this.i2cScopes) scope.padEdge(pin, timeMs);
+    for (const scope of this.spiScopes) scope.padEdge(pin, timeMs);
+    sink(pin, state, timeMs);
+  };
 
   /** Execute one ARM instruction in the production loop, advancing the clock
    *  and stepping PIO. Returns the cycles it took. */
@@ -2008,7 +2030,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     if (!gpio) return;
     gpio.setInputValue(level);
     if (gpio.outputEnable) return;
-    this.externalScope.emit(this.onPinChangeWithTime, pin, level);
+    this.externalScope.emit(this.padScope, pin, level);
   }
 
   /**
@@ -2036,7 +2058,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     // chip-board-pin-read-blind-to-other-parts, closed on the AVR first).
     // Left out while the core drives the pad, as the register is.
     this.pinManager.triggerPinChange(arduinoPin, state, 'external');
-    this.externalScope.emit(this.onPinChangeWithTime, arduinoPin, state);
+    this.externalScope.emit(this.padScope, arduinoPin, state);
   }
 
   /**
