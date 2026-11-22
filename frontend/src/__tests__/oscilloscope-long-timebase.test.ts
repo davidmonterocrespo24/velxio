@@ -234,6 +234,23 @@ describe('Auto follows the board clock, not the last edge', () => {
     expect(levelRuns(row, LOW_Y)).toEqual([]);
   });
 
+  it('forgets the clock of the run before when the scope is emptied for another circuit', () => {
+    const s = useOscilloscopeStore.getState();
+    s.addChannel(BOARD, 13, 'D13', 5);
+    setRunning(true);
+    render();
+    chooseTimeDiv(500);
+    clockMs = 120_000;
+    frame();
+    expect(ruler().texts[0]!.text).toBe('115.0s');
+    // Another circuit loads: the channels go, then a new one is probed
+    // before Run. Its screen starts at 0, not at the old run's 115 s.
+    setRunning(false);
+    act(() => useOscilloscopeStore.getState().resetChannels());
+    act(() => useOscilloscopeStore.getState().addChannel(BOARD, 13, 'D13', 5));
+    expect(ruler().texts[0]!.text).toBe('0.00ms');
+  });
+
   it('holds still while the capture is paused, however far the clock runs', () => {
     const s = useOscilloscopeStore.getState();
     s.addChannel(BOARD, 13, 'D13', 5);

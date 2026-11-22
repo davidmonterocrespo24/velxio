@@ -470,6 +470,11 @@ export const Oscilloscope: React.FC = () => {
   // (freeRunWindowEndMs). It stays where it was while the capture is paused
   // or every board is stopped, so a paused screen holds still.
   const [clockMs, setClockMs] = useState<number | null>(null);
+  // A scope emptied for another circuit (a project, an example, a new
+  // starter) forgets the clock of the run before it.
+  useEffect(() => {
+    if (channels.length === 0) setClockMs(null);
+  }, [channels.length]);
 
   useEffect(() => {
     if (anyRunning && capturing) {
