@@ -189,6 +189,20 @@ def test_a_board_cannot_set_what_belongs_to_the_site(monkeypatch, lane):
 
 
 @pytest.mark.parametrize("lane", ["qemu", "overlay"])
+def test_a_reply_that_is_not_a_page_cannot_set_them_either(monkeypatch, lane):
+    # A service worker is a script, served as JavaScript: the allow-list holds
+    # for every reply, not only for the pages that get the shim.
+    script = b"self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request)));"
+    c = _gateway(monkeypatch, {"content-type": "text/javascript", **NOT_THE_BOARDS}, body=script, lane=lane)
+    r = c.get("/api/gateway/c1/sw.js")
+    assert r.status_code == 200
+    leaked = sorted(set(NOT_THE_BOARDS) & {k.lower() for k in r.headers.keys()})
+    assert not leaked, f"the board set {leaked}"
+    assert r.headers["content-type"].startswith("text/javascript")
+    assert r.content == script
+
+
+@pytest.mark.parametrize("lane", ["qemu", "overlay"])
 @pytest.mark.parametrize("status,headers", [
     # Release 9 points a redirect under the gateway prefix (#179); the
     # allow-list keeps the header, rewritten.
