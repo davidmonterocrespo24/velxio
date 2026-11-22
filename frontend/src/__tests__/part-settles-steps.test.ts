@@ -15,7 +15,10 @@
  * Its C and L must not make a PWM pad that drives it reactive either: held at
  * its mean, an IRF540's gate at 2.5 V passes nothing where the real gate is
  * fully on for half of each period (velxio/velxio-prod#152). A part whose
- * state the PWM's two levels describe says so (SpiceEmission.pwmStatic).
+ * state the PWM's two levels describe says so (SpiceEmission.pwmStatic). And
+ * when the pads stop being chopped, the step starts from where the circuit
+ * was on average over the PWM period, not from the operating point of the
+ * mean, which the circuit is never in.
  *
  * The test part is a 5 V load of 50 ohm into a node that 2 mF and 50 ohm hold
  * to its other lead, with a 0 V sense source at its + lead: switched on from
@@ -167,5 +170,23 @@ describe('a part that stores energy in its own cards (velxio/velxio-prod#164)', 
     expect(stepAmps(on, 0)).toBeCloseTo(0.1, 2);
     expect(stepAmps(on, 0.05)).toBeCloseTo(0.05 + 0.05 * Math.exp(-1), 2);
     expect(on.branchCurrents['v_ld_sense']).toBeCloseTo(0.05, 2);
+  });
+
+  it('chopped by a PWM and then held HIGH, it steps from where the PWM held it on average', { timeout: 60_000 }, async () => {
+    const { svc, published, setPins } = service(rig(), { '9': { type: 'pwm', duty: 0.5 } });
+    await svc.tick();
+    // The PWM is its HIGH and LOW states, weighted by the duty: 50 mA half
+    // the time (the 2 mF at 2.5 V), and nothing the other half.
+    const pwm = published.at(-1)!;
+    expect(pwm.window?.states.filter((s) => s.weight > 0).map((s) => Math.round(s.weight * 100))).toEqual([50, 50]);
+    setPins({ '9': { type: 'digital', v: 5 } });
+    await svc.tick();
+    const high = published.at(-1)!;
+    expect(high.stepWaveforms?.oneShot).toBeDefined();
+    // From the 2 mF at 1.25 V, its mean over the PWM: (5 - 1.25) / 50, not
+    // the 100 mA of an empty 2 mF, which is where the PWM's mean, an IRF540
+    // gate at 2.5 V that passes nothing, would have left it.
+    expect(stepAmps(high, 0)).toBeCloseTo(0.075, 2);
+    expect(svc.stepSolveCount).toBe(1);
   });
 });

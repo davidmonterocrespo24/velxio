@@ -346,6 +346,50 @@ function reactiveStateOf(
   return out;
 }
 
+/**
+ * The state of every reactive device over the HIGH and LOW states a PWM pad
+ * goes through: each one's value in each state's operating point, weighted
+ * by the state's share of the period. That is where the circuit sits on
+ * average while the pad is chopped: a motor's shaft at the duty-weighted
+ * mean of its speeds, which is what the published window shows. The mean's
+ * own operating point is a state the circuit is never in: an IRF540 gate
+ * held at 2.5 V passes nothing, and a fan running at half speed stepped from
+ * a standstill when the sketch then wrote it HIGH (velxio/velxio-prod#164).
+ */
+function mixedReactiveState(
+  mix: ReadonlyArray<{ result: SolveResult; weight: number }>, devices: readonly ReactiveDevice[],
+): Map<string, number> {
+  const sums = new Map<string, { sum: number; weight: number }>();
+  for (const { result, weight } of mix) {
+    if (!(weight > 0)) continue;
+    for (const [name, value] of reactiveStateOf(result, devices, null)) {
+      const acc = sums.get(name) ?? { sum: 0, weight: 0 };
+      acc.sum += weight * value;
+      acc.weight += weight;
+      sums.set(name, acc);
+    }
+  }
+  const out = new Map<string, number>();
+  for (const [name, { sum, weight }] of sums) if (weight > 0) out.set(name, sum / weight);
+  return out;
+}
+
+/** The solves of a PWM split's states with their shares of the period, or
+ *  undefined when one of them was not solved. */
+function splitMix(
+  split: ReadonlyArray<{ levels: number[]; weight: number }>,
+  solved: ReadonlyArray<{ state: { key: string }; vec: { result: SolveResult } }>,
+): Array<{ result: SolveResult; weight: number }> | undefined {
+  const out: Array<{ result: SolveResult; weight: number }> = [];
+  for (const sub of split) {
+    const key = stateKey(sub.levels);
+    const hit = solved.find((s) => s.state.key === key);
+    if (!hit) return undefined;
+    out.push({ result: hit.vec.result, weight: sub.weight });
+  }
+  return out;
+}
+
 /** How far a device's state may sit from another and still look the same to
  *  the eye and an ADC: 1 mV or 1 uA, plus 0.1 %. */
 function reactiveTolerance(kind: 'C' | 'L', x: number, y: number): number {
@@ -516,8 +560,16 @@ export class CircuitSimulationService {
    *  state again publishes the step beside its operating point. */
   private step: StepRun | null = null;
   /** What the last publish described: its operating point, and the step it
-   *  published with it, for the state a later pad state starts from. */
-  private current: { op: SolveResult; step: StepRun | null } | null = null;
+   *  published with it, for the state a later pad state starts from. A state
+   *  whose static PWM pads sit at their mean also keeps the solves of the
+   *  HIGH and LOW states it goes through, with their shares of the period
+   *  (`mix`): the circuit is there on average, not at the mean's operating
+   *  point (see stateAt). */
+  private current: {
+    op: SolveResult;
+    step: StepRun | null;
+    mix?: ReadonlyArray<{ result: SolveResult; weight: number }>;
+  } | null = null;
   /** Bounds of a step's capture, in seconds: the first run within STEP_MIN_S
    *  and STEP_FIRST_MAX_S (2000 points over 30 s still draw a curve of a
    *  second), longer ones up to STEP_MAX_S. Past the end the circuit sits at
@@ -953,6 +1005,7 @@ export class CircuitSimulationService {
       const t = CircuitSimulationService.stepElapsedS(shot, when);
       if (t < (cur.step.capture.time.at(-1) ?? 0)) return reactiveStateOf(cur.step.result, ctx.reactive, t);
     }
+    if (cur.mix) return mixedReactiveState(cur.mix, ctx.reactive);
     return reactiveStateOf(cur.op, ctx.reactive, null);
   }
 
@@ -1182,7 +1235,7 @@ export class CircuitSimulationService {
     // from the capture. Publishing none left them the last sample of the
     // wave, a DC level (velxio/velxio-prod#232).
     const capture = split ? this.splitCapture(split, solved) : undefined;
-    this.publish(latest.vec, window, latestSplit, capture, latestState.key);
+    this.publish(latest.vec, window, latestSplit, capture, latestState.key, split ? splitMix(split, solved) : undefined);
     return true;
   }
 
@@ -1711,6 +1764,7 @@ export class CircuitSimulationService {
     synthetic = false,
     splitCapture?: TimeWaveforms,
     key?: string,
+    mix?: ReadonlyArray<{ result: SolveResult; weight: number }>,
   ): void {
     const ctx = this.loadedContext;
     if (!ctx) return;
@@ -1720,7 +1774,7 @@ export class CircuitSimulationService {
     // Any other state ends it.
     const step = key !== undefined && !synthetic && this.step?.key === key ? this.step : null;
     if (!step) this.step = null;
-    this.current = { op: vec.result, step };
+    this.current = { op: vec.result, step, ...(synthetic && mix ? { mix } : {}) };
     // The capture published is this state's own or none (see
     // ElectricalSnapshot.timeWaveforms); the scope keeps the latest one, a
     // step's curve included.
