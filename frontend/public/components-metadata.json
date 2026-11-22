@@ -385,7 +385,7 @@
       "tagName": "wokwi-opamp-ideal",
       "name": "Ideal Op-Amp",
       "category": "analog",
-      "description": "Idealized operational amplifier. Infinite gain, infinite input impedance, no saturation. Use for textbook circuits where real-chip limitations are irrelevant."
+      "description": "Idealized operational amplifier: a gain of 10^6 (very high, not infinite), infinite input impedance, no supply and no saturation. Use for textbook circuits where real-chip limitations are irrelevant."
     },
     {
       "thumbnail": "",
@@ -461,7 +461,7 @@
       "tagName": "wokwi-opamp-lm324",
       "name": "LM324 (Quad Op-Amp)",
       "category": "analog",
-      "description": "Quad single-supply op-amp (one channel per part), electrically like the LM358. Power it through V+ and V-: the output swings from V- to about 1.5 V below V+. Unwired, it runs from the board's logic rail and ground."
+      "description": "Quad single-supply op-amp (one channel per part). Velxio models it as an ideal amplifier clamped between V- + 0.05 V and V+ - 1.5 V, with no slew-rate or bandwidth limit (the LM358 runs a full macro-model). Power it through V+ and V-. Unwired, it runs from the board's logic rail and ground."
     },
     {
       "thumbnail": "",
@@ -479,7 +479,7 @@
       "tagName": "wokwi-opamp-lm358",
       "name": "LM358 (Dual Op-Amp)",
       "category": "analog",
-      "description": "Dual single-supply op-amp (one channel per part). Power it through V+ and V-: the output swings from near V- to about 1.5 V below V+, so a 15 V supply gives 0..13.5 V. V+ and V- left unwired run it from the board's logic rail and ground (3.3 V on an ESP32: the output stops near 2 V)."
+      "description": "Dual single-supply op-amp (one channel per part). Power it through V+ and V-: the output swings from near V- to about 1 V below V+ at light load, so a 15 V supply gives 0..14 V (a real LM358 is only guaranteed to reach V+ - 1.5 V, and takes inputs only up to there). V+ and V- left unwired run it from the board's logic rail and ground (3.3 V on an ESP32: the output stops near 2.3 V)."
     },
     {
       "thumbnail": "",

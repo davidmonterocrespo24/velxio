@@ -773,7 +773,9 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // Op-amp (behavioral VCVS — simplest macro)
+  // The ideal op-amp: a VCVS of gain 10^6 (very high, not infinite: in a
+  // closed loop it makes no difference you can read), no input current, no
+  // supply and no output limit.
   'opamp-ideal': (comp, netLookup) => {
     const inp = netLookup('IN+');
     const inn = netLookup('IN-');
@@ -785,13 +787,15 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // ── Real op-amp part numbers (behavioral, saturation-clamped) ─────────────
-  // The three behavioural mappers follow the same shape:
+  // ── Real op-amp part numbers ───────────────────────────────────────────────
+  // The LM741, the TL072 and the LM324 are behavioural and follow the same
+  // shape:
   //   V_out = clamp(A · (V_in+ − V_in-), Vsat_lo, Vsat_hi)
   // The output saturates between a low rail (V- + headroom) and a high rail
-  // (V+ − headroom). Headroom is chip-specific (LM324 swings close to its
-  // negative rail, LM741 needs ~1.5 V from each, TL072 with JFET input ~2 V).
-  // The LM358 is a real macro-model whose supply pins carry the same rails.
+  // (V+ − headroom): 1.5 V from each rail for the LM741, 2 V for the TL072
+  // (the original die, specified on ±15 V), 0.05 V and 1.5 V for the LM324.
+  // The LM358 is a real macro-model whose output swings from 5 mV above V- to
+  // about 1 V below V+ (models/lm358Subckt.ts lists what it measures).
   //
   // The rails are the part's V+ and V- pins (see opampSupply). Unwired, they
   // are the board's logic rail and ground, the only supply an op-amp had
@@ -822,7 +826,9 @@ const MAPPERS: Record<string, Mapper> = {
   // JFET input: huge Z_in, modelled with 1 TΩ
   'opamp-tl072': (comp, netLookup, ctx) =>
     behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' }),
-  // Quad op-amp — electrically identical to LM358 per-channel
+  // The LM324 is the LM358's amplifier design, four to a package, but this
+  // is not the LM358's model: a clamp, gain 10^5, no slew or bandwidth limit
+  // (velxio/velxio-prod#128).
   'opamp-lm324': (comp, netLookup, ctx) =>
     behaviouralOpamp(comp, netLookup, ctx, { gain: 1e5, rin: '10Meg', lo: 0.05, hi: 1.5, iq: '82k' }),
 

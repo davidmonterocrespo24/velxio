@@ -116,7 +116,7 @@ describe('op-amp supply pins', () => {
   });
 
   it(
-    'LM358 on 12 V saturates about 1.5 V below V+, not at the board rail',
+    'LM358 on 12 V saturates about 1 V below V+, not at the board rail',
     { timeout: 60_000 },
     async () => {
       // 3.0 V x 3.7 = 11.1 V is past what a 12 V LM358 can swing to.

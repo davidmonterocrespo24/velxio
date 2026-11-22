@@ -710,7 +710,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-opamp-inverting',
     'Op-Amp Inverting Amplifier',
-    'Gain = −Rf/Rin = −10 (Rf = 10 k, Rin = 1 k), around the 2.0 V reference on IN+: a 0.1 V sine on 2.0 V comes out inverted, 1 V peak, between 1.0 and 3.0 V. On 5 V the LM358 swings from about 0 V to 3.5 V, so the reference sits low enough for the swing to fit.',
+    'Gain = −Rf/Rin = −10 (Rf = 10 k, Rin = 1 k), around the 2.0 V reference on IN+: a 0.1 V sine on 2.0 V comes out inverted, 1 V peak, between 1.0 and 3.0 V. On 5 V the LM358\'s output swings from about 0 V to about 4 V (it stops about 1 V below V+), so the reference sits low enough for the swing to fit.',
     'intermediate',
     [
       sigGen('src', 60, 200, { waveform: 'sine', frequency: 500, amplitude: 0.1, offset: 2 }),
@@ -735,7 +735,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-opamp-non-inverting',
     'Op-Amp Non-Inverting Amplifier',
-    'Gain = 1 + Rf/Rg = +11 (Rf = 10 k, Rg = 1 k to ground), in phase. It multiplies the whole input, its DC included: a 0.1 V sine on 0.2 V comes out between 1.1 and 3.3 V. On 5 V the LM358 tops out near 3.5 V, so the input carries little DC (2.5 V would ask for 27.5 V).',
+    'Gain = 1 + Rf/Rg = +11 (Rf = 10 k, Rg = 1 k to ground), in phase. It multiplies the whole input, its DC included: a 0.1 V sine on 0.2 V comes out between 1.1 and 3.3 V. On 5 V the LM358 tops out near 4 V, so the input carries little DC (2.5 V would ask for 27.5 V).',
     'intermediate',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 500, amplitude: 0.1, offset: 0.2 }),
@@ -758,7 +758,7 @@ export const analogExamples: ExampleProject[] = [
   analog(
     'an-opamp-follower',
     'Op-Amp Voltage Follower',
-    'Unity-gain buffer: output tracks the non-inverting input exactly. Infinite input impedance, near-zero output impedance.',
+    'Unity-gain buffer: the output follows the non-inverting input to within the LM358\'s 2 mV offset, here 1.5 to 3.5 V, and holds it into the 1 kΩ load. The input draws only the op-amp\'s bias current, about 50 nA: a very high input impedance, and a very low output one. On 5 V it follows from about 0 V up to about 3.8 V, where its output stops into this load.',
     'beginner',
     [
       sigGen('src', 60, 180, { waveform: 'sine', frequency: 200, amplitude: 1, offset: 2.5 }),

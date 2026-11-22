@@ -5,12 +5,22 @@
  * simulation. Sourced via stmbl/hw/spice/LM358.lib (MIT).
  *
  * Models a single LM358 op-amp (the part is a dual, but this subckt
- * represents one channel). Captures:
- *   - Open-loop gain ~100 dB
- *   - Gain-bandwidth product ~1 MHz
- *   - Slew rate ~0.5 V/µs
- *   - Single-supply / rail-to-rail-input behaviour with ~1.5V output
- *     headroom from V+
+ * represents one channel). As this text measures, on 5 V unless said
+ * (opamp-texts-match-models.test.ts holds the swing and input figures,
+ * velxio/velxio-prod#128):
+ *   - open-loop gain 99.9 dB, input offset 2 mV;
+ *   - gain-bandwidth about 1 MHz (a follower is 3 dB down at 1.15 MHz);
+ *   - slew rate 0.49 V/us;
+ *   - output from 5 mV above V- to about 1 V below V+, a little less into
+ *     a heavier load: 4.02 V open, 3.96 V into 10 kOhm, 3.89 V into
+ *     2 kOhm, 3.84 V into 1 kOhm; 14.02 V open on 15 V, 28.86 V on 30 V
+ *     into 10 kOhm. That is closer to V+ than the part's datasheet: TI
+ *     guarantees no more than 1.5 V below V+ at 5 V into 2 kOhm and gives
+ *     2 V below as typical at 30 V into 10 kOhm (SLOS068);
+ *   - inputs from V- up to V+: as a comparator it still switches with both
+ *     inputs at 4.9 V on 5 V. A real LM358's common-mode input range ends
+ *     1.5 V below V+ (SLOS068), which the model does not enforce, so a
+ *     design has to.
  *
  * Pin order (subckt declaration):
  *   1  IN+
