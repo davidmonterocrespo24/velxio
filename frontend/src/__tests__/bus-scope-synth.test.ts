@@ -16,6 +16,7 @@ import {
   SpiScopeSynth,
   MAX_LEAD_MS,
   FLUSH_EDGES,
+  CHUNK_SAMPLES,
   type ScopeRun,
   type ScopeSink,
 } from '../simulation/busScope';
@@ -383,6 +384,32 @@ describe('handing the edges over', () => {
     expect(edges.length).toBeGreaterThan(1024 * 18);
     expect(batches()).toBeLessThanOrEqual(Math.ceil(edges.length / FLUSH_EDGES) + 1);
     for (let i = 1; i < edges.length; i++) expect(edges[i]!.timeMs).toBeGreaterThanOrEqual(edges[i - 1]!.timeMs);
+  });
+
+  it(`what waits for the clock goes over in runs of at most ${CHUNK_SAMPLES} samples`, () => {
+    // A frame's drawing handed over as one run grew the scope's buffer for the
+    // channel by tens of thousands of samples at once, and the array it
+    // waited in as long: copies and garbage the engine paid for.
+    const runs: number[] = [];
+    const sink: ScopeSink = Object.assign(() => {}, {
+      wants: (pin: number) => pin === SDA || pin === SCL,
+      runs: (rs: readonly ScopeRun[]) => {
+        for (const r of rs) runs.push(r.samples.length);
+      },
+    });
+    const clock = { now: 0 };
+    const synth = i2c(clock, sink, 0.00125, 0.00125);
+    synth.start();
+    synth.address(0x3c, false, true);
+    for (let k = 0; k < 1024; k++) {
+      synth.write(k & 0xff, true);
+      clock.now += 0.001;
+    }
+    synth.stop();
+    clock.now = 30; // a frame ends after the drawing, 23 ms on the wire
+    synth.release();
+    expect(runs.reduce((a, b) => a + b, 0)).toBeGreaterThan(1024 * 18);
+    expect(Math.max(...runs)).toBeLessThanOrEqual(CHUNK_SAMPLES);
   });
 });
 
