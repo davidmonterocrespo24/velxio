@@ -190,6 +190,8 @@ def test_a_board_cannot_set_what_belongs_to_the_site(monkeypatch, lane):
 
 @pytest.mark.parametrize("lane", ["qemu", "overlay"])
 @pytest.mark.parametrize("status,headers", [
+    # Release 9 points a redirect under the gateway prefix (#179); the
+    # allow-list keeps the header, rewritten.
     (303, {"location": "/"}),
     (401, {"www-authenticate": 'Basic realm="Login Required"', "content-type": "text/plain"}),
     (206, {"content-type": "text/csv", "content-range": "bytes 0-3/10", "accept-ranges": "bytes"}),
@@ -201,5 +203,6 @@ def test_what_a_board_page_needs_still_reaches_the_browser(monkeypatch, lane, st
     c = _gateway(monkeypatch, headers, status=status, body=b"t,h\n", lane=lane)
     r = c.get("/api/gateway/c1/form", follow_redirects=False)
     assert r.status_code == status
+    moved = {"location": "/api/gateway/c1/"}
     for name, value in headers.items():
-        assert r.headers.get(name) == value, name
+        assert r.headers.get(name) == moved.get(name, value), name
