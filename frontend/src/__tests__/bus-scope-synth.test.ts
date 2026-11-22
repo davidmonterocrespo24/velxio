@@ -286,12 +286,54 @@ describe('nobody looking', () => {
     expect([timingReads, configReads]).toEqual([0, 0]);
   });
 
-  it('a plain callback (no wants, no runs) gets every edge one by one, in time order', () => {
+  it('a callback without wants watches nothing: a part in the scope slot costs no drawing', () => {
+    // The RP2040 servo part puts a plain callback in its board's scope slot
+    // (ComplexParts.ts) to time its own pulses. It never says which pins it
+    // wants, so drawing for it drew every Wire and SPI transfer for nobody:
+    // pico-oled-4pin-i2c with a servo cost 30 % more CPU, scope closed.
     const got: ScopeEdge[] = [];
+    let reads = 0;
     const plain = ((pin: number, state: boolean, timeMs: number) => {
       got.push({ pin, state, timeMs });
     }) as ScopeSink;
-    const synth = i2c({ now: 0 }, plain);
+    const synth = new I2cScopeSynth({
+      sink: () => plain,
+      sda: () => SDA,
+      scl: () => SCL,
+      nowMs: () => 0,
+      timing: () => {
+        reads++;
+        return { lowMs: 0.005, highMs: 0.005 };
+      },
+    });
+    writeTransaction(synth, 3);
+    synth.flush();
+    const spiSynth = new SpiScopeSynth({
+      sink: () => plain,
+      sck: () => SCK,
+      mosi: () => MOSI,
+      miso: () => MISO,
+      nowMs: () => 0,
+      config: () => {
+        reads++;
+        return { enabled: true, mode: 0, bitOrder: 'msb', bits: 8, hz: 1_000_000 };
+      },
+    });
+    for (let k = 0; k < 3; k++) spiSynth.frame(k, 0xff, 8);
+    spiSynth.flush();
+    expect(got).toEqual([]);
+    expect(reads).toBe(0);
+  });
+
+  it('a callback with wants and no runs gets every edge one by one, in time order', () => {
+    const got: ScopeEdge[] = [];
+    const sink: ScopeSink = Object.assign(
+      (pin: number, state: boolean, timeMs: number) => {
+        got.push({ pin, state, timeMs });
+      },
+      { wants: (pin: number) => pin === SDA || pin === SCL },
+    );
+    const synth = i2c({ now: 0 }, sink);
     writeTransaction(synth, 1);
     synth.flush();
     expect(got.filter((e) => e.pin === SCL && e.state)).toHaveLength(1 + 18 + 1);

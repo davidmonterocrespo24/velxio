@@ -57,8 +57,11 @@ export interface ScopeRun {
  * The board's scope feed (useSimulatorStore's getOscilloscopeCallback): one
  * edge at a time, `wants` to ask whether a pin is on the scope at all, and
  * `runs` to hand many samples over in one store update, a run per pin. A
- * plain callback (a test, a part that listens to the same slot) gets every
- * edge one by one, in time order.
+ * callback with `wants` and no `runs` gets every edge it wants one by one, in
+ * time order. A callback without `wants` gets none: it is a part that listens
+ * to the same slot for edges of its own (the RP2040 servo, ComplexParts.ts),
+ * and drawing every Wire and SPI transfer for it cost a sketch that streams
+ * I2C about 30 % more CPU with the scope closed.
  */
 export type ScopeSink = ((pin: number, state: boolean, timeMs: number) => void) & {
   wants?: (pin: number) => boolean;
@@ -151,9 +154,9 @@ class Drawing {
   }
 }
 
-/** Whether the scope watches `pin` (a plain callback watches every pin). */
+/** Whether the scope watches `pin` (a callback without `wants` watches none). */
 const watches = (sink: ScopeSink, pin: number | undefined): boolean =>
-  pin !== undefined && (!sink.wants || sink.wants(pin));
+  pin !== undefined && sink.wants !== undefined && sink.wants(pin);
 
 // ── I2C ─────────────────────────────────────────────────────────────────────
 
