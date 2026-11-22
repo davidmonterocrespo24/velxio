@@ -91,7 +91,12 @@ export interface LineModel {
    * there for that: a model that only stores values ignores it.
    */
   update(props: Record<string, unknown>, clock: LineClock): LineFrames | void;
-  /** Forget protocol state: the board rebooted. */
+  /**
+   * Forget protocol state: the board rebooted. The host says so at its own
+   * boot; a reboot inside the engine (an esp_restart, a deep-sleep wake) the
+   * hub infers from the guest's cycle count going back, and calls this then
+   * too, so a gate kept as an absolute cycle needs no check of its own.
+   */
   reset(): void;
 }
 
