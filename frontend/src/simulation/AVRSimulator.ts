@@ -1261,6 +1261,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   // their pins via the part layer. Input-control parts (button / slide-switch)
   // check this flag and skip their direct seed — see BasicParts.spiceDriven().
   readonly spiceDrivenInputs = true;
+  /** Wire and SPI transfers are drawn on the scope (busScope.ts); the
+   *  ATtiny85's USI moves its pins itself. */
+  readonly scopeDrawsHardwareBuses = true;
   private cpu: CPU | null = null;
   /** Peripherals kept alive by reference so GC doesn't collect their CPU hooks */
   private peripherals: unknown[] = [];

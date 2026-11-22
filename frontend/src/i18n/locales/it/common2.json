@@ -266,6 +266,8 @@
       "removeChannel": "Rimuovi {{label}}",
       "probeLost": "Il punto misurato non è più nel circuito",
       "noData": "nessun dato",
+      "hwBusNotDrawn": "{{controller}} {{signal}}: il motore di questa scheda non muove alcun pin durante un trasferimento {{bus}} hardware, quindi la traccia resta piatta anche con il bus occupato. Un bus software (bit-bang) invece si vede.",
+      "hwBusDefaultNotDrawn": "Questo pin è il {{controller}} {{signal}} predefinito della scheda. Se lo sketch lo usa per il {{bus}} hardware (Wire, SPI), i trasferimenti non vengono disegnati: il motore di questa scheda non muove alcun pin durante questi, quindi la traccia resta piatta anche con il bus occupato. Un bus software (bit-bang) invece si vede.",
       "voltsDiv": "V/div:",
       "vChannelTitle": "Canale analogico regolato da V/div, offset e accoppiamento",
       "voltsDivTitle": "Volt per divisione. Auto adatta ogni acquisizione; un valore fissa la scala.",

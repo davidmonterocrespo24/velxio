@@ -468,6 +468,8 @@ class RpSpiPort implements SpiControllerPort {
 }
 
 export class RP2040Simulator implements LineCapable, BusCapableSimulator {
+  /** Wire and SPI transfers are drawn on the scope (busScope.ts). */
+  readonly scopeDrawsHardwareBuses = true;
   // Drive digital INPUT pins from the solved circuit (connectDigitalInputsToMcu)
   // instead of the legacy part-seed, so digitalRead() reflects the REAL wiring:
   // a pin tied to a rail reads that rail, a button-to-GND on an INPUT_PULLUP pin

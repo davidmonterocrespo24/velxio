@@ -266,6 +266,8 @@
       "removeChannel": "移除 {{label}}",
       "probeLost": "探测点已不在电路中",
       "noData": "无数据",
+      "hwBusNotDrawn": "{{controller}} {{signal}}：此开发板的引擎在硬件 {{bus}} 传输时不改变任何引脚，因此即使总线繁忙，波形也保持平坦。软件模拟（bit-bang）的总线会显示。",
+      "hwBusDefaultNotDrawn": "此引脚是开发板默认的 {{controller}} {{signal}}。如果程序将其用于硬件 {{bus}}（Wire、SPI），传输不会被绘制：此开发板的引擎在传输时不改变任何引脚，因此即使总线繁忙，波形也保持平坦。软件模拟（bit-bang）的总线会显示。",
       "voltsDiv": "V/格:",
       "vChannelTitle": "V/格、偏移和耦合所设置的模拟通道",
       "voltsDivTitle": "每格电压。自动会适配每次采集；选择数值则固定刻度。",

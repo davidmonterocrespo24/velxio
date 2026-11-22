@@ -23,7 +23,7 @@
  * unit): the wire decides, or the guest's clock does on a plain GPIO.
  */
 
-import { BoardBusFabric } from './fabric';
+import { BoardBusFabric, type HardwareBusSignal } from './fabric';
 import type { I2cBus, I2cMember } from './i2cBus';
 import { hasRemoteModel, type SpiBus, type SpiMember } from './spiBus';
 import type {
@@ -291,6 +291,14 @@ export class BusRegistry {
       this.fabrics.set(boardId, f);
     }
     return f;
+  }
+
+  /**
+   * The hardware I2C or SPI line routed to a board's pin now, or null (also
+   * for a board with no fabric yet). See BoardBusFabric.hardwareSignalOf.
+   */
+  hardwareSignalOf(boardId: string, pin: number): HardwareBusSignal | null {
+    return this.fabrics.get(boardId)?.hardwareSignalOf(pin) ?? null;
   }
 
   /** Bind (or re-bind) a board's engine. `sim` may be any simulator object. */

@@ -110,6 +110,7 @@ import {
   busRegistry,
   createStoreNetResolver,
   RemoteSpiLane,
+  type HardwareBusSignal,
 } from '../simulation/buses';
 import { RemoteI2cLane } from '../simulation/buses/remoteI2c';
 import { RemoteUartLane } from '../simulation/buses/remoteUart';
@@ -1473,6 +1474,19 @@ export function boardScopeClockMs(id: string): number | null {
   const sim = simulatorMap.get(id) as { scopeClockMs?: () => number } | undefined;
   const t = sim?.scopeClockMs?.();
   return typeof t === 'number' && Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The hardware I2C or SPI line on a board pin that the scope does NOT draw,
+ * for the note on its channel (velxio/velxio-prod#160): the AVR and RP2040
+ * engines draw their transfers (simulation/busScope.ts); the others move no
+ * pin for one, and the trace stays flat while the bus is busy. null when the
+ * pin carries no such line, or the engine draws it.
+ */
+export function scopeUndrawnBusSignal(boardId: string, pin: number): HardwareBusSignal | null {
+  const sim = simulatorMap.get(boardId) as { scopeDrawsHardwareBuses?: boolean } | undefined;
+  if (sim?.scopeDrawsHardwareBuses) return null;
+  return busRegistry.hardwareSignalOf(boardId, pin);
 }
 
 /**

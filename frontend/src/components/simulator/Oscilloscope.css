@@ -273,6 +273,20 @@
   font-weight: 700;
 }
 
+/* A hardware I2C or SPI line the board's engine does not draw
+   (velxio/velxio-prod#160): the reason is in the title. */
+.osc-channel-hwbus {
+  font-size: 8px;
+  line-height: 1.2;
+  padding: 0 3px;
+  margin-top: 1px;
+  border-radius: 3px;
+  border: 1px solid var(--color-feedback-warning);
+  color: var(--color-feedback-warning);
+  white-space: nowrap;
+  cursor: help;
+}
+
 /* The probed pin left the circuit: the row stays, blank, until it is back. */
 .osc-channel-lost .osc-channel-name {
   text-decoration: line-through;

@@ -28,7 +28,12 @@ import {
   type TriggerEdge,
 } from '../../store/useOscilloscopeStore';
 import { parseValue } from '../../simulation/spice/valueParser';
-import { useSimulatorStore, boardScopeClockMs, scopeSeedFor } from '../../store/useSimulatorStore';
+import {
+  useSimulatorStore,
+  boardScopeClockMs,
+  scopeSeedFor,
+  scopeUndrawnBusSignal,
+} from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
 import type { BoardKind } from '../../types/board';
 import { boardPads } from '../../simulation/boardPads';
@@ -368,6 +373,40 @@ const ChannelPicker: React.FC<ChannelPickerProps> = ({
       </div>
     </div>,
     document.body,
+  );
+};
+
+/**
+ * A note on a channel whose pin carries a hardware I2C or SPI line its board's
+ * engine does not draw (velxio/velxio-prod#160): the ESP32, STM32 and Pi
+ * engines move no pin for a transfer, so the trace stays flat while the bus
+ * is busy, and a flat SDA must not be read as an idle bus. The AVR and RP2040
+ * draw theirs and get no note.
+ */
+const UndrawnBusNote: React.FC<{ boardId: string; pin: number }> = ({ boardId, pin }) => {
+  const { t } = useTranslation();
+  const hw = scopeUndrawnBusSignal(boardId, pin);
+  if (!hw) return null;
+  const params = {
+    bus: hw.bus.toUpperCase(),
+    controller: hw.controller,
+    signal: hw.signal.toUpperCase(),
+  };
+  const title = hw.assumed
+    ? t(
+        'editor.oscilloscope.hwBusDefaultNotDrawn',
+        "This pin is the board's default {{controller}} {{signal}}. If the sketch uses it for hardware {{bus}} (Wire, SPI), the transfers are not drawn: this board's engine moves no pin for them, so the trace stays flat while the bus is busy. A bit-banged bus does show.",
+        params,
+      )
+    : t(
+        'editor.oscilloscope.hwBusNotDrawn',
+        "{{controller}} {{signal}}: this board's engine moves no pin for a hardware {{bus}} transfer, so the trace stays flat while the bus is busy. A bit-banged bus does show.",
+        params,
+      );
+  return (
+    <span className="osc-channel-hwbus" title={title} aria-label={title}>
+      {params.bus} {params.signal}
+    </span>
   );
 };
 
@@ -810,6 +849,7 @@ export const Oscilloscope: React.FC = () => {
                   >
                     {ch.label}
                   </span>
+                  {ch.kind === 'digital' && <UndrawnBusNote boardId={ch.boardId} pin={ch.pin} />}
                   <button
                     className="osc-channel-remove"
                     onClick={() => removeChannel(ch.id)}

@@ -78,6 +78,16 @@ interface UartSlot {
 const firstPin = (v: number | number[] | undefined): number | undefined =>
   Array.isArray(v) ? v[0] : v;
 
+/** A hardware controller's line on a board pin (BoardBusFabric.hardwareSignalOf). */
+export interface HardwareBusSignal {
+  bus: 'i2c' | 'spi';
+  signal: 'sda' | 'scl' | 'sck' | 'mosi' | 'miso';
+  /** The controller's datasheet name: TWI, I2C0, SPI1, GPSPI2... */
+  controller: string;
+  /** The board's default pad for it: the port cannot say where the guest put the line. */
+  assumed: boolean;
+}
+
 export class BoardBusFabric {
   readonly spiBuses = new Map<number, SpiBus>();
   private readonly decoders = new Map<number, SoftSpiDecoder>();
@@ -666,6 +676,27 @@ export class BoardBusFabric {
       if (slot.rx === pin) rx = slot.ref;
     }
     return { tx, rx };
+  }
+
+  /**
+   * The hardware I2C or SPI line routed to `pin` now, for the oscilloscope: an
+   * engine that moves no pin for a transfer, and does not draw one, shows a
+   * flat line there however busy the bus is (velxio/velxio-prod#160). An SPI
+   * controller counts while it is enabled; an I2C one has no such bit here.
+   */
+  hardwareSignalOf(pin: number): HardwareBusSignal | null {
+    for (const slot of this.i2cSlots) {
+      const assumed = slot.port.routing() === 'static';
+      if (slot.sda === pin) return { bus: 'i2c', signal: 'sda', controller: slot.port.name, assumed };
+      if (slot.scl === pin) return { bus: 'i2c', signal: 'scl', controller: slot.port.name, assumed };
+    }
+    for (const slot of this.slots) {
+      const signal =
+        slot.sck === pin ? 'sck' : slot.mosi === pin ? 'mosi' : slot.miso === pin ? 'miso' : null;
+      if (!signal || !slot.port.config().enabled) continue;
+      return { bus: 'spi', signal, controller: slot.port.name, assumed: slot.assumed === true };
+    }
+    return null;
   }
 
   // ── Controller routing ────────────────────────────────────────────────────
