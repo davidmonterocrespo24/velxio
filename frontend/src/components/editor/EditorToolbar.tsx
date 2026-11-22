@@ -1791,7 +1791,7 @@ export const EditorToolbar = ({
                 ) : (
                   <Wrench size={18} />
                 )}
-                <span className="tb-action-label">{t('editor.toolbar.build', 'Build')}</span>
+                <span className="tb-action-label">{t('editor.menu.compile', 'Compile')}</span>
               </button>
               {targetCount > 1 && (
                 <button
@@ -1799,8 +1799,8 @@ export const EditorToolbar = ({
                   className="tb-btn tb-btn-build-caret"
                   onClick={() => setBuildMenuOpen((open) => !open)}
                   disabled={compiling || compileAllRunning}
-                  title={t('editor.toolbar.buildOptions', 'Build options')}
-                  aria-label={t('editor.toolbar.buildOptions', 'Build options')}
+                  title={t('editor.toolbar.compile.options', 'Compile options')}
+                  aria-label={t('editor.toolbar.compile.options', 'Compile options')}
                   aria-haspopup="menu"
                   aria-expanded={buildMenuOpen}
                 >
@@ -1808,7 +1808,7 @@ export const EditorToolbar = ({
                 </button>
               )}
               {targetCount > 1 && buildMenuOpen && (
-                <div className="tb-run-menu dropdown-panel" role="menu" aria-label={t('editor.toolbar.buildOptions', 'Build options')}>
+                <div className="tb-run-menu dropdown-panel" role="menu" aria-label={t('editor.toolbar.compile.options', 'Compile options')}>
                   <button type="button" role="menuitem" className="tb-run-menu-item"
                     disabled={compiling || compileAllRunning}
                     onClick={() => {
@@ -1863,8 +1863,17 @@ export const EditorToolbar = ({
                 {verifying || compiling ? (
                   <LoaderCircle size={18} className="spin" />
                 ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                    <polygon points="5,3 19,12 5,21" />
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.35"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4.75 3.4c0-.48.53-.76.93-.5l7.13 4.6a.6.6 0 0 1 0 1l-7.13 4.6c-.4.26-.93-.02-.93-.5Z" />
                   </svg>
                 )}
                 <span className="tb-action-label">{t('editor.menu.run', 'Run')}</span>

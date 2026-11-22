@@ -20,7 +20,7 @@ import { openDeviceGateway } from '../../lib/openDeviceGateway';
 import { remoteBoardActions } from '../../simulation/remoteBoardAutostart';
 import React, { useEffect, useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, LocateFixed, Minus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Cpu, LocateFixed, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adcPinMapFor } from '../velxio-components/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
@@ -3060,6 +3060,7 @@ export const SimulatorCanvas = ({
                 <div className="canvas-board-select">
                   {boards.length === 0 ? (
                     <span className="board-selector board-selector--empty" title={t('editor.canvas.noBoardHint')}>
+                      <Cpu size={14} aria-hidden />
                       {t('editor.canvas.noBoard')}
                     </span>
                   ) : (
@@ -3072,8 +3073,9 @@ export const SimulatorCanvas = ({
                       aria-label={t('editor.canvas.activeBoard')}
                       title={activeBoard ? boardDisplayName(activeBoard) : t('editor.canvas.activeBoard')}
                     >
+                      <Cpu size={14} aria-hidden />
                       <span>{activeBoard ? boardDisplayName(activeBoard) : t('editor.workspace.selectBoard', 'Select board')}</span>
-                      <ChevronDown size={15} aria-hidden />
+                      <ChevronRight size={12} aria-hidden />
                     </button>
                   )}
                 </div>

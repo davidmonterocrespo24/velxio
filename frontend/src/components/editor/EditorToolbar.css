@@ -76,7 +76,7 @@
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 4px;
+  border-radius: 9999px;
   cursor: pointer;
   background: transparent;
   color: var(--wb-11);
@@ -88,7 +88,7 @@
 }
 
 .tb-btn:disabled {
-  opacity: 0.35;
+  color: var(--wb-11);
   cursor: not-allowed;
 }
 
@@ -120,9 +120,6 @@
 /* Stop — semantic error red (token) */
 .tb-btn-stop {
   color: var(--color-feedback-error);
-}
-.tb-btn-stop:disabled {
-  color: var(--wb-9);
 }
 .tb-btn-stop:hover:not(:disabled) {
   background: var(--color-feedback-error-soft);

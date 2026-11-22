@@ -22,9 +22,7 @@ body {
 
 /* ── Header ─────────────────────────────────────── */
 .app-header {
-  background-color: var(--color-bg-header);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background-color: var(--workspace-base-panel);
   border-bottom: 1px solid var(--color-border-default);
   padding: 0 16px;
   height: 44px;
@@ -568,7 +566,6 @@ body {
   min-width: 0;
   display: flex;
   align-self: stretch;
-  margin: 0 10px;
 }
 
 .header-editor-toolbar .unified-toolbar {

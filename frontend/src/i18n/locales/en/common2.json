@@ -6,7 +6,8 @@
         "addBoard": "Add a board to compile",
         "loading": "Loading…",
         "loadMicropython": "Load MicroPython",
-        "compile": "Compile (Ctrl+B)"
+        "compile": "Compile (Ctrl+B)",
+        "options": "Compile options"
       },
       "run": {
         "addBoard": "Add a board to run",

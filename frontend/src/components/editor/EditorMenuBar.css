@@ -96,13 +96,17 @@
 }
 
 .emb-item:disabled {
-  opacity: 0.4;
+  color: color-mix(in srgb, var(--wb-13) 65%, var(--workspace-menu-background, var(--wb-5)));
   cursor: default;
 }
 
 .emb-shortcut {
-  color: var(--wb-10);
+  color: var(--wb-11);
   font-size: 11px;
+}
+
+.emb-item:disabled .emb-shortcut {
+  color: color-mix(in srgb, var(--wb-13) 55%, var(--workspace-menu-background, var(--wb-5)));
 }
 
 .emb-separator {

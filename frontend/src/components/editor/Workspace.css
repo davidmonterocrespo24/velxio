@@ -1,6 +1,7 @@
 .editor-workspace {
   --workspace-toolbar-height: 32px;
   --workspace-control-height: 24px;
+  --workspace-view-toggle-height: calc(var(--workspace-control-height) + 3px);
   --workspace-toolbar-divider-space: 6px;
   --workspace-status-height: 22px;
 }
@@ -24,23 +25,26 @@
 
 .editor-workspace .view-mode-toggle {
   position: relative;
+  box-sizing: border-box;
+  height: var(--workspace-view-toggle-height);
   align-self: center;
   flex-shrink: 0;
   gap: 3px;
   margin-inline: 4px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--wb-4);
+  padding: 4px;
+  border-radius: 9999px;
+  background: var(--wb-2);
   box-shadow: inset 0 0 0 1px var(--wb-6);
 }
 
 .editor-workspace .view-mode-toggle::before {
   content: '';
   position: absolute;
-  inset: 2px auto 2px 0;
+  inset: 50% auto auto 0;
   width: var(--view-pill-width, 0px);
-  transform: translateX(var(--view-pill-x, 0px));
-  border-radius: 6px;
+  height: calc(var(--workspace-control-height) - 4px);
+  transform: translate(var(--view-pill-x, 0px), -50%);
+  border-radius: 9999px;
   background: var(--color-action-primary);
   pointer-events: none;
   transition: transform 160ms ease-out, width 160ms ease-out;
@@ -114,7 +118,7 @@
   gap: 5px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 9999px;
   background: transparent;
   color: var(--wb-11);
   font: inherit;
@@ -140,7 +144,7 @@
 }
 
 .editor-workspace .toolbar-group {
-  gap: calc(var(--workspace-toolbar-divider-space) / 2);
+  gap: calc(var(--workspace-toolbar-divider-space) / 1.4);
 }
 
 .editor-workspace .unified-toolbar-tools .tb-divider {
@@ -150,9 +154,7 @@
 }
 
 .editor-workspace .editor-toolbar .tb-btn,
-.editor-workspace .canvas-header .board-selector,
-.editor-workspace .canvas-header button:not([role='option']),
-.editor-workspace .unified-toolbar-add button {
+.editor-workspace .canvas-header button:not([role='option'], .board-selector, .add-component-btn) {
   height: var(--workspace-control-height);
   border-radius: 5px;
 }
@@ -161,9 +163,17 @@
   min-width: var(--workspace-control-height);
 }
 
+.editor-workspace .editor-toolbar :is(.tb-btn-compile, .tb-btn-run, .tb-btn-run-all, .tb-btn-stop, .tb-btn-reset) {
+  border-radius: var(--radius-pill);
+}
+
+.editor-workspace .editor-toolbar .tb-btn:is(.tb-btn-stop, .tb-btn-reset) {
+  width: var(--workspace-control-height);
+  padding: 0;
+}
+
 .editor-workspace .editor-toolbar .tb-btn > svg,
-.editor-workspace .canvas-header button:not([role='option']) > svg,
-.editor-workspace .unified-toolbar-add button > svg {
+.editor-workspace .canvas-header button:not([role='option'], .board-selector, .add-component-btn) > svg {
   width: 15px;
   height: 15px;
 }
@@ -172,7 +182,7 @@
 .editor-workspace .editor-toolbar .tb-btn-run {
   width: auto;
   gap: 3px;
-  padding-inline: 6px;
+  padding-inline: 8px;
 }
 
 .editor-workspace .editor-toolbar .tb-btn-run {
@@ -182,6 +192,11 @@
 
 .editor-workspace .editor-toolbar .tb-btn-run:hover:enabled {
   background: color-mix(in srgb, var(--color-feedback-success) 23%, var(--wb-2));
+}
+
+.editor-workspace .editor-toolbar .tb-btn-run:disabled {
+  background: var(--wb-4);
+  box-shadow: inset 0 0 0 1px var(--wb-7);
 }
 
 .editor-workspace .editor-toolbar .tb-action-label {
@@ -199,7 +214,7 @@
   --split-accent: var(--color-feedback-success);
   --split-border: color-mix(in srgb, var(--split-accent) 50%, var(--wb-7));
   border: 1px solid var(--split-border);
-  border-radius: 5px;
+  border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--split-accent) 16%, var(--wb-2));
 }
 
@@ -210,9 +225,14 @@
 .editor-workspace .editor-toolbar .tb-split-button > .tb-btn {
   height: calc(var(--workspace-control-height) - 2px);
   border: 0;
+  border-radius: var(--radius-pill);
   background: transparent;
   box-shadow: none;
   color: color-mix(in srgb, var(--split-accent) 70%, var(--wb-13));
+}
+
+.editor-workspace .editor-toolbar .tb-split-button > .tb-btn:disabled {
+  color: var(--wb-11);
 }
 
 .editor-workspace .editor-toolbar .tb-split-button > :is(.tb-btn-compile, .tb-btn-run) {
@@ -234,14 +254,14 @@
 }
 
 .editor-workspace .canvas-header .board-selector {
+  height: var(--workspace-view-toggle-height);
   padding-block: 0;
 }
 
 .editor-workspace .editor-menubar button:focus-visible,
 .editor-workspace .view-mode-button:focus-visible,
 .editor-workspace .editor-toolbar button:focus-visible,
-.editor-workspace .canvas-header button:not([role='option']):focus-visible,
-.editor-workspace .unified-toolbar-add button:focus-visible {
+.editor-workspace .canvas-header button:not([role='option'], .board-selector, .add-component-btn):focus-visible {
   outline: 1px solid var(--color-action-primary);
   outline-offset: 1px;
 }
@@ -521,7 +541,7 @@ span.workspace-status-project {
 button.workspace-status-board:hover,
 .workspace-status-board[aria-expanded='true'],
 .workspace-activity-button:hover {
-  background: var(--wb-5);
+  /* background: var(--wb-5); */
   color: var(--wb-13);
 }
 
@@ -542,11 +562,17 @@ button.workspace-status-board:hover,
 }
 
 .workspace-activity-button {
-  min-height: 34px;
+  min-height: 38px;
   display: grid;
   place-items: center;
-  padding-right: 2px;
+  padding: 9px 9px 9px 7px;
+  padding-inline-end: 7px;
   border-inline-start: 2px solid transparent;
+}
+
+.workspace-activity-button > svg {
+  width: 18px;
+  height: 18px;
 }
 
 .workspace-activity-button[aria-pressed='true'],
@@ -1203,7 +1229,7 @@ button.workspace-status-board:hover,
   margin: 0 auto;
   padding: 0;
   border: 1px solid var(--wb-7);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--wb-3);
   color: var(--wb-12);
   box-shadow: var(--shadow-3);
@@ -1247,7 +1273,7 @@ button.workspace-status-board:hover,
   width: 100%;
   padding: 5px 8px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 7px;
   background: transparent;
   color: var(--wb-13);
   font: inherit;
@@ -1258,7 +1284,7 @@ button.workspace-status-board:hover,
 .editor-quick-pick-options button:hover,
 .editor-quick-pick-options button:focus-visible,
 .editor-quick-pick-options button[aria-pressed='true'] {
-  background: var(--wb-5);
+  background: var(--wb-7);
 }
 
 .editor-quick-pick-options button span {
@@ -1550,8 +1576,9 @@ button.workspace-status-board:hover,
   }
 
   .workspace-activity-button {
-    min-height: 30px;
+    min-height: 34px;
     min-width: clamp(30px, 9vw, 36px);
+    padding: 5px;
     border-inline-start: 0;
     border-bottom: 2px solid transparent;
   }
