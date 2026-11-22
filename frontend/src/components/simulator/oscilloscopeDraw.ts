@@ -58,6 +58,7 @@ function scopeChrome() {
     rulerLine: cssVar('--wb-7'),
     rulerText: cssVar('--wb-10'),
     trigger: cssVar('--color-feedback-warning'),
+    noData: cssVar('--wb-4'),
   };
 }
 
@@ -128,6 +129,46 @@ function drawTriggerMarker(
   ctx.fillText('T', x + 2, 10);
 }
 
+/**
+ * A stretch of a row the scope holds no samples for (velxio/velxio-prod#196):
+ * diagonal hatching between x0 and x1, and `label` in it when there is room.
+ * Drawn with plain paths (no clip), so every context that can draw a trace
+ * can draw it.
+ */
+function drawNoData(
+  ctx: CanvasRenderingContext2D,
+  { width, height }: CanvasSize,
+  chrome: Chrome,
+  x0: number,
+  x1: number,
+  label: string | null,
+): void {
+  const a = Math.max(0, Math.min(width, x0));
+  const b = Math.max(0, Math.min(width, x1));
+  if (b - a < 1) return;
+  ctx.strokeStyle = chrome.noData;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // Lines of slope -1, every 8 px, each cut to the [a, b] band: a point
+  // (x, height) rises to (x + height, 0).
+  const STEP = 8;
+  for (let x = a - height; x < b; x += STEP) {
+    const xs = Math.max(x, a);
+    const xe = Math.min(x + height, b);
+    if (xe <= xs) continue;
+    ctx.moveTo(xs, height - (xs - x));
+    ctx.lineTo(xe, height - (xe - x));
+  }
+  ctx.stroke();
+  if (label && b - a >= 60) {
+    ctx.fillStyle = chrome.axisText;
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, (a + b) / 2, height / 2 + 3);
+    ctx.textAlign = 'left';
+  }
+}
+
 /** One digital channel: a step function between its HIGH and LOW levels. */
 export function drawWaveform(
   ctx: CanvasRenderingContext2D,
@@ -138,6 +179,8 @@ export function drawWaveform(
   windowMs: number,
   /** X fraction (0..1) of the trigger marker, or null for none. */
   triggerXFrac: number | null = null,
+  /** What the stretch before a first sample that says `unknownBefore` reads. */
+  noDataLabel: string | null = null,
 ): void {
   const { width, height } = size;
   ctx.clearRect(0, 0, width, height);
@@ -152,20 +195,32 @@ export function drawWaveform(
   const HIGH_Y = Math.round(height * 0.15);
   const LOW_Y = Math.round(height * 0.85);
 
+  let initState = false;
+  let known = false;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (samples[i]!.timeMs <= windowStartMs) {
+      initState = samples[i]!.state;
+      known = true;
+      break;
+    }
+  }
+  // Before a first sample that says so, the level is not known: the buffer
+  // dropped what came before it, or the channel began on a running board.
+  // That stretch is "no data", not the LOW it used to be drawn as
+  // (velxio/velxio-prod#196); the trace starts at the sample, at its level.
+  let startX = 0;
+  if (!known && samples[0]!.unknownBefore) {
+    startX = Math.max(0, Math.min(width, toX(samples[0]!.timeMs)));
+    drawNoData(ctx, size, chrome, 0, startX, noDataLabel);
+    initState = samples[0]!.state;
+  }
+
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
 
-  let initState = false;
-  for (let i = samples.length - 1; i >= 0; i--) {
-    if (samples[i]!.timeMs <= windowStartMs) {
-      initState = samples[i]!.state;
-      break;
-    }
-  }
-
   let currentY = initState ? HIGH_Y : LOW_Y;
-  ctx.moveTo(0, currentY);
+  ctx.moveTo(startX, currentY);
 
   for (const s of samples) {
     if (s.timeMs < windowStartMs) continue;
@@ -218,6 +273,8 @@ export function drawAnalogWaveform(
   shiftV = 0,
   /** The row's scale, written in its top right corner ("500mV/div AC"). */
   scaleText: string | null = null,
+  /** What the stretches of the window outside the capture read. */
+  noDataLabel: string | null = null,
 ): void {
   const { width, height } = size;
   ctx.clearRect(0, 0, width, height);
@@ -227,6 +284,23 @@ export function drawAnalogWaveform(
 
   const windowStartMs = windowEndMs - windowMs;
   const toX = (t: number) => ((t - windowStartMs) / windowMs) * width;
+
+  // A capture is one sweep of the solver, as long as its window: 0.4 s at
+  // most for a pin stepping a capacitor, four periods of the slowest source
+  // for a generator, 20 ms for a circuit that is only DC. On a longer time
+  // base the rest of the screen is not a flat line at 0 V, it is "no data"
+  // (velxio/velxio-prod#196).
+  let firstMs = Infinity;
+  let lastMs = -Infinity;
+  for (const smp of samples) {
+    if (smp.volts === undefined) continue;
+    if (smp.timeMs < firstMs) firstMs = smp.timeMs;
+    if (smp.timeMs > lastMs) lastMs = smp.timeMs;
+  }
+  if (firstMs <= lastMs) {
+    drawNoData(ctx, size, chrome, 0, toX(firstMs), noDataLabel);
+    drawNoData(ctx, size, chrome, toX(lastMs), width, noDataLabel);
+  }
   const spanV = voltsPerDiv * vDivs;
   // Volts increase upward; y grows downward.
   const toY = (v: number) => height / 2 - ((v - yOffsetV) / spanV) * height;

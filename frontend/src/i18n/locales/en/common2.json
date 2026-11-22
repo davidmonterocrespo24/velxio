@@ -274,6 +274,7 @@
       "noChannelsHint": "Click \"+ Add Channel\" to monitor a pin.",
       "removeChannel": "Remove {{label}}",
       "probeLost": "The probed point is no longer in the circuit",
+      "noData": "no data",
       "voltsDiv": "V/div:",
       "vChannelTitle": "Analog channel the V/div, offset and coupling controls set",
       "voltsDivTitle": "Volts per division. Auto fits each capture; a value fixes the scale.",

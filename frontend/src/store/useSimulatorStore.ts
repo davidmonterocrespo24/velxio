@@ -246,6 +246,12 @@ export class Esp32BridgeShim {
   private externalScope = new ExternalPinScopeFeed(() => performance.now());
   private bridge: Esp32Bridge;
 
+  /** The clock this board's scope samples are stamped on: the page's own,
+   *  as the bridge stamps its edges (see boardScopeClockMs). */
+  scopeClockMs(): number {
+    return performance.now();
+  }
+
   /**
    * Canvas parts waiting for a decoded WS2812 frame, keyed by their DIN pin.
    *
@@ -1154,6 +1160,11 @@ class Stm32BridgeShim {
   private bridge: Stm32Bridge;
   private _i2cTransactionListeners = new I2cEchoListeners();
 
+  /** The clock this board's scope samples are stamped on (see boardScopeClockMs). */
+  scopeClockMs(): number {
+    return performance.now();
+  }
+
   /** The board's SPI lane: the STM32 runs in a backend QEMU worker, so its
    *  controller port is fed by the worker's batches and its responders travel
    *  there as a bus map (project board-buses-2026-09, F4). */
@@ -1450,6 +1461,35 @@ const stm32BridgeMap = new Map<string, Stm32Bridge>();
 export const getBoardSimulator = (id: string) => simulatorMap.get(id);
 export const getBoardPinManager = (id: string) => pinManagerMap.get(id);
 export const getBoardBridge = (id: string) => bridgeMap.get(id);
+
+/**
+ * The clock a board's oscilloscope samples are stamped on, in ms: the guest's
+ * cycle counter for an engine in the tab, the page's clock for a bridge that
+ * stamps the edges it is sent. null for an engine that keeps none. The scope
+ * scrolls on it while it free-runs, so a wait with no edge still moves the
+ * trace (velxio/velxio-prod#196).
+ */
+export function boardScopeClockMs(id: string): number | null {
+  const sim = simulatorMap.get(id) as { scopeClockMs?: () => number } | undefined;
+  const t = sim?.scopeClockMs?.();
+  return typeof t === 'number' && Number.isFinite(t) ? t : null;
+}
+
+/**
+ * Where a scope channel on `pin` of a RUNNING board starts: the level the pin
+ * has now, at the board's clock. The channel then knows its level from that
+ * moment and shows "no data" before it, where it used to draw LOW until the
+ * first edge (velxio/velxio-prod#196). null for a board that is not running
+ * (every pad starts the run LOW) or keeps no clock.
+ */
+export function scopeSeedFor(boardId: string, pin: number): { timeMs: number; state: boolean } | null {
+  const board = useSimulatorStore.getState().boards.find((b) => b.id === boardId);
+  if (!board?.running) return null;
+  const timeMs = boardScopeClockMs(boardId);
+  const pm = pinManagerMap.get(boardId);
+  if (timeMs === null || !pm) return null;
+  return { timeMs, state: pm.getPinState(pin) };
+}
 
 /** Upload a QEMU-Linux board's editor file group into the guest home and run
  * its script (guestHome/autoRun overridable per overlay board). Used by the

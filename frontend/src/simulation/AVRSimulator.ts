@@ -2117,6 +2117,12 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     return 16000000;
   }
 
+  /** The guest clock every scope sample of this board is stamped on, in ms
+   *  (cycles / 16 000, as firePinChangeWithTime stamps them). */
+  scopeClockMs(): number {
+    return this.cpu ? this.cpu.cycles / 16_000 : 0;
+  }
+
   /**
    * Set the state of an Arduino pin externally (e.g. from a UI button)
    */

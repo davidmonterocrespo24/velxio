@@ -265,6 +265,7 @@
       "noChannelsHint": "Clique em \"+ Adicionar Canal\" para monitorar um pino.",
       "removeChannel": "Remover {{label}}",
       "probeLost": "O ponto medido não está mais no circuito",
+      "noData": "sem dados",
       "voltsDiv": "V/div:",
       "vChannelTitle": "Canal analógico ajustado por V/div, offset e acoplamento",
       "voltsDivTitle": "Volts por divisão. Auto ajusta cada captura; um valor fixa a escala.",

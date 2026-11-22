@@ -180,6 +180,26 @@ export interface OscSample {
    *  at half the channel's amplitude, so a digital-only reader (the trigger's
    *  edge detector, the old draw path) still sees something sane. */
   volts?: number;
+  /**
+   * On the first sample of a digital channel only: the scope does not know
+   * the level before it, and the row shows "no data" there instead of the LOW
+   * it used to assume (velxio/velxio-prod#196). Either the buffer dropped the
+   * edges before it to stay within MAX_SAMPLES, or the channel was added or
+   * cleared while its board ran and this sample is the level the pin had then.
+   */
+  unknownBefore?: true;
+}
+
+/** Where a digital channel starts when its board is already running: the
+ *  pin's level and the board clock at that moment (see OscSample.unknownBefore). */
+export interface OscSeed {
+  timeMs: number;
+  state: boolean;
+}
+
+/** A channel's first sample when it starts from a seed. */
+function seedSamples(seed: OscSeed | null | undefined): OscSample[] {
+  return seed ? [{ timeMs: seed.timeMs, state: seed.state, unknownBefore: true }] : [];
 }
 
 export type TriggerMode = 'auto' | 'normal' | 'single';
@@ -230,7 +250,19 @@ interface OscilloscopeState {
   openOscilloscope: () => void;
   setCapturing: (running: boolean) => void;
   setTimeDivMs: (ms: number) => void;
-  addChannel: (boardId: string, pin: number, pinLabel: string, amplitudeV?: number) => void;
+  /**
+   * Watch a board pin. `seed` is the pin's level and the board clock when the
+   * board is already running: the channel knows its level from then on, and
+   * not before (OscSample.unknownBefore). Without one the level before the
+   * first edge is the LOW every pad starts the run with.
+   */
+  addChannel: (
+    boardId: string,
+    pin: number,
+    pinLabel: string,
+    amplitudeV?: number,
+    seed?: OscSeed | null,
+  ) => void;
   /** Add (or reveal) a channel watching a SPICE net by name. Keyed on the NET
    *  so it survives the wire it was probed from being split by a junction;
    *  `probe` is the part pin the net was found at, which the channel follows
@@ -274,7 +306,9 @@ interface OscilloscopeState {
   /** DC or AC coupling for an analog channel; an auto-scaled channel refits
    *  its capture at once. */
   setChannelCoupling: (channelId: string, coupling: 'dc' | 'ac') => void;
-  clearSamples: () => void;
+  /** Empty every channel. `seeds`, by channel id, restart a digital channel
+   *  from the level its pin has now when its board is running (addChannel). */
+  clearSamples: (seeds?: Record<string, OscSeed | null | undefined>) => void;
 
   setTriggerMode: (mode: TriggerMode) => void;
   setTriggerChannel: (channelId: string | null) => void;
@@ -336,6 +370,33 @@ function resolveTriggerChannelId(
     return triggerChannelId;
   }
   return channels[0]?.id ?? null;
+}
+
+/**
+ * The right edge of the window while the scope free-runs (Auto, and Normal or
+ * Single before their first trigger), in ms.
+ *
+ * It is the clock of the boards whose pins are on the scope (`clockMs`), so
+ * the trace keeps moving through a wait in which no edge comes: pinned to the
+ * last sample, a 13 s wait with the LED on never scrolled, and the edge that
+ * ended it jumped in from the right (velxio/velxio-prod#196). Never before the
+ * latest sample, which a frame synthesized ahead of the clock can be; and with
+ * no clock (no board running, or an engine that keeps none) it is that sample,
+ * as before. Analog captures are in the solver's own time and never move it
+ * past their end.
+ */
+export function freeRunWindowEndMs(
+  channels: readonly OscChannel[],
+  samples: Readonly<Record<string, readonly OscSample[]>>,
+  clockMs: number | null,
+  windowMs: number,
+): number {
+  let end = clockMs !== null && Number.isFinite(clockMs) ? clockMs : 0;
+  for (const ch of channels) {
+    const buf = samples[ch.id];
+    if (buf && buf.length > 0) end = Math.max(end, buf[buf.length - 1]!.timeMs);
+  }
+  return Math.max(end, windowMs);
 }
 
 /** The label an analog channel takes from its net: the net's name, and GND
@@ -442,7 +503,7 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
 
   setTimeDivMs: (ms) => set({ timeDivMs: ms }),
 
-  addChannel: (boardId: string, pin: number, pinLabel: string, amplitudeV = 5) => {
+  addChannel: (boardId: string, pin: number, pinLabel: string, amplitudeV = 5, seed = null) => {
     const { channels } = get();
     // Deduplicate by (boardId, pin)
     if (channels.some((c) => c.kind === 'digital' && c.boardId === boardId && c.pin === pin)) {
@@ -470,7 +531,7 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
           yOffsetV: 0,
         },
       ],
-      samples: { ...s.samples, [id]: [] },
+      samples: { ...s.samples, [id]: seedSamples(seed) },
     }));
   },
 
@@ -608,7 +669,12 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
       const curBuf = cur.samples[channelId];
       if (!curBuf) return cur;
       const next = curBuf.slice();
-      if (next.length >= MAX_SAMPLES) next.shift();
+      if (next.length >= MAX_SAMPLES) {
+        next.shift();
+        // The level before the oldest edge kept went with the edge dropped:
+        // the row says so rather than draw LOW there (velxio/velxio-prod#196).
+        next[0] = { ...next[0]!, unknownBefore: true };
+      }
       next.push({ timeMs, state });
       return {
         samples: { ...cur.samples, [channelId]: next },
@@ -755,11 +821,11 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
       }),
     })),
 
-  clearSamples: () => {
+  clearSamples: (seeds) => {
     const { channels } = get();
     const fresh: Record<string, OscSample[]> = {};
     channels.forEach((c) => {
-      fresh[c.id] = [];
+      fresh[c.id] = c.kind === 'digital' ? seedSamples(seeds?.[c.id]) : [];
     });
     set({
       samples: fresh,

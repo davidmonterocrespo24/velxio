@@ -5,6 +5,7 @@ import {
   getBoardSimulator,
   getBoardPinManager,
   observeBoardWs2812,
+  scopeSeedFor,
 } from '../../store/useSimulatorStore';
 import { attachOnboardLeds, sameLedVisual } from '../../simulation/onboardLeds';
 import type { BoardLedVisuals } from '../../types/board';
@@ -361,7 +362,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       return;
     }
     if (target.kind === 'digital') {
-      osc.addChannel(target.boardId, target.pin, target.label, target.amplitudeV);
+      // A running board's pin starts from its level now (velxio/velxio-prod#196).
+      osc.addChannel(
+        target.boardId,
+        target.pin,
+        target.label,
+        target.amplitudeV,
+        scopeSeedFor(target.boardId, target.pin),
+      );
     } else {
       osc.addNetChannel(target.netName, target.label, target.probe);
     }

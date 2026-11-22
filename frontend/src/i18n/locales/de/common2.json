@@ -265,6 +265,7 @@
       "noChannelsHint": "Klicken Sie auf „+ Kanal hinzufügen“, um einen Pin zu überwachen.",
       "removeChannel": "{{label}} entfernen",
       "probeLost": "Der gemessene Punkt ist nicht mehr in der Schaltung",
+      "noData": "keine Daten",
       "voltsDiv": "V/Teil:",
       "vChannelTitle": "Analogkanal, auf den V/Teil, Offset und Kopplung wirken",
       "voltsDivTitle": "Volt pro Teilung. Auto passt jede Aufnahme an; ein Wert legt die Skala fest.",

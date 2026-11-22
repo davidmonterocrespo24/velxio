@@ -171,6 +171,11 @@ export class Esp32C3Simulator {
   /** The other half of that channel: levels the CIRCUIT applies (setPinState). */
   private externalScope = new ExternalPinScopeFeed(() => (this.core.cycles / CPU_HZ) * 1000);
 
+  /** The guest clock every scope sample of this board is stamped on, in ms. */
+  scopeClockMs(): number {
+    return (this.core.cycles / CPU_HZ) * 1000;
+  }
+
   constructor(pinManager: PinManager) {
     this.pinManager = pinManager;
 

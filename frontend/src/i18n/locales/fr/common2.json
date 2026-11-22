@@ -265,6 +265,7 @@
       "noChannelsHint": "Cliquez sur \"+ Ajouter un canal\" pour surveiller une broche.",
       "removeChannel": "Supprimer {{label}}",
       "probeLost": "Le point mesuré n'est plus dans le circuit",
+      "noData": "pas de données",
       "voltsDiv": "V/div :",
       "vChannelTitle": "Canal analogique réglé par V/div, décalage et couplage",
       "voltsDivTitle": "Volts par division. Auto ajuste chaque capture ; une valeur fixe l'échelle.",

@@ -1838,6 +1838,11 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     return this.speed;
   }
 
+  /** The guest clock every scope sample of this board is stamped on, in ms. */
+  scopeClockMs(): number {
+    return this.clockMs();
+  }
+
   /** Guest time in ms, the base every digital scope sample on this board uses. */
   private clockMs(): number {
     // IClock interface exposes `nanos` (not `timeUs`)

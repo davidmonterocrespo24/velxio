@@ -265,6 +265,7 @@
       "noChannelsHint": "Clicca \"+ Aggiungi canale\" per monitorare un pin.",
       "removeChannel": "Rimuovi {{label}}",
       "probeLost": "Il punto misurato non è più nel circuito",
+      "noData": "nessun dato",
       "voltsDiv": "V/div:",
       "vChannelTitle": "Canale analogico regolato da V/div, offset e accoppiamento",
       "voltsDivTitle": "Volt per divisione. Auto adatta ogni acquisizione; un valore fissa la scala.",

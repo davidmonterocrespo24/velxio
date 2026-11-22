@@ -265,6 +265,7 @@
       "noChannelsHint": "点击“+ 添加通道”以监视引脚。",
       "removeChannel": "移除 {{label}}",
       "probeLost": "探测点已不在电路中",
+      "noData": "无数据",
       "voltsDiv": "V/格:",
       "vChannelTitle": "V/格、偏移和耦合所设置的模拟通道",
       "voltsDivTitle": "每格电压。自动会适配每次采集；选择数值则固定刻度。",
