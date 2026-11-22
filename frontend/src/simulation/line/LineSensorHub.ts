@@ -159,10 +159,16 @@ export class LineSensorHub {
    * timeline has always taken it.
    */
   private observe(now: number): void {
-    const before = this.lastSeen;
+    // Every slip gate of an engine comes through here: the common path is one
+    // compare, and the reboot is a call of its own.
+    if (now < this.lastSeen) this.rebooted(now);
+    else this.lastSeen = now;
+  }
+
+  private rebooted(now: number): void {
     // Recorded first: re-resting a pad must not find the old count again.
     this.lastSeen = now;
-    if (now < before) this.restart();
+    this.restart();
   }
 
   /** Forget frames and protocol state, and put every pad back at rest. */
