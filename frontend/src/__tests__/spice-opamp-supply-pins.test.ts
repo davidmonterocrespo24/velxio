@@ -2,7 +2,7 @@
  * Op-amp supply pins (V+ / V-), as on the real parts.
  *
  * Before they existed every op-amp ran from the board's logic rail, so an
- * LM358 behind an ESP32 could never put out more than about 2 V, whatever the
+ * LM358 behind an ESP32 could never put out more than about 2.3 V, whatever the
  * gain (user report, 2026-11-02: a PWM setpoint, an RC filter and an LM358 in
  * a gain of 3.7 meant to reach 10-12 V stopped at 2.3 V). Wired, the pins put
  * the op-amp on its own supply; unwired, the netlist is the one it was.
@@ -100,7 +100,7 @@ async function vout(part: string, supply: Supply, vin = 3.0, inverting = false):
 
 describe('op-amp supply pins', () => {
   it(
-    'LM358 with V+ and V- unwired runs from the 3.3 V board rail and saturates near 2 V',
+    'LM358 with V+ and V- unwired runs from the 3.3 V board rail and saturates near 2.3 V',
     { timeout: 60_000 },
     async () => {
       const v = await vout('opamp-lm358', { vplus: null });
