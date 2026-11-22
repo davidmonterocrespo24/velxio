@@ -1251,6 +1251,46 @@ _INO_FUNC_RE = re.compile(
     re.M,
 )
 
+# _ino_function_heads() yields what _INO_FUNC_RE.finditer() yields, reading
+# the text once: the name, parameters and '{' of every match (_INO_HEAD_RE,
+# each found once), then the line start the regex matches from, read off the
+# run of return-type characters before the name. (The return type may run
+# across lines, so finditer() itself tries every line start of such a run.)
+_INO_HEAD_RE = re.compile(r'(?<=[\s*&])[A-Za-z_]\w*[ \t]*\([^;{}()]*\)[ \t\r\n]*\{')
+_INO_TYPE_PUNCT = frozenset(string.ascii_letters + string.digits + '_:<>,*&')
+_INO_TYPE_START = frozenset(string.ascii_letters + '_')
+
+
+def _ino_function_heads(scan: str):
+    """The matches of _INO_FUNC_RE.finditer(scan), in time linear in scan.
+
+    A match ends with a head _INO_HEAD_RE finds (a name preceded by [\\s*&],
+    its parameters and the '{'), and everything from the line start it
+    begins at up to the name is return-type characters ([A-Za-z0-9_:<>,*&]
+    or \\s): those are the run that ends right before the name, and no
+    other head can be reached through it (a head's '(' ends every run). The
+    regex tries line starts in order, so the match begins at the first line
+    start of the run whose first character past spaces and tabs is a letter
+    or '_' at least two characters before the name."""
+    pos = 0
+    for head in _INO_HEAD_RE.finditer(scan):
+        name = head.start()
+        run = name - 1
+        while run > pos and (scan[run - 1] in _INO_TYPE_PUNCT or scan[run - 1].isspace()):
+            run -= 1
+        line = run if run == 0 or scan[run - 1] == '\n' else scan.find('\n', run, name - 1) + 1 or -1
+        while 0 <= line <= name - 2:
+            first = line
+            while first < name and scan[first] in ' \t':
+                first += 1
+            if first <= name - 2 and scan[first] in _INO_TYPE_START:
+                m = _INO_FUNC_RE.match(scan, line)
+                if m is not None:
+                    yield m
+                    pos = m.end()
+                break
+            line = scan.find('\n', line, name - 1) + 1 or -1
+
 
 # _blank_noncode's scanner: where a directive line starts (only spaces and
 # tabs before its '#'), and where a string or char literal stops (its closing
@@ -1258,6 +1298,7 @@ _INO_FUNC_RE = re.compile(
 _DIRECTIVE_START = re.compile(r'[ \t]*#')
 _LITERAL_STOP = {'"': re.compile(r'["\\]'), "'": re.compile(r"['\\]")}
 _NOT_NEWLINE = re.compile(r'[^\n]')
+_SPACES = tuple(' ' * k for k in range(256))
 
 
 def _blank_noncode(source: str) -> str:
@@ -1273,11 +1314,31 @@ def _blank_noncode(source: str) -> str:
     backslash escapes. The scan used to copy the rest of the source at every
     line start to see whether the line was a directive: quadratic, up to 20 s
     for a 2.5 MB project once the WiFi rewrite blanked every file of it, on
-    the backend's event loop (velxio/velxio-prod#191).
+    the backend's event loop (velxio/velxio-prod#191). The copy is written as
+    the scan goes, so no list of every blanked range is kept until the end
+    (on text made of short string literals, that list held some 100 bytes
+    per byte of source).
     """
     n = len(source)
     find = source.find
-    spans: list[tuple[int, int]] = []   # the [start, end) ranges to blank, in order
+    out: list[str] = []                 # the copy so far, in pieces: source[:done], blanked
+    done = 0
+
+    def blank(start: int, end: int) -> None:
+        """Add source[done:end] to the copy, with [start, end) blanked
+        (newlines kept)."""
+        nonlocal done
+        if start == end:
+            return
+        out.append(source[done:start])
+        if find('\n', start, end) >= 0:
+            out.append(_NOT_NEWLINE.sub(' ', source[start:end]))
+        elif end - start < len(_SPACES):
+            out.append(_SPACES[end - start])
+        else:
+            out.append(' ' * (end - start))
+        done = end
+
     i = 0                               # the scan is in code from here
     slash = dquote = squote = hash_ = -1  # next '/', '"', "'", '#' at or after i; n: none
     directive = 0 if _DIRECTIVE_START.match(source) else -1  # a directive line starts here
@@ -1287,9 +1348,9 @@ def _blank_noncode(source: str) -> str:
             while end > 0 and source[end - 1] == '\\':
                 end = find('\n', end + 1)
             if end < 0:
-                spans.append((directive, n))
+                blank(directive, n)
                 break
-            spans.append((directive, end))
+            blank(directive, end)
             i = end + 1
             directive = i if _DIRECTIVE_START.match(source, i) else -1
             continue
@@ -1331,11 +1392,11 @@ def _blank_noncode(source: str) -> str:
             if after == '/':          # a line comment, up to its newline
                 end = find('\n', k + 2)
                 i = n if end < 0 else end
-                spans.append((k, i))
+                blank(k, i)
             elif after == '*':        # a block comment, through its */
                 end = find('*/', k + 2)
                 i = n if end < 0 else end + 2
-                spans.append((k, i))
+                blank(k, i)
             else:
                 i = k + 1
             continue
@@ -1344,25 +1405,59 @@ def _blank_noncode(source: str) -> str:
         while True:
             m = stop(source, j)
             if m is None:
-                spans.append((k + 1, n))
+                blank(k + 1, n)
                 i = n
                 break
             j = m.start()
             if source[j] == '\\':
                 j += 2
                 continue
-            spans.append((k + 1, j))
+            blank(k + 1, j)
             i = j + 1
             break
+    out.append(source[done:])
+    return ''.join(out)
+
+
+def _drop_block_comments(code: str) -> str:
+    r"""`code` with every /* ... */ comment replaced by one space: what
+    re.sub(r'/\*.*?\*/', ' ', code, flags=re.DOTALL) returns, reading the
+    text once (once a '/*' has no '*/' after it, no later '/*' has one)."""
     out: list[str] = []
     pos = 0
-    for start, end in spans:
-        out.append(source[pos:start])
-        part = source[start:end]
-        out.append(_NOT_NEWLINE.sub(' ', part) if '\n' in part else ' ' * len(part))
-        pos = end
-    out.append(source[pos:])
+    while True:
+        start = code.find('/*', pos)
+        if start < 0:
+            break
+        end = code.find('*/', start + 2)
+        if end < 0:
+            break
+        out.append(code[pos:start])
+        out.append(' ')
+        pos = end + 2
+    out.append(code[pos:])
     return ''.join(out)
+
+
+_INCLUDE_HEAD = re.compile(r'#\s*include\s*(?=[<"])')
+
+
+def _first_include(line: str) -> tuple[str, bool] | None:
+    r"""(spec, quoted) of the first `#include <spec>` or `#include "spec"` in
+    `line`: what re.search(r'#\s*include\s*(?:<([^>]+)>|"([^"]+)")', line)
+    finds, reading the line once: the next '>' and '"' are found once and
+    kept until passed."""
+    after = {'>': -1, '"': -1}
+    for m in _INCLUDE_HEAD.finditer(line):
+        start = m.end() + 1
+        close = '>' if line[m.end()] == '<' else '"'
+        at = after[close]
+        if at < start:
+            at = line.find(close, start)
+            after[close] = at = len(line) if at < 0 else at
+        if start < at < len(line):
+            return line[start:at], close == '"'
+    return None
 
 
 def generate_ino_prototypes(source: str) -> str:
@@ -1385,7 +1480,7 @@ def generate_ino_prototypes(source: str) -> str:
     protos: list[str] = []
     seen: set[str] = set()
     first_pos: int | None = None
-    for m in _INO_FUNC_RE.finditer(scan):
+    for m in _ino_function_heads(scan):
         sig_start = m.start()
         if depths[m.end() - 1] != 0:
             continue  # method body / nested — the '{' must open at depth 0
@@ -1719,15 +1814,20 @@ def _rewrite_calls(code: str, name_pattern: str, rewrite) -> str:
 
 def _rewrite_call_args(code: str, name_pattern: str, rewrite) -> str:
     """Replace the arguments of every `name(args)` call with rewrite(args)
-    (None keeps them). The callee stays as written: `wifiMulti.addAP(`."""
+    (None keeps them). The callee stays as written: `wifiMulti.addAP(`.
+    Calls are read the way _call_args reads them: a call inside another's
+    arguments is not read again, whether the outer one was rewritten or
+    kept."""
     out: list[str] = []
     pos = 0
+    read = 0
     for m in re.finditer(name_pattern + r'\s*\(', code):
-        if m.start() < pos:
+        if m.start() < read:
             continue
         close = _matching_paren(code, m.end() - 1)
         if close < 0:
             break
+        read = close + 1
         replacement = rewrite(code[m.end():close])
         if replacement is None:
             continue
@@ -1777,16 +1877,23 @@ _SSID_NAME_VALUE = r'([A-Za-z_]\w*)(?:\s*\.\s*c_str\s*\(\s*\))?(?=[ \t]*(?:;|,|\
 # case. The first begins with [cC], the two forms re.IGNORECASE gives a 'c',
 # and only the rest ignores case: with a set of first characters the regex
 # engine skips to the next c instead of trying every position of every file,
-# five times faster.
+# five times faster. The blanks around the optional `*`, `[` and `]` are read
+# by one \s* on each side of them (`\s*(?:\*\s*)?`, not `\s*\*?\s*`), so a
+# run of blanks is read one way only. The same matches and groups.
 _SSID_CHAR_VARIABLE = re.compile(
-    r'([cC](?:(?i:onst)\s+[cC])?(?i:har)\s*\*?\s*((?i:ssid))\s*\[?\]?\s*=\s*)"([^"]*)"',
+    r'([cC](?:(?i:onst)\s+[cC])?(?i:har)\s*(?:\*\s*)?((?i:ssid))\s*(?:\[\]?\s*|\]\s*)?=\s*)"([^"]*)"',
 )
-_SSID_DEFINE = re.compile(r'(#define\s+(\w*SSID\w*)\s+)"([^"]*)"', re.IGNORECASE)
+# The #define's name is read once: the lookahead checks that it holds SSID,
+# then \w+ takes it whole. The same matches and groups as \w*SSID\w*.
+_SSID_DEFINE = re.compile(r'(#define\s+(?=\w*SSID)(\w+)\s+)"([^"]*)"', re.IGNORECASE)
 
 # What follows a name a value is assigned to: `NAME =`, `NAME[32] =`,
 # `NAME[] PROGMEM =`. Not a comparison (`NAME == ...`), and the whole name
-# (`ssid2 =` assigns no `ssid`).
-_ASSIGNED_TO = r'(?!\w)\s*(?:\[[^\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)'
+# (`ssid2 =` assigns no `ssid`). The subscript stops at a '[' as it does at
+# a ']', so the text after one `NAME[` is read once. A subscript holding a
+# '[' no longer counts: a nested one never did (its first ']' ended it), so
+# only unbalanced code and a '[' in a literal (`NAME['['] =`) read otherwise.
+_ASSIGNED_TO = r'(?!\w)\s*(?:\[[^\[\]\n]*\]\s*)?(?:PROGMEM\s*)?=(?!=)'
 
 
 def _definition_patterns(value: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
@@ -1808,6 +1915,8 @@ _LITERAL_DEFINITIONS = _definition_patterns(_SSID_LITERAL_VALUE)
 # A #define and the name it defines; a directive only with nothing but spaces
 # and tabs before the '#' on its line (_Definitions checks).
 _DEFINE_NAME = re.compile(r'#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]')
+# A word that can be a name (what _Definitions.words() collects).
+_WORD = re.compile(r'[A-Za-z_]\w*')
 # Any whole name a value is assigned to, not inside another word, not after
 # `.` or `->`. The pattern starts with the name's first letter, so the regex
 # engine skips to the next letter instead of trying every position.
@@ -1816,24 +1925,30 @@ _ASSIGNED_NAME = re.compile(r'[A-Za-z_](?<![\w.].)(?<!->.)\w*(?=' + _ASSIGNED_TO
 
 class _Definitions:
     """Where one source gives names a value, for the names the SSID rewrite
-    follows: each #define is found once, by one scan for '#'; the assignments
-    of a name by a scan for that name, which the regex engine runs as a fast
-    substring search, or, once more than _NAME_SCANS names have been asked
-    for, by one scan for every assigned name. The source is blanked
-    (_blank_noncode) once, and only when a name the rewrite follows is
-    assigned in it. The rewrite's cost is linear in the project's size, for
-    any number of names: it used to blank and search every source again for
-    every name it followed (velxio/velxio-prod#191).
+    follows: each #define is found once, by one scan for '#', and each
+    assignment once, by one scan for every assigned name (_ASSIGNED_NAME).
+    A followed name is looked up in what those scans found, never searched
+    for by its own text, which would cost the name's length at every place
+    that text starts. The source is blanked (_blank_noncode) once, and only
+    when a name the rewrite follows is assigned in it. The rewrite's cost is
+    linear in the project's size, for any number of names and any name: it
+    used to blank and search every source again for every name it followed
+    (velxio/velxio-prod#191).
     """
-
-    _NAME_SCANS = 32
 
     def __init__(self, source: str):
         self.source = source
         self._defines: dict[str, list[int]] | None = None
-        self._assigned: dict[str, list[int]] = {}
-        self._every_assigned: dict[str, list[int]] | None = None
+        self._assigned: dict[str, list[int]] | None = None
         self._blank: str | None = None
+        self._words: set[str] | None = None
+
+    def words(self) -> set[str]:
+        """Every word of the source a name can be: no name outside it is
+        defined or assigned here, so the rewrite asks only for these."""
+        if self._words is None:
+            self._words = set(_WORD.findall(self.source))
+        return self._words
 
     def _define_lines(self, name: str) -> list[int]:
         """The starts of the lines that #define `name`."""
@@ -1850,21 +1965,11 @@ class _Definitions:
 
     def _assignments(self, name: str) -> list[int]:
         """Where `name` starts with a value assigned to it, in order."""
-        if self._every_assigned is None and name not in self._assigned:
-            if len(self._assigned) < self._NAME_SCANS:
-                n = re.escape(name)
-                found = re.finditer(
-                    n + r'(?<![\w.]' + n + r')(?<!->' + n + r')(?=' + _ASSIGNED_TO + r')',
-                    self.source,
-                )
-                self._assigned[name] = [m.start() for m in found]
-            else:
-                self._every_assigned = {}
-                for m in _ASSIGNED_NAME.finditer(self.source):
-                    self._every_assigned.setdefault(m.group(), []).append(m.start())
-        if self._every_assigned is not None:
-            return self._every_assigned.get(name, [])
-        return self._assigned[name]
+        if self._assigned is None:
+            self._assigned = {}
+            for m in _ASSIGNED_NAME.finditer(self.source):
+                self._assigned.setdefault(m.group(), []).append(m.start())
+        return self._assigned.get(name, [])
 
     def _is_code(self, start: int, name: str) -> bool:
         """The name at `start` is code, not text in a string literal or a
@@ -1906,6 +2011,33 @@ def _with_edits(code: str, edits: list[tuple[int, int, str]]) -> str:
         pos = end
     out.append(code[pos:])
     return ''.join(out)
+
+
+def _names_leading_to(
+    networks_of_name: dict[str, set[str]], defined_from: dict[str, set[str]]
+) -> dict[str, set[str]]:
+    """For each network, the names that lead to it: the names carrying it
+    (networks_of_name) and, followed backwards, every name defined from one
+    of those (defined_from maps a name to the names it is defined from). A
+    name names a network exactly when following its definitions forwards
+    reaches a name carrying it. One walk per network, and the networks are
+    the simulated ones, a handful, however many calls ask about a name."""
+    defines: dict[str, set[str]] = {}
+    for name, froms in defined_from.items():
+        for f in froms:
+            defines.setdefault(f, set()).add(name)
+    leading: dict[str, set[str]] = {}
+    for name, networks in networks_of_name.items():
+        for net in networks:
+            leading.setdefault(net, set()).add(name)
+    for names in leading.values():
+        todo = list(names)
+        while todo:
+            for user in defines.get(todo.pop(), ()):
+                if user not in names:
+                    names.add(user)
+                    todo.append(user)
+    return leading
 
 
 def effective_scope(allowed: set[str] | None, scope: tuple | None) -> set[str] | None:
@@ -2606,7 +2738,7 @@ class ESPIDFCompiler:
         scanner applies); without this a `// #include "esp_camera.h"` left in
         a sketch fetched the camera component and, now, cost the sketch its
         own build variant."""
-        code = self._PP_COMMENT_BLOCK_RE.sub(' ', code)
+        code = _drop_block_comments(code)
         return self._PP_COMMENT_LINE_RE.sub(' ', code)
 
     def _detect_managed_components(self, code: str) -> dict:
@@ -2714,14 +2846,16 @@ class ESPIDFCompiler:
         simply won't connect. `replaced` collects the SSIDs that were
         swapped for the default network.
         """
+        # Each #define's name is read once, as _SSID_DEFINE reads it: the
+        # lookahead checks what it holds, then \w+ takes it whole.
         code = re.sub(
-            r'(#define\s+\w*SSID\w*\s+)"([^"]*)"',
+            r'(#define\s+(?=\w*SSID)\w+\s+)"([^"]*)"',
             lambda m: f'{m.group(1)}"{_replacing_virtual_ssid(m.group(2), replaced)[0]}"',
             code,
             flags=re.IGNORECASE,
         )
         code = re.sub(
-            r'(#define\s+\w*(?:PASS|PASSWORD|PSK)\w*\s+)"[^"]*"',
+            r'(#define\s+(?=\w*(?:PASS|PASSWORD|PSK))\w+\s+)"[^"]*"',
             r'\1""',
             code,
             flags=re.IGNORECASE,
@@ -2809,8 +2943,9 @@ class ESPIDFCompiler:
         frontier = set(names)
         for _ in range(4):
             found: set[str] = set()
-            for name in frontier:
-                for defs in definitions:
+            # Each source is asked only for the followed names it holds.
+            for defs in definitions:
+                for name in frontier & defs.words():
                     for m in defs.of(name, _NAME_DEFINITIONS):
                         defined_from.setdefault(name, set()).add(m.group(3))
                         found.add(m.group(3))
@@ -2855,7 +2990,7 @@ class ESPIDFCompiler:
             # every match made in the same text: a rewrite only changes the
             # literal it matched.
             edits: list[tuple[int, int, str]] = []
-            for name in sorted(names):
+            for name in sorted(names & defs.words()):
                 for m in defs.of(name, _LITERAL_DEFINITIONS):
                     literal = _ssid_literal(m)
                     if literal is not None:
@@ -2863,22 +2998,14 @@ class ESPIDFCompiler:
             return _with_edits(code, edits)
 
         sources = [_definitions(src, defs) for src, defs in zip(sources, definitions)]
+        names_of_network = _names_leading_to(networks_of_name, defined_from)
 
         def _network_of(name: str) -> str | None:
             """The one network `name` names, followed through the names it is
             defined from; None when there is none or more than one (a wrong
             channel hint would hide the network from the scan)."""
-            networks: set[str] = set()
-            seen: set[str] = set()
-            todo = [name]
-            while todo:
-                n = todo.pop()
-                if n in seen:
-                    continue
-                seen.add(n)
-                networks |= networks_of_name.get(n, set())
-                todo.extend(defined_from.get(n, ()))
-            return next(iter(networks)) if len(networks) == 1 else None
+            networks = [net for net, names in names_of_network.items() if name in names]
+            return networks[0] if len(networks) == 1 else None
 
         # 3) Normalize the calls:
         #    WiFi.begin("X")           → WiFi.begin(_QEMU_WIFI_SSID, "", _QEMU_WIFI_CHANNEL)
@@ -2953,10 +3080,12 @@ class ESPIDFCompiler:
 
             # Extract handler function bodies
             # Match: void handler_name() { ... server.send(...) ... }
+            # A body runs to the first '}' (what the nested form this replaced
+            # matched too), and nothing after the last '}' can be a body.
             handler_bodies = {}
             for m in re.finditer(
-                r'void\s+(\w+)\s*\(\s*\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}',
-                sketch_code,
+                r'void\s+(\w+)\s*\(\s*\)\s*\{([^}]*)\}',
+                sketch_code[:sketch_code.rfind('}') + 1],
                 re.DOTALL
             ):
                 fname = m.group(1)
@@ -3676,12 +3805,18 @@ class ESPIDFCompiler:
                     return src_root
         return None
 
+    # More missing headers than one failed build reports: gcc stops a file at
+    # its first missing header and ninja stops at the first failed file (with
+    # -j jobs in flight).
+    _MAX_MISSING_HEADERS = 32
+
     @staticmethod
     def _missing_library_headers(result: dict) -> list[str]:
         """Extract the header filenames a failed compile reported as missing
         (`fatal error: X.h: No such file or directory`). De-duped, basename
-        only. Used to decide whether a manifest-scoped failure is a missing-
-        dependency case worth retrying with scan-all."""
+        only, at most _MAX_MISSING_HEADERS. Used to decide whether a
+        manifest-scoped failure is a missing-dependency case worth retrying
+        with scan-all."""
         text = '\n'.join(
             str(result.get(k) or '') for k in ('error', 'stderr', 'stdout')
         )
@@ -3693,6 +3828,8 @@ class ESPIDFCompiler:
             h = m.group(1).split('/')[-1]
             if h not in headers:
                 headers.append(h)
+                if len(headers) == ESPIDFCompiler._MAX_MISSING_HEADERS:
+                    break
         return headers
 
     @staticmethod
@@ -3723,8 +3860,10 @@ class ESPIDFCompiler:
         # line. A bare 'esp-idf/bootloader' substring is also part of every
         # app link command (libbootloader_support.a), so it classified every
         # link error as transient and built it twice (587 retries on
-        # 2026-09-15, none of which could help).
-        return bool(re.search(r'^\s*failed:[^\n]*bootloader', text, re.M))
+        # 2026-09-15, none of which could help). The leading blanks are read
+        # within the line ([^\S\n]): a match exists exactly when one did
+        # with \s*, which is all the bool() below reads.
+        return bool(re.search(r'^[^\S\n]*failed:[^\n]*bootloader', text, re.M))
 
     def _libraries_for_missing_headers(
         self, headers: list[str], allowed: set[str]
@@ -4720,7 +4859,7 @@ class ESPIDFCompiler:
     # FastLED's `FL_HAS_INCLUDE(x)` -> `__has_include(x)`.
     _PP_HAS_INCLUDE_RE = re.compile(r'\b\w*has_include\s*\(', re.IGNORECASE)
     _PP_IDENT_RE = re.compile(r'[A-Za-z_][A-Za-z_0-9]*')
-    _PP_COMMENT_BLOCK_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+    # Block comments are dropped by _drop_block_comments, in one reading.
     _PP_COMMENT_LINE_RE = re.compile(r'//[^\n]*')
 
     @classmethod
@@ -5028,6 +5167,8 @@ class ESPIDFCompiler:
         result: dict[int, bool] = {}
         pending: list[list] = []          # [if_line, has_true]
         for idx, raw in enumerate(lines):
+            if '#' not in raw:
+                continue  # not a directive (the common line, skipped cheaply)
             line = raw.strip()
             if not line.startswith('#'):
                 continue
@@ -5094,7 +5235,7 @@ class ESPIDFCompiler:
         project with errors naming libraries the user never installed.
         """
         # Comments first: a commented-out include is not an include.
-        code = self._PP_COMMENT_BLOCK_RE.sub(' ', code)
+        code = _drop_block_comments(code)
         code = self._PP_COMMENT_LINE_RE.sub(' ', code)
 
         lines = code.splitlines()
@@ -5119,7 +5260,12 @@ class ESPIDFCompiler:
         own = own_files or set()
         # (this_branch_live, any_branch_taken_yet, chain id = line of its #if)
         stack: list[tuple[bool, bool, int]] = []
+        # How many entries of `stack` are dead branches: a line is skipped
+        # while any is (kept as a count, not read off the stack for every line).
+        dead = 0
         for _ln, raw in enumerate(lines):
+            if '#' not in raw:
+                continue  # neither a directive nor an #include
             line = raw.strip()
             if line.startswith('#'):
                 dtv = line[1:].lstrip()
@@ -5145,6 +5291,7 @@ class ESPIDFCompiler:
                     if chain_true.get(_ln) and not taken:
                         live = False
                     stack.append((live, taken, _ln))
+                    dead += not live
                     continue
                 if dtv.startswith('elif'):
                     if stack:
@@ -5153,6 +5300,7 @@ class ESPIDFCompiler:
                         live = (not taken) and self._pp_branch_is_live(dtv[4:])
                         if chain_true.get(cid) and not arm_true:
                             live = False
+                        dead += (not live) - (not _cur)
                         stack[-1] = (live, taken or arm_true, cid)
                     continue
                 if dtv.startswith('else'):
@@ -5160,21 +5308,23 @@ class ESPIDFCompiler:
                         _cur, taken, cid = stack[-1]
                         # A chain with a provably-true arm never reaches its
                         # #else, whether or not that arm came first.
-                        stack[-1] = ((not taken) and not chain_true.get(cid), True, cid)
+                        live = (not taken) and not chain_true.get(cid)
+                        dead += (not live) - (not _cur)
+                        stack[-1] = (live, True, cid)
                     continue
                 if dtv.startswith('endif'):
                     if stack:
-                        stack.pop()
+                        dead -= not stack.pop()[0]
                     continue
-            if not all(live for live, _t, _c in stack):
+            if dead:
                 continue  # inside a branch that is dead on ESP32
-            m = re.search(r'#\s*include\s*(?:<([^>]+)>|"([^"]+)")', line)
-            if not m:
+            found = _first_include(line)
+            if not found:
                 continue
-            h = m.group(1) or m.group(2)
+            h, quoted = found
             if _raw:
                 # The walk wants the spec exactly as written, plus its form.
-                headers.append((h, m.group(2) is not None))
+                headers.append((h, quoted))
                 continue
             if h in own:
                 continue
@@ -6750,8 +6900,10 @@ class ESPIDFCompiler:
                 # sketch's: a user who declared four libraries was shown a build
                 # failure from inside a fifth, AVR-only, that they never named
                 # (issue #352). See _libraries_for_missing_headers.
-                extra, why = self._libraries_for_missing_headers(
-                    missing, set(allowed_libraries)
+                # A stat of the header in every installed library, per header:
+                # off the event loop, like the library resolution itself.
+                extra, why = await asyncio.to_thread(
+                    self._libraries_for_missing_headers, missing, set(allowed_libraries)
                 )
                 if extra:
                     logger.warning(
