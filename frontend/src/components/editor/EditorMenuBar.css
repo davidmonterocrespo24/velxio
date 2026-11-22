@@ -18,14 +18,14 @@
   border: none;
   color: var(--wb-12);
   font: 400 13px system-ui, sans-serif;
-  padding: 3px 6px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 99999px;
   cursor: pointer;
 }
 
 .emb-trigger:hover,
 .emb-trigger-open {
-  background: var(--wb-5);
+  background: var(--wb-6);
   color: var(--wb-13);
 }
 
