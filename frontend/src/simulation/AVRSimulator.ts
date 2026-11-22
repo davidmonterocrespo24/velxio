@@ -88,7 +88,7 @@ interface PwmPinDef {
    *  TCCR1 / GTCCR on the ATtiny85) and their mask. Absent: always connected. */
   comAddr?: number;
   comMask?: number;
-  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85. */
+  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85's Timer1. */
   timer?: PwmTimer;
 }
 
@@ -114,6 +114,12 @@ const TIMER2: PwmTimer = { wide: false, tccrA: 0xb0, tccrB: 0xb1, ocrA: 0xb3 };
 const TIMER3: PwmTimer = { wide: true, tccrA: 0x90, tccrB: 0x91, ocrA: 0x98, icr: 0x96 };
 const TIMER4: PwmTimer = { wide: true, tccrA: 0xa0, tccrB: 0xa1, ocrA: 0xa8, icr: 0xa6 };
 const TIMER5: PwmTimer = { wide: true, tccrA: 0x120, tccrB: 0x121, ocrA: 0x128, icr: 0x126 };
+/**
+ * The ATtiny85's Timer0: the ATmega's 8-bit timer at its own addresses
+ * (ATtiny25/45/85 datasheet, chapter 11). ATTinyCore runs it in fast PWM like
+ * the Uno's, so analogWrite on PB0 and PB1 is (OCR + 1)/256 too.
+ */
+const TINY85_TIMER0: PwmTimer = { wide: false, tccrA: 0x4a, tccrB: 0x53, ocrA: 0x49 };
 
 /**
  * A waveform generation mode: the PWM it makes (null for Normal, CTC and the
@@ -292,9 +298,11 @@ const MEGA_PIN_TO_PORT = (() => {
 // digitalWrite after turnOffPWM, which clears those bits and leaves OCR as it
 // was, as on the Uno; without them the last duty stuck (velxio/velxio-prod#141).
 // They also decide which of PB1's two channels (OC0B, OC1A) drives it.
+// Timer0's channels take the duty of its mode (pwmDuty), as on the ATmega;
+// Timer1's PWM is its own (TOP in OCR1C) and keeps OCR/255.
 const PWM_PINS_TINY85: PwmPinDef[] = [
-  { ocrAddr: 0x49, pin: 0, label: 'OCR0A', comAddr: 0x4a, comMask: 0xc0 }, // Timer0A → PB0
-  { ocrAddr: 0x48, pin: 1, label: 'OCR0B', comAddr: 0x4a, comMask: 0x30 }, // Timer0B → PB1
+  { ocrAddr: 0x49, pin: 0, label: 'OCR0A', comAddr: 0x4a, comMask: 0xc0, timer: TINY85_TIMER0 }, // Timer0A → PB0
+  { ocrAddr: 0x48, pin: 1, label: 'OCR0B', comAddr: 0x4a, comMask: 0x30, timer: TINY85_TIMER0 }, // Timer0B → PB1
   { ocrAddr: 0x4e, pin: 1, label: 'OCR1A', comAddr: 0x50, comMask: 0x30 }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
   { ocrAddr: 0x4b, pin: 4, label: 'OCR1B', comAddr: 0x4c, comMask: 0x30 }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
 ];

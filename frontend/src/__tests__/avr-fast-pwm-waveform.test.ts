@@ -100,13 +100,7 @@ function circuitDuty(run: Run, pin: number): number {
  * A pin's steady PWM: every period and every HIGH time as given, and the
  * circuit's average the same share of the period as the scope's waveform.
  */
-function expectWave(
-  run: Run,
-  pin: number,
-  periodUs: number,
-  highUs: number,
-  { circuit = true }: { circuit?: boolean } = {},
-): void {
+function expectWave(run: Run, pin: number, periodUs: number, highUs: number): void {
   const w = wave(run.edges.get(pin)!);
   expect(w.periods.length, `pin ${pin}: periods seen`).toBeGreaterThanOrEqual(5);
   expect(w.zeroWidth, `pin ${pin}: pulses of no width`).toBe(0);
@@ -116,10 +110,8 @@ function expectWave(
   for (const h of w.highs) {
     expect(Math.abs(h - highUs), `pin ${pin}: HIGH for ${h} us`).toBeLessThanOrEqual(JITTER_US);
   }
-  if (circuit) {
-    const duty = circuitDuty(run, pin);
-    expect(duty, `pin ${pin}: the circuit's duty`).toBeCloseTo(highUs / periodUs, 9);
-  }
+  const duty = circuitDuty(run, pin);
+  expect(duty, `pin ${pin}: the circuit's duty`).toBeCloseTo(highUs / periodUs, 9);
 }
 
 /** A pin held HIGH: no edge once settled, HIGH, and a duty of 1 for the circuit. */
@@ -221,11 +213,11 @@ describe('fast PWM waveform as the chip makes it (velxio/velxio-prod#155)', () =
     run.sim.stop();
   });
 
-  it("the ATtiny85's Timer0 (PB0, PB1) under ATTinyCore's analogWrite", () => {
+  it("the ATtiny85's Timer0 (PB0, PB1) under ATTinyCore's analogWrite, and its circuit duty", () => {
     const run = boot('tiny85-timer0-analogwrite', 'tiny85', [0, 1]);
     run.runTo(20_000);
-    expectWave(run, 0, 1024, 260, { circuit: false });
-    expectWave(run, 1, 1024, 8, { circuit: false });
+    expectWave(run, 0, 1024, 260);
+    expectWave(run, 1, 1024, 8);
     run.sim.stop();
   });
 
