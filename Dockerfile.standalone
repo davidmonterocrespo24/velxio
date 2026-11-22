@@ -399,6 +399,32 @@ RUN rm -rf /root/.espressif/python_env/idf5.5_* \
 # tree did); its equivalent is tools/requirements/requirements.core.txt.
 RUN pip install --no-cache-dir -r /opt/esp-idf-v5/tools/requirements/requirements.core.txt
 
+# Compose enables this layer when VELXIO_ENABLE_LANGUAGE_SERVERS=1 in .env.
+ARG VELXIO_INSTALL_LANGUAGE_SERVERS=0
+RUN if [ "$VELXIO_INSTALL_LANGUAGE_SERVERS" = "1" ]; then \
+      set -eu; \
+      case "$(dpkg --print-architecture)" in \
+        amd64) arduino_archive_arch=64bit ;; \
+        arm64) arduino_archive_arch=ARM64 ;; \
+        *) echo "Arduino Language Server installation supports amd64 and arm64" >&2; exit 1 ;; \
+      esac; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends clangd nodejs npm; \
+      npm install --global --no-audit --no-fund pyright@1.1.408; \
+      arduino_version=0.7.7; \
+      arduino_archive="arduino-language-server_${arduino_version}_Linux_${arduino_archive_arch}.tar.gz"; \
+      arduino_tmp="$(mktemp -d)"; \
+      curl -fsSL --retry 3 -o "$arduino_tmp/$arduino_archive" \
+        "https://github.com/arduino/arduino-language-server/releases/download/$arduino_version/$arduino_archive"; \
+      tar -xzf "$arduino_tmp/$arduino_archive" -C "$arduino_tmp"; \
+      arduino_server="$(find "$arduino_tmp" -type f -name arduino-language-server -print -quit)"; \
+      install -m 0755 "$arduino_server" /usr/local/bin/arduino-language-server; \
+      clangd --version; \
+      pyright --version; \
+      command -v pyright-langserver; \
+      rm -rf "$arduino_tmp" /var/lib/apt/lists/* /root/.npm; \
+    fi
+
 EXPOSE 80
 
 CMD ["/app/entrypoint.sh"]
