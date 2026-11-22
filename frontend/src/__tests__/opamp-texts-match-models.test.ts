@@ -25,6 +25,11 @@
  *     "Vout = -(Rf/Rin) * Vin", while IN+ sits at 2.5 V and the output can
  *     only be 0 to 4 V, and the follower "Vout = Vin" for a pot that goes
  *     to 5 V while the output stops at 4.02 V.
+ *   - The ESP32 PWM-to-12 V example said its LM358, with V+ disconnected,
+ *     stops "near 2 V" on the ESP32's 3.3 V (in its description and its
+ *     sketch's comment): the 1.5 V headroom again (3.3 - 1.5 = 1.8 V). Its
+ *     own circuit gives 2.30 V there, the figure the catalog text gives for
+ *     the same case.
  *   - Comments: phase-2-lm358-subckt.test.ts said the subcircuit was not
  *     wired in (it has been since 54936ef6), and componentToSpice.ts called
  *     the LM324 identical to the LM358 next to its clamp.
@@ -33,6 +38,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import metadataJson from '../../public/components-metadata.json' with { type: 'json' };
 import { analogExamples } from '../data/examples-analog';
+import { analogProjectExamples } from '../data/examples-analog-projects';
 import { circuitExamples } from '../data/examples-circuits';
 import { exampleToBuildNetlistInput } from '../utils/exampleToBuildNetlistInput';
 import { buildNetlist } from '../simulation/spice/NetlistBuilder';
@@ -298,9 +304,44 @@ describe("the Uno's op-amp examples (velxio/velxio-prod#128)", () => {
   });
 });
 
+describe("the ESP32's PWM-to-12 V example (velxio/velxio-prod#128)", () => {
+  it("gives the model's figure for its LM358 on the ESP32's 3.3 V, the catalog's, not the 1.5 V headroom's 2 V", { timeout: 60_000 }, async () => {
+    const ex = analogProjectExamples.find((e) => e.id === 'esp32-pwm-dac-lm358-12v')!;
+    // Where the text says it: V+ disconnected, the op-amp on the ESP32's 3.3 V.
+    const said = [
+      /Disconnect V\+ and the op-amp falls back to the ESP32's 3\.3 V: the output stops near ([\d.]+) V/.exec(
+        ex.description,
+      )?.[1],
+      /on the ESP32's 3\.3 V an LM358 stops near ([\d.]+) V/.exec(ex.code)?.[1],
+    ].map(Number);
+    // The example's own circuit with V+ disconnected and GPIO25 held at
+    // 3.3 V: the x3.7 stage asks for 12.2 V and saturates on the rail.
+    const vplus = (w: (typeof ex.wires)[number]) =>
+      [w.start, w.end].some((end) => end.componentId === 'u1' && end.pinName === 'V+');
+    const unpowered = { ...ex, wires: ex.wires.filter((w) => !vplus(w)) };
+    expect(unpowered.wires.length).toBe(ex.wires.length - 1);
+    const { netlist, pinNetMap } = buildNetlist(
+      exampleToBuildNetlistInput(unpowered, {
+        analysis: { kind: 'op' },
+        boards: [{ id: 'esp32', boardKind: 'esp32', pinStates: { '25': { type: 'digital', v: 3.3 } } as never }],
+      }),
+    );
+    const top = (await runNetlist(netlist)).dcValue(`v(${pinNetMap.get('u1:OUT')})`);
+    expect(top).toBeLessThan(3.3 - 0.9);
+    for (const v of said) expect(Math.abs(v - top)).toBeLessThan(0.1);
+    // The same figure as the catalog text's for the same case.
+    const catalog = Number(/3\.3 V on an ESP32: the output stops near ([\d.]+) V/.exec(catalogText('opamp-lm358'))?.[1]);
+    expect(said).toEqual([catalog, catalog]);
+  });
+});
+
 describe('stale comments (velxio/velxio-prod#128)', () => {
   it('the phase-2 test no longer says the subcircuit is not wired in', () => {
     expect(source('./phase-2-lm358-subckt.test.ts')).not.toMatch(/NOT currently wired/);
     expect(source('./examples-opamp-ranges.test.ts')).not.toMatch(/the simulator does exactly that/);
+  });
+
+  it("the analog projects' spec gives the ESP32 example's LM358 on 3.3 V the model's 2.3 V", () => {
+    expect(source('./examples-analog-projects.test.ts')).not.toMatch(/3\.3 V and stops near 2 V/);
   });
 });

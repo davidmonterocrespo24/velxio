@@ -620,7 +620,7 @@ void loop() {
     id: 'esp32-pwm-dac-lm358-12v',
     title: 'ESP32 PWM to 0-12 V (LM358 on a 15 V Supply)',
     description:
-      "A 3.3 V microcontroller driving a 12 V signal. GPIO25's PWM goes through a 10k/10uF low-pass filter into an LM358 wired as a non-inverting amplifier with a gain of 3.7, and the op-amp runs from a 15 V bench supply on its V+ pin. The voltmeter shows the output, and a 100k/22k divider brings it back to GPIO34 so the serial monitor compares each target with what came out. Disconnect V+ and the op-amp falls back to the ESP32's 3.3 V: the output stops near 2 V whatever the gain.",
+      "A 3.3 V microcontroller driving a 12 V signal. GPIO25's PWM goes through a 10k/10uF low-pass filter into an LM358 wired as a non-inverting amplifier with a gain of 3.7, and the op-amp runs from a 15 V bench supply on its V+ pin. The voltmeter shows the output, and a 100k/22k divider brings it back to GPIO34 so the serial monitor compares each target with what came out. Disconnect V+ and the op-amp falls back to the ESP32's 3.3 V: the output stops near 2.3 V whatever the gain.",
     category: 'circuits',
     difficulty: 'intermediate',
     boardType: 'esp32',
@@ -630,7 +630,7 @@ void loop() {
 // setpoint between 0 and 3.3 V; the LM358, wired as a non-inverting amplifier
 // with a gain of 1 + 27k/10k = 3.7, lifts it to 0..12.2 V. The op-amp is
 // powered from the 15 V bench supply on its V+ pin: an op-amp cannot put out
-// more than its supply, and on the ESP32's 3.3 V an LM358 stops near 2 V.
+// more than its supply, and on the ESP32's 3.3 V an LM358 stops near 2.3 V.
 // A 100k/22k divider brings the output back under 3.3 V for GPIO34, so the
 // sketch prints what it got next to what it asked for. The ESP32's ADC sees
 // nothing under about 0.14 V (Espressif rates it from 150 mV up), so the 0 V
