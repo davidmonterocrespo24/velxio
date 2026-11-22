@@ -19,7 +19,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import '../i18n'; // the app's English strings, interpolated as on the page
 import { Oscilloscope } from '../components/simulator/Oscilloscope';
 import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
-import { getBoardSimulator } from '../store/useSimulatorStore';
+import { getBoardSimulator, useSimulatorStore } from '../store/useSimulatorStore';
 import { busRegistry } from '../simulation/buses/registry';
 import type {
   BoardPins,
@@ -163,6 +163,46 @@ describe('a hardware bus line the engine does not draw', () => {
     addChannels([[18, 'A4']]);
     render();
     expect(notes().A4).toMatchObject({ text: 'I2C SDA', title: expect.stringMatching(/default/) });
+  });
+});
+
+describe('a board just placed: its default pads are known by the time a channel asks', () => {
+  // addBoard gives the board its simulator, and the bus fabric binds it,
+  // before the board is in the store; the fabric then resolves a controller
+  // with 'static' routing (the QEMU lanes) without the board's kind, and its
+  // default pads came back only when a bus was created. A board with nothing
+  // wired to its bus showed no note at all (review of book-r, note 3).
+  const placed: string[] = [];
+  afterEach(() => {
+    for (const id of placed.splice(0)) useSimulatorStore.getState().removeBoard(id);
+  });
+
+  function place(kind: string): string {
+    const id = useSimulatorStore.getState().addBoard(kind as never, 400, 0);
+    placed.push(id);
+    return id;
+  }
+
+  it('an ESP32: GPIO21 and GPIO22 are the default I2C pads, GPIO23 the default VSPI MOSI', () => {
+    const id = place('esp32');
+    const s = useOscilloscopeStore.getState();
+    s.addChannel(id, 21, 'GPIO21', 3.3);
+    s.addChannel(id, 22, 'GPIO22', 3.3);
+    s.addChannel(id, 23, 'GPIO23', 3.3);
+    s.addChannel(id, 2, 'GPIO2', 3.3);
+    render();
+    const n = notes();
+    expect(n.GPIO21).toMatchObject({ text: 'I2C SDA', title: expect.stringMatching(/default/) });
+    expect(n.GPIO22).toMatchObject({ text: 'I2C SCL' });
+    expect(n.GPIO23).toMatchObject({ text: 'SPI MOSI', title: expect.stringMatching(/default/) });
+    expect(n.GPIO2).toBeNull();
+  });
+
+  it('a Blue Pill: PB6 is I2C1 SCL', () => {
+    const id = place('stm32-bluepill');
+    useOscilloscopeStore.getState().addChannel(id, 16 + 6, 'PB6', 3.3);
+    render();
+    expect(notes().PB6).toMatchObject({ text: 'I2C SCL' });
   });
 });
 

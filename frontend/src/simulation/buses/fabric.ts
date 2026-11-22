@@ -685,16 +685,35 @@ export class BoardBusFabric {
    * controller counts while it is enabled; an I2C one has no such bit here.
    */
   hardwareSignalOf(pin: number): HardwareBusSignal | null {
+    // Each line is resolved now, not read from the last route(): addBoard
+    // binds a board's engine before the board is in the store, so a
+    // controller the board table places ('static', the QEMU lanes) had no
+    // pads until a bus was created, and a freshly placed ESP32 or Blue Pill
+    // with nothing wired to its bus showed no note.
+    const kind = this.kind();
+    const defaults = (bus: 'i2c' | 'spi', unit: number) =>
+      kind ? controllerOf(kind, bus, unit)?.defaultPins : undefined;
     for (const slot of this.i2cSlots) {
-      const assumed = slot.port.routing() === 'static';
-      if (slot.sda === pin) return { bus: 'i2c', signal: 'sda', controller: slot.port.name, assumed };
-      if (slot.scl === pin) return { bus: 'i2c', signal: 'scl', controller: slot.port.name, assumed };
+      const r = slot.port.routing();
+      const assumed = r === 'static';
+      const def = assumed ? defaults('i2c', slot.port.unit) : undefined;
+      const sda = assumed ? firstPin(def?.sda) : r.sda;
+      const scl = assumed ? firstPin(def?.scl) : r.scl;
+      if (sda === pin) return { bus: 'i2c', signal: 'sda', controller: slot.port.name, assumed };
+      if (scl === pin) return { bus: 'i2c', signal: 'scl', controller: slot.port.name, assumed };
     }
     for (const slot of this.slots) {
-      const signal =
-        slot.sck === pin ? 'sck' : slot.mosi === pin ? 'mosi' : slot.miso === pin ? 'miso' : null;
+      const r = slot.port.routing();
+      const isStatic = r === 'static';
+      const def = isStatic ? defaults('spi', slot.port.unit) : undefined;
+      const sck = isStatic ? firstPin(def?.sck) : r.sck;
+      const mosi = isStatic ? firstPin(def?.mosi) : r.mosi;
+      const miso = isStatic ? firstPin(def?.miso) : r.miso;
+      const signal = sck === pin ? 'sck' : mosi === pin ? 'mosi' : miso === pin ? 'miso' : null;
       if (!signal || !slot.port.config().enabled) continue;
-      return { bus: 'spi', signal, controller: slot.port.name, assumed: slot.assumed === true };
+      // As routingOf decides it: only a GPIO-matrix board's defaults are a guess.
+      const assumed = isStatic && kind !== undefined && getBoardPinFunctions(kind)?.routing === 'matrix';
+      return { bus: 'spi', signal, controller: slot.port.name, assumed };
     }
     return null;
   }
