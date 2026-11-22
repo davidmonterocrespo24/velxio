@@ -11,7 +11,12 @@
  * update, with exactly the trigger behaviour of pushing the edges one by one.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useOscilloscopeStore, MAX_SAMPLES, type OscEdge } from '../store/useOscilloscopeStore';
+import {
+  useOscilloscopeStore,
+  MAX_SAMPLES,
+  type OscEdge,
+  type OscRun,
+} from '../store/useOscilloscopeStore';
 
 beforeEach(() => {
   useOscilloscopeStore.setState({
@@ -140,5 +145,78 @@ describe('pushSampleBatch', () => {
     const { samples } = useOscilloscopeStore.getState();
     expect(samples[A]).toEqual([]);
     expect(samples[B]).toEqual([]);
+  });
+});
+
+describe('pushSampleRuns', () => {
+  /** The same edges as runs, one per channel, each in time order. */
+  const runsOf = (list: OscEdge[]): OscRun[] => {
+    const by = new Map<string, OscRun>();
+    for (const e of list) {
+      let r = by.get(e.channelId);
+      if (!r) by.set(e.channelId, (r = { channelId: e.channelId, samples: [] }));
+      (r.samples as Array<{ timeMs: number; state: boolean }>).push({ timeMs: e.timeMs, state: e.state });
+    }
+    return [...by.values()];
+  };
+
+  it('appends each run as it comes, the sample objects themselves, in one store update', () => {
+    twoChannels();
+    const runs = runsOf(edges(27));
+    let updates = 0;
+    const off = useOscilloscopeStore.subscribe(() => updates++);
+    useOscilloscopeStore.getState().pushSampleRuns(runs);
+    off();
+    expect(updates).toBe(1);
+    const { samples } = useOscilloscopeStore.getState();
+    expect(samples[A]).toHaveLength(18);
+    expect(samples[B]).toHaveLength(9);
+    expect(samples[A]![0]).toBe(runs.find((r) => r.channelId === A)!.samples[0]);
+  });
+
+  for (const mode of ['normal', 'single'] as const) {
+    it(`leaves the scope as pushing the same edges one by one, in time order, does (${mode} trigger)`, () => {
+      const run = (asRuns: boolean) => {
+        useOscilloscopeStore.setState({
+          channels: [],
+          samples: {},
+          running: true,
+          triggerMode: mode,
+          triggerChannelId: null,
+          triggeredAtMs: null,
+          triggerStatus: 'armed',
+          triggerEdge: 'rising',
+        });
+        twoChannels();
+        const list = edges(40);
+        const s = useOscilloscopeStore.getState();
+        // Runs with the trigger channel's last: the store looks at it first anyway.
+        if (asRuns) s.pushSampleRuns(runsOf(list).reverse());
+        else for (const e of list) s.pushSample(e.channelId, e.timeMs, e.state);
+        const st = useOscilloscopeStore.getState();
+        return {
+          a: st.samples[A]!.map((x) => ({ ...x })),
+          b: st.samples[B]!.map((x) => ({ ...x })),
+          triggeredAtMs: st.triggeredAtMs,
+          triggerStatus: st.triggerStatus,
+          running: st.running,
+        };
+      };
+      expect(run(true)).toEqual(run(false));
+    });
+  }
+
+  it('past MAX_SAMPLES keeps the last MAX_SAMPLES, the first saying what came before is unknown', () => {
+    twoChannels();
+    const s = useOscilloscopeStore.getState();
+    const big: OscRun = {
+      channelId: A,
+      samples: Array.from({ length: MAX_SAMPLES * 1.3 }, (_, k) => ({ timeMs: k * 0.01, state: k % 2 === 0 })),
+    };
+    s.pushSampleRuns([big]);
+    const kept = useOscilloscopeStore.getState().samples[A]!;
+    expect(kept).toHaveLength(MAX_SAMPLES);
+    expect(kept[0]).toMatchObject({ unknownBefore: true });
+    expect(kept.at(-1)).toBe(big.samples.at(-1));
   });
 });

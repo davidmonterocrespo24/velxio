@@ -24,10 +24,10 @@
  *
  * Cost. Nothing is built or read for a pin the scope does not watch, so a
  * sketch that streams Wire or SPI pays a lookup per step (the feed's `wants`,
- * a set it keeps per channel list). When the scope watches the bus,
- * the edges are handed over in batches: at each I2C STOP, every
- * FLUSH_EDGES edges, and when the engine's frame ends (flush()), one store
- * update for many bytes instead of one per edge.
+ * a set it keeps per channel list). When the scope watches the bus, each
+ * edge is one sample object, appended as it will be stored, and they are
+ * handed over a run per pin in one store update: at each I2C STOP, every
+ * FLUSH_EDGES samples, and when the engine's frame ends (flush()).
  *
  * I2C (NXP UM10204, sections 3.1.4 to 3.1.6): both lines idle HIGH; START is
  * SDA falling while SCL is HIGH, STOP is SDA rising while SCL is HIGH; data
@@ -40,22 +40,28 @@
 import type { I2cScopeTap } from './I2CBusManager';
 import type { SpiControllerConfig } from './buses/types';
 
-/** One edge for the scope: the pin as the board's scope numbers it. */
-export interface ScopeEdge {
-  pin: number;
-  state: boolean;
+/** One sample of a line, as the scope stores a digital one (OscSample). */
+export interface ScopeSample {
   timeMs: number;
+  state: boolean;
+}
+
+/** The samples drawn for one pin, in time order. */
+export interface ScopeRun {
+  pin: number;
+  samples: ScopeSample[];
 }
 
 /**
  * The board's scope feed (useSimulatorStore's getOscilloscopeCallback): one
  * edge at a time, `wants` to ask whether a pin is on the scope at all, and
- * `batch` to hand many edges over in one store update. A plain callback (a
- * test, a part that listens to the same slot) gets every edge one by one.
+ * `runs` to hand many samples over in one store update, a run per pin. A
+ * plain callback (a test, a part that listens to the same slot) gets every
+ * edge one by one, in time order.
  */
 export type ScopeSink = ((pin: number, state: boolean, timeMs: number) => void) & {
   wants?: (pin: number) => boolean;
-  batch?: (edges: readonly ScopeEdge[]) => void;
+  runs?: (runs: readonly ScopeRun[]) => void;
 };
 
 /**
@@ -66,25 +72,34 @@ export type ScopeSink = ((pin: number, state: boolean, timeMs: number) => void) 
  */
 export const MAX_LEAD_MS = 50;
 
-/** Edges a synthesizer holds at most before it hands them to the scope. */
-export const FLUSH_EDGES = 512;
+/** Samples a synthesizer holds at most before it hands them to the scope. */
+export const FLUSH_EDGES = 4096;
 
 /**
- * A line's level as the synthesizer last drew it, and where its edges go.
- * null: not known, because nothing was drawn on it since a reset or since a
- * step nobody looked at. The next step then draws every level it sets, so
- * the trace never keeps a level the scope did not get from here (the HIGH a
- * pull-up seeded, the LOW SPI.begin() left on MOSI).
+ * A line's level as the synthesizer last drew it, and the samples drawn on
+ * it that the scope has not been handed yet. `level` null: not known, because
+ * nothing was drawn on it since a reset or since a step nobody looked at. The
+ * next step then draws every level it sets, so the trace never keeps a level
+ * the scope did not get from here (the HIGH a pull-up seeded, the LOW
+ * SPI.begin() left on MOSI).
  */
 class Line {
   level: boolean | null = null;
+  pending: ScopeSample[] = [];
+  /** The pin `pending` was drawn for. */
+  pendingPin = -1;
   constructor(readonly pin: () => number | undefined) {}
 }
 
-/** The edges drawn and not yet handed over, for one sink. */
-class EdgeQueue {
-  private pending: ScopeEdge[] = [];
+/** The lines of one synthesizer, and the scope their samples go to. */
+class Drawing {
   private sink: ScopeSink | null = null;
+  private count = 0;
+  private readonly lines: Line[];
+
+  constructor(lines: Line[]) {
+    this.lines = lines;
+  }
 
   /** Draw `level` on `line` at `at`, for `sink`, if the scope watches the pin. */
   put(sink: ScopeSink, line: Line, pin: number, watched: boolean, at: number, level: boolean): void {
@@ -94,28 +109,37 @@ class EdgeQueue {
     }
     if (line.level === level) return;
     line.level = level;
-    if (this.sink !== sink) {
-      this.flush();
-      this.sink = sink;
-    }
-    this.pending.push({ pin, state: level, timeMs: at });
+    if (this.sink !== sink || (line.pending.length > 0 && line.pendingPin !== pin)) this.flush();
+    this.sink = sink;
+    line.pendingPin = pin;
+    line.pending.push({ timeMs: at, state: level });
+    this.count++;
   }
 
   /** Hand over what was drawn when there is a batch's worth of it. */
   settle(): void {
-    if (this.pending.length >= FLUSH_EDGES) this.flush();
+    if (this.count >= FLUSH_EDGES) this.flush();
   }
 
-  /** Hand every edge drawn so far to the scope, in one batch when it can. */
+  /** Hand every sample drawn so far to the scope: a run per pin, in one update. */
   flush(): void {
     const sink = this.sink;
-    const edges = this.pending;
-    if (!sink || edges.length === 0) return;
-    this.pending = [];
-    if (sink.batch) {
-      sink.batch(edges);
+    if (!sink || this.count === 0) return;
+    const runs: ScopeRun[] = [];
+    for (const line of this.lines) {
+      if (line.pending.length === 0) continue;
+      runs.push({ pin: line.pendingPin, samples: line.pending });
+      line.pending = [];
+    }
+    this.count = 0;
+    if (sink.runs) {
+      sink.runs(runs);
       return;
     }
+    // One edge at a time, in time order across the lines (the sort is
+    // stable: samples at one instant keep the order they were drawn in).
+    const edges = runs.flatMap((r) => r.samples.map((x) => ({ pin: r.pin, ...x })));
+    edges.sort((a, b) => a.timeMs - b.timeMs);
     for (const e of edges) sink(e.pin, e.state, e.timeMs);
   }
 }
@@ -161,7 +185,7 @@ export class I2cScopeSynth implements I2cScopeTap {
   private readonly opts: I2cScopeOptions;
   private readonly sdaLine: Line;
   private readonly sclLine: Line;
-  private readonly queue = new EdgeQueue();
+  private readonly drawing: Drawing;
   /** Where the bus is free again, in ms on the board clock. */
   private cursorMs = 0;
   /** A START was heard and its STOP not yet. */
@@ -175,16 +199,17 @@ export class I2cScopeSynth implements I2cScopeTap {
     this.opts = opts;
     this.sdaLine = new Line(opts.sda);
     this.sclLine = new Line(opts.scl);
+    this.drawing = new Drawing([this.sdaLine, this.sclLine]);
   }
 
   /** Hand the scope every edge drawn so far (the engine's frame ended). */
   flush(): void {
-    this.queue.flush();
+    this.drawing.flush();
   }
 
   /** The MCU was reset: the bus is idle and the cursor starts over. */
   reset(): void {
-    this.queue.flush();
+    this.drawing.flush();
     this.cursorMs = 0;
     this.open = false;
     this.skipping = false;
@@ -236,7 +261,7 @@ export class I2cScopeSynth implements I2cScopeTap {
     });
     this.open = false;
     this.skipping = false;
-    this.queue.flush();
+    this.drawing.flush();
   }
 
   /** Eight bits MSB first and the ninth (SDA HIGH for a NACK), nine SCL periods. */
@@ -285,15 +310,15 @@ export class I2cScopeSynth implements I2cScopeTap {
     const now = this.opts.nowMs();
     const t0 = Math.max(now, this.cursorMs);
     this.cursorMs = t0 + periods * (timing.lowMs + timing.highMs);
-    const q = this.queue;
+    const d = this.drawing;
     draw(
       t0,
       timing.lowMs,
       timing.highMs,
-      (at, level) => q.put(sink, this.sdaLine, sdaPin, wantSda, at, level),
-      (at, level) => q.put(sink, this.sclLine, sclPin, wantScl, at, level),
+      (at, level) => d.put(sink, this.sdaLine, sdaPin, wantSda, at, level),
+      (at, level) => d.put(sink, this.sclLine, sclPin, wantScl, at, level),
     );
-    q.settle();
+    d.settle();
   }
 }
 
@@ -316,7 +341,7 @@ export class SpiScopeSynth {
   private readonly sckLine: Line;
   private readonly mosiLine: Line;
   private readonly misoLine: Line;
-  private readonly queue = new EdgeQueue();
+  private readonly drawing: Drawing;
   private cursorMs = 0;
   /** Frames left out so far (see MAX_LEAD_MS), for whoever asks. */
   skippedFrames = 0;
@@ -326,16 +351,17 @@ export class SpiScopeSynth {
     this.sckLine = new Line(opts.sck);
     this.mosiLine = new Line(opts.mosi);
     this.misoLine = new Line(opts.miso);
+    this.drawing = new Drawing([this.sckLine, this.mosiLine, this.misoLine]);
   }
 
   /** Hand the scope every edge drawn so far (the engine's frame ended). */
   flush(): void {
-    this.queue.flush();
+    this.drawing.flush();
   }
 
   /** The MCU was reset: the cursor starts over. */
   reset(): void {
-    this.queue.flush();
+    this.drawing.flush();
     this.cursorMs = 0;
     this.sckLine.level = null;
     this.mosiLine.level = null;
@@ -382,12 +408,12 @@ export class SpiScopeSynth {
     this.cursorMs = t0 + (settle ? P / 2 : 0) + n * P;
 
     const lsb = cfg.bitOrder === 'lsb';
-    const q = this.queue;
-    const sck = (at: number, level: boolean) => q.put(sink, this.sckLine, sckPin, wantSck, at, level);
+    const d = this.drawing;
+    const sck = (at: number, level: boolean) => d.put(sink, this.sckLine, sckPin, wantSck, at, level);
     const mo = (at: number, level: boolean) =>
-      q.put(sink, this.mosiLine, mosiPin ?? -1, wantMosi, at, level);
+      d.put(sink, this.mosiLine, mosiPin ?? -1, wantMosi, at, level);
     const mi = (at: number, level: boolean) =>
-      q.put(sink, this.misoLine, misoPin ?? -1, wantMiso, at, level);
+      d.put(sink, this.misoLine, misoPin ?? -1, wantMiso, at, level);
     if (settle) {
       sck(t0, cpol);
       t0 += P / 2;
@@ -412,6 +438,6 @@ export class SpiScopeSynth {
         sck(ti + P / 2, cpol);
       }
     }
-    q.settle();
+    d.settle();
   }
 }

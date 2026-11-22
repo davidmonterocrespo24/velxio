@@ -37,7 +37,8 @@ interface Edge {
 
 /**
  * The board's scope feed as the store builds it: one edge at a time, `wants`
- * for the pins on the scope, `batch` for many at once. Records what arrives.
+ * for the pins on the scope, `runs` for many at once (a run per pin). Records
+ * what arrives as one edge list, a batch's runs merged in time order.
  */
 function scopeFeed(pins: number[]) {
   const edges: Edge[] = [];
@@ -48,8 +49,13 @@ function scopeFeed(pins: number[]) {
     },
     {
       wants: (pin: number) => watched.has(pin),
-      batch: (list: readonly Edge[]) => {
-        for (const e of list) if (watched.has(e.pin)) edges.push({ ...e });
+      runs: (runs: ReadonlyArray<{ pin: number; samples: ReadonlyArray<{ timeMs: number; state: boolean }> }>) => {
+        const batch = runs
+          .filter((r) => watched.has(r.pin))
+          .flatMap((r) => r.samples.map((x) => ({ pin: r.pin, state: x.state, timeMs: x.timeMs })));
+        // Stable: samples at one instant keep the order they were drawn in.
+        batch.sort((a, b) => a.timeMs - b.timeMs);
+        edges.push(...batch);
       },
     },
   );

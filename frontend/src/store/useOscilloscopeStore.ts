@@ -60,10 +60,22 @@ export interface OscEdge {
  */
 function appendEdge(buf: OscSample[], timeMs: number, state: boolean): OscSample[] {
   buf.push({ timeMs, state });
+  return trimmed(buf);
+}
+
+/** The buffer cut back to its last MAX_SAMPLES once it is past MAX_SAMPLES + TRIM_SLACK. */
+function trimmed(buf: OscSample[]): OscSample[] {
   if (buf.length <= MAX_SAMPLES + TRIM_SLACK) return buf;
   const kept = buf.slice(buf.length - MAX_SAMPLES);
   kept[0] = { ...kept[0]!, unknownBefore: true };
   return kept;
+}
+
+/** A channel's samples in time order, as pushSampleRuns takes them. */
+export interface OscRun {
+  channelId: string;
+  /** Kept as they are: the store neither copies nor changes them. */
+  samples: readonly OscSample[];
 }
 
 /**
@@ -329,6 +341,14 @@ interface OscilloscopeState {
    * once: a synthesized I2C or SPI step (simulation/busScope.ts).
    */
   pushSampleBatch: (edges: readonly OscEdge[]) => void;
+  /**
+   * Push runs of digital samples, one per channel, in one store update: the
+   * shape a synthesized transfer comes in (simulation/busScope.ts). Each run
+   * is appended as pushSample would append its samples one by one. The
+   * trigger channel's run is looked at first: a Single capture that fires in
+   * it keeps, of every run, only the samples up to the edge that fired it.
+   */
+  pushSampleRuns: (runs: readonly OscRun[]) => void;
   /**
    * Append a whole transient capture to an analog channel in ONE update.
    *
@@ -710,6 +730,56 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
       }
       samples ??= { ...s.samples };
       samples[e.channelId] = appendEdge(buf, e.timeMs, e.state);
+    }
+    if (!samples) return;
+    set({
+      samples,
+      ...(triggeredAtMs !== s.triggeredAtMs ? { triggeredAtMs } : {}),
+      ...(running !== s.running ? { running } : {}),
+      ...(triggerStatus !== s.triggerStatus ? { triggerStatus } : {}),
+    });
+  },
+
+  pushSampleRuns: (runs) => {
+    const s = get();
+    if (!s.running) return;
+    let running: boolean = s.running;
+    let triggeredAtMs = s.triggeredAtMs;
+    let triggerStatus: TriggerStatus = s.triggerStatus;
+    const triggerChId =
+      s.triggerMode !== 'auto' ? resolveTriggerChannelId(s.triggerChannelId, s.channels) : null;
+    const single = s.triggerMode === 'single';
+    // The trigger channel's run first: whether a Single capture fires, and
+    // at which edge, decides how much of every other run is kept.
+    const ordered =
+      triggerChId && runs.length > 1
+        ? [...runs.filter((r) => r.channelId === triggerChId), ...runs.filter((r) => r.channelId !== triggerChId)]
+        : runs;
+    let stopAtMs = Infinity;
+    let samples: Record<string, OscSample[]> | null = null;
+    for (const run of ordered) {
+      const buf = (samples ?? s.samples)[run.channelId];
+      if (!buf || run.samples.length === 0) continue;
+      const watching = run.channelId === triggerChId;
+      for (const smp of run.samples) {
+        if (smp.timeMs > stopAtMs) break;
+        if (watching && running && buf.length > 0) {
+          const captureLocked = single && triggerStatus === 'captured';
+          if (!captureLocked && matchesTriggerEdge(buf[buf.length - 1]!.state, smp.state, s.triggerEdge)) {
+            triggeredAtMs = smp.timeMs;
+            if (single) {
+              running = false;
+              triggerStatus = 'captured';
+              stopAtMs = smp.timeMs;
+            } else {
+              triggerStatus = 'triggered';
+            }
+          }
+        }
+        buf.push(smp);
+      }
+      samples ??= { ...s.samples };
+      samples[run.channelId] = trimmed(buf);
     }
     if (!samples) return;
     set({

@@ -36,7 +36,7 @@ import { blockedByBoardGate, reportBoardRunRefused } from '../lib/proBoardGate';
 import { getSerialTxInterceptor } from '../lib/proHardwareSerial';
 import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../utils/boardGeometry';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
-import { useOscilloscopeStore, type OscEdge } from './useOscilloscopeStore';
+import { useOscilloscopeStore, type OscRun, type OscSample } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
@@ -2271,21 +2271,22 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       }
       return watched.has(pin);
     };
-    // Many edges in one store update: a synthesized Wire or SPI step is a
-    // few dozen edges at once (simulation/busScope.ts, velxio/velxio-prod#160).
-    const batch = (edges: readonly { pin: number; state: boolean; timeMs: number }[]) => {
-      const { channels, pushSampleBatch } = useOscilloscopeStore.getState();
-      const out: OscEdge[] = [];
-      for (const e of edges) {
+    // Many samples in one store update, a run per pin: the shape a
+    // synthesized Wire or SPI transfer comes in (simulation/busScope.ts,
+    // velxio/velxio-prod#160).
+    const runs = (pinRuns: readonly { pin: number; samples: readonly OscSample[] }[]) => {
+      const { channels, pushSampleRuns } = useOscilloscopeStore.getState();
+      const out: OscRun[] = [];
+      for (const r of pinRuns) {
         for (const ch of channels) {
-          if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === e.pin) {
-            out.push({ channelId: ch.id, timeMs: e.timeMs, state: e.state });
+          if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === r.pin) {
+            out.push({ channelId: ch.id, samples: r.samples });
           }
         }
       }
-      if (out.length > 0) pushSampleBatch(out);
+      if (out.length > 0) pushSampleRuns(out);
     };
-    return Object.assign(feed, { wants, batch });
+    return Object.assign(feed, { wants, runs });
   }
 
   // Create + fully wire the simulation bridge and shim for an ESP32-family

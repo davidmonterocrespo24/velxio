@@ -16,10 +16,22 @@ import {
   SpiScopeSynth,
   MAX_LEAD_MS,
   FLUSH_EDGES,
-  type ScopeEdge,
+  type ScopeRun,
   type ScopeSink,
 } from '../simulation/busScope';
 import type { SpiControllerConfig, SpiMode } from '../simulation/buses/types';
+
+interface ScopeEdge {
+  pin: number;
+  state: boolean;
+  timeMs: number;
+}
+
+/** A batch's runs as one edge list in time order (samples at one instant keep their order). */
+function merged(runs: readonly ScopeRun[]): ScopeEdge[] {
+  const out = runs.flatMap((r) => r.samples.map((x) => ({ pin: r.pin, state: x.state, timeMs: x.timeMs })));
+  return out.sort((a, b) => a.timeMs - b.timeMs);
+}
 
 function sinkFor(pins: number[]) {
   const edges: ScopeEdge[] = [];
@@ -31,9 +43,9 @@ function sinkFor(pins: number[]) {
     },
     {
       wants: (pin: number) => watched.has(pin),
-      batch: (list: readonly ScopeEdge[]) => {
+      runs: (runs: readonly ScopeRun[]) => {
         batches++;
-        edges.push(...list);
+        edges.push(...merged(runs));
       },
     },
   );
@@ -271,7 +283,7 @@ describe('nobody looking', () => {
     expect([timingReads, configReads]).toEqual([0, 0]);
   });
 
-  it('a plain callback (no wants, no batch) gets every edge one by one', () => {
+  it('a plain callback (no wants, no runs) gets every edge one by one, in time order', () => {
     const got: ScopeEdge[] = [];
     const plain = ((pin: number, state: boolean, timeMs: number) => {
       got.push({ pin, state, timeMs });
@@ -279,6 +291,7 @@ describe('nobody looking', () => {
     const synth = i2c({ now: 0 }, plain);
     writeTransaction(synth, 1);
     expect(got.filter((e) => e.pin === SCL && e.state)).toHaveLength(1 + 18 + 1);
+    for (let i = 1; i < got.length; i++) expect(got[i]!.timeMs).toBeGreaterThanOrEqual(got[i - 1]!.timeMs);
   });
 });
 
