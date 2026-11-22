@@ -31,6 +31,37 @@ export interface PropertyDescriptor {
   description?: string;
 }
 
+/**
+ * A transistor's absolute maximum ratings, from its datasheet, which `source`
+ * cites (velxio/velxio-prod#138). The circuit check before Run and the
+ * runtime monitor while it runs compare what the circuit does to the part
+ * against them. Magnitudes: `kind` says which way the part blocks.
+ */
+export interface PartRatings {
+  /**
+   * A bipolar transistor (pins C, B, E) or a MOSFET (pins D, G, S), and its
+   * polarity: an NPN blocks with its collector above its emitter, a PNP
+   * below, an N-channel MOSFET with its drain above its source, a P-channel
+   * below.
+   */
+  kind: 'npn' | 'pnp' | 'nmos' | 'pmos';
+  /** V_CEO (bipolar) or V_DSS (MOSFET): the most it blocks, V. */
+  vMax: number;
+  /** I_C or I_D, continuous, A. */
+  iMax: number;
+  /** I_CM or I_DM, the peak (pulsed) current, when the datasheet gives one, A. */
+  iPulse?: number;
+  /** P_D in free air at 25 °C, with no heatsink, W. */
+  pMax: number;
+  /**
+   * P_D at a case temperature of 25 °C, W: what a part made for a heatsink
+   * (TO-220, TO-3) takes when its `heatsink` property says it is on one.
+   */
+  pMaxHeatsink?: number;
+  /** The datasheet (maker, document, revision) the figures come from. */
+  source: string;
+}
+
 export interface ComponentMetadata {
   id: string; // "led", "dht22", "arduino-uno"
   tagName: string; // "wokwi-led", "wokwi-dht22"
@@ -66,6 +97,9 @@ export interface ComponentMetadata {
   // library, merged into the registry by the overlay). Renders a CUSTOM pill
   // on the picker card / hover panel / part inspector. Never set by OSS.
   custom?: boolean;
+  // A transistor's datasheet ratings (PartRatings), which the circuit check
+  // and the runtime monitor hold it to.
+  ratings?: PartRatings;
 }
 
 export interface ComponentMetadataCollection {
