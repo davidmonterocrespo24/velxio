@@ -141,8 +141,10 @@ class Drawing {
       sink.runs(runs);
       return;
     }
-    // One edge at a time, in time order across the lines (the sort is
-    // stable: samples at one instant keep the order they were drawn in).
+    // One edge at a time, in time order across the lines. The sort is
+    // stable: samples at one instant come line by line in the order the
+    // lines were made (SCK before MOSI, which is the order a CPHA 1 frame
+    // draws them in; I2C draws no two lines at one instant).
     const edges = runs.flatMap((r) => r.samples.map((x) => ({ pin: r.pin, ...x })));
     edges.sort((a, b) => a.timeMs - b.timeMs);
     for (const e of edges) sink(e.pin, e.state, e.timeMs);
