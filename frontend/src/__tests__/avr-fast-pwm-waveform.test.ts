@@ -213,6 +213,18 @@ describe('fast PWM waveform as the chip makes it (velxio/velxio-prod#155)', () =
     run.sim.stop();
   });
 
+  it("the Mega's 16-bit fast PWM modes: OCRnA as TOP with a toggle, 9 and 10 bits, inverting", () => {
+    const run = boot('mega-fast-pwm-modes', 'mega', [6, 7, 8, 11, 12, 46]);
+    run.runTo(20_000);
+    expectWave(run, 6, 2000, 1000);
+    expectWave(run, 7, 1000, 250);
+    expectWave(run, 8, 1000, 0.5);
+    expectWave(run, 11, 512, 256);
+    expectConstantHigh(run, 12);
+    expectWave(run, 46, 2048, 1648);
+    run.sim.stop();
+  });
+
   it("the ATtiny85's Timer0 (PB0, PB1) under ATTinyCore's analogWrite, and its circuit duty", () => {
     const run = boot('tiny85-timer0-analogwrite', 'tiny85', [0, 1]);
     run.runTo(20_000);
