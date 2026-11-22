@@ -1,6 +1,8 @@
 /**
  * A refused line sensor reaches the circuit check at Run, attached to its
  * component, and a refusal for a component no longer on the canvas does not.
+ * The input carries an analysis, as buildInputFromStore's always does: the
+ * check reads it to decide whether to solve a transient (#117).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyCircuit } from '../../verify/circuitVerifier';
@@ -18,6 +20,7 @@ describe('circuit check: unsupported line sensors', () => {
       components: [{ id: 'dht22-1', metadataId: 'dht22', properties: {} }],
       boards: [],
       wires: [],
+      analysis: { kind: 'op' },
     } as never);
     const w = result.warnings.find((x) => x.code === 'unsupported-sensor');
     expect(w).toBeDefined();
@@ -29,7 +32,7 @@ describe('circuit check: unsupported line sensors', () => {
 
   it('drops a refusal whose component is no longer on the canvas', async () => {
     requestLine(null, { sensor_type: 'dht22', pin: 4 }, { componentId: 'gone' });
-    const result = await verifyCircuit({ components: [], boards: [], wires: [] } as never);
+    const result = await verifyCircuit({ components: [], boards: [], wires: [], analysis: { kind: 'op' } } as never);
     expect(result.warnings.some((x) => x.code === 'unsupported-sensor')).toBe(false);
   });
 });
