@@ -274,7 +274,7 @@ describe('Raspberry Pi Pico: Wire and SPI on the scope', () => {
   const PICO = { sda: 4, scl: 5, sck: 18, mosi: 19, miso: 16 };
   let edges: Edge[] = [];
   let sim: RP2040Simulator;
-  let lines: string[] = [];
+  const lines: string[] = [];
 
   beforeAll(() => {
     sim = new RP2040Simulator(new PinManager());
