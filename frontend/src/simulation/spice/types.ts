@@ -147,24 +147,29 @@ export type AnalysisMode =
 export interface CircuitMemory {
   /** Component id -> whether its armature is operated (a relay pulled in). */
   switches?: ReadonlyMap<string, boolean>;
-  /** "componentId:pinName" of a latch gate's output -> its volts
-   *  (velxio/velxio-prod#147). */
+  /** "componentId:pinName" of a latch gate's output (velxio/velxio-prod#147)
+   *  or of the OUT of an op-amp on positive feedback (#134) -> its volts. */
   nodes?: ReadonlyMap<string, number>;
 }
 
 /**
- * A net a logic gate on a feedback loop drives (one side of an SR latch): the
- * deck seeds it with .nodeset, and the latch settles in the state the seeds
- * describe. `key` is the driving gate's output pin, which survives a rebuild
- * that renames the net.
+ * A net a logic gate on a feedback loop drives (one side of an SR latch), or
+ * the OUT of an op-amp on positive feedback (a Schmitt trigger): the deck
+ * seeds it with .nodeset, and the loop settles in the state the seeds
+ * describe. `key` is the driving gate's or op-amp's output pin, which
+ * survives a rebuild that renames the net.
  */
 export interface NodeMemoryCell {
   key: string;
   net: string;
-  /** The logic threshold: a solve that ends on the other side of it from
-   *  `seed` has flipped the latch. */
+  /** Between the two states (a gate's logic threshold, the middle of an
+   *  op-amp's supply): a solve that ends on the other side of it from
+   *  `seed` has flipped the loop. */
   threshold: number;
   seed: number;
+  /** Other nets the deck seeds with the same volts: an op-amp's IN+
+   *  (velxio/velxio-prod#134). */
+  alsoSeeded?: readonly string[];
 }
 
 /**

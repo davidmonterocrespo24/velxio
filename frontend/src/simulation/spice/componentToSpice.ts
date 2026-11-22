@@ -153,6 +153,29 @@ function lm358MacroModel(comp: ComponentForSpice, netLookup: NetLookup): SpiceEm
   };
 }
 
+/** The behavioural op-amps' figures (see behaviouralOpamp and the mappers). */
+const LM741_OPAMP = { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' } as const;
+const TL072_OPAMP = { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' } as const;
+
+/**
+ * The open-loop gain of each op-amp part whose output stops at its rails: the
+ * behavioural parts' `gain`, and the LM358 macro-model's 99.9 dB, which the
+ * LM324 runs too. NetlistBuilder reads it to find an op-amp its own output
+ * drives further the way it goes (a Schmitt trigger), whose loop has two
+ * stable states (velxio/velxio-prod#134). The ideal op-amp is not listed: it
+ * has no rails, so with positive feedback its one solution is the linear one.
+ */
+const SATURATING_OPAMP_GAIN: Readonly<Record<string, number>> = {
+  'opamp-lm358': 10 ** (99.9 / 20),
+  'opamp-lm324': 10 ** (99.9 / 20),
+  'opamp-lm741': LM741_OPAMP.gain,
+  'opamp-tl072': TL072_OPAMP.gain,
+};
+
+export function saturatingOpampGain(metadataId: string): number | null {
+  return SATURATING_OPAMP_GAIN[metadataId] ?? null;
+}
+
 /** A volt figure for a card, without float noise (0.55 * 5 is 2.7500000000000004). */
 function round3(v: number): number {
   return Math.round(v * 1000) / 1000;
@@ -910,11 +933,9 @@ const MAPPERS: Record<string, Mapper> = {
   // macro-model's inputs are the input transistors' bias current, tens of
   // nanoamperes, and 100 MOhm between the inputs.
   'opamp-lm358': (comp, netLookup) => lm358MacroModel(comp, netLookup),
-  'opamp-lm741': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' }),
+  'opamp-lm741': (comp, netLookup, ctx) => behaviouralOpamp(comp, netLookup, ctx, LM741_OPAMP),
   // JFET input: huge Z_in, modelled with 1 TΩ
-  'opamp-tl072': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' }),
+  'opamp-tl072': (comp, netLookup, ctx) => behaviouralOpamp(comp, netLookup, ctx, TL072_OPAMP),
   // The LM324 is the LM358's amplifier design, four to a package, and one
   // part here is one of them. It was a behavioural clamp between V- + 0.05 V
   // and V+ − 1.5 V, with no slew or bandwidth limit, while its catalog text

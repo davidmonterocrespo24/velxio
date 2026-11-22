@@ -1411,6 +1411,7 @@ RL3 22 28 100K
 .MODEL QX_LM358 PNP(BF=1.111E3)
 .ENDS LM358
 * voltmeter probe: read v(n2) - v(0)
+.nodeset V(n2)=0 V(n0)=0
 .tran 5.000e-4 4.000e-2
 .end"
 `;
@@ -2271,6 +2272,7 @@ RL3 22 28 100K
 .MODEL DX2_LM358 D(IS=1E-15 N=0.25)
 .MODEL QX_LM358 PNP(BF=1.111E3)
 .ENDS LM358
+.nodeset V(n3)=0 V(n1)=0
 .op
 .end"
 `;
