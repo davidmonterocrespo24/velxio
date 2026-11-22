@@ -308,7 +308,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ editorMenu, editorToolbar 
             <button
               className="header-hamburger"
               onClick={() => setMenuOpen((v) => !v)}
-              aria-label="Toggle menu"
+              aria-label={t(menuOpen ? 'header.closeMenu' : 'header.openMenu')}
+              aria-expanded={menuOpen}
             >
               <span />
               <span />

@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   box-sizing: border-box;
-  width: min(760px, calc(100% - 28px));
+  width: min(830px, calc(100% - 28px));
   height: min(640px, calc(100dvh - 40px));
   margin: auto;
   padding: 0;

@@ -100,7 +100,7 @@ export const SerialMonitor: React.FC<{
   source?: SerialMonitorSource;
   onSourceChange?: (source: SerialMonitorSource) => void;
 }> = ({ onClose, source = 'simulation', onSourceChange }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const hardware = useHardwareSerial();
   const isHardware = source === 'hardware';
   const [baudRate, setBaudRate] = useState(115200);
@@ -232,7 +232,7 @@ export const SerialMonitor: React.FC<{
         {!isHardware && !isMicroPython && activeBoard?.serialLink?.source === 'usb-cdc' && (
           <span
             style={styles.baudRate}
-            title="This console is a USB device endpoint, not a UART. As on the real board, the terminal's baud setting is ignored."
+            title={t('editor.serial.usbCdcHint')}
           >
             USB CDC
           </span>
@@ -241,8 +241,10 @@ export const SerialMonitor: React.FC<{
           activeBoard.serialBaudRate > 0 &&
           activeBoard.serialLink?.source !== 'usb-cdc' &&
           !isMicroPython && (
-            <span style={styles.baudRate} title="The rate the board is clocking Serial at.">
-              {activeBoard.serialBaudRate.toLocaleString()} baud
+            <span style={styles.baudRate} title={t('editor.serial.boardBaudHint')}>
+              {t('editor.serial.hardware.baud', {
+                rate: activeBoard.serialBaudRate.toLocaleString(i18n.resolvedLanguage),
+              })}
             </span>
           )}
         {/* Overlay slot for per-board terminal actions (empty in OSS). */}
