@@ -446,6 +446,69 @@ function regulatorCards(id: string, vin: string, ref: string, vout: string, expr
   ];
 }
 
+/**
+ * The collector-emitter breakdown of a bipolar transistor, as a subcircuit
+ * across C and E (velxio/velxio-prod#138).
+ *
+ * The Gummel-Poon model has no breakdown at all, so a coil switched off with
+ * no flyback diode put its energy into the junction capacitances: a 2N2222
+ * from 5 V rose to 1141 V, a BC547 to 1863 V, a 2N3906 to -2060 V, where a
+ * real part avalanches just past its rating and dissipates the energy, or
+ * fails. The MOSFETs got the same clamp from their body diode's BV in #110.
+ *
+ * Two diodes in series: one breaks down at the part's rated V(BR)CEO (1 mA
+ * there), and the other blocks, so the pair conducts only from collector to
+ * emitter (emitter to collector on a PNP) once V_CE passes the rating plus
+ * the blocking diode's drop: the relay's coil (71 mA) clamps 0.9 V over it.
+ * A single diode would also conduct forward, a body diode a bipolar
+ * transistor does not have; it clamped the ringing after the kick at
+ * -0.64 V. Neither diode has capacitance or stored charge, and below the
+ * rating the pair leaks femtoamperes: the part's switching and gain are the
+ * Gummel-Poon card's.
+ *
+ * A subcircuit and not two D cards: the start-up and the time step of a
+ * transient read a D card in a deck as a rectifier, which wants a finer step
+ * (settleTime.ts), and a clamp that conducts only past the rating is not
+ * one. Parts with the same rating share the subcircuit's text, so the deck
+ * defines it once.
+ */
+export function bjtBreakdownSubckt(vceo: number): { name: string; text: string } {
+  const name = `BJT_CEO_BV_${String(vceo).replace('.', 'P')}`;
+  return {
+    name,
+    text: [
+      `.subckt ${name} hi lo`,
+      'D_bv mid hi DBV',
+      'D_bk mid lo DBK',
+      `.model DBV D(Is=1e-14 BV=${vceo} IBV=1m)`,
+      '.model DBK D(Is=1e-14)',
+      `.ends ${name}`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * A bipolar transistor: its Gummel-Poon card, `model` (the `.model` line,
+ * named `name`), and its C-E breakdown at the rated `vceo`
+ * (bjtBreakdownSubckt): from C to E on an NPN, from E to C on a PNP.
+ */
+function bjtEmission(
+  comp: ComponentForSpice,
+  netLookup: NetLookup,
+  part: { name: string; model: string; vceo: number; pnp: boolean },
+): SpiceEmission | null {
+  const c = netLookup('C');
+  const b = netLookup('B');
+  const e = netLookup('E');
+  if (!c || !b || !e) return null;
+  const clamp = bjtBreakdownSubckt(part.vceo);
+  const [hi, lo] = part.pnp ? [e, c] : [c, e];
+  return {
+    cards: [`Q_${comp.id} ${c} ${b} ${e} ${part.name}`, `X_${comp.id}_bv ${hi} ${lo} ${clamp.name}`],
+    modelsUsed: new Set([part.model, clamp.text]),
+  };
+}
+
 const MAPPERS: Record<string, Mapper> = {
   // Custom chip — emit a DC voltage source for every pin the chip's WASM is
   // currently driving as an output (recorded in customChips/chipPinDrives).
@@ -647,80 +710,66 @@ const MAPPERS: Record<string, Mapper> = {
   // from LTSpice-Libraries (Linear Tech standard.bjt). These include junction
   // capacitances (CJC/CJE) and transit times (TF/TR/ITF/VTF/XTF) so the parts
   // model AC and switching behaviour correctly, not just DC saturation.
-  'bjt-2n2222': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N2222`],
-      modelsUsed: new Set([
-        // ISE/NE (velxio/velxio-prod#136): the stock card had no base
-        // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
-        // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
-        // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
-        // (179 at 10 mA, 141 at 150 mA as before, every point above the
-        // datasheet minimums 35 / 50 / 75 / 100).
+  //
+  // Each carries its collector-emitter breakdown at the rated V(BR)CEO
+  // (bjtBreakdownSubckt, velxio/velxio-prod#138): 40 V for the 2N2222
+  // (onsemi P2N2222A, Rev. 7) and the 2N3906 (onsemi 2N3906, Rev. 4), 45 V
+  // for the BC547 (onsemi BC546, Rev. 8) and the BC557 (onsemi BC556B,
+  // Rev. 3), 60 V for the 2N3055 (onsemi 2N3055, Rev. 7: VCEO(sus)).
+  'bjt-2n2222': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N2222',
+      vceo: 40,
+      pnp: false,
+      // ISE/NE (velxio/velxio-prod#136): the stock card had no base
+      // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
+      // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
+      // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
+      // (179 at 10 mA, 141 at 150 mA as before, every point above the
+      // datasheet minimums 35 / 50 / 75 / 100).
+      model:
         '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
-      ]),
-    };
-  },
-  'bjt-bc547': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} QBC547`],
-      modelsUsed: new Set([
+    }),
+  'bjt-bc547': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'QBC547',
+      vceo: 45,
+      pnp: false,
+      model:
         '.model QBC547 NPN(IS=2.39E-14 NF=1.008 ISE=3.545E-15 NE=1.541 BF=294.3 IKF=0.1357 VAF=63.2 NR=1.004 ISC=6.272E-14 NC=1.243 BR=7.946 IKR=0.1144 VAR=25.9 RB=1 IRB=1u RBM=1 RE=0.4683 RC=0.85 XTB=0 EG=1.11 XTI=3 CJE=1.358E-11 VJE=0.65 MJE=0.3279 TF=4.391E-10 XTF=120 VTF=2.643 ITF=0.7495 CJC=3.728E-12 VJC=0.3997 MJC=0.2955 XCJC=0.6193 TR=1E-32)',
-      ]),
-    };
-  },
-  'bjt-2n3055': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3055`],
-      modelsUsed: new Set([
-        // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
-        // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
-        // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
-        // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
-        // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
-        // Junction capacitances and transit times are the old card's.
+    }),
+  'bjt-2n3055': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N3055',
+      vceo: 60,
+      pnp: false,
+      // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
+      // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
+      // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
+      // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
+      // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
+      // Junction capacitances and transit times are the old card's.
+      model:
         '.model Q2N3055 NPN(IS=3E-12 BF=115 IKF=4 BR=2.66 RB=.81 RC=.0856 RE=.03 CJC=1000P PC=.75 MC=.33 TR=.5703U CJE=415P PE=.75 ME=.5 TF=99.52N)',
-      ]),
-    };
-  },
+    }),
 
   // BJT — PNP
-  'bjt-2n3906': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3906`],
-      modelsUsed: new Set([
+  'bjt-2n3906': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N3906',
+      vceo: 40,
+      pnp: true,
+      model:
         '.model Q2N3906 PNP(IS=1E-14 VAF=100 BF=200 IKF=0.4 XTB=1.5 BR=4 CJC=4.5E-12 CJE=10E-12 RB=20 RC=0.1 RE=0.1 TR=250E-9 TF=350E-12 ITF=1 VTF=2 XTF=3)',
-      ]),
-    };
-  },
-  'bjt-bc557': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} QBC557`],
-      modelsUsed: new Set([
+    }),
+  'bjt-bc557': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'QBC557',
+      vceo: 45,
+      pnp: true,
+      model:
         '.model QBC557 PNP(IS=3.83E-14 NF=1.008 ISE=1.22E-14 NE=1.528 BF=344.4 IKF=0.08039 VAF=21.11 NR=1.005 ISC=2.85E-13 NC=1.28 BR=14.84 IKR=0.047 VAR=32.02 RB=1 IRB=1u RBM=1 RE=0.6202 RC=0.5713 XTB=0 EG=1.11 XTI=3 CJE=1.23E-11 VJE=0.6106 MJE=0.378 TF=5.60E-10 XTF=3.414 VTF=5.23 ITF=0.1483 CJC=1.08E-11 VJC=0.1022 MJC=0.3563 XCJC=0.6288 TR=1E-32)',
-      ]),
-    };
-  },
+    }),
 
   // MOSFETs — NMOS. Phase 2.1: VDMOS macro-models from LTSpice-Libraries.
   // VDMOS is 3-terminal (D G S) — no body, no L/W — and uses physical
