@@ -514,10 +514,14 @@ export const Oscilloscope: React.FC = () => {
   // or every board is stopped, so a paused screen holds still.
   const [clockMs, setClockMs] = useState<number | null>(null);
   // A scope emptied for another circuit (a project, an example, a new
-  // starter) forgets the clock of the run before it.
-  useEffect(() => {
-    if (channels.length === 0) setClockMs(null);
-  }, [channels.length]);
+  // starter) forgets the clock of the run before it. Adjusted while
+  // rendering, as React's docs do for state that follows a prop.
+  const empty = channels.length === 0;
+  const [wasEmpty, setWasEmpty] = useState(empty);
+  if (empty !== wasEmpty) {
+    setWasEmpty(empty);
+    if (empty) setClockMs(null);
+  }
 
   useEffect(() => {
     if (anyRunning && capturing) {
