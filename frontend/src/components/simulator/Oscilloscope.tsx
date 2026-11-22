@@ -222,8 +222,12 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
     // `theme` is not read inside the effect — scopeChrome() picks the new
     // values up on its own — but it belongs in the deps so a stopped scope
     // still repaints its grid when the user switches appearance.
+    // `samples.length`: a digital channel's buffer grows in place (the
+    // store appends without copying it), so a new edge is a new length, not
+    // a new array. A Normal trigger holds the window still and must still
+    // draw the edges that arrive in it.
   }, [
-    samples, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
+    samples, samples.length, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
     voltsPerDiv, yOffsetV, shiftV, scaleText, noDataLabel, theme,
   ]);
 

@@ -31,7 +31,40 @@
 
 import { create } from 'zustand';
 
+/**
+ * Edges a digital channel keeps: at least the last MAX_SAMPLES, and the
+ * oldest are dropped TRIM_SLACK at a time once there are that many more.
+ *
+ * A push appends in place and pays for dropping in bulk. It used to copy the
+ * whole buffer and shift it on every edge, about 47 us at 10 000 edges, so a
+ * channel on a busy line (a UART frame, a PWM, and with velxio/velxio-prod#160
+ * every bit of a Wire or SPI transfer) cost the simulation more than the
+ * transfer itself.
+ */
 export const MAX_SAMPLES = 10_000;
+const TRIM_SLACK = MAX_SAMPLES / 4;
+
+/** One edge for a channel, as pushSampleBatch takes them. */
+export interface OscEdge {
+  channelId: string;
+  timeMs: number;
+  state: boolean;
+}
+
+/**
+ * Append an edge to a digital channel's buffer, in place; past
+ * MAX_SAMPLES + TRIM_SLACK the oldest are dropped down to MAX_SAMPLES, in a
+ * new array whose first sample says the level before it is not known
+ * (OscSample.unknownBefore, velxio/velxio-prod#196). Returns the buffer the
+ * channel holds now.
+ */
+function appendEdge(buf: OscSample[], timeMs: number, state: boolean): OscSample[] {
+  buf.push({ timeMs, state });
+  if (buf.length <= MAX_SAMPLES + TRIM_SLACK) return buf;
+  const kept = buf.slice(buf.length - MAX_SAMPLES);
+  kept[0] = { ...kept[0]!, unknownBefore: true };
+  return kept;
+}
 
 /**
  * Per-analog-channel sample cap.
@@ -289,6 +322,13 @@ interface OscilloscopeState {
   removeChannel: (id: string) => void;
   /** Push one sample; drops the oldest if the buffer is full */
   pushSample: (channelId: string, timeMs: number, state: boolean) => void;
+  /**
+   * Push many digital samples in one store update, in order, each exactly as
+   * pushSample would (the trigger looks at each one; a Single capture stops
+   * at the edge that fires it). For a producer that has a whole transfer at
+   * once: a synthesized I2C or SPI step (simulation/busScope.ts).
+   */
+  pushSampleBatch: (edges: readonly OscEdge[]) => void;
   /**
    * Append a whole transient capture to an analog channel in ONE update.
    *
@@ -626,62 +666,57 @@ export const useOscilloscopeStore = create<OscilloscopeState>((set, get) => ({
   },
 
   pushSample: (channelId, timeMs, state) => {
+    get().pushSampleBatch([{ channelId, timeMs, state }]);
+  },
+
+  pushSampleBatch: (edges) => {
     const s = get();
     if (!s.running) return;
 
-    const buf = s.samples[channelId];
-    if (!buf) return;
-
-    // Trigger detection happens BEFORE we mutate the buffer so we can
-    // peek at the previous state on the trigger channel.  Auto mode
-    // skips this entirely — the scope free-runs.
-    let nextTriggeredAtMs = s.triggeredAtMs;
+    // The trigger looks at each edge BEFORE it is appended, so it can peek
+    // at the previous state on the trigger channel. Auto mode skips this
+    // entirely: the scope free-runs.
     // Annotated: the `if (!s.running) return` guard above narrows s.running to
     // the literal `true`, so an inferred binding rejects the `= false` that
     // single-shot capture needs.
-    let nextRunning: boolean = s.running;
-    let nextStatus: TriggerStatus = s.triggerStatus;
+    let running: boolean = s.running;
+    let triggeredAtMs = s.triggeredAtMs;
+    let triggerStatus: TriggerStatus = s.triggerStatus;
+    const triggerChId =
+      s.triggerMode !== 'auto' ? resolveTriggerChannelId(s.triggerChannelId, s.channels) : null;
+    const single = s.triggerMode === 'single';
 
-    if (s.triggerMode !== 'auto') {
-      const triggerChId = resolveTriggerChannelId(s.triggerChannelId, s.channels);
-      if (triggerChId === channelId) {
-        const triggerBuf = s.samples[triggerChId];
-        if (triggerBuf && triggerBuf.length > 0) {
-          const prevState = triggerBuf[triggerBuf.length - 1].state;
-          const single = s.triggerMode === 'single';
-          // Single-shot: once we've captured (status === 'captured'),
-          // ignore further edges until the user explicitly re-arms.
-          const captureLocked = single && s.triggerStatus === 'captured';
-          if (!captureLocked && matchesTriggerEdge(prevState, state, s.triggerEdge)) {
-            nextTriggeredAtMs = timeMs;
-            if (single) {
-              nextRunning = false;
-              nextStatus = 'captured';
-            } else {
-              nextStatus = 'triggered';
-            }
+    let samples: Record<string, OscSample[]> | null = null;
+    for (const e of edges) {
+      // A Single capture fired on an earlier edge of this batch: the rest
+      // never reach it, as later pushSample calls would not.
+      if (!running) break;
+      const buf = (samples ?? s.samples)[e.channelId];
+      if (!buf) continue;
+      if (e.channelId === triggerChId && buf.length > 0) {
+        const prevState = buf[buf.length - 1]!.state;
+        // Single-shot: once we've captured (status === 'captured'),
+        // ignore further edges until the user explicitly re-arms.
+        const captureLocked = single && triggerStatus === 'captured';
+        if (!captureLocked && matchesTriggerEdge(prevState, e.state, s.triggerEdge)) {
+          triggeredAtMs = e.timeMs;
+          if (single) {
+            running = false;
+            triggerStatus = 'captured';
+          } else {
+            triggerStatus = 'triggered';
           }
         }
       }
+      samples ??= { ...s.samples };
+      samples[e.channelId] = appendEdge(buf, e.timeMs, e.state);
     }
-
-    set((cur) => {
-      const curBuf = cur.samples[channelId];
-      if (!curBuf) return cur;
-      const next = curBuf.slice();
-      if (next.length >= MAX_SAMPLES) {
-        next.shift();
-        // The level before the oldest edge kept went with the edge dropped:
-        // the row says so rather than draw LOW there (velxio/velxio-prod#196).
-        next[0] = { ...next[0]!, unknownBefore: true };
-      }
-      next.push({ timeMs, state });
-      return {
-        samples: { ...cur.samples, [channelId]: next },
-        ...(nextTriggeredAtMs !== cur.triggeredAtMs ? { triggeredAtMs: nextTriggeredAtMs } : {}),
-        ...(nextRunning !== cur.running ? { running: nextRunning } : {}),
-        ...(nextStatus !== cur.triggerStatus ? { triggerStatus: nextStatus } : {}),
-      };
+    if (!samples) return;
+    set({
+      samples,
+      ...(triggeredAtMs !== s.triggeredAtMs ? { triggeredAtMs } : {}),
+      ...(running !== s.running ? { running } : {}),
+      ...(triggerStatus !== s.triggerStatus ? { triggerStatus } : {}),
     });
   },
 

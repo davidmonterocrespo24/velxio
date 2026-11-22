@@ -273,10 +273,11 @@ describe('what the scope does not know is "no data", not LOW', () => {
     const s = useOscilloscopeStore.getState();
     s.addChannel(BOARD, 9, 'D9', 5);
     const id = `osc-ch-${BOARD}-9`;
-    // 490 Hz at 50 %: an edge every 1.0204 ms, 12 000 of them (12.2 s),
-    // from 40 s on, so the 50 s screen ends at the last one.
+    // 490 Hz at 50 %: an edge every 1.0204 ms, 15 000 of them (15.3 s),
+    // from 40 s on, so the 50 s screen ends at the last one. Past
+    // MAX_SAMPLES the buffer drops its oldest edges, in bulk.
     const halfMs = 1000 / 490 / 2;
-    for (let k = 0; k < MAX_SAMPLES + 2000; k++) s.pushSample(id, 40_000 + k * halfMs, k % 2 === 0);
+    for (let k = 0; k < MAX_SAMPLES * 1.5; k++) s.pushSample(id, 40_000 + k * halfMs, k % 2 === 0);
     render();
     chooseTimeDiv(5000);
     const buf = useOscilloscopeStore.getState().samples[id]!;

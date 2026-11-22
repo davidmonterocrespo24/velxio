@@ -36,7 +36,7 @@ import { blockedByBoardGate, reportBoardRunRefused } from '../lib/proBoardGate';
 import { getSerialTxInterceptor } from '../lib/proHardwareSerial';
 import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../utils/boardGeometry';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
-import { useOscilloscopeStore } from './useOscilloscopeStore';
+import { useOscilloscopeStore, type OscEdge } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
@@ -2248,7 +2248,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       }
       return false;
     };
-    return Object.assign(feed, { wants });
+    // Many edges in one store update: a synthesized Wire or SPI step is a
+    // few dozen edges at once (simulation/busScope.ts, velxio/velxio-prod#160).
+    const batch = (edges: readonly { pin: number; state: boolean; timeMs: number }[]) => {
+      const { channels, pushSampleBatch } = useOscilloscopeStore.getState();
+      const out: OscEdge[] = [];
+      for (const e of edges) {
+        for (const ch of channels) {
+          if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === e.pin) {
+            out.push({ channelId: ch.id, timeMs: e.timeMs, state: e.state });
+          }
+        }
+      }
+      if (out.length > 0) pushSampleBatch(out);
+    };
+    return Object.assign(feed, { wants, batch });
   }
 
   // Create + fully wire the simulation bridge and shim for an ESP32-family
