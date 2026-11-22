@@ -22,8 +22,9 @@
  * until the clock catches up. What is drawn is always a complete, correctly
  * timed transfer.
  *
- * Cost. Nothing is built for a pin the scope does not watch, so a sketch
- * that streams Wire pays a check per step. When the scope watches the bus,
+ * Cost. Nothing is built or read for a pin the scope does not watch, so a
+ * sketch that streams Wire or SPI pays a lookup per step (the feed's `wants`,
+ * a set it keeps per channel list). When the scope watches the bus,
  * the edges are handed over in batches: at each I2C STOP, every
  * FLUSH_EDGES edges, and when the engine's frame ends (flush()), one store
  * update for many bytes instead of one per edge.
@@ -264,23 +265,26 @@ export class I2cScopeSynth implements I2cScopeTap {
   private step(periods: number, draw: I2cDraw): void {
     if (this.skipping) return;
     const sink = this.opts.sink();
-    const timing = this.opts.timing();
-    if (!sink || !timing || !(timing.lowMs > 0) || !(timing.highMs > 0)) return;
+    if (!sink) return;
     const sdaPin = this.sdaLine.pin();
     const sclPin = this.sclLine.pin();
     if (sdaPin === undefined || sclPin === undefined) return;
-    const now = this.opts.nowMs();
-    const t0 = Math.max(now, this.cursorMs);
-    this.cursorMs = t0 + periods * (timing.lowMs + timing.highMs);
     const wantSda = watches(sink, sdaPin);
     const wantScl = watches(sink, sclPin);
-    // Nobody looks: the bus time is spent, nothing is built, and the levels
-    // are not known any more to whoever looks next.
+    // Nobody looks: nothing is built (that is all a step costs then), and
+    // the levels are not known any more to whoever looks next. The cursor
+    // waits too: a step that starts when someone looks again starts at the
+    // clock.
     if (!wantSda && !wantScl) {
       this.sdaLine.level = null;
       this.sclLine.level = null;
       return;
     }
+    const timing = this.opts.timing();
+    if (!timing || !(timing.lowMs > 0) || !(timing.highMs > 0)) return;
+    const now = this.opts.nowMs();
+    const t0 = Math.max(now, this.cursorMs);
+    this.cursorMs = t0 + periods * (timing.lowMs + timing.highMs);
     const q = this.queue;
     draw(
       t0,
@@ -345,12 +349,22 @@ export class SpiScopeSynth {
   frame(mosi: number, miso: number, bits: number): void {
     const sink = this.opts.sink();
     if (!sink) return;
-    const cfg = this.opts.config();
-    if (!cfg.enabled || !cfg.hz || !(cfg.hz > 0)) return;
     const sckPin = this.sckLine.pin();
     if (sckPin === undefined) return;
     const mosiPin = this.mosiLine.pin();
     const misoPin = this.misoLine.pin();
+    const wantSck = watches(sink, sckPin);
+    const wantMosi = watches(sink, mosiPin);
+    const wantMiso = watches(sink, misoPin);
+    // Nobody looks: nothing is built, and nothing else is read.
+    if (!wantSck && !wantMosi && !wantMiso) {
+      this.sckLine.level = null;
+      this.mosiLine.level = null;
+      this.misoLine.level = null;
+      return;
+    }
+    const cfg = this.opts.config();
+    if (!cfg.enabled || !cfg.hz || !(cfg.hz > 0)) return;
     const now = this.opts.nowMs();
     if (this.cursorMs - now > MAX_LEAD_MS) {
       this.skippedFrames++;
@@ -366,15 +380,6 @@ export class SpiScopeSynth {
     // clock when it is not there already: a new mode, or the first frame.
     const settle = this.sckLine.level !== cpol;
     this.cursorMs = t0 + (settle ? P / 2 : 0) + n * P;
-    const wantSck = watches(sink, sckPin);
-    const wantMosi = watches(sink, mosiPin);
-    const wantMiso = watches(sink, misoPin);
-    if (!wantSck && !wantMosi && !wantMiso) {
-      this.sckLine.level = null;
-      this.mosiLine.level = null;
-      this.misoLine.level = null;
-      return;
-    }
 
     const lsb = cfg.bitOrder === 'lsb';
     const q = this.queue;

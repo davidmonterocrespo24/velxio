@@ -2254,13 +2254,22 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     // timestamp costs something (the in-browser engines read
     // performance.now() per edge, a few hundred ns in some browsers, times
     // millions of edges on a bit-banged bus) asks first; the answer is the
-    // same test the feed runs, so skipping it drops nothing.
+    // same test the feed runs, so skipping it drops nothing. The bus
+    // synthesizers ask on every Wire or SPI step (simulation/busScope.ts),
+    // so the board's watched pins are kept as a set, rebuilt when the
+    // channel list changes.
+    let seenChannels: unknown = null;
+    let watched = new Set<number>();
     const wants = (pin: number): boolean => {
       const { channels } = useOscilloscopeStore.getState();
-      for (const ch of channels) {
-        if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === pin) return true;
+      if (channels !== seenChannels) {
+        seenChannels = channels;
+        watched = new Set();
+        for (const ch of channels) {
+          if (ch.kind === 'digital' && ch.boardId === boardId) watched.add(ch.pin);
+        }
       }
-      return false;
+      return watched.has(pin);
     };
     // Many edges in one store update: a synthesized Wire or SPI step is a
     // few dozen edges at once (simulation/busScope.ts, velxio/velxio-prod#160).

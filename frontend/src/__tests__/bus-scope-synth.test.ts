@@ -239,6 +239,38 @@ describe('nobody looking', () => {
     expect(edges.every((e) => e.pin === SCL)).toBe(true);
   });
 
+  it('reads neither the SCL timing nor the SPI configuration for a step nobody watches', () => {
+    // That lookup is all a Wire or SPI step costs a sketch whose bus is not
+    // on the scope: every byte of a streaming display goes through here.
+    const { sink } = sinkFor([]);
+    let timingReads = 0;
+    let configReads = 0;
+    const synth = new I2cScopeSynth({
+      sink: () => sink,
+      sda: () => SDA,
+      scl: () => SCL,
+      nowMs: () => 0,
+      timing: () => {
+        timingReads++;
+        return { lowMs: 0.005, highMs: 0.005 };
+      },
+    });
+    writeTransaction(synth, 10);
+    const spiSynth = new SpiScopeSynth({
+      sink: () => sink,
+      sck: () => SCK,
+      mosi: () => MOSI,
+      miso: () => MISO,
+      nowMs: () => 0,
+      config: () => {
+        configReads++;
+        return { enabled: true, mode: 0, bitOrder: 'msb', bits: 8, hz: 1_000_000 };
+      },
+    });
+    for (let k = 0; k < 10; k++) spiSynth.frame(k, 0xff, 8);
+    expect([timingReads, configReads]).toEqual([0, 0]);
+  });
+
   it('a plain callback (no wants, no batch) gets every edge one by one', () => {
     const got: ScopeEdge[] = [];
     const plain = ((pin: number, state: boolean, timeMs: number) => {
