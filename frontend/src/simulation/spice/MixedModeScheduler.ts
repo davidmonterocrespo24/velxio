@@ -243,6 +243,23 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
     }
   }
 
+  /**
+   * Publish every (component, pin) voltage from a net -> volts map without
+   * making anything the current result: the circuit service follows a step a
+   * pushbutton or a slide switch started with it, so a part that reads its
+   * pins' voltages follows the step as the meters do (velxio/velxio-prod#107).
+   * A net the map does not hold leaves its pins alone.
+   */
+  publishNetVoltages(volts: Readonly<Record<string, number>>): void {
+    for (const [key, net] of this.pinNetMap) {
+      const idx = key.indexOf(':');
+      if (idx < 0) continue;
+      const v = net === '0' ? 0 : volts[net];
+      if (v === undefined || !Number.isFinite(v)) continue;
+      this.publishVoltage(key.slice(0, idx), key.slice(idx + 1), v);
+    }
+  }
+
   /** Stop the scheduler.  Engine stays warm so restart is cheap. */
   stop(): void {
     if (!this.running) return;

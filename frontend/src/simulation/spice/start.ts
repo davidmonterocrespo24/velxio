@@ -58,6 +58,7 @@ export function createElectricalStorePort(): ElectricalStorePort {
         analysisMode: snapshot.analysisMode,
         timeWaveforms: snapshot.timeWaveforms,
         stepWaveforms: snapshot.stepWaveforms,
+        stepAtS: snapshot.stepAtS,
         scopeWaveforms: snapshot.scopeWaveforms,
         converged: snapshot.warnings.length === 0,
         error: pickSolverError(snapshot.warnings),

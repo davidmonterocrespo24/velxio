@@ -118,8 +118,22 @@ export interface ElectricalSnapshot {
    * read the curve at the time since the edge and the oscilloscope draws it
    * (scopeWaveforms); `timeWaveforms` stays a steady capture, so the meters,
    * the wire labels and the LEDs never read a step's tail as AC.
+   *
+   * A step a pushbutton or a slide switch started (and one that starts while
+   * such a step is under way) is followed instead: the service publishes the
+   * scalar fields along the curve, at the time since the step began, until
+   * it ends, and then the operating point (velxio/velxio-prod#107). The
+   * meters, the wire labels, the LEDs and the parts read it as they read any
+   * publish: an RC timer started by a button lights its LED seconds later.
    */
   stepWaveforms?: TimeWaveforms;
+  /**
+   * When the scalar fields are a step being followed (see stepWaveforms), the
+   * seconds since it began that they were read at: a moment of a transient,
+   * not a state the circuit stays in. Absent when the scalars are an
+   * operating point or a capture's last sample.
+   */
+  stepAtS?: number;
   /**
    * The last capture the deck produced, kept across the operating points
    * solved after it, for the oscilloscope alone: its analog channels redraw
@@ -184,6 +198,13 @@ export interface MixedModeSchedulerPort {
    * implementations may ignore it if they don't optimise.
    */
   setExtraVectorsOfInterest?(vectors: readonly string[]): void;
+  /**
+   * Publish every (component, pin) voltage from a net -> volts map, without
+   * making anything the current result: the service follows a step with it
+   * (see `follow`), so the parts that read their pins' voltages follow it
+   * too. Optional for ports with no pin subscribers.
+   */
+  publishNetVoltages?(volts: Readonly<Record<string, number>>): void;
 }
 
 export interface ServiceOptions {
@@ -250,6 +271,44 @@ function deckShapeOf(netlist: string, padNames: ReadonlySet<string>): string {
       const space = line.indexOf(' ');
       const name = (space > 0 ? line.slice(0, space) : line).toLowerCase();
       return padNames.has(name) ? line.replace(/\sDC\s+\S+\s*$/, ' DC *') : line;
+    })
+    .join('\n');
+}
+
+/**
+ * A deck shape (deckShapeOf) with the state the parts with memory start in
+ * blanked too: a relay's armature (the ON of its switch cards) and a latch's
+ * seeds (.nodeset). Those follow what the circuit did, not what it is made of
+ * (velxio/velxio-prod#109, #147).
+ */
+function memoryBlanked(shape: string, cells: ReadonlyArray<{ id: string }>): string {
+  const switches = cells.map((c) => `s_${c.id.toLowerCase()}_`);
+  return shape
+    .split('\n')
+    .map((line) => {
+      const lower = line.toLowerCase();
+      if (lower.startsWith('.nodeset')) return line.replace(/=\s*\S+/g, '=*');
+      return switches.some((p) => lower.startsWith(p)) ? line.replace(/\s+ON\s*$/i, '') : line;
+    })
+    .join('\n');
+}
+
+/**
+ * A deck shape with its memory blanked (memoryBlanked) and the values of the
+ * hand-worked contacts' cards too (BuildNetlistResult.handContacts): two
+ * decks of one circuit that differ only in where its pushbuttons and slide
+ * switches stand. The pull-downs a floating net gets go as well: an open
+ * contact is no path to ground (velxio/velxio-prod#192), so the net behind a
+ * button that is not pressed gets one, and loses it when the button closes.
+ */
+function contactsBlanked(shape: string, contacts: ReadonlySet<string>): string {
+  if (contacts.size === 0) return shape;
+  return shape
+    .split('\n')
+    .filter((line) => !line.toLowerCase().startsWith('r_autopull_'))
+    .map((line) => {
+      const t = line.trim().split(/\s+/);
+      return t.length === 4 && contacts.has(t[0]!.toLowerCase()) ? `${t[0]} ${t[1]} ${t[2]} *` : line;
     })
     .join('\n');
 }
@@ -401,6 +460,23 @@ function sameReactiveState(kind: 'C' | 'L', x: number, y: number): boolean {
   return Math.abs(x - y) <= reactiveTolerance(kind, x, y);
 }
 
+/**
+ * True when a value of `next` is more than `floor` plus 0.01 % away from the
+ * one `sent` holds: what a meter's last digit or an LED's brightness shows
+ * of a step being followed.
+ */
+function followedMoved(
+  sent: Readonly<Record<string, number>>, next: Readonly<Record<string, number>>, floor: number,
+): boolean {
+  for (const key of Object.keys(next)) {
+    const a = sent[key];
+    const b = next[key]!;
+    if (a === undefined) return true;
+    if (Math.abs(a - b) > floor + 1e-4 * Math.max(Math.abs(a), Math.abs(b))) return true;
+  }
+  return false;
+}
+
 /** A device's state at every sample of a result: a capacitor's voltage, an
  *  inductor's current; null when a vector it needs is missing. */
 function deviceSeries(result: SolveResult, d: ReactiveDevice): number[] | null {
@@ -474,6 +550,12 @@ interface StepRun {
   capture: TimeWaveforms;
   /** The solver's result, for each capacitor's and inductor's state on it. */
   result: SolveResult;
+  /**
+   * The scalar fields follow this step in time (see `follow`): a pushbutton
+   * or a slide switch started it, or it started while such a step was under
+   * way (velxio/velxio-prod#107).
+   */
+  follow?: boolean;
 }
 
 export class CircuitSimulationService {
@@ -528,6 +610,9 @@ export class CircuitSimulationService {
     /** How long a step of this deck takes to settle, when the deck is a
      *  step response (AnalysisMode.settleS); undefined otherwise. */
     settleS?: number;
+    /** How long it takes to settle after a pushbutton or a slide switch
+     *  changes it, when its pads drive no step (AnalysisMode.switchSettleS). */
+    switchSettleS?: number;
   } | null = null;
 
   // ── Steps: a reactive circuit carries its state across pad edges ─────
@@ -551,6 +636,45 @@ export class CircuitSimulationService {
   // of it is not held at its last sample. The next edge starts from wherever
   // the curve has got to. Edges faster than a publish window keep the
   // operating points of the window.
+
+  // ── Following: a step started by hand is published along its curve ───
+  //
+  // A step after a pad edge is read by the ADC hooks and the oscilloscope;
+  // the meters, the wire labels, the LEDs and the parts read the operating
+  // point it settles to (velxio/velxio-prod#153). A step that a pushbutton or
+  // a slide switch starts is what a person watches instead: an RC timer that
+  // lights an LED through a transistor seconds after a press lit it at once,
+  // and with no board on the canvas the press was solved as an operating
+  // point, with no step at all (velxio/velxio-prod#107). Such a step is run
+  // (runSolve, `handStep`) and followed: every FOLLOW_MS the snapshot it was
+  // published with goes out again with its scalar fields read on the curve
+  // at the time since the step began, on the wall clock, until the curve
+  // ends; then the operating point. A step that starts while a followed one
+  // is under way (a pad edge, a relay's memory, another press) is followed
+  // too: it carries the same transient on.
+
+  /** The step being followed: the snapshot published with it (its scalars
+   *  are the operating point) and the scalars sent last. */
+  private following: {
+    base: ElectricalSnapshot;
+    /** The operating point the step settles to: the memory past its end. */
+    op: SolveResult;
+    step: StepRun;
+    sent: { nodeVoltages: Record<string, number>; branchCurrents: Record<string, number> };
+  } | null = null;
+  private followTimer: ReturnType<typeof setTimeout> | null = null;
+  /** How often a followed step is published again: the publish window's
+   *  pace, about the eye's. Scalars that moved by less than
+   *  sameReactiveState tolerates are not sent. */
+  static readonly FOLLOW_MS = 33;
+  /** When the canvas last changed (a part, a wire, a board): a press or a
+   *  flip begins its step then, not when the solver gets to it. */
+  private circuitChangedAt: number | null = null;
+  /** The deck shape with the memory blanked (memoryBlanked), and with the
+   *  hand-worked contacts blanked too (contactsBlanked): a rebuild whose
+   *  first differs and whose second is the same changed only those. */
+  private memoryShape: string | null = null;
+  private contactShape: string | null = null;
 
   /** The last pad edge seen: what began the state the pads hold. */
   private lastEdge: Onset | null = null;
@@ -808,6 +932,9 @@ export class CircuitSimulationService {
     this.current = null;
     this.lastEdge = null;
     this.healEdge = null;
+    this.stopFollowing();
+    this.memoryShape = null;
+    this.contactShape = null;
   }
 
   /** What `__spiceDebug()` shows of the edge path: where the edges stand
@@ -826,8 +953,14 @@ export class CircuitSimulationService {
       currentLevels: this.timeline?.current() ?? null,
       cacheSize: this.cache.size,
       step: this.step
-        ? { key: this.step.key, oneShot: this.step.capture.oneShot, endS: this.step.capture.time.at(-1) }
+        ? {
+            key: this.step.key,
+            oneShot: this.step.capture.oneShot,
+            endS: this.step.capture.time.at(-1),
+            follow: this.step.follow === true,
+          }
         : null,
+      following: this.following !== null,
       stepSolveCount: this.stepSolveCount,
       lastStepMs: Math.round(this.lastStepMs),
       lastSolve: (() => {
@@ -854,14 +987,19 @@ export class CircuitSimulationService {
     if (this.trace.length > 40) this.trace.shift();
   }
 
-  /** Queue `fn` behind whatever the solver is doing. Never rejects. */
+  /** Queue `fn` behind whatever the solver is doing. Never rejects. A step
+   *  being followed holds still while it runs: the work may replace it
+   *  (another press, a pad edge), and until it publishes, the curve it is
+   *  leaving is not the circuit's. */
   private run(fn: () => Promise<void>): Promise<void> {
     const next = this.chain.then(async () => {
       this.busy = true;
+      this.pauseFollowing();
       try {
         await fn();
       } finally {
         this.busy = false;
+        this.resumeFollowing();
       }
     });
     this.chain = next.catch((err) => {
@@ -975,14 +1113,31 @@ export class CircuitSimulationService {
     }
     const vec = await this.vectorsFor(levels, key);
     if (!vec) return;
-    this.adopt(vec);
-    // A new state of the pads starts where the circuit is (see `step`).
-    if (this.step?.key !== key) {
-      const onset = this.lastEdge ?? { wallMs: nowMs() };
-      const step = await this.stepFrom(levels, key, vec, onset, this.stateAt(onset));
+    // A new state of the pads starts where the circuit is (see `step`), and
+    // carries a step being followed on (see `following`).
+    const onset = this.step?.key !== key ? (this.lastEdge ?? { wallMs: nowMs() }) : null;
+    const follow = onset ? this.followingAt(onset) : this.step?.follow === true;
+    // The memory follows what is published: a followed step's curve
+    // (publish), not where it settles.
+    if (!follow) this.adopt(vec);
+    if (onset) {
+      const step = await this.stepFrom(levels, key, vec, onset, this.stateAt(onset), follow);
       if (step) this.step = step;
     }
+    if (follow) this.adopt(vec, !(this.step?.key === key && this.step.follow));
     this.publish(vec, undefined, false, undefined, key);
+  }
+
+  /**
+   * True when the step published last is one the scalar fields follow (see
+   * `following`) and it had not ended at `when`: a step that starts then
+   * carries that transient on, and is followed too.
+   */
+  private followingAt(when: Onset): boolean {
+    const step = this.current?.step;
+    const shot = step?.capture.oneShot;
+    if (!step?.follow || !shot) return false;
+    return CircuitSimulationService.stepElapsedS(shot, when) < (step.capture.time.at(-1) ?? 0);
   }
 
   /**
@@ -1031,20 +1186,24 @@ export class CircuitSimulationService {
    */
   private async stepFrom(
     levels: number[], key: string, op: StateVectors, onset: Onset, from: Map<string, number> | null,
+    follow = false,
   ): Promise<StepRun | null> {
     const ic = this.stepStart(op, from);
-    return ic ? this.runStep(levels, key, ic, onset, op) : null;
+    return ic ? this.runStep(levels, key, ic, onset, op, this.loadedContext?.settleS, follow) : null;
   }
 
   /**
    * The initial conditions of the step into a state whose operating point is
    * `op`, from `from`: null when there is no step to run (see stepFrom).
+   * `settleS` is how long the deck settles: a step response's
+   * (AnalysisMode.settleS) unless the caller says otherwise (a press or a
+   * flip on a deck whose pads drive no step: switchSettleS).
    */
   private stepStart(
-    op: StateVectors, from: Map<string, number> | null,
+    op: StateVectors, from: Map<string, number> | null, settleS = this.loadedContext?.settleS,
   ): Array<{ device: string; value: number }> | null {
     const ctx = this.loadedContext;
-    if (!ctx || ctx.settleS === undefined || ctx.reactive.length === 0 || !from) return null;
+    if (!ctx || settleS === undefined || ctx.reactive.length === 0 || !from) return null;
     if (!this.scheduler.solvePadState) return null;
     const goal = reactiveStateOf(op.result, ctx.reactive, null);
     const ic: Array<{ device: string; value: number }> = [];
@@ -1070,16 +1229,19 @@ export class CircuitSimulationService {
    * into 100 uF, or a coil behind its own 10 Ohm, are slower than it says.
    * What a capture that still stops short leaves is the readers' to close:
    * past its end the circuit is at `op`, never at its last sample.
+   * `settleS` is the deck's settle time (see stepStart); `follow` marks a
+   * step the scalar fields follow (StepRun.follow).
    */
   private async runStep(
     levels: number[], key: string, ic: Array<{ device: string; value: number }>, onset: Onset, op: StateVectors,
+    settleS: number | undefined, follow = false,
   ): Promise<StepRun | null> {
     const ctx = this.loadedContext;
-    if (!ctx || ctx.settleS === undefined || !this.scheduler.solvePadState) return null;
+    if (!ctx || settleS === undefined || !this.scheduler.solvePadState) return null;
     const goal = reactiveStateOf(op.result, ctx.reactive, null);
     let stop = Math.min(
       CircuitSimulationService.STEP_FIRST_MAX_S,
-      Math.max(CircuitSimulationService.STEP_MIN_S, 2 * ctx.settleS),
+      Math.max(CircuitSimulationService.STEP_MIN_S, 2 * settleS),
     );
     const started = nowMs();
     // A coil's kick at the edge wants a fine first step (STEP_KICK_S).
@@ -1123,7 +1285,8 @@ export class CircuitSimulationService {
       if (this.scheduler.getLastResult() !== op.result) this.scheduler.adoptResult?.(op.result);
     }
     if (!result) return null;
-    const capture = this.extract(result, ctx).timeWaveforms;
+    // An operating-point deck's step is a capture all the same.
+    const capture = this.extract(result, ctx, true).timeWaveforms;
     if (!capture) return null;
     capture.oneShot = {
       wallMs: onset.wallMs,
@@ -1133,8 +1296,8 @@ export class CircuitSimulationService {
     };
     this.stepSolveCount++;
     this.lastStepMs = nowMs() - started;
-    this.note({ step: ic.length, stopS: capture.time.at(-1), ms: Math.round(this.lastStepMs) });
-    return { key, capture, result };
+    this.note({ step: ic.length, stopS: capture.time.at(-1), ms: Math.round(this.lastStepMs), follow });
+    return { key, capture, result, ...(follow ? { follow } : {}) };
   }
 
   /** The pad sources to alter to bring the engine to `levels`. */
@@ -1229,7 +1392,8 @@ export class CircuitSimulationService {
     }
     const latest = solved.find((s) => s.state.key === latestState.key);
     if (!latest) return false;
-    this.adopt(latest.vec);
+    // A followed step notes the memory from its curve (publish).
+    this.adopt(latest.vec, !(!split && this.step?.key === latestState.key && this.step.follow));
     const total = solved.reduce((acc, s) => acc + s.state.ms, 0);
     const window: SolveWindow = {
       ms: windowMs,
@@ -1410,23 +1574,27 @@ export class CircuitSimulationService {
   }
 
   /** The scheduler's per-pin voltages follow what is published, and so does
-   *  the circuit's memory. */
-  private adopt(vec: StateVectors): void {
+   *  the circuit's memory, unless `noteMemory` is false: a step being
+   *  followed notes it from its curve (publish). */
+  private adopt(vec: StateVectors, noteMemory = true): void {
     if (this.scheduler.getLastResult() !== vec.result) this.scheduler.adoptResult?.(vec.result);
-    if (!this.memoryStale) this.noteMemory(vec.result);
+    if (noteMemory && !this.memoryStale) this.noteMemory(vec.result);
   }
 
   /**
    * Where the switches with memory ended the solve being published: operated
    * above their pull-in, released below their drop-out, and between the two
    * in the state the deck started them in. A pad-state solve that leaves one
-   * elsewhere asks for a rebuild (see memoryRebuildAt).
+   * elsewhere asks for a rebuild (see memoryRebuildAt). `t`: where they are
+   * `t` seconds into a capture (a step being followed) instead of at its end.
    */
-  private noteMemory(result: import('./ports/SolverPort').SolveResult): void {
+  private noteMemory(result: import('./ports/SolverPort').SolveResult, t: number | null = null): void {
     if (this.memoryCells.length === 0 && this.nodeMemoryCells.length === 0) return;
     const last = (name: string): number | undefined => {
       const vec = result.vectors.get(`v(${name.toLowerCase()})`);
-      return vec && vec.real.length > 0 ? vec.real[vec.real.length - 1] : undefined;
+      if (!vec || vec.real.length === 0) return undefined;
+      if (t !== null && result.timeAxis.length === vec.real.length) return sampleAt(result.timeAxis, vec.real, t);
+      return vec.real[vec.real.length - 1];
     };
     let moved = false;
     for (const cell of this.memoryCells) {
@@ -1548,9 +1716,13 @@ export class CircuitSimulationService {
     // This rebuild starts the memory where the last solves left it.
     this.memoryStale = false;
     this.lastRebuildAt = Date.now();
+    const previousRebuildAt = this.rebuildStartedAt;
     this.rebuildStartedAt = nowMs();
     const state = this.simStore.getState();
-    if (state.hydrationSeq !== this.memoryHydrationSeq) {
+    // Another circuit was loaded: it powers up anew, and no step of the one
+    // before carries on into it.
+    const rehydrated = state.hydrationSeq !== this.memoryHydrationSeq;
+    if (rehydrated) {
       this.memoryHydrationSeq = state.hydrationSeq;
       this.switchMemory = new Map();
       this.nodeMemory = new Map();
@@ -1588,16 +1760,35 @@ export class CircuitSimulationService {
       }
     }
     const shape = deckShapeOf(netlist, padNames);
+    // A press or a flip: the deck changed in its pushbuttons' and slide
+    // switches' contacts and in nothing else but the memory, which a step
+    // the last press started may have moved (velxio/velxio-prod#107).
+    const memoryShape = memoryBlanked(shape, memoryCells);
+    const contactShape = contactsBlanked(memoryShape, built.handContacts);
+    const handOnly =
+      !rehydrated &&
+      this.memoryShape !== null &&
+      memoryShape !== this.memoryShape &&
+      contactShape === this.contactShape;
     this.note({
       rebuild: this.rebuildCount,
       collected: Object.fromEntries(snap.boards.map((b) => [b.id, Object.keys(b.pinStates as object).length])),
       sources: voltageSources.length,
+      ...(handOnly ? { hand: true } : {}),
     });
     // Where the circuit is when the new deck takes over: the pad edge that
     // asked for the rebuild began the new state, or now. Read off the old
     // deck, by device name, so an edit to a charging RC carries its charge.
+    // A press or a flip began it when the canvas changed, if that was after
+    // the last rebuild read the canvas: a solver busy with the step before
+    // must not move the release of a button to when it gets to it.
     const edge = this.healEdge;
-    const onset: Onset = edge ?? { wallMs: this.rebuildStartedAt };
+    const changedAt = this.circuitChangedAt;
+    const handAt =
+      handOnly && changedAt !== null && changedAt > previousRebuildAt && changedAt <= this.rebuildStartedAt
+        ? changedAt
+        : this.rebuildStartedAt;
+    const onset: Onset = edge ?? { wallMs: handAt };
     this.healEdge = null;
     const carried = this.stateAt(onset);
     const reactive = reactiveDevicesOf(netlist);
@@ -1620,12 +1811,16 @@ export class CircuitSimulationService {
     // as an operating point first: when the circuit already sits there, the
     // deck's own transient follows below as it always did; when it does not,
     // the step replaces it (see `step`).
-    const stepDeck =
-      analysis.kind === 'tran' &&
-      !analysis.timeVarying &&
-      analysis.settleS !== undefined &&
-      reactive.length > 0 &&
-      carried !== null;
+    const padSettleS = analysis.kind === 'tran' && !analysis.timeVarying ? analysis.settleS : undefined;
+    // So is any deck a press or a flip changed, when it stores energy, and
+    // any rebuild while a step it started is under way (a relay's memory,
+    // an edit, a Stop): that step is followed (see `following`).
+    const switchSettleS =
+      analysis.kind === 'ac' || (analysis.kind === 'tran' && analysis.timeVarying) ? undefined : analysis.switchSettleS;
+    const settleS = padSettleS ?? switchSettleS;
+    const canStep = settleS !== undefined && reactive.length > 0 && carried !== null;
+    const follow = canStep && (handOnly || (!rehydrated && this.followingAt(onset)));
+    const stepDeck = (padSettleS !== undefined && reactive.length > 0 && carried !== null) || follow;
     if (analysis.kind === 'tran' && !stepDeck) {
       await this.scheduler.resolveTran(analysis.step, analysis.stop, analysis.start);
       if (analysis.start && !this.scheduler.getLastResult()?.timeAxis.length) {
@@ -1664,7 +1859,8 @@ export class CircuitSimulationService {
       start: analysis.kind === 'tran' && analysis.start ? Number(analysis.start) : undefined,
       sourcedNets,
       reactive,
-      settleS: analysis.kind === 'tran' && !analysis.timeVarying ? analysis.settleS : undefined,
+      settleS: padSettleS,
+      switchSettleS,
     };
     const stepUnderWay = this.step;
     this.step = null;
@@ -1681,6 +1877,8 @@ export class CircuitSimulationService {
     this.nodeMemory = new Map(nodeMemoryCells.map((c) => [c.key, c.seed] as const));
     const sameShape = shape === this.deckShape;
     this.deckShape = shape;
+    this.memoryShape = memoryShape;
+    this.contactShape = contactShape;
     this.loadPads(
       input.boards as unknown as Parameters<CircuitSimulationService['loadPads']>[0],
       voltageSources,
@@ -1690,10 +1888,12 @@ export class CircuitSimulationService {
     let result = this.scheduler.getLastResult();
     if (!result) return;
     let vec = this.extract(result, this.loadedContext);
-    this.noteMemory(result);
+    // A step that is followed notes the memory from its curve (publish).
+    const opResult = result;
+    if (!follow) this.noteMemory(result);
     const levels = (this.solverLevels ?? []).slice();
     const key = stateKey(levels);
-    if (stepDeck && analysis.kind === 'tran') {
+    if (stepDeck) {
       // The deck's own transient starts from its operating point; a circuit
       // that was elsewhere when it took this state steps from there. A
       // rebuild that changes nothing the circuit is made of (the same deck,
@@ -1707,17 +1907,20 @@ export class CircuitSimulationService {
         CircuitSimulationService.stepElapsedS(shot, onset) < (stepUnderWay.capture.time.at(-1) ?? 0)
           ? stepUnderWay
           : null;
-      const ic = kept || this.pwmSplit(levels) ? null : this.stepStart(vec, carried);
-      const step = kept ?? (ic ? await this.runStep(levels, key, ic, onset, vec) : null);
+      const ic = kept || this.pwmSplit(levels) ? null : this.stepStart(vec, carried, settleS);
+      const step = kept ?? (ic ? await this.runStep(levels, key, ic, onset, vec, settleS, follow) : null);
       if (step) {
         this.step = step;
-      } else {
+      } else if (analysis.kind === 'tran') {
         await this.scheduler.resolveTran(analysis.step, analysis.stop, analysis.start);
         result = this.scheduler.getLastResult();
         if (!result) return;
         vec = this.extract(result, this.loadedContext);
       }
     }
+    // Nothing to follow after all (the circuit already sat where the press
+    // left it): the memory is where it settles, as for any rebuild.
+    if (follow && !this.step?.follow) this.noteMemory(opResult);
     this.remember(key, vec);
     if (this.pwmSplit(levels)) {
       // The deck holds its static PWM pads at their mean; publish what the
@@ -1729,10 +1932,12 @@ export class CircuitSimulationService {
     this.publish(vec, undefined, false, undefined, key);
   }
 
-  /** Every net voltage and V-source branch current of a result. */
+  /** Every net voltage and V-source branch current of a result, and its
+   *  capture on a transient deck, or on any deck when `capture` (a step). */
   private extract(
     result: import('./ports/SolverPort').SolveResult,
     ctx: NonNullable<CircuitSimulationService['loadedContext']>,
+    capture = false,
   ): StateVectors {
     const nodeVoltages: Record<string, number> = {};
     const branchCurrents: Record<string, number> = {};
@@ -1745,7 +1950,7 @@ export class CircuitSimulationService {
       if (vec && vec.real.length > 0) branchCurrents[vs.toLowerCase()] = vec.real[vec.real.length - 1]!;
     }
     let timeWaveforms: TimeWaveforms | undefined;
-    if (ctx.analysisKind === 'tran' && result.timeAxis.length > 0) {
+    if ((ctx.analysisKind === 'tran' || capture) && result.timeAxis.length > 0) {
       const nodes = new Map<string, number[]>();
       const branches = new Map<string, number[]>();
       for (const net of ctx.nets) {
@@ -1802,7 +2007,7 @@ export class CircuitSimulationService {
     else if (step) this.lastTimeWaveforms = step.capture;
     else if (own) this.lastTimeWaveforms = own;
     else if (vec.timeWaveforms) this.lastTimeWaveforms = vec.timeWaveforms;
-    this.electricalStore.publish({
+    const snapshot: ElectricalSnapshot = {
       nodeVoltages: vec.nodeVoltages,
       branchCurrents: vec.branchCurrents,
       window,
@@ -1814,7 +2019,92 @@ export class CircuitSimulationService {
       warnings: vec.warnings,
       sourcedNets: ctx.sourcedNets,
       voltageSources: ctx.voltageSources.map((vs) => vs.toLowerCase()),
-    });
+    };
+    // A step started by hand goes out along its curve (see `following`).
+    this.stopFollowing();
+    if (step?.follow) {
+      this.following = {
+        base: snapshot,
+        op: vec.result,
+        step,
+        sent: { nodeVoltages: snapshot.nodeVoltages, branchCurrents: snapshot.branchCurrents },
+      };
+      this.sendFollowed(true);
+      return;
+    }
+    this.electricalStore.publish(snapshot);
+  }
+
+  /**
+   * Publish the step being followed as it stands now: the snapshot it was
+   * published with, its scalar fields read on its curve at the time since it
+   * began (wall clock), when they moved by more than the eye or a meter's
+   * last digit tells (always when `force`), with the memory where the curve
+   * has it; then again in FOLLOW_MS. Past the curve's end the snapshot as it
+   * was, the operating point, and the following stops. Another circuit
+   * loaded meanwhile stops it without a word.
+   */
+  private sendFollowed(force: boolean): void {
+    const f = this.following;
+    const shot = f?.step.capture.oneShot;
+    if (!f || !shot || this.stopped || this.simStore.getState().hydrationSeq !== this.memoryHydrationSeq) {
+      this.stopFollowing();
+      return;
+    }
+    const capture = f.step.capture;
+    const t = CircuitSimulationService.stepElapsedS(shot, { wallMs: nowMs() });
+    if (!(t < (capture.time.at(-1) ?? 0))) {
+      // Past its end the circuit is at its operating point.
+      this.stopFollowing();
+      if (!this.memoryStale) this.noteMemory(f.op);
+      this.scheduler.publishNetVoltages?.(f.base.nodeVoltages);
+      this.electricalStore.publish(f.base);
+      return;
+    }
+    const nodeVoltages = { ...f.base.nodeVoltages };
+    for (const [net, series] of capture.nodes) {
+      const v = sampleAt(capture.time, series, t);
+      if (Number.isFinite(v)) nodeVoltages[net] = v;
+    }
+    const branchCurrents = { ...f.base.branchCurrents };
+    for (const [source, series] of capture.branches) {
+      const i = sampleAt(capture.time, series, t);
+      if (Number.isFinite(i)) branchCurrents[source] = i;
+    }
+    if (
+      force ||
+      followedMoved(f.sent.nodeVoltages, nodeVoltages, 1e-4) ||
+      followedMoved(f.sent.branchCurrents, branchCurrents, 1e-9)
+    ) {
+      f.sent = { nodeVoltages, branchCurrents };
+      if (!this.memoryStale) this.noteMemory(f.step.result, t);
+      this.scheduler.publishNetVoltages?.(nodeVoltages);
+      this.electricalStore.publish({ ...f.base, nodeVoltages, branchCurrents, stepAtS: t });
+    }
+    if (this.following === f) {
+      this.followTimer = setTimeout(() => {
+        this.followTimer = null;
+        this.sendFollowed(false);
+      }, CircuitSimulationService.FOLLOW_MS);
+    }
+  }
+
+  /** Hold the step being followed where it is (solver work under way). */
+  private pauseFollowing(): void {
+    if (this.followTimer !== null) {
+      clearTimeout(this.followTimer);
+      this.followTimer = null;
+    }
+  }
+
+  /** Carry on following, from now, unless the work just done replaced it. */
+  private resumeFollowing(): void {
+    if (this.following && this.followTimer === null && !this.stopped) this.sendFollowed(false);
+  }
+
+  private stopFollowing(): void {
+    this.pauseFollowing();
+    this.following = null;
   }
 
   /**
@@ -1833,6 +2123,7 @@ export class CircuitSimulationService {
         // components are in the netlist, so re-solve to apply the open.
         n.burntComponents !== p.burntComponents
       ) {
+        this.circuitChangedAt = nowMs();
         void this.tick();
       }
     });

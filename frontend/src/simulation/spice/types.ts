@@ -85,7 +85,11 @@ export type PinSourceState =
 
 /** Electrical analyses the solver can perform. */
 export type AnalysisMode =
-  | { kind: 'op' }
+  | {
+      kind: 'op';
+      /** See the transient's `switchSettleS`. */
+      switchSettleS?: number;
+    }
   | {
       kind: 'tran';
       step: string;
@@ -136,6 +140,17 @@ export type AnalysisMode =
        * of resistors in series (velxio/velxio-prod#153).
        */
       settleS?: number;
+      /**
+       * For a circuit with no source that moves by itself, a capacitor or an
+       * inductor and a contact worked by hand (a pushbutton, a slide switch:
+       * isHandSwitch): about how long it takes to settle after a press or a
+       * flip, sized as `settleS`. The deck is solved as it would be without
+       * it; a rebuild that changes only such contacts runs the step the
+       * change leaves the circuit in, from the state it is in, and the
+       * meters, the LEDs and the parts follow that step in time, with no
+       * board on the canvas as with one (velxio/velxio-prod#107).
+       */
+      switchSettleS?: number;
     }
   | { kind: 'ac'; type?: 'dec' | 'oct' | 'lin'; points?: number; fstart?: number; fstop?: number };
 
