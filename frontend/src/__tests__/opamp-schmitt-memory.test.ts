@@ -8,10 +8,10 @@
  * no history and landed on the middle one: the book's trigger (R2/R1 = 10,
  * 2.5 V on IN-) read OUT = 27.5 - 10 * Vin, 3.47 / 2.47 / 1.47 V for 2.4 /
  * 2.5 / 2.6 V in, and the gallery's trigger did the same with its pot inside
- * the band. The deck now seeds such an op-amp's OUT and IN+ with .nodeset,
- * from where OUT was at the last solve or from its low rail at power-up, and
- * the circuit service carries that state from one solve to the next, as it
- * does a relay's armature (#109) and an SR latch (#147).
+ * the band. The deck now seeds such an op-amp with .nodeset: OUT and IN+
+ * with where OUT was at the last solve, or OUT alone with its low rail at
+ * power-up. The circuit service carries that state from one solve to the
+ * next, as it does a relay's armature (#109) and an SR latch (#147).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { buildNetlist } from '../simulation/spice/NetlistBuilder';
@@ -125,18 +125,19 @@ describe('the book trigger solved in DC inside its band (velxio/velxio-prod#134)
     },
   );
 
-  it('the deck seeds OUT, and IN+ with the same volts, from the low rail at power-up', () => {
+  it('the deck seeds OUT alone from the low rail at power-up, and OUT and IN+ with the same volts from memory', () => {
     const { netlist, pinNetMap, nodeMemoryCells } = buildNetlist(bookTrigger(2.5));
     const out = pinNetMap.get('u1:OUT');
     const inp = pinNetMap.get('u1:IN+');
-    expect(netlist).toMatch(new RegExp(`^\\.nodeset V\\(${out}\\)=0 V\\(${inp}\\)=0$`, 'm'));
-    expect(nodeMemoryCells).toEqual([
-      { key: 'u1:OUT', net: out, threshold: 2.5, seed: 0, alsoSeeded: [inp] },
-    ]);
+    expect(netlist).toMatch(new RegExp(`^\\.nodeset V\\(${out}\\)=0$`, 'm'));
+    expect(nodeMemoryCells).toEqual([{ key: 'u1:OUT', net: out, threshold: 2.5, seed: 0 }]);
     const high = buildNetlist(bookTrigger(2.5, 'opamp-lm358', remembered(3.9561234)));
     expect(high.netlist).toMatch(
       new RegExp(`^\\.nodeset V\\(${out}\\)=3.956 V\\(${inp}\\)=3.956$`, 'm'),
     );
+    expect(high.nodeMemoryCells).toEqual([
+      { key: 'u1:OUT', net: out, threshold: 2.5, seed: 3.956, alsoSeeded: [inp] },
+    ]);
   });
 
   it.each(['opamp-lm741', 'opamp-tl072', 'opamp-lm324'])(
@@ -153,6 +154,71 @@ describe('the book trigger solved in DC inside its band (velxio/velxio-prod#134)
       ).toBeGreaterThan(0.9);
     },
   );
+});
+
+/**
+ * A trigger on +-12 V from two generators, its reference on ground.
+ * Non-inverting: Vin through R1 = 10k to IN+, R2 = 100k from OUT, IN- on
+ * ground; the band is Vin within about +-1 V and the middle point
+ * OUT = -10 * Vin. Inverting: Vin on IN-, IN+ = OUT * 10k / 110k; at Vin = 0
+ * the middle point is OUT = 0. The deck names no rail for V- here (a
+ * generator's net, as a battery's or a bench supply's would be) and takes
+ * 0 V for its low rail: a power-up seed that put IN+ there as well sat the
+ * LM741 and the TL072 on their middle point, where unseeded they start on a
+ * rail.
+ */
+function dualTrigger(topo: 'inv' | 'noninv', opamp: string, vin: number): BuildNetlistInput {
+  const wires: Wire[] = [
+    w('ws1', ['vpos', 'GND'], ['vneg', 'GND']),
+    w('wp', ['u1', 'V+'], ['vpos', 'SIG']),
+    w('wm', ['u1', 'V-'], ['vneg', 'SIG']),
+    w('wg', ['vin', 'GND'], ['vpos', 'GND']),
+    w('wl1', ['u1', 'OUT'], ['rl', '1']),
+    w('wl2', ['rl', '2'], ['vpos', 'GND']),
+  ];
+  if (topo === 'inv') {
+    wires.push(
+      w('a1', ['vin', 'SIG'], ['u1', 'IN-']),
+      w('a2', ['u1', 'OUT'], ['r2', '1']),
+      w('a3', ['r2', '2'], ['u1', 'IN+']),
+      w('a4', ['u1', 'IN+'], ['r1', '1']),
+      w('a5', ['r1', '2'], ['vpos', 'GND']),
+    );
+  } else {
+    wires.push(
+      w('a1', ['vin', 'SIG'], ['r1', '1']),
+      w('a2', ['r1', '2'], ['u1', 'IN+']),
+      w('a3', ['u1', 'OUT'], ['r2', '1']),
+      w('a4', ['r2', '2'], ['u1', 'IN+']),
+      w('a5', ['u1', 'IN-'], ['vpos', 'GND']),
+    );
+  }
+  return {
+    components: [
+      dc('vpos', 12),
+      dc('vneg', -12),
+      dc('vin', vin),
+      res('r1', 10_000),
+      res('r2', 100_000),
+      res('rl', 10_000),
+      { id: 'u1', metadataId: opamp, properties: {} },
+    ],
+    wires,
+    boards: [],
+    analysis: { kind: 'op' },
+  };
+}
+
+describe('a dual-supply trigger with a ground reference powers up on a rail (velxio/velxio-prod#134)', () => {
+  const cases: Array<[string, 'inv' | 'noninv', number]> = [];
+  for (const opamp of ['opamp-lm741', 'opamp-tl072', 'opamp-lm358']) {
+    for (const vin of [-0.5, -0.1, 0.1, 0.5]) cases.push([opamp, 'noninv', vin]);
+    cases.push([opamp, 'inv', 0]);
+  }
+  it.each(cases)('%s %s, Vin = %s V', { timeout: 60_000 }, async (opamp, topo, vin) => {
+    const out = await solveOut(dualTrigger(topo, opamp, vin));
+    expect(Math.abs(out), `OUT sits ${out.toFixed(3)} V, not on a rail`).toBeGreaterThan(9);
+  });
 });
 
 describe('only an op-amp on positive feedback is seeded (velxio/velxio-prod#134)', () => {

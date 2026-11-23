@@ -167,8 +167,8 @@ export interface NodeMemoryCell {
    *  `seed` has flipped the loop. */
   threshold: number;
   seed: number;
-  /** Other nets the deck seeds with the same volts: an op-amp's IN+
-   *  (velxio/velxio-prod#134). */
+  /** Other nets the deck seeds with the same volts: an op-amp's IN+, when
+   *  the seed is where its OUT was at the last solve (velxio/velxio-prod#134). */
   alsoSeeded?: readonly string[];
 }
 

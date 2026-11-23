@@ -571,8 +571,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // unstable one between them where IN+ meets IN-. An operating point has no
   // history and lands on that middle one: inside its band the book's trigger
   // read OUT = 27.5 - 10 * Vin, 2.47 V for 2.5 V in (velxio/velxio-prod#134).
-  // The deck seeds its OUT and IN+ in step 8, as it does a latch's nets
-  // (#147).
+  // The deck seeds it in step 8, as it does a latch's nets (#147).
   const bistable = findBistableOpamps(opamps, cards, drivenNets);
 
   // ── 8. Compose netlist ────────────────────────────────────────────────────
@@ -592,13 +591,18 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     return { key: o.key, net: o.net, threshold: dominantVcc / 2, seed };
   });
   // Op-amp seeds: where OUT was at the last solve, or its low rail at power
-  // up, where a real op-amp's output sits before its supply comes up; and
-  // the same volts on IN+. IN+ lies between OUT and what its resistors tie it
-  // to, so started at OUT's level it drives the op-amp the way OUT is, and it
-  // is what moves a behavioural op-amp, whose OUT an ideal source holds
-  // against .nodeset. A supply pin on a net no rail names counts as 0 V (V-)
-  // or the logic rail (V+): either way the two states lie on both sides of
-  // the threshold.
+  // up, where a real op-amp's output sits before its supply comes up. A
+  // remembered state seeds IN+ with the same volts: IN+ lies between OUT and
+  // what its resistors tie it to, so started at OUT's level it drives the
+  // op-amp the way OUT is, and it is what moves a behavioural op-amp (LM741,
+  // TL072), whose OUT an ideal source holds against .nodeset. At power-up
+  // IN+ is left alone, and a behavioural op-amp starts on its low clamp as
+  // it did unseeded: the low rail is a guess where V- is on a net no rail
+  // names (a battery, a generator, a bench supply), and IN+ at that guess,
+  // 0 V, on a dual-supply trigger with IN- on ground put the LM741 and the
+  // TL072 on their middle point. A supply pin on a net no rail names counts
+  // as 0 V (V-) or the logic rail (V+): either way the two states lie on
+  // both sides of the threshold.
   const railVolts = (net: string): number | undefined =>
     net === '0' ? 0 : net === 'vcc_rail' ? dominantVcc : auxRailVolts.get(net);
   for (const op of bistable) {
@@ -606,16 +610,14 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     const high = railVolts(op.vp ?? 'vcc_rail') ?? dominantVcc;
     const key = `${op.id}:OUT`;
     const remembered = memory?.nodes?.get(key);
-    const seed =
-      remembered !== undefined && Number.isFinite(remembered)
-        ? Math.round(remembered * 1000) / 1000
-        : low;
+    const known = remembered !== undefined && Number.isFinite(remembered);
+    const seed = known ? Math.round(remembered * 1000) / 1000 : low;
     nodeMemoryCells.push({
       key,
       net: op.out,
       threshold: (low + high) / 2,
       seed,
-      ...(op.inp !== op.out ? { alsoSeeded: [op.inp] } : {}),
+      ...(known && op.inp !== op.out ? { alsoSeeded: [op.inp] } : {}),
     });
   }
   if (nodeMemoryCells.length > 0) {
