@@ -221,10 +221,12 @@ export interface ServiceOptions {
       : never,
   ) => Record<string, unknown>;
   /**
-   * True while the editor holds a board-less circuit stopped (the toolbar's
-   * Stop: useElectricalStore.paused), which freezes every LED and meter at
-   * what it shows. A step being followed holds where it is, and its clock
-   * with it: Run carries it on from there (velxio/velxio-prod#107).
+   * The toolbar's Stop of a board-less circuit (useElectricalStore.paused),
+   * which freezes every LED and meter at what it shows. While no board is on
+   * the canvas and it is true, a step being followed holds where it is, and
+   * its clock with it: Run carries it on from there (velxio/velxio-prod#107).
+   * With a board on the canvas the service does not read it: the flag
+   * outlives the canvas it was set on.
    */
   paused?: () => boolean;
 }
@@ -2054,9 +2056,9 @@ export class CircuitSimulationService {
    * last digit tells (always when `force`), with the memory where the curve
    * has it; then again in FOLLOW_MS. Past the curve's end the snapshot as it
    * was, the operating point, and the following stops. Another circuit
-   * loaded meanwhile stops it without a word. While the circuit is stopped
-   * (ServiceOptions.paused) nothing goes out and the step's clock holds: its
-   * start moves on with the time that passes.
+   * loaded meanwhile stops it without a word. While a board-less circuit is
+   * stopped (ServiceOptions.paused) nothing goes out and the step's clock
+   * holds: its start moves on with the time that passes.
    */
   private sendFollowed(force: boolean): void {
     const f = this.following;
@@ -2066,7 +2068,13 @@ export class CircuitSimulationService {
       return;
     }
     const now = nowMs();
-    if (this.options.paused?.()) {
+    // The Stop holds a board-less circuit only, as every other reader of the
+    // flag has it: with a board on the canvas the flag is one an earlier
+    // board-less canvas left set (a saved project, an import or an added
+    // board keep it), and the board's own Run and Stop govern. Honoured
+    // there, it withheld every publish after a press, and the pad edges'
+    // after it, until a reload.
+    if (this.simStore.getState().boards.length === 0 && this.options.paused?.()) {
       shot.wallMs += now - f.lastAt;
       f.lastAt = now;
       this.followTimer = setTimeout(() => {

@@ -53,6 +53,8 @@ afterEach(() => {
   for (const stop of running.splice(0)) stop();
   __resetMixedModeScheduler();
   useElectricalStore.getState().reset();
+  // reset() keeps the toolbar's Stop, as the app does.
+  useElectricalStore.getState().setPaused(false);
   // A part a case burnt stays burnt in the store until a Reset.
   useSimulatorStore.getState().clearBurntComponents();
 });
@@ -126,6 +128,38 @@ const project = (
     components,
     wires,
   }) as unknown as LoadPayload;
+
+/**
+ * An Uno drives pin 13 into an LED (so the deck steps on pad edges, as in
+ * release 9); its 5V pin charges 100 uF through the button and 10 kOhm, bled
+ * by 100 kOhm and the voltmeter.
+ */
+const boardRc = (): LoadPayload =>
+  project(
+    [
+      part('btn', 'pushbutton', { pressed: false }),
+      part('r1', 'resistor', { value: '10k' }),
+      part('r2', 'resistor', { value: '100k' }),
+      part('c1', 'capacitor', { value: '100u' }),
+      part('vm', 'instr-voltmeter'),
+      part('r13', 'resistor', { value: '220' }),
+      part('led13', 'led', { color: 'red' }),
+    ],
+    [
+      wire('w1', ['uno', '5V'], ['btn', '1.l']),
+      wire('w2', ['btn', '2.l'], ['r1', '1']),
+      wire('w3', ['r1', '2'], ['c1', '1']),
+      wire('w4', ['c1', '2'], ['uno', 'GND.1']),
+      wire('w5', ['r2', '1'], ['c1', '1']),
+      wire('w6', ['r2', '2'], ['uno', 'GND.1']),
+      wire('w7', ['vm', 'V+'], ['c1', '1']),
+      wire('w8', ['vm', 'V-'], ['uno', 'GND.2']),
+      wire('w9', ['uno', '13'], ['r13', '1']),
+      wire('w10', ['r13', '2'], ['led13', 'A']),
+      wire('w11', ['led13', 'C'], ['uno', 'GND.2']),
+    ],
+    [{ id: 'uno', boardKind: 'arduino-uno', x: 0, y: 0 }],
+  );
 
 /** Write a part's properties the way a button press does. */
 function setProps(id: string, props: Record<string, unknown>): void {
@@ -421,40 +455,9 @@ describe('a press on a circuit that stores energy is followed in time (velxio/ve
     'with a board: the meter follows the press, and a pad edge on the way carries the step on',
     { timeout: 120_000 },
     async () => {
-      // An Uno drives pin 13 into an LED (so the deck steps on pad edges, as
-      // in release 9); its 5V pin charges 100 uF through the button and
-      // 10 kOhm, bled by 100 kOhm and the voltmeter.
       let pin13 = 5;
       const t = serviceOnStore(() => ({ '13': { type: 'digital', v: pin13 } }));
-      useSimulatorStore
-        .getState()
-        .loadProjectState(
-          project(
-            [
-              part('btn', 'pushbutton', { pressed: false }),
-              part('r1', 'resistor', { value: '10k' }),
-              part('r2', 'resistor', { value: '100k' }),
-              part('c1', 'capacitor', { value: '100u' }),
-              part('vm', 'instr-voltmeter'),
-              part('r13', 'resistor', { value: '220' }),
-              part('led13', 'led', { color: 'red' }),
-            ],
-            [
-              wire('w1', ['uno', '5V'], ['btn', '1.l']),
-              wire('w2', ['btn', '2.l'], ['r1', '1']),
-              wire('w3', ['r1', '2'], ['c1', '1']),
-              wire('w4', ['c1', '2'], ['uno', 'GND.1']),
-              wire('w5', ['r2', '1'], ['c1', '1']),
-              wire('w6', ['r2', '2'], ['uno', 'GND.1']),
-              wire('w7', ['vm', 'V+'], ['c1', '1']),
-              wire('w8', ['vm', 'V-'], ['uno', 'GND.2']),
-              wire('w9', ['uno', '13'], ['r13', '1']),
-              wire('w10', ['r13', '2'], ['led13', 'A']),
-              wire('w11', ['led13', 'C'], ['uno', 'GND.2']),
-            ],
-            [{ id: 'uno', boardKind: 'arduino-uno', x: 0, y: 0 }],
-          ),
-        );
+      useSimulatorStore.getState().loadProjectState(boardRc());
       await t.settle();
       await sleep(100);
       expect(t.log.at(-1)!.s.analysisMode, 'a step-response deck').toBe('tran');
@@ -544,6 +547,39 @@ describe('Stop holds a board-less circuit where it is', () => {
       // Carried on from where it stopped: not 0.8 s further down the curve.
       expect(resumed.at(-1)!.s.stepAtS! - heldMoment).toBeLessThan(0.6);
       expect(resumed.at(-1)!.s.stepAtS! - heldMoment).toBeGreaterThan(0.1);
+    },
+  );
+
+  it(
+    'with a board on the canvas, a Stop a board-less canvas left behind holds nothing: the press is followed and the pad edges publish',
+    { timeout: 120_000 },
+    async () => {
+      // The board-less Stop sets the flag, and only a board-less Run, a
+      // chips-only Run or a gallery example clears it: opening a saved
+      // project, importing one, restoring a draft or adding a board leave it
+      // set. A running board's canvas takes presses all the same, and the
+      // board's own Run and Stop are what start and stop it.
+      let pin13 = 5;
+      const t = serviceOnStore(() => ({ '13': { type: 'digital', v: pin13 } }));
+      useSimulatorStore.getState().loadProjectState(boardRc());
+      await t.settle();
+      await sleep(100);
+      useElectricalStore.getState().setPaused(true);
+      const n0 = t.log.length;
+      setProps('btn', { pressed: true });
+      await sleep(800);
+      const pressed = t.log.slice(n0);
+      expect(pressed.length, 'publishes over the 0.8 s after the press').toBeGreaterThan(5);
+      expect(volts(pressed.at(-1)!.s, 'c1:1'), 'the capacitor charging').toBeGreaterThan(1);
+      // digitalWrite(13, LOW): its LED goes dark, and the charge carries on.
+      pin13 = 0;
+      const n1 = t.log.length;
+      await t.service.handleMcuEdge('uno', '13', false, 5, null);
+      await sleep(400);
+      const after = t.log.slice(n1);
+      expect(after.length, 'publishes over the 0.4 s after the pad edge').toBeGreaterThan(0);
+      expect(Math.abs(after.at(-1)!.s.branchCurrents['v_led13_sense']!)).toBeLessThan(1e-6);
+      expect(volts(after.at(-1)!.s, 'c1:1')).toBeGreaterThan(volts(pressed.at(-1)!.s, 'c1:1'));
     },
   );
 });
