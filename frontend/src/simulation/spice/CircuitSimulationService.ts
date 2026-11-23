@@ -481,19 +481,41 @@ function sameReactiveState(kind: 'C' | 'L', x: number, y: number): boolean {
 
 /**
  * True when a value of `next` is more than `floor` plus 0.01 % away from the
- * one `sent` holds: what a meter's last digit or an LED's brightness shows
- * of a step being followed.
+ * one `sent` holds (what a meter's last digit or an LED's brightness shows
+ * of a step being followed), and more than its own `steps` when it has one
+ * (followSteps).
  */
 function followedMoved(
   sent: Readonly<Record<string, number>>, next: Readonly<Record<string, number>>, floor: number,
+  steps?: ReadonlyMap<string, number>,
 ): boolean {
   for (const key of Object.keys(next)) {
     const a = sent[key];
     const b = next[key]!;
     if (a === undefined) return true;
-    if (Math.abs(a - b) > floor + 1e-4 * Math.max(Math.abs(a), Math.abs(b))) return true;
+    const gap = floor + 1e-4 * Math.max(Math.abs(a), Math.abs(b));
+    if (Math.abs(a - b) > Math.max(gap, steps?.get(key) ?? 0)) return true;
   }
   return false;
+}
+
+/**
+ * `fraction` of how far each series of a capture moves over it (its largest
+ * value less its smallest): how far a value of a followed step moves before
+ * it is published again (CircuitSimulationService.FOLLOW_STEP).
+ */
+function followSteps(series: ReadonlyMap<string, readonly number[]>, fraction: number): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, values] of series) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of values) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    if (hi >= lo) out.set(key, (hi - lo) * fraction);
+  }
+  return out;
 }
 
 /** A device's state at every sample of a result: a capacitor's voltage, an
@@ -665,9 +687,10 @@ export class CircuitSimulationService {
   // lights an LED through a transistor seconds after a press lit it at once,
   // and with no board on the canvas the press was solved as an operating
   // point, with no step at all (velxio/velxio-prod#107). Such a step is run
-  // (runSolve, `handStep`) and followed: every FOLLOW_MS the snapshot it was
-  // published with goes out again with its scalar fields read on the curve
-  // at the time since the step began, on the wall clock, until the curve
+  // (runSolve, `handStep`) and followed: every FOLLOW_MS its curve is read at
+  // the time since the step began, on the wall clock, and the snapshot it
+  // was published with goes out again with those scalar fields when they
+  // moved far enough to show (FOLLOW_STEP, FOLLOW_MAX_MS), until the curve
   // ends; then the operating point. A step that starts while a followed one
   // is under way (a pad edge, a relay's memory, another press) is followed
   // too: it carries the same transient on.
@@ -682,12 +705,29 @@ export class CircuitSimulationService {
     /** When it was last looked at (nowMs): a stop holds its clock from then. */
     lastAt: number;
     sent: { nodeVoltages: Record<string, number>; branchCurrents: Record<string, number> };
+    /** When `sent` went out (nowMs). */
+    sentAt: number;
+    /** How far each value moves before it goes out again (followSteps). */
+    steps: { nodes: Map<string, number>; branches: Map<string, number> };
   } | null = null;
   private followTimer: ReturnType<typeof setTimeout> | null = null;
-  /** How often a followed step is published again: the publish window's
-   *  pace, about the eye's. Scalars that moved by less than
-   *  sameReactiveState tolerates are not sent. */
+  /** How often a followed step's curve is read: the publish window's pace,
+   *  about the eye's. A curve moving that fast goes out at that pace. */
   static readonly FOLLOW_MS = 33;
+  /**
+   * A followed step goes out again once a value has moved by this share of
+   * how far it moves over the whole step (followSteps), or once FOLLOW_MAX_MS
+   * have passed and anything moved past what a meter's last digit shows. A
+   * curve that moves fast goes out every FOLLOW_MS, one that flattens out
+   * less and less often, down to every FOLLOW_MAX_MS: an RC's slow release
+   * runs for minutes, and every publish re-renders the meters, the overlay
+   * and the LEDs, on the main thread a running board shares.
+   */
+  static readonly FOLLOW_STEP = 0.01;
+  static readonly FOLLOW_MAX_MS = 250;
+  /** followSteps of a followed step's capture, kept with the capture: a
+   *  window that publishes the same step again does not scan it again. */
+  private followStepsOf = new WeakMap<TimeWaveforms, { nodes: Map<string, number>; branches: Map<string, number> }>();
   /** When the canvas last changed (a part, a wire, a board): a press or a
    *  flip begins its step then, not when the solver gets to it. */
   private circuitChangedAt: number | null = null;
@@ -2055,12 +2095,23 @@ export class CircuitSimulationService {
     this.stopFollowing();
     const held = this.releasePins();
     if (step?.follow) {
+      let steps = this.followStepsOf.get(step.capture);
+      if (!steps) {
+        const fraction = CircuitSimulationService.FOLLOW_STEP;
+        steps = {
+          nodes: followSteps(step.capture.nodes, fraction),
+          branches: followSteps(step.capture.branches, fraction),
+        };
+        this.followStepsOf.set(step.capture, steps);
+      }
       this.following = {
         base: snapshot,
         op: vec.result,
         step,
         lastAt: nowMs(),
         sent: { nodeVoltages: snapshot.nodeVoltages, branchCurrents: snapshot.branchCurrents },
+        sentAt: nowMs(),
+        steps,
       };
       this.sendFollowed(true);
       return;
@@ -2074,13 +2125,14 @@ export class CircuitSimulationService {
   /**
    * Publish the step being followed as it stands now: the snapshot it was
    * published with, its scalar fields read on its curve at the time since it
-   * began (wall clock), when they moved by more than the eye or a meter's
-   * last digit tells (always when `force`), with the memory where the curve
-   * has it; then again in FOLLOW_MS. Past the curve's end the snapshot as it
-   * was, the operating point, and the following stops. Another circuit
-   * loaded meanwhile stops it without a word. While a board-less circuit is
-   * stopped (ServiceOptions.paused) nothing goes out and the step's clock
-   * holds: its start moves on with the time that passes.
+   * began (wall clock), when they moved far enough to show (FOLLOW_STEP and
+   * FOLLOW_MAX_MS; always when `force`), with the memory where the curve
+   * has it; then it looks again in FOLLOW_MS. Past the curve's end the
+   * snapshot as it was, the operating point, and the following stops.
+   * Another circuit loaded meanwhile stops it without a word. While a
+   * board-less circuit is stopped (ServiceOptions.paused) nothing goes out
+   * and the step's clock holds: its start moves on with the time that
+   * passes.
    */
   private sendFollowed(force: boolean): void {
     const f = this.following;
@@ -2126,12 +2178,16 @@ export class CircuitSimulationService {
       const i = sampleAt(capture.time, series, t);
       if (Number.isFinite(i)) branchCurrents[source] = i;
     }
+    const moved = (steps: boolean): boolean =>
+      followedMoved(f.sent.nodeVoltages, nodeVoltages, 1e-4, steps ? f.steps.nodes : undefined) ||
+      followedMoved(f.sent.branchCurrents, branchCurrents, 1e-9, steps ? f.steps.branches : undefined);
     if (
       force ||
-      followedMoved(f.sent.nodeVoltages, nodeVoltages, 1e-4) ||
-      followedMoved(f.sent.branchCurrents, branchCurrents, 1e-9)
+      moved(true) ||
+      (now - f.sentAt >= CircuitSimulationService.FOLLOW_MAX_MS && moved(false))
     ) {
       f.sent = { nodeVoltages, branchCurrents };
+      f.sentAt = now;
       if (!this.memoryStale) this.noteMemory(f.step.result, t);
       this.scheduler.publishNetVoltages?.(nodeVoltages);
       this.electricalStore.publish({ ...f.base, nodeVoltages, branchCurrents, stepAtS: t });

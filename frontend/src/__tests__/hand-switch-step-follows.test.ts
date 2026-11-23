@@ -290,7 +290,9 @@ describe('a press on a circuit that stores energy is followed in time (velxio/ve
       setProps('btn', { pressed: false });
       await sleep(800);
       const released = t.log.slice(n1);
-      expect(released.length).toBeGreaterThan(5);
+      // A publish about every 0.1 s: the discharge moves 1 % of its range in
+      // that time (FOLLOW_STEP).
+      expect(released.length).toBeGreaterThan(3);
       const releaseOnset = released[0]!.s.stepWaveforms!.oneShot!.wallMs;
       const v0 = charge((releaseOnset - onset!) / 1000);
       for (const p of released) {
@@ -581,6 +583,81 @@ describe('Stop holds a board-less circuit where it is', () => {
       expect(after.length, 'publishes over the 0.4 s after the pad edge').toBeGreaterThan(0);
       expect(Math.abs(after.at(-1)!.s.branchCurrents['v_led13_sense']!)).toBeLessThan(1e-6);
       expect(volts(after.at(-1)!.s, 'c1:1')).toBeGreaterThan(volts(pressed.at(-1)!.s, 'c1:1'));
+    },
+  );
+});
+
+describe('a followed step goes out as often as it moves', () => {
+  it(
+    'a slow RC is published less and less often as its curve flattens, and every publish is on the curve',
+    { timeout: 120_000 },
+    async () => {
+      // 5 V through the button and 100 kOhm into 100 uF, bled by 1 MOhm: a
+      // 9.1 s charge, and a release that drains through the bleed for
+      // 100 s, which the step runs out to its 600 s limit. Every publish
+      // re-renders the meters, the overlay and the LEDs.
+      const t = serviceOnStore();
+      useSimulatorStore
+        .getState()
+        .loadProjectState(
+          project(
+            [
+              part('ps', 'power-supply', { voltage: 5, currentLimit: 1 }),
+              part('btn', 'pushbutton', { pressed: false }),
+              part('r1', 'resistor', { value: '100k' }),
+              part('r2', 'resistor', { value: '1M' }),
+              part('c1', 'capacitor', { value: '100u' }),
+            ],
+            [
+              wire('w1', ['ps', 'SIG'], ['btn', '1.l']),
+              wire('w2', ['btn', '2.l'], ['r1', '1']),
+              wire('w3', ['r1', '2'], ['c1', '1']),
+              wire('w4', ['c1', '2'], ['ps', 'GND']),
+              wire('w5', ['r2', '1'], ['c1', '1']),
+              wire('w6', ['r2', '2'], ['ps', 'GND']),
+            ],
+          ),
+        );
+      await t.settle();
+      await sleep(100);
+      const vEnd = (5 * 1e6) / (100e3 + 1e6);
+      const tauCharge = par(100e3, 1e6) * 100e-6;
+      const charge = (s: number) => vEnd * (1 - Math.exp(-s / tauCharge));
+
+      const n0 = t.log.length;
+      setProps('btn', { pressed: true });
+      await sleep(4000);
+      const pressed = t.log.slice(n0);
+      const onset = pressed[0]!.s.stepWaveforms!.oneShot!.wallMs;
+      const n1 = t.log.length;
+      setProps('btn', { pressed: false });
+      await sleep(3000);
+      const released = t.log.slice(n1);
+
+      // At 33 ms a publish, as fast as the curve moves or not, this was 115
+      // publishes pressed and 86 released.
+      expect(pressed.length, 'publishes over the 4 s pressed').toBeLessThan(70);
+      expect(released.length, 'publishes over the 3 s after the release').toBeLessThan(25);
+      // Still followed: a moving curve goes out at least every 0.25 s.
+      expect(pressed.length).toBeGreaterThan(12);
+      expect(released.length).toBeGreaterThan(6);
+      for (const p of pressed) {
+        expect(
+          Math.abs(volts(p.s, 'c1:1') - charge(momentOf(p))),
+          `at ${sinceStep(p).toFixed(3)} s`,
+        ).toBeLessThan(0.01 * vEnd);
+      }
+      const releaseOnset = released[0]!.s.stepWaveforms!.oneShot!.wallMs;
+      const v0 = charge((releaseOnset - onset) / 1000);
+      for (const p of released) {
+        const expected = v0 * Math.exp(-momentOf(p) / (1e6 * 100e-6));
+        expect(
+          Math.abs(volts(p.s, 'c1:1') - expected),
+          `at ${sinceStep(p).toFixed(3)} s`,
+        ).toBeLessThan(0.01 * vEnd);
+      }
+      const gaps = released.slice(1).map((p, i) => p.at - released[i]!.at);
+      expect(Math.max(...gaps), 'ms between two publishes of the release').toBeLessThan(600);
     },
   );
 });
