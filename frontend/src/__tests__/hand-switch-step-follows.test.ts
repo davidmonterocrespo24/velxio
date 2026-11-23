@@ -40,6 +40,7 @@ import {
 import { NgSpiceNodeAdapter } from '../simulation/spice/adapters/NgSpiceNodeAdapter';
 import { createElectricalStorePort } from '../simulation/spice/start';
 import { readVoltmeter } from '../simulation/spice/probes';
+import { createSpiceResolvedPinResolver } from '../simulation/PinResolver';
 import { solvedLedBranch } from '../simulation/parts/ledBranch';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useElectricalStore } from '../store/useElectricalStore';
@@ -679,6 +680,134 @@ describe('what no hand starts is solved as before', () => {
       // open contact against the pull-downs of the nets behind it.
       const pulled = (5 * 50e6) / (1e9 + 50e6);
       for (const p of after.slice(firstNew)) expect(volts(p.s, 'c2:1')).toBeCloseTo(pulled, 3);
+    },
+  );
+});
+
+describe('the parts that read their pins follow the step from where the circuit is', () => {
+  /**
+   * What a part on a path through an active device reads of a pin (a logic
+   * input after a transistor, a relay's driver): the scheduler's voltage
+   * events, each stamped with the time since `from` was last set, and the
+   * logic edges a resolver with its threshold at 2.5 V makes of them.
+   */
+  function watchPin(componentId: string, pinName: string) {
+    const sched = getMixedModeScheduler();
+    let t0 = performance.now();
+    const seen: Array<{ s: number; v: number }> = [];
+    sched.subscribe(componentId, pinName, (_state, v) =>
+      seen.push({ s: (performance.now() - t0) / 1000, v }),
+    );
+    const resolver = createSpiceResolvedPinResolver(componentId, pinName, sched, {
+      thresholdHigh: 2.5,
+      thresholdLow: 2.5,
+      vcc: 5,
+    });
+    const edges: Array<{ s: number; state: string }> = [];
+    resolver.onChange((state) => edges.push({ s: (performance.now() - t0) / 1000, state }));
+    return {
+      seen,
+      edges,
+      state: () => resolver.getCurrentState(),
+      from: (at: number) => {
+        t0 = at;
+      },
+    };
+  }
+
+  it(
+    'no board: an input on the capacitor of an RC sees the charge from its start, never its end first',
+    { timeout: 120_000 },
+    async () => {
+      // 5 V through the button and 10 kOhm into 100 uF, bled by 100 kOhm.
+      const t = serviceOnStore();
+      useSimulatorStore
+        .getState()
+        .loadProjectState(
+          project(
+            [
+              part('ps', 'power-supply', { voltage: 5, currentLimit: 1 }),
+              part('btn', 'pushbutton', { pressed: false }),
+              part('r1', 'resistor', { value: '10k' }),
+              part('r2', 'resistor', { value: '100k' }),
+              part('c1', 'capacitor', { value: '100u' }),
+            ],
+            [
+              wire('w1', ['ps', 'SIG'], ['btn', '1.l']),
+              wire('w2', ['btn', '2.l'], ['r1', '1']),
+              wire('w3', ['r1', '2'], ['c1', '1']),
+              wire('w4', ['c1', '2'], ['ps', 'GND']),
+              wire('w5', ['r2', '1'], ['c1', '1']),
+              wire('w6', ['r2', '2'], ['ps', 'GND']),
+            ],
+          ),
+        );
+      await t.settle();
+      await sleep(100);
+      const pin = watchPin('c1', '1');
+      expect(pin.state(), 'the capacitor starts empty').toBe('LOW');
+      const vEnd = (5 * 100e3) / (10e3 + 100e3);
+      const tau = par(10e3, 100e3) * 100e-6;
+      const charge = (s: number) => vEnd * (1 - Math.exp(-s / tau));
+      const crossS = -tau * Math.log(1 - 2.5 / vEnd);
+
+      pin.from(performance.now());
+      setProps('btn', { pressed: true });
+      await sleep(2500);
+      expect(pin.seen.length, 'voltage events while it charges').toBeGreaterThan(10);
+      // Never ahead of the charge: each value is the curve at a moment no
+      // later than when it arrived. The operating point the press settles to
+      // (4.55 V) arriving first, then the curve, was a pulse.
+      for (const e of pin.seen) {
+        expect(e.v, `${e.v.toFixed(4)} V at ${e.s.toFixed(3)} s`).toBeLessThan(
+          charge(e.s) + 0.01 * vEnd,
+        );
+      }
+      // One logic edge, as the charge passes 2.5 V, not three.
+      expect(pin.edges.map((e) => e.state)).toEqual(['HIGH']);
+      expect(pin.edges[0]!.s).toBeGreaterThan(crossS);
+      expect(pin.edges[0]!.s).toBeLessThan(crossS + 0.5);
+    },
+  );
+
+  it(
+    'with a board: an input on the capacitor sees the charge, and a pad edge on the way does not show it its end',
+    { timeout: 120_000 },
+    async () => {
+      let pin13 = 5;
+      const t = serviceOnStore(() => ({ '13': { type: 'digital', v: pin13 } }));
+      useSimulatorStore.getState().loadProjectState(boardRc());
+      await t.settle();
+      await sleep(100);
+      const pin = watchPin('c1', '1');
+      expect(pin.state(), 'the capacitor starts empty').toBe('LOW');
+      const bleed = par(100e3, METER_OHMS);
+      const vEnd = (5 * bleed) / (10e3 + bleed);
+      const tau = par(10e3, bleed) * 100e-6;
+      const charge = (s: number) => vEnd * (1 - Math.exp(-s / tau));
+
+      const pressedAt = performance.now();
+      pin.from(pressedAt);
+      setProps('btn', { pressed: true });
+      await sleep(400);
+      // digitalWrite(13, LOW) on the way: a new pad state, solved at its
+      // operating point before its step carries the charge on.
+      pin13 = 0;
+      const edgeS = (performance.now() - pressedAt) / 1000;
+      await t.service.handleMcuEdge('uno', '13', false, 5, null);
+      await sleep(400);
+      expect(
+        pin.seen.filter((e) => e.s > edgeS).length,
+        'voltage events after the pad edge',
+      ).toBeGreaterThan(3);
+      for (const e of pin.seen) {
+        expect(e.v, `${e.v.toFixed(4)} V at ${e.s.toFixed(3)} s`).toBeLessThan(
+          charge(e.s) + 0.01 * vEnd,
+        );
+      }
+      // At most the one edge of the charge passing 2.5 V (0.73 s in).
+      expect(pin.edges.filter((e) => e.state !== 'HIGH')).toEqual([]);
+      expect(pin.edges.length).toBeLessThanOrEqual(1);
     },
   );
 });

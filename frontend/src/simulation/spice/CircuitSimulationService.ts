@@ -207,6 +207,14 @@ export interface MixedModeSchedulerPort {
    * too. Optional for ports with no pin subscribers.
    */
   publishNetVoltages?(volts: Readonly<Record<string, number>>): void;
+  /**
+   * While true, a solve becomes the current result without publishing its
+   * pin voltages (the parts that read them hear nothing of it);
+   * publishNetVoltages publishes all the same. The service holds them while
+   * it solves a step it will follow (see `holdPins`). Optional for ports
+   * with no pin subscribers.
+   */
+  holdPinVoltages?(hold: boolean): void;
 }
 
 export interface ServiceOptions {
@@ -1003,7 +1011,8 @@ export class CircuitSimulationService {
   /** Queue `fn` behind whatever the solver is doing. Never rejects. A step
    *  being followed holds still while it runs: the work may replace it
    *  (another press, a pad edge), and until it publishes, the curve it is
-   *  leaving is not the circuit's. */
+   *  leaving is not the circuit's. Pins it held and did not publish to go
+   *  as they were (holdPins). */
   private run(fn: () => Promise<void>): Promise<void> {
     const next = this.chain.then(async () => {
       this.busy = true;
@@ -1012,6 +1021,7 @@ export class CircuitSimulationService {
         await fn();
       } finally {
         this.busy = false;
+        this.releasePins();
         this.resumeFollowing();
       }
     });
@@ -1124,12 +1134,14 @@ export class CircuitSimulationService {
       await this.publishStates([{ key, levels, ms }], { key, levels, ms: 0 }, ms);
       return;
     }
-    const vec = await this.vectorsFor(levels, key);
-    if (!vec) return;
     // A new state of the pads starts where the circuit is (see `step`), and
-    // carries a step being followed on (see `following`).
+    // carries a step being followed on (see `following`): its operating
+    // point is where that step ends (holdPins).
     const onset = this.step?.key !== key ? (this.lastEdge ?? { wallMs: nowMs() }) : null;
     const follow = onset ? this.followingAt(onset) : this.step?.follow === true;
+    if (follow) this.holdPins();
+    const vec = await this.vectorsFor(levels, key);
+    if (!vec) return;
     // The memory follows what is published: a followed step's curve
     // (publish), not where it settles.
     if (!follow) this.adopt(vec);
@@ -1398,6 +1410,9 @@ export class CircuitSimulationService {
       const key = stateKey(sub.levels);
       if (!chosen.some((s) => s.key === key)) chosen.push({ key, levels: sub.levels, ms: 0 });
     }
+    // The latest state publishes a step that is followed: its solves are
+    // where that step ends, not where the circuit is (holdPins).
+    if (!split && this.step?.key === latestState.key && this.step.follow) this.holdPins();
     const solved: Array<{ state: WindowState; vec: StateVectors }> = [];
     for (const state of chosen) {
       const vec = await this.vectorsFor(state.levels, state.key);
@@ -1834,6 +1849,8 @@ export class CircuitSimulationService {
     const canStep = settleS !== undefined && reactive.length > 0 && carried !== null;
     const follow = canStep && (handOnly || (!rehydrated && this.followingAt(onset)));
     const stepDeck = (padSettleS !== undefined && reactive.length > 0 && carried !== null) || follow;
+    // The operating point solved first is where that step ends (holdPins).
+    if (follow) this.holdPins();
     if (analysis.kind === 'tran' && !stepDeck) {
       await this.scheduler.resolveTran(analysis.step, analysis.stop, analysis.start);
       if (analysis.start && !this.scheduler.getLastResult()?.timeAxis.length) {
@@ -2033,8 +2050,10 @@ export class CircuitSimulationService {
       sourcedNets: ctx.sourcedNets,
       voltageSources: ctx.voltageSources.map((vs) => vs.toLowerCase()),
     };
-    // A step started by hand goes out along its curve (see `following`).
+    // A step started by hand goes out along its curve (see `following`),
+    // to the pins too: what the work solved on the way was held from them.
     this.stopFollowing();
+    const held = this.releasePins();
     if (step?.follow) {
       this.following = {
         base: snapshot,
@@ -2046,6 +2065,9 @@ export class CircuitSimulationService {
       this.sendFollowed(true);
       return;
     }
+    // Held for a step that did not come (the circuit already sat where the
+    // press leaves it): the pins get what is published.
+    if (held) this.scheduler.publishNetVoltages?.(vec.nodeVoltages);
     this.electricalStore.publish(snapshot);
   }
 
@@ -2138,6 +2160,33 @@ export class CircuitSimulationService {
   private stopFollowing(): void {
     this.pauseFollowing();
     this.following = null;
+  }
+
+  /** True while the scheduler holds the pins' voltages (holdPins). */
+  private pinsHeld = false;
+
+  /**
+   * Keep the solves of the work under way from the parts that read their
+   * pins (MixedModeSchedulerPort.holdPinVoltages): it ends on a step that
+   * is followed, and those solves are where the step settles (the operating
+   * point it is run toward, the capture's last sample), not where the
+   * circuit is. The first thing the parts get is the curve at its moment
+   * (sendFollowed); work that publishes no step after all gives them what
+   * it publishes (publish), and work that publishes nothing lets them go as
+   * they were (run).
+   */
+  private holdPins(): void {
+    if (this.pinsHeld || !this.scheduler.holdPinVoltages) return;
+    this.pinsHeld = true;
+    this.scheduler.holdPinVoltages(true);
+  }
+
+  /** Let the pins go (holdPins): true when they were held. */
+  private releasePins(): boolean {
+    if (!this.pinsHeld) return false;
+    this.pinsHeld = false;
+    this.scheduler.holdPinVoltages?.(false);
+    return true;
   }
 
   /**
