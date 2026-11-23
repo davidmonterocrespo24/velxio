@@ -130,8 +130,10 @@ export interface ElectricalSnapshot {
   /**
    * When the scalar fields are a step being followed (see stepWaveforms), the
    * seconds since it began that they were read at: a moment of a transient,
-   * not a state the circuit stays in. Absent when the scalars are an
-   * operating point or a capture's last sample.
+   * not a state the circuit stays in. What judges a part by a state it holds
+   * (a resistor's heat, an LED's overcurrent, a pin's load) does not destroy
+   * or warn on such a moment alone. Absent when the scalars are an operating
+   * point or a capture's last sample.
    */
   stepAtS?: number;
   /**

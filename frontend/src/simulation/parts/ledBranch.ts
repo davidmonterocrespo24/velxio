@@ -37,6 +37,40 @@ export const LED_BURNOUT_A = 0.1;
 export const LED_VISIBLE_BRIGHTNESS = 1e-3;
 
 /**
+ * How long a pulse over LED_BURNOUT_A may last before it burns the die, when
+ * it is a step being followed (a capacitor dumping into the die after a press
+ * or a flip): the thermal delay the burnout monitor gives every other part
+ * (runtimeBurnout's BURN_DELAY_MS).
+ */
+const LED_PULSE_BURN_S = 0.7;
+
+/**
+ * True when a step's capture holds the die over LED_BURNOUT_A for the whole
+ * LED_PULSE_BURN_S up to `t` seconds into it.
+ */
+function pulseLasted(step: TimeWaveforms | undefined, key: string, t: number): boolean {
+  const samples = step?.branches.get(key);
+  if (!step || !samples || t < LED_PULSE_BURN_S) return false;
+  const from = t - LED_PULSE_BURN_S;
+  const at = (s: number): number => {
+    let k = 1;
+    while (k < step.time.length - 1 && step.time[k]! < s) k++;
+    const t0 = step.time[k - 1]!;
+    const t1 = step.time[k]!;
+    const f = t1 > t0 ? Math.min(1, Math.max(0, (s - t0) / (t1 - t0))) : 1;
+    return samples[k - 1]! + f * (samples[k]! - samples[k - 1]!);
+  };
+  if (!(Math.abs(at(from)) > LED_BURNOUT_A) || !(Math.abs(at(t)) > LED_BURNOUT_A)) return false;
+  for (let k = 0; k < step.time.length; k++) {
+    const s = step.time[k]!;
+    if (s <= from) continue;
+    if (s >= t) break;
+    if (!(Math.abs(samples[k]!) > LED_BURNOUT_A)) return false;
+  }
+  return true;
+}
+
+/**
  * What an LED's current is over a transient capture: its mean magnitude on
  * the span a meter reads (whole periods, after settling), which is what the
  * eye sees of a current that moves faster than it can follow; the last
@@ -143,7 +177,8 @@ export type LedBranchReading =
   | { kind: 'lit'; brightness: number; on: boolean };
 
 export function solvedLedBranch(iKey: string): LedBranchReading {
-  const { branchCurrents, timeWaveforms, window } = useElectricalStore.getState();
+  const { branchCurrents, timeWaveforms, window, stepAtS, stepWaveforms } =
+    useElectricalStore.getState();
   let raw = branchCurrents[iKey];
   const fromCapture = captureCurrent(timeWaveforms, iKey);
   if (fromCapture !== undefined) raw = fromCapture;
@@ -178,7 +213,17 @@ export function solvedLedBranch(iKey: string): LedBranchReading {
   if (raw === undefined) return { kind: 'none' };
   if (!Number.isFinite(raw)) return { kind: 'unstable' };
   const current = Math.abs(raw);
-  if (current > LED_BURNOUT_A) return { kind: 'over', current };
+  // A moment of a step being followed (a capacitor dumping into the die after
+  // a press, ElectricalSnapshot.stepAtS) is a pulse that falls as the step
+  // goes on: it burns the die once it has lasted LED_PULSE_BURN_S, and shows
+  // at full glow until then; the current the step settles to is judged as
+  // any is (velxio/velxio-prod#107).
+  if (
+    current > LED_BURNOUT_A &&
+    (stepAtS === undefined || pulseLasted(stepWaveforms, iKey, stepAtS))
+  ) {
+    return { kind: 'over', current };
+  }
   const brightness = windowBrightness ?? Math.min(1, current / LED_RATED_MAX_A);
   return { kind: 'lit', brightness, on: brightness > LED_VISIBLE_BRIGHTNESS };
 }

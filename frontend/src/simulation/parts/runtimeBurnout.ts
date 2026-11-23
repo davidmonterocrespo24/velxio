@@ -208,13 +208,21 @@ export function componentStress(
  * Pure burn decision with a first-order thermal delay. Given the current stress
  * ratio and the timestamp the part first went over-limit (0 = not over), return
  * whether it's destroyed now and the updated over-since timestamp.
+ *
+ * `transient`: the ratio is a moment of a step being followed (a capacitor
+ * charging through a resistor after a press, ElectricalSnapshot.stepAtS),
+ * which falls as the step goes on, not a load the part holds. Such a moment
+ * burns a part only once it has lasted BURN_DELAY_MS, however high: a 1/4 W
+ * resistor that takes 2.5 W for the 10 ms a 1000 uF capacitor needs to
+ * charge through 10 ohm survives it (velxio/velxio-prod#107).
  */
 export function decideBurn(
   ratio: number,
   overSince: number,
   now: number,
+  transient = false,
 ): { burn: boolean; overSince: number } {
-  if (ratio >= CATASTROPHIC_RATIO) return { burn: true, overSince };
+  if (ratio >= CATASTROPHIC_RATIO && !transient) return { burn: true, overSince };
   if (ratio > 1) {
     const since = overSince === 0 ? now : overSince;
     return { burn: now - since > BURN_DELAY_MS, overSince: since };
@@ -364,10 +372,14 @@ function checkTransistors(): void {
 }
 
 function check(): void {
-  checkPinCurrents();
+  const { nodeVoltages, pinNetMap, timeWaveforms, window, stepAtS } = useElectricalStore.getState();
+  // A moment of a step being followed is not a load the circuit holds: no
+  // pin is overloaded by an inrush, and no part burns on one at once (see
+  // decideBurn). The operating point it settles to is checked as any is.
+  const transient = stepAtS !== undefined;
+  if (!transient) checkPinCurrents();
   checkTransistors();
   const sim = useSimulatorStore.getState();
-  const { nodeVoltages, pinNetMap, timeWaveforms, window } = useElectricalStore.getState();
   const now = Date.now();
   for (const comp of sim.components) {
     if (sim.burntComponents.has(comp.id)) continue;
@@ -376,7 +388,7 @@ function check(): void {
       overSinceByComponent.delete(comp.id);
       continue;
     }
-    const { burn, overSince } = decideBurn(stress.ratio, overSinceByComponent.get(comp.id) ?? 0, now);
+    const { burn, overSince } = decideBurn(stress.ratio, overSinceByComponent.get(comp.id) ?? 0, now, transient);
     if (burn) {
       overSinceByComponent.delete(comp.id);
       sim.markComponentBurnt(comp.id);
