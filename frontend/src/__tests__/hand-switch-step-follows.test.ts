@@ -73,7 +73,11 @@ function serviceOnStore(pins: () => Record<string, unknown> = () => ({})) {
       },
     },
     getMixedModeScheduler() as unknown as MixedModeSchedulerPort,
-    { collectBoardPinStates: () => pins() as never },
+    {
+      collectBoardPinStates: () => pins() as never,
+      // As start.ts wires it: the toolbar's Stop of a board-less circuit.
+      paused: () => useElectricalStore.getState().paused,
+    },
   );
   const unsubscribe = service.start();
   running.push(() => {
@@ -486,6 +490,60 @@ describe('a press on a circuit that stores energy is followed in time (velxio/ve
       for (const p of after) {
         expect(Math.abs(volts(p.s, 'c1:1') - curve(p))).toBeLessThan(0.01 * vEnd);
       }
+    },
+  );
+});
+
+describe('Stop holds a board-less circuit where it is', () => {
+  it(
+    'a step being followed stops with it, and Run carries it on from there',
+    { timeout: 120_000 },
+    async () => {
+      // The toolbar's Stop pauses a board-less circuit (useElectricalStore
+      // .paused): every LED and meter holds what it shows so the user can
+      // look at it. A step being followed holds too, and so does its clock.
+      const t = serviceOnStore();
+      useSimulatorStore
+        .getState()
+        .loadProjectState(
+          project(
+            [
+              part('ps', 'power-supply', { voltage: 5, currentLimit: 1 }),
+              part('btn', 'pushbutton', { pressed: false }),
+              part('r1', 'resistor', { value: '10k' }),
+              part('r2', 'resistor', { value: '100k' }),
+              part('c1', 'capacitor', { value: '100u' }),
+            ],
+            [
+              wire('w1', ['ps', 'SIG'], ['btn', '1.l']),
+              wire('w2', ['btn', '2.l'], ['r1', '1']),
+              wire('w3', ['r1', '2'], ['c1', '1']),
+              wire('w4', ['c1', '2'], ['ps', 'GND']),
+              wire('w5', ['r2', '1'], ['c1', '1']),
+              wire('w6', ['r2', '2'], ['ps', 'GND']),
+            ],
+          ),
+        );
+      await t.settle();
+      setProps('btn', { pressed: true });
+      await sleep(400);
+      useElectricalStore.getState().setPaused(true);
+      const heldAt = t.log.length;
+      const held = volts(t.log.at(-1)!.s, 'c1:1');
+      const heldMoment = t.log.at(-1)!.s.stepAtS!;
+      expect(held, 'charging when stopped').toBeLessThan(3);
+      await sleep(800);
+      expect(t.log.length - heldAt, 'nothing published while stopped').toBeLessThanOrEqual(1);
+      // What the meters and the LEDs read: still the moment it stopped at.
+      const store = useElectricalStore.getState();
+      expect(store.nodeVoltages[store.pinNetMap.get('c1:1')!]).toBeCloseTo(held, 2);
+      useElectricalStore.getState().setPaused(false);
+      await sleep(300);
+      const resumed = t.log.slice(heldAt).filter((p) => p.s.stepAtS !== undefined);
+      expect(resumed.length).toBeGreaterThan(2);
+      // Carried on from where it stopped: not 0.8 s further down the curve.
+      expect(resumed.at(-1)!.s.stepAtS! - heldMoment).toBeLessThan(0.6);
+      expect(resumed.at(-1)!.s.stepAtS! - heldMoment).toBeGreaterThan(0.1);
     },
   );
 });

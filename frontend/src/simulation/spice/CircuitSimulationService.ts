@@ -220,6 +220,13 @@ export interface ServiceOptions {
         : never
       : never,
   ) => Record<string, unknown>;
+  /**
+   * True while the editor holds a board-less circuit stopped (the toolbar's
+   * Stop: useElectricalStore.paused), which freezes every LED and meter at
+   * what it shows. A step being followed holds where it is, and its clock
+   * with it: Run carries it on from there (velxio/velxio-prod#107).
+   */
+  paused?: () => boolean;
 }
 
 /**
@@ -662,6 +669,8 @@ export class CircuitSimulationService {
     /** The operating point the step settles to: the memory past its end. */
     op: SolveResult;
     step: StepRun;
+    /** When it was last looked at (nowMs): a stop holds its clock from then. */
+    lastAt: number;
     sent: { nodeVoltages: Record<string, number>; branchCurrents: Record<string, number> };
   } | null = null;
   private followTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2029,6 +2038,7 @@ export class CircuitSimulationService {
         base: snapshot,
         op: vec.result,
         step,
+        lastAt: nowMs(),
         sent: { nodeVoltages: snapshot.nodeVoltages, branchCurrents: snapshot.branchCurrents },
       };
       this.sendFollowed(true);
@@ -2044,7 +2054,9 @@ export class CircuitSimulationService {
    * last digit tells (always when `force`), with the memory where the curve
    * has it; then again in FOLLOW_MS. Past the curve's end the snapshot as it
    * was, the operating point, and the following stops. Another circuit
-   * loaded meanwhile stops it without a word.
+   * loaded meanwhile stops it without a word. While the circuit is stopped
+   * (ServiceOptions.paused) nothing goes out and the step's clock holds: its
+   * start moves on with the time that passes.
    */
   private sendFollowed(force: boolean): void {
     const f = this.following;
@@ -2053,8 +2065,19 @@ export class CircuitSimulationService {
       this.stopFollowing();
       return;
     }
+    const now = nowMs();
+    if (this.options.paused?.()) {
+      shot.wallMs += now - f.lastAt;
+      f.lastAt = now;
+      this.followTimer = setTimeout(() => {
+        this.followTimer = null;
+        this.sendFollowed(force);
+      }, CircuitSimulationService.FOLLOW_MS);
+      return;
+    }
+    f.lastAt = now;
     const capture = f.step.capture;
-    const t = CircuitSimulationService.stepElapsedS(shot, { wallMs: nowMs() });
+    const t = CircuitSimulationService.stepElapsedS(shot, { wallMs: now });
     if (!(t < (capture.time.at(-1) ?? 0))) {
       // Past its end the circuit is at its operating point.
       this.stopFollowing();
