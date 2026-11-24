@@ -9424,7 +9424,7 @@ void loop() {
     id: 'esp32-joystick',
     title: 'ESP32: Analog Joystick',
     description:
-      'Read X/Y axes and button click from an analog joystick on the ESP32. X on D35, Y on D34, button on GPIO15.',
+      'Read X/Y axes and button click from an analog joystick on the ESP32. X on D35, Y on D34, button on GPIO15. The sketch learns the rest position at start-up, so a centred stick reads 0 %.',
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'esp32',
@@ -9438,20 +9438,40 @@ void loop() {
 #define JOY_VERT 34  // input-only ADC pin
 #define JOY_BTN  15  // GPIO with pull-up
 
+// The ESP32's ADC is not linear: a stick at rest (half of 3.3 V) reads
+// about 1870, not 2048. So the sketch learns the rest value at start-up
+// (leave the stick alone while it boots) and maps each half on its own.
+// The ends still reach 0 and 4095.
+int centreX, centreY;
+
+int readAverage(int pin) {
+  long sum = 0;
+  for (int i = 0; i < 16; i++) sum += analogRead(pin);
+  return sum / 16;
+}
+
+// -100..0 below the rest value, 0..100 above it
+int toPercent(int raw, int centre) {
+  if (raw < centre) return map(raw, 0, centre, -100, 0);
+  if (centre >= 4095) return 0;
+  return map(raw, centre, 4095, 0, 100);
+}
 
 void setup() {
   Serial.begin(115200);
   pinMode(JOY_BTN, INPUT_PULLUP);
-  Serial.println("ESP32 Joystick ready");
+  centreX = readAverage(JOY_HORZ);
+  centreY = readAverage(JOY_VERT);
+  Serial.printf("ESP32 Joystick ready (rest X=%d Y=%d)\\n", centreX, centreY);
 }
 
 void loop() {
-  int x    = analogRead(JOY_HORZ); // 0–4095
-  int y    = analogRead(JOY_VERT); // 0–4095
+  int x    = analogRead(JOY_HORZ); // raw 12-bit code
+  int y    = analogRead(JOY_VERT);
   bool btn = (digitalRead(JOY_BTN) == LOW);
 
-  int xPct = map(x, 0, 4095, -100, 100);
-  int yPct = map(y, 0, 4095, -100, 100);
+  int xPct = toPercent(x, centreX);
+  int yPct = toPercent(y, centreY);
 
   Serial.printf("X=%4d(%4d%%) Y=%4d(%4d%%) BTN=%s\\n",
     x, xPct, y, yPct, btn ? "PRESSED" : "---");
