@@ -3454,7 +3454,11 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 continue
             if not math.isfinite(mv):
                 continue
-            raw_v = int(mv * 4095 / 3300)
+            # The nearest 12-bit step of the 0-3300 mV scale libqemu takes,
+            # not the one below: int() read every voltage up to a step
+            # (0.806 mV) low, which libqemu's curve turns into 0.6 code low at
+            # 12 dB and about 2 at 0 dB (velxio/velxio-prod#171).
+            raw_v = math.floor(mv * 4095 / 3300 + 0.5)
             clamped = max(0, min(4095, raw_v))
             lib.qemu_picsimlab_set_apin(ch, clamped)
 
