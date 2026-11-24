@@ -878,7 +878,9 @@ export class CircuitSimulationService {
    * unstable midpoint an operating point with no history lands on. Each
    * latch output's volts at the last published solve, by the gate's output
    * pin, seed the next deck (.nodeset), so an SR latch keeps its state when
-   * SET or RESET is released (velxio/velxio-prod#147).
+   * SET or RESET is released (velxio/velxio-prod#147). So does the output of
+   * an op-amp on positive feedback, so a Schmitt trigger keeps its state
+   * while its input is inside the band (velxio/velxio-prod#134).
    */
   private nodeMemory = new Map<string, number>();
   private nodeMemoryCells: NodeMemoryCell[] = [];
