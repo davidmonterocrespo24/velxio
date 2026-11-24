@@ -28,6 +28,7 @@ import type { AVRSimulator } from '../simulation/AVRSimulator';
 import { PartSimulationRegistry } from '../simulation/parts/PartSimulationRegistry';
 import '../simulation/parts';
 import { dispatchSensorUpdate } from '../simulation/SensorUpdateRegistry';
+import { FRAME_WAIT_MS } from '../store/serialBatcher';
 
 const HEX = readFileSync(
   fileURLToPath(
@@ -124,9 +125,11 @@ class Bench {
     );
   }
 
-  /** What the board's serial monitor holds, once the batcher has flushed. */
+  /** What the board's serial monitor holds, once the batcher has flushed. The
+   *  frame is stubbed out above, so the batcher's timer flushes, after
+   *  FRAME_WAIT_MS. */
   async monitor(): Promise<string> {
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, FRAME_WAIT_MS + 50));
     return useSimulatorStore.getState().boards.find((b) => b.id === this.id)?.serialOutput ?? '';
   }
 
