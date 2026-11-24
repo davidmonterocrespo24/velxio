@@ -89,11 +89,12 @@ export const ESP32S3_DEVKITC_TABLE: BoardPinFunctions = matrixTable({
   source: `${SOURCE}, variants/esp32s3/pins_arduino.h (FQBN esp32:esp32:esp32s3, CDC off).`,
 });
 
-/** XIAO ESP32-S3: D0-D10 = GPIO1-6, 43, 44, 7-9. SS = 44 is the variant's (D7). */
+/** XIAO ESP32-S3: D0-D10 = GPIO1-6, 43, 44, 7-9, and the JTAG pads on the back
+ *  GPIO39-42. SS = 44 is the variant's (D7). */
 export const XIAO_ESP32S3_TABLE: BoardPinFunctions = matrixTable({
   controllers: esp32s3Controllers({ sda: 5, scl: 6, sck: 7, miso: 8, mosi: 9, ss: 44 }, true),
   ioMux: ESP32S3_IO_MUX,
-  boardPins: [1, 2, 3, 4, 5, 6, 7, 8, 9, 43, 44],
+  boardPins: [1, 2, 3, 4, 5, 6, 7, 8, 9, 39, 40, 41, 42, 43, 44],
   source: `${SOURCE}, variants/XIAO_ESP32S3/pins_arduino.h (FQBN esp32:esp32:XIAO_ESP32S3, CDC on).`,
 });
 
