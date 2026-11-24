@@ -121,21 +121,23 @@
   text-decoration: underline;
 }
 
-/* `[label](url "button")` in the post body: the post's call to action. */
+/* `[label](url "button")` in the post body: the post's call to action, and the
+   one solid button of the modal. Closing it is the secondary action. */
 .velxio-news-body a.velxio-news-cta {
   display: inline-block;
-  margin: 2px 8px 6px 0;
-  padding: 8px 16px;
+  margin: 2px 10px 6px 0;
+  padding: 10px 20px;
   border-radius: 8px;
   border: 1px solid var(--color-accent-fg);
-  color: var(--color-accent-fg);
-  font-weight: 600;
-  font-size: 13px;
+  background: var(--color-accent-fg);
+  color: var(--wb-0);
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .velxio-news-body a.velxio-news-cta:hover {
   text-decoration: none;
-  background: var(--wb-4);
+  filter: brightness(1.1);
 }
 
 .velxio-news-body code {
@@ -239,16 +241,17 @@
 }
 
 .velxio-news-ok {
-  background: var(--color-accent-fg);
-  color: var(--wb-0);
-  border: none;
+  background: transparent;
+  color: var(--wb-12);
+  border: 1px solid var(--wb-6);
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 8px 18px;
   cursor: pointer;
 }
 
 .velxio-news-ok:hover {
-  filter: brightness(1.1);
+  color: var(--wb-13);
+  background: var(--wb-4);
 }
