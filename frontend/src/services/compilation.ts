@@ -36,6 +36,10 @@ export interface CompileExtras {
   // Gallery example the workspace was loaded from — analytics only
   // ("which examples get compiled most"). Null/omitted outside examples.
   exampleId?: string | null;
+  // Firmware for a real board: the backend leaves out what it puts in for
+  // the simulator alone. Set by the flash dialog only (utils/boardCompile
+  // hardwareBuildDiffers); an emulator must never load such a build.
+  forHardware?: boolean;
 }
 
 export interface CompileResult {
@@ -321,6 +325,8 @@ export async function compileCode(
         language: extras?.language ?? null,
         initiated_by: extras?.initiatedBy ?? null,
         custom_wifi_ssids: customWifiSsids,
+        // Absent from a simulator build, whose request stays as it was.
+        ...(extras?.forHardware ? { for_hardware: true } : {}),
       },
       { withCredentials: true, timeout: 30000 },
     );

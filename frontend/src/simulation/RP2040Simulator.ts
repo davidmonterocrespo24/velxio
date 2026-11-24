@@ -565,8 +565,8 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   // UART0 and UART1 each have a port that lives as long as this simulator;
   // wireUart() points every new SoC's onByte at it. What a controller
   // transmits reaches the fabric's handler, and UART0 alone also reaches the
-  // console (it is the console of an Arduino sketch: the compile service
-  // prepends `#define Serial Serial1`). UART1 used to be copied into the
+  // console (it is the console of an Arduino sketch: a build for the
+  // simulator gets `#define Serial Serial1`). UART1 used to be copied into the
   // same console callback, which made a part hear every UART and answer on
   // UART0 only (finding rp2040-uart-lumped-and-uart0-only-rx).
   private readonly uartPorts: [RpUartPort, RpUartPort];

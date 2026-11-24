@@ -449,6 +449,7 @@ def _job_key(
     language: str | None = None,
     custom_wifi_ssids: list[str] | None = None,
     scope_fingerprint: str | None = None,
+    for_hardware: bool = False,
 ) -> str:
     """Stable content hash of (files, board, options, spiffs, libraries, owner)
     used as the deduplication key.
@@ -528,6 +529,12 @@ def _job_key(
         h.update(b"lang:")
         h.update(language.encode())
         h.update(b"\0")
+    if for_hardware:
+        # The image for a real board, where it differs from the simulator's
+        # (the caller says so, see compile_start): the emulator must never be
+        # handed this one, nor a board the other. Guarded so a simulator build
+        # keeps the key it always had.
+        h.update(b"for-hardware\0")
     return h.hexdigest()
 
 
@@ -665,6 +672,12 @@ class CompileRequest(BaseModel):
     # 'agent' = the AI assistant's compile_sketch tool. Metrics overlays
     # use it to keep agent activity distinguishable from the user's own.
     initiated_by: str | None = None
+    # Build the firmware for a real board instead of the simulator: what the
+    # compilers put in for the emulator alone is left out (the RP2040 family's
+    # `#define Serial Serial1`, without which a flashed board prints on its
+    # USB port as its user expects). Set by the flash path only; everything
+    # else, the emulators first of all, needs the simulator's build.
+    for_hardware: bool = False
 
 
 class CompileResponse(BaseModel):
@@ -1008,6 +1021,7 @@ async def _run_compile(
     result = await arduino_cli.compile(
         files, request.board_fqbn, board_options=request.board_options,
         allowed_libraries=allowed_libraries, owner_id=owner_id,
+        for_hardware=request.for_hardware,
     )
     return CompileResponse(
         success=result["success"],
@@ -1456,6 +1470,10 @@ async def compile_start(
         language=request.language,
         custom_wifi_ssids=request.custom_wifi_ssids,
         scope_fingerprint=fingerprint,
+        # A board whose real firmware is the simulator's shares its build.
+        for_hardware=(
+            request.for_hardware and arduino_cli.hardware_build_differs(request.board_fqbn)
+        ),
     )
     existing_id = JOB_BY_KEY.get(key)
     if existing_id is not None:

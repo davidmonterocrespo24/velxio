@@ -174,15 +174,17 @@ The Velxio backend automatically finds `sketch.ino.bin` (or `sketch.ino.uf2` as 
 
 ### 5.2 Serial Redirection (Important)
 
-The backend **automatically prepends** `#define Serial Serial1` to `sketch.ino` for RP2040 boards:
+The backend **automatically prepends** `#define Serial Serial1` to `sketch.ino` for RP2040 boards when the build is for the simulator:
 
 ```python
 # backend/app/services/arduino_cli.py
-if "rp2040" in board_fqbn and write_name == "sketch.ino":
+if self._redirects_serial(board_fqbn) and not for_hardware and write_name == "sketch.ino":
     content = "#define Serial Serial1\n" + content
 ```
 
-**Why?** The RP2040 bootrom uses UART0 for its own communication. To avoid conflicts, the Arduino `Serial` object is remapped to UART1. This means `Serial.print()` in your sketch goes through UART1, which the emulator also captures and shows in the Serial Monitor.
+**Why?** In the arduino-pico core `Serial` is the USB port, and the emulator's Serial Monitor shows UART0, which the core calls `Serial1`. With the line on top, `Serial.print()` in your sketch goes out on UART0.
+
+A real board must not have it: its user opens the USB port. A compile request with `for_hardware: true` leaves the line out, and the flash dialog sends that for RP2040 / RP2350 boards, as a build of its own that the emulator never runs.
 
 ### 5.3 Minimal Sketch for Raspberry Pi Pico
 

@@ -62,6 +62,12 @@ async def compile_project(
         "Arduino board FQBN, e.g. 'arduino:avr:uno' or 'rp2040:rp2040:rpipico'. "
         "Defaults to 'arduino:avr:uno'.",
     ] = "arduino:avr:uno",
+    for_hardware: Annotated[
+        bool,
+        "Build for a real board instead of the simulator. On RP2040/RP2350 the simulator's "
+        "build prints Serial on UART0; a board you flash should get a build with this set, "
+        "which prints on its USB port.",
+    ] = False,
 ) -> dict[str, Any]:
     """
     Compile one or more Arduino sketch files and return the compiled artifact.
@@ -86,7 +92,7 @@ async def compile_project(
             }
 
     try:
-        result = await _arduino.compile(files, board)
+        result = await _arduino.compile(files, board, for_hardware=for_hardware)
         return result
     except Exception as exc:  # pragma: no cover
         return {

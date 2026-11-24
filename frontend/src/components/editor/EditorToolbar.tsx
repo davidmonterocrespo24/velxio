@@ -678,7 +678,7 @@ export const EditorToolbar = ({
       if (result.success) {
         const program = result.hex_content ?? result.binary_content ?? null;
         if (program && activeBoardId) {
-          compileBoardProgram(activeBoardId, program, { uf2: result.uf2_content ?? null });
+          compileBoardProgram(activeBoardId, program);
           if (result.has_wifi !== undefined) {
             updateBoard(activeBoardId, { hasWifi: result.has_wifi });
           }
@@ -1249,7 +1249,7 @@ export const EditorToolbar = ({
         if (result.success) {
           const program = result.hex_content ?? result.binary_content ?? null;
           if (program) {
-            compileBoardProgram(board.id, program, { uf2: result.uf2_content ?? null });
+            compileBoardProgram(board.id, program);
             if (result.has_wifi !== undefined) {
               updateBoard(board.id, { hasWifi: result.has_wifi });
             }

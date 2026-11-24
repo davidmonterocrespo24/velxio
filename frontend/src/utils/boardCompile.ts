@@ -13,10 +13,22 @@ import { isNoiseBuildLine } from './compilationLogger';
 import { publishCompileOutput } from '../lib/intellisenseRegistry';
 import { fingerprintSources } from './sourceFingerprint';
 
+/**
+ * Whether the image the simulator runs is not the one a real board of this
+ * FQBN should: a flash then builds its own (`forHardware`) and never reuses
+ * the program on the board. RP2040 / RP2350: the simulator's build renames
+ * Serial to Serial1 (UART0, what its serial monitor shows), and a board
+ * flashed with it prints nothing on its USB port. Mirrors the backend's
+ * ArduinoCLIService.hardware_build_differs.
+ */
+export function hardwareBuildDiffers(fqbn: string | null | undefined): boolean {
+  return !!fqbn && fqbn.includes('rp2040');
+}
+
 /** Per-board compile extras (ESP32 options, SPIFFS, manifest, language, analytics). */
 export function compileOptionsForBoard(
   board: BoardInstance | undefined,
-  more: Pick<CompileExtras, 'initiatedBy'> = {},
+  more: Pick<CompileExtras, 'initiatedBy' | 'forHardware'> = {},
 ): CompileExtras {
   return {
     boardOptions: board?.boardOptions,
@@ -87,6 +99,8 @@ export interface BoardCompileOptions {
    * runs as RP2350: the caller keeps the result.
    */
   record?: boolean;
+  /** Firmware for a real board, not the simulator (see hardwareBuildDiffers). */
+  forHardware?: boolean;
 }
 
 /**
@@ -120,7 +134,7 @@ export async function compileBoardForFlash(
           if (line.trim() && !isNoiseBuildLine(line)) onLine(line);
         }
       },
-      compileOptionsForBoard(board),
+      compileOptionsForBoard(board, opts.forHardware ? { forHardware: true } : {}),
     );
     // Intellisense seam: file:line markers in the editor (cleared on green).
     publishCompileOutput(
@@ -139,7 +153,7 @@ export async function compileBoardForFlash(
     const uf2 = result.uf2_content ?? null;
     if (opts.record !== false) {
       const sim = useSimulatorStore.getState();
-      sim.compileBoardProgram(board.id, program, { uf2 });
+      sim.compileBoardProgram(board.id, program);
       if (result.has_wifi !== undefined) sim.updateBoard(board.id, { hasWifi: result.has_wifi });
     }
     return { ok: true, program, uf2, elapsedMs };

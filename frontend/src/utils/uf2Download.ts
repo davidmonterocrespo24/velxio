@@ -6,8 +6,9 @@
  * dropping a .uf2 on that drive programs the chip. That path needs no
  * driver, no Web Serial and no WebUSB, so it is the one route that works
  * in every browser. The compile endpoint returns the .uf2 picotool built
- * (`CompileResult.uf2_content`, stored as `BoardInstance.compiledUf2`);
- * these helpers turn it into a file the user can save.
+ * (`CompileResult.uf2_content`; the flash dialog asks for a build for real
+ * hardware, see utils/boardCompile.ts hardwareBuildDiffers); these helpers
+ * turn it into a file the user can save.
  */
 
 import { BOARD_KIND_FQBN } from '../types/board';
