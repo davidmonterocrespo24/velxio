@@ -19,8 +19,9 @@
  *
  *   V_diff = VA - VB  (proportional to NTC deviation from 10k)
  *
- * Sketch: reads ADC34 and ADC35, computes V_diff, estimates temperature
- * from the NTC beta-model, and prints via Serial.
+ * Sketch: reads ADC34 and ADC35 (raw codes and analogReadMilliVolts()),
+ * estimates temperature from the NTC beta-model, and prints via Serial. One
+ * ADC model has to explain every temperature (see ADC models below).
  *
  * Run:
  *   cd test/backend/e2e && npm install && node test_esp32_spice_ntc_bridge.mjs
@@ -63,24 +64,60 @@ void setup() {
   Serial.println("ESP32_BRIDGE_READY");
 }
 
+// Estimate NTC resistance from VA (half-bridge: Vcc -> R_pull -> VA -> NTC -> GND)
+// VA = VCC * R_ntc / (R_pull + R_ntc) => R_ntc = R_pull * VA / (VCC - VA)
+// Beta model: T = 1 / (1/T0 + ln(R/R0)/beta)
+float ntcCelsius(float vA, float *rOut) {
+  float rNtc = R_PULL * vA / (VCC - vA + 0.001);
+  if (rOut) *rOut = rNtc;
+  float tK = 1.0 / (1.0 / NTC_T0 + log(rNtc / NTC_R0) / NTC_BETA);
+  return tK - 273.15;
+}
+
 void loop() {
   int rawA = analogRead(34);
   int rawB = analogRead(35);
+  uint32_t mvA = analogReadMilliVolts(34);
+  uint32_t mvB = analogReadMilliVolts(35);
+  // vA/T from the raw code read linearly (QEMU's ADC before velxio-prod#171);
+  // Tmv from analogReadMilliVolts(), the way to measure volts on a real ESP32
   float vA = rawA * VCC / 4095.0;
   float vB = rawB * VCC / 4095.0;
+  float rNtc;
+  float tC = ntcCelsius(vA, &rNtc);
+  float tMv = ntcCelsius(mvA / 1000.0, nullptr);
 
-  // Estimate NTC resistance from VA (half-bridge: Vcc -> R_pull -> VA -> NTC -> GND)
-  // VA = VCC * R_ntc / (R_pull + R_ntc) => R_ntc = R_pull * VA / (VCC - VA)
-  float rNtc = R_PULL * vA / (VCC - vA + 0.001);
-
-  // Beta model: T = 1 / (1/T0 + ln(R/R0)/beta)
-  float tK = 1.0 / (1.0 / NTC_T0 + log(rNtc / NTC_R0) / NTC_BETA);
-  float tC = tK - 273.15;
-
-  Serial.printf("BRIDGE: rawA=%d rawB=%d vA=%.3f vB=%.3f R_ntc=%.0f T=%.1fC\\n",
-                rawA, rawB, vA, vB, rNtc, tC);
+  Serial.printf("BRIDGE: rawA=%d rawB=%d mvA=%u mvB=%u vA=%.3f vB=%.3f R_ntc=%.0f T=%.1fC Tmv=%.2fC\\n",
+                rawA, rawB, (unsigned)mvA, (unsigned)mvB, vA, vB, rNtc, tC, tMv);
   delay(500);
 }`;
+
+// ─── ADC models ───────────────────────────────────────────────────────────────
+// A run passes when ONE model explains every temperature, each with its own
+// tolerance (neither is widened to fit the other):
+//   linear  the libqemu velxio.dev served before velxio/velxio-prod#171: the
+//           pad voltage converted linearly over 0-3.3 V, so the temperature
+//           the sketch computes from the raw code read linearly (T) is within
+//           5 C, the tolerance this test always had.
+//   chip    the libqemu after #171, which converts like a real ESP32: the raw
+//           code follows the chip's 12 dB curve and analogReadMilliVolts()
+//           gives both bridge legs back from the eFuse calibration, to within
+//           MV_TOL, and the temperature computed from them (Tmv) within
+//           TMV_TOL.
+// Drop `linear` once CI downloads the curve library.
+// MV_TOL: the worker hands libqemu the voltage in 12-bit steps of the 3.3 V
+// scale (0.806 mV, so +-0.4 mV), a 12 dB code is 0.8-1.3 mV wide, and ESP-IDF
+// returns whole millivolts: 3 mV covers the three. TMV_TOL: 3 mV on leg A
+// moves the beta-model temperature by at most 0.15 C between 0 and 50 C.
+const MV_TOL = 3;
+const TMV_TOL = 0.5;
+const ADC_MODELS = [
+  { name: 'linear (libqemu before velxio/velxio-prod#171)',
+    fits: (b, c, temp) => Math.abs(b.tC - temp) <= 5 },
+  { name: "the chip's curve and eFuse calibration (libqemu after #171)",
+    fits: (b, c, temp) => Math.abs(b.mvA - c.vA * 1000) <= MV_TOL
+      && Math.abs(b.mvB - c.vB * 1000) <= MV_TOL && Math.abs(b.tMv - temp) <= TMV_TOL },
+];
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 const T0  = Date.now();
@@ -176,12 +213,13 @@ function runCoSim(firmware_b64) {
     }, TIMEOUT_S * 1000);
 
     function injectVoltage(tempC) {
+      // The solved voltages with their fraction of a millivolt, as the tab sends them
       const c = circuits[tempC];
-      const mvA = Math.round(c.vA * 1000);
-      const mvB = Math.round(c.vB * 1000);
+      const mvA = c.vA * 1000;
+      const mvB = c.vB * 1000;
       ws.send(JSON.stringify({ type: 'esp32_adc_set', data: { channel: 6, millivolts: mvA } }));
       ws.send(JSON.stringify({ type: 'esp32_adc_set', data: { channel: 7, millivolts: mvB } }));
-      spice(`Injected T=${tempC}C: CH6=${mvA}mV CH7=${mvB}mV`);
+      spice(`Injected T=${tempC}C: CH6=${mvA.toFixed(1)}mV CH7=${mvB.toFixed(1)}mV`);
     }
 
     ws.addEventListener('open', () => {
@@ -213,12 +251,13 @@ function runCoSim(firmware_b64) {
             injectVoltage(currentTemp);
           }
 
-          const m = line.match(/BRIDGE:\s*rawA=(\d+)\s+rawB=(\d+)\s+vA=([\d.]+)\s+vB=([\d.]+)\s+R_ntc=([\d.]+)\s+T=([-\d.]+)C/);
+          const m = line.match(/BRIDGE:\s*rawA=(\d+)\s+rawB=(\d+)\s+mvA=(\d+)\s+mvB=(\d+)\s+vA=([\d.]+)\s+vB=([\d.]+)\s+R_ntc=(-?inf|nan|[-\d.]+)\s+T=(-?inf|nan|[-\d.]+)C\s+Tmv=(-?inf|nan|[-\d.]+)C/);
           if (m) {
             const reading = {
               rawA: parseInt(m[1]), rawB: parseInt(m[2]),
-              vA: parseFloat(m[3]), vB: parseFloat(m[4]),
-              rNtc: parseFloat(m[5]), tC: parseFloat(m[6]),
+              mvA: parseInt(m[3]), mvB: parseInt(m[4]),
+              vA: parseFloat(m[5]), vB: parseFloat(m[6]),
+              rNtc: parseFloat(m[7]), tC: parseFloat(m[8]), tMv: parseFloat(m[9]),
             };
             if (!results[currentTemp]) results[currentTemp] = [];
             results[currentTemp].push(reading);
@@ -262,26 +301,39 @@ function validate(result) {
   let pass = true;
   if (timedOut) { err('Timed out'); pass = false; }
 
+  const avg = (rs, k) => rs.reduce((s, r) => s + r[k], 0) / rs.length;
+  const batches = {};
   for (const [tempStr, readings] of Object.entries(results)) {
     const temp = parseInt(tempStr);
     if (readings.length === 0) { err(`No readings for T=${temp}C`); pass = false; continue; }
-
-    const avgT = readings.reduce((s, r) => s + r.tC, 0) / readings.length;
     const c = circuits[temp];
-    info(`T=${temp}C: SPICE V(A)=${c.vA.toFixed(3)}V, R_ntc=${c.rNtc.toFixed(0)}ohm`);
-    info(`  ESP32 read: avgT=${avgT.toFixed(1)}C (${readings.length} samples)`);
+    const b = { tC: avg(readings, 'tC'), tMv: avg(readings, 'tMv'), mvA: avg(readings, 'mvA'), mvB: avg(readings, 'mvB') };
+    batches[temp] = b;
+    info(`T=${temp}C: SPICE V(A)=${c.vA.toFixed(4)}V V(B)=${c.vB.toFixed(4)}V, R_ntc=${c.rNtc.toFixed(0)}ohm`);
+    info(`  ESP32 read (${readings.length} samples): T from raw=${b.tC.toFixed(1)}C, `
+         + `mvA=${b.mvA.toFixed(1)} mvB=${b.mvB.toFixed(1)}, T from mV=${b.tMv.toFixed(2)}C`);
+  }
 
-    // Tolerance: +/- 5C (ADC quantization + beta model rounding)
-    if (Math.abs(avgT - temp) > 5) {
-      err(`  Temperature off by ${Math.abs(avgT - temp).toFixed(1)}C (tolerance: 5C)`);
-      pass = false;
+  // One ADC model has to explain every temperature
+  const temps = Object.keys(batches).map(Number).sort((a, b) => a - b);
+  if (temps.length === Object.keys(circuits).length) {
+    const model = ADC_MODELS.find(m => temps.every(t => m.fits(batches[t], circuits[t], t)));
+    if (model) {
+      ok(`Every temperature fits one ADC model: ${model.name}`);
     } else {
-      ok(`  Within tolerance`);
+      err('No ADC model explains every temperature:');
+      for (const m of ADC_MODELS) {
+        const off = temps.filter(t => !m.fits(batches[t], circuits[t], t));
+        err(`  ${m.name}: off at ${off.map(t => `${t}C`).join(', ')}`);
+      }
+      pass = false;
     }
+  } else {
+    err(`Readings for ${temps.length} of ${Object.keys(circuits).length} temperatures`);
+    pass = false;
   }
 
   // Check that different temperatures produce different readings
-  const temps = Object.keys(results).map(Number).sort((a, b) => a - b);
   if (temps.length >= 2) {
     const first = results[temps[0]];
     const last = results[temps[temps.length - 1]];
