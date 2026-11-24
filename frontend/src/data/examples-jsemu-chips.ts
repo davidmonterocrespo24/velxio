@@ -203,7 +203,7 @@ void loop() {
     id: 'esp32s3-potentiometer',
     title: 'ESP32-S3: Potentiometer (ADC)',
     description:
-      'Read a potentiometer with the ESP32-S3 12-bit ADC on GPIO1 (ADC1_CH0) and print the raw value and voltage.',
+      'Read a potentiometer with the ESP32-S3 12-bit ADC on GPIO1 (ADC1_CH0) and print the raw value and the calibrated voltage (analogReadMilliVolts). At the default 12 dB the S3 measures up to about 3.1 V.',
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'esp32-s3',
@@ -219,9 +219,14 @@ void setup() {
   Serial.println("ESP32-S3 ADC ready — turn the pot!");
 }
 
+// At the default 12 dB attenuation the S3 measures up to about 3.1 V and
+// its code is not a straight line from 0 to 3.3 V, so the voltage comes from
+// analogReadMilliVolts() (factory calibration), not a straight 3.3/4095
+// scaling. The last few degrees of the pot's travel read 4095 and about 3.1 V.
+
 void loop() {
-  int raw = analogRead(POT_PIN);           // 0–4095 (12-bit ADC)
-  float volts = raw * 3.3f / 4095.0f;
+  int raw = analogRead(POT_PIN);           // raw 12-bit code
+  float volts = analogReadMilliVolts(POT_PIN) / 1000.0f;
   Serial.printf("Pot: %4d  (%.2f V)\\n", raw, volts);
   delay(200);
 }`,
@@ -409,7 +414,7 @@ void loop() {
     id: 'c3-potentiometer',
     title: 'ESP32-C3: Potentiometer (ADC)',
     description:
-      'Read a potentiometer with the ESP32-C3 12-bit ADC on GPIO0 (ADC1_CH0) and print the raw value and voltage.',
+      "Read a potentiometer with the ESP32-C3 12-bit ADC on GPIO0 (ADC1_CH0) and print the raw value and the calibrated voltage (analogReadMilliVolts). At the default 12 dB the C3 measures only up to about 2.73 V, so the top ~17 % of the pot's travel reads the same.",
     category: 'sensors',
     difficulty: 'beginner',
     boardType: 'esp32-c3',
@@ -425,9 +430,15 @@ void setup() {
   Serial.println("ESP32-C3 ADC ready — turn the pot!");
 }
 
+// At the default 12 dB attenuation the C3 measures only up to about 2.73 V
+// (Espressif rates it for 0-2.5 V), so the last ~17 % of the pot's travel,
+// from about 2.73 V to 3.3 V, reads the same: 4095 and about 2.73 V. The
+// voltage comes from analogReadMilliVolts() (factory calibration), not
+// a straight 3.3/4095 scaling, which is wrong everywhere on this chip.
+
 void loop() {
-  int raw = analogRead(POT_PIN);           // 0–4095 (12-bit ADC)
-  float volts = raw * 3.3f / 4095.0f;
+  int raw = analogRead(POT_PIN);           // raw 12-bit code
+  float volts = analogReadMilliVolts(POT_PIN) / 1000.0f;
   Serial.printf("Pot: %4d  (%.2f V)\\n", raw, volts);
   delay(200);
 }`,

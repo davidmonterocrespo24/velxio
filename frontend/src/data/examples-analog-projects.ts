@@ -532,9 +532,11 @@ const float FAN_ON_C = 30.0, FAN_OFF_C = 28.0;
 bool fanOn = false;
 
 float readCelsius() {
+  // The ESP32's ADC code is not proportional to volts (1.65 V reads about
+  // 1870 of 4095), so ask the core for calibrated millivolts instead.
   long sum = 0;
-  for (int i = 0; i < 16; i++) sum += analogRead(NTC_PIN);   // 0..4095
-  float v = sum / 16.0 * 3.3 / 4095.0;      // volts at the divider output
+  for (int i = 0; i < 16; i++) sum += analogReadMilliVolts(NTC_PIN);
+  float v = sum / 16.0 / 1000.0;            // volts at the divider output
   float r = R_FIXED * v / (3.3 - v);        // NTC resistance
   float kelvin = 1.0 / (1.0 / NTC_T0 + log(r / NTC_R0) / NTC_BETA);
   return kelvin - 273.15;
