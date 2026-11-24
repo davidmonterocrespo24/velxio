@@ -17,7 +17,7 @@ import { isBoardComponent } from './boardPinMapping';
 import { getInstalledLibraries, installLibrary } from '../services/libraryService';
 import { trackOpenExample } from './analytics';
 import { stripBrandPrefix } from './exampleToBuildNetlistInput';
-import { resolveExampleSdFiles } from './sdCardFiles';
+import { resolveExamplePartSdFiles, resolveExampleSdFiles } from './sdCardFiles';
 import { exampleWireCorners } from './exampleWireRoutes';
 
 export interface LibraryInstallProgress {
@@ -148,6 +148,7 @@ export async function loadExample(
   const sdFilesByBoard = await Promise.all(
     (example.boards ?? []).map((eb) => resolveExampleSdFiles(eb.sdFiles)),
   );
+  const exampleParts = await resolveExamplePartSdFiles(example.components);
   // The wire corners made for this example offline (fixed data, nothing is
   // routed here), read before the canvas changes for the same reason.
   const storedCorners = await exampleWireCorners(example);
@@ -258,7 +259,7 @@ export async function loadExample(
     // shows as its own section (the per-board code came from eb.code above).
     seedChipProgramGroups(example);
 
-    const componentsWithoutBoard = (example.components ?? []).filter(
+    const componentsWithoutBoard = exampleParts.filter(
       (comp) =>
         !comp.type.includes('arduino') &&
         !comp.type.includes('pico') &&
@@ -386,7 +387,7 @@ export async function loadExample(
       editorStore.setCode(example.code);
     }
 
-    const componentsWithoutBoard = (example.components ?? []).filter(
+    const componentsWithoutBoard = exampleParts.filter(
       (comp) =>
         !comp.type.includes('arduino') &&
         !comp.type.includes('pico') &&

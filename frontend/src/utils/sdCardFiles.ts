@@ -124,3 +124,25 @@ export async function resolveExampleSdFiles(
   );
   return out.filter((f): f is { name: string; contentB64: string } => f !== null);
 }
+
+/**
+ * An example's parts with their card files resolved: a part that carries its
+ * own microSD (`properties.sdFiles`, what the SD Card panel persists) may name
+ * a file by `url` exactly as a board's built-in slot does. Parts with nothing
+ * to fetch come back as they are.
+ */
+export async function resolveExamplePartSdFiles<
+  T extends { properties?: Record<string, unknown> },
+>(
+  parts: ReadonlyArray<T> | undefined,
+  fetcher: (url: string) => Promise<Response> = (url) => fetch(url),
+): Promise<T[]> {
+  return Promise.all(
+    (parts ?? []).map(async (part) => {
+      const files = part.properties?.sdFiles;
+      if (!Array.isArray(files) || !files.some((f) => f && typeof f.url === 'string')) return part;
+      const sdFiles = await resolveExampleSdFiles(files, fetcher);
+      return { ...part, properties: { ...part.properties, sdFiles } };
+    }),
+  );
+}
