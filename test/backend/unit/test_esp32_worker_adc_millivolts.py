@@ -9,6 +9,11 @@ The worker turns it into the 12-bit code the guest's SAR ADC reads
 millivolts to an integer first, so a 12-bit step (0.806 mV) was skipped every
 few millivolts: 795 of the 4096 codes never came out, whatever the circuit did.
 
+It also took the code below the voltage rather than the nearest one: every
+voltage read up to one step (0.806 mV) low, half a step on average, which on a
+libqemu that converts on the chip's curve is 0.6 code low at 12 dB and about
+2 codes low at 0 dB (velxio/velxio-prod#171). The code is now the nearest one.
+
 The worker runs unmodified on the repro suite's rig
 (fixtures/board_buses_worker/fake_libqemu.py), which records every
 set_apin the worker makes into QEMU.
@@ -37,26 +42,40 @@ def apin_calls(w: Worker) -> list[list[int]]:
 
 
 def test_a_pot_at_512_reads_the_code_of_its_exact_voltage(worker):
-    # 3.3 V * 512 / 1023 = 1651.61 mV -> 2049.48 -> code 2049. Cut to 1651 mV
-    # first it read 2048.
+    # 3.3 V * 512 / 1023 = 1651.61 mV -> 2049.50 -> code 2050, the nearest.
+    # Cut to 1651 mV first it read 2048; the code below it was 2049.
     worker.send({'cmd': 'set_adc', 'channel': 6, 'millivolts': 3300 * 512 / 1023})
     worker.sync()
-    assert apin_calls(worker)[-1] == ['set_apin', 6, 2049]
+    assert apin_calls(worker)[-1] == ['set_apin', 6, 2050]
 
 
-def test_every_code_is_reachable(worker):
+def test_every_code_is_reachable_from_its_own_voltage(worker):
+    # Each code's own voltage, code * 3300 / 4095 mV, reads that code. Taking
+    # the code below read some of them one low, wherever the float landed a
+    # hair under the code.
     codes = list(range(0, 64)) + [2047, 2048, 2049, 4094, 4095]
     for code in codes:
-        worker.send({'cmd': 'set_adc', 'channel': 0, 'millivolts': (code + 0.5) * LSB_MV})
+        worker.send({'cmd': 'set_adc', 'channel': 0, 'millivolts': code * LSB_MV})
     worker.sync()
     assert [c[2] for c in apin_calls(worker)] == codes
 
 
-def test_whole_millivolts_still_convert_as_before(worker):
-    for mv in (0, 1, 1650, 3300, 3400):
+def test_a_voltage_reads_the_code_nearest_to_it(worker):
+    # 0.3 of a step above a code reads that code; 0.7 of a step above it
+    # reads the next one, where taking the code below read one low.
+    for code in (0, 1, 1000, 2048, 4000):
+        for frac in (0.3, 0.7):
+            worker.send({'cmd': 'set_adc', 'channel': 5, 'millivolts': (code + frac) * LSB_MV})
+    worker.sync()
+    assert [c[2] for c in apin_calls(worker)] == [0, 1, 1, 2, 1000, 1001, 2048, 2049, 4000, 4001]
+
+
+def test_whole_millivolts_convert_to_the_nearest_code(worker):
+    # 1650 mV is code 2047.5: it reads 2048 (the code below read 2047).
+    for mv in (0, 1, 1650, 3300, 3400, -5):
         worker.send({'cmd': 'set_adc', 'channel': 3, 'millivolts': mv})
     worker.sync()
-    assert [c[2] for c in apin_calls(worker)] == [0, 1, 2047, 4095, 4095]
+    assert [c[2] for c in apin_calls(worker)] == [0, 1, 2048, 4095, 4095, 0]
 
 
 def test_a_value_that_is_no_number_leaves_the_worker_running(worker):
