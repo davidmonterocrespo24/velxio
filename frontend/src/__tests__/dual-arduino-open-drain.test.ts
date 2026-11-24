@@ -80,28 +80,36 @@ function run(hexes: string[], pairs: Array<[number, number]>, seconds: number): 
   return { unos, quiet: unos.map((u, i) => u.changes - before[i]) };
 }
 
+/**
+ * Each case steps two or three Unos through 3.5 s of guest time: about 15 s of
+ * wall time on an idle box, and 34 to 37 s in a deploy gate that shared it with
+ * a compile (2026-11-24, load 15 to 22). Nothing here is about wall time, so
+ * the default 30 s only says how busy the box was.
+ */
+const STEPPED = 120_000;
+
 describe('an open-drain line between two real Unos, each with its pull-up (#74)', () => {
   it('four pulses of one board: each pad changes twice a pulse, and the line goes quiet', () => {
     const { unos, quiet } = run(['od-pulse.hex', 'od-listen.hex'], [[0, 1]], 2.5);
     expect(unos.map((u) => u.changes), 'changes of D2 on the pulsing board and on the other').toEqual([8, 8]);
     expect(quiet, 'changes in a second with nothing sent').toEqual([0, 0]);
-  });
+  }, STEPPED);
 
   it('four pairs of pulses 10 ms apart: the same, sixteen changes on each pad', () => {
     const { unos, quiet } = run(['od-pair.hex', 'od-listen.hex'], [[0, 1]], 2.5);
     expect(unos.map((u) => u.changes)).toEqual([16, 16]);
     expect(quiet).toEqual([0, 0]);
-  });
+  }, STEPPED);
 
   it('a third board wired to the second (a chain) hears the pulses through it, and nothing comes back', () => {
     const { unos, quiet } = run(['od-pulse.hex', 'od-listen.hex', 'od-listen.hex'], [[0, 1], [1, 2]], 2.5);
     expect(unos.map((u) => u.changes)).toEqual([8, 8, 8]);
     expect(quiet).toEqual([0, 0, 0]);
-  });
+  }, STEPPED);
 
   it('three boards wired each to each (a ring): every pad changes twice a pulse, none more', () => {
     const { unos, quiet } = run(['od-pulse.hex', 'od-listen.hex', 'od-listen.hex'], [[0, 1], [1, 2], [2, 0]], 2.5);
     expect(unos.map((u) => u.changes)).toEqual([8, 8, 8]);
     expect(quiet).toEqual([0, 0, 0]);
-  });
+  }, STEPPED);
 });
