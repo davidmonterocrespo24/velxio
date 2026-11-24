@@ -2041,6 +2041,22 @@ for (const [variant, base] of Object.entries(MAPPER_ALIASES)) {
   MAPPERS[variant] = MAPPERS[base];
 }
 
+/**
+ * Parts whose contacts a person works on the canvas while the circuit runs:
+ * a press or a flip changes only these parts' cards. A circuit with a
+ * capacitor or an inductor that such a change leaves away from where it
+ * settles takes its step from the state it is in, and the meters, the LEDs
+ * and the parts follow that step in time (velxio/velxio-prod#107): an RC
+ * timer started by a button lights its LED seconds after the press, with a
+ * board on the canvas or without one.
+ */
+const HAND_SWITCHES: ReadonlySet<string> = new Set(['pushbutton', 'pushbutton-6mm', 'slide-switch']);
+
+/** True for a part whose contacts a person works by hand (HAND_SWITCHES). */
+export function isHandSwitch(metadataId: string): boolean {
+  return HAND_SWITCHES.has(metadataId);
+}
+
 /** True if we have a mapping for this metadataId. */
 export function isSpiceMapped(metadataId: string): boolean {
   return metadataId in MAPPERS || metadataId in proMappers;

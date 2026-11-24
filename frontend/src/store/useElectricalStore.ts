@@ -61,6 +61,11 @@ export interface ElectricalSnapshot {
    *  by the ADC bridge alone (see CircuitSimulationService's
    *  ElectricalSnapshot). */
   stepWaveforms?: TimeWaveforms;
+  /** Seconds into a step being followed that the scalar fields were read
+   *  at, when they are one of its moments rather than a state the circuit
+   *  holds (a press on an RC, velxio/velxio-prod#107); see
+   *  CircuitSimulationService's ElectricalSnapshot. */
+  stepAtS?: number;
   /** The last capture the deck produced, for the oscilloscope only: it may
    *  describe an earlier state than the one published. */
   scopeWaveforms?: TimeWaveforms;
@@ -100,6 +105,7 @@ const EMPTY: ElectricalSnapshot = {
   analysisMode: 'op',
   timeWaveforms: undefined,
   stepWaveforms: undefined,
+  stepAtS: undefined,
   scopeWaveforms: undefined,
   converged: true,
   error: null,

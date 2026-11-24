@@ -19,7 +19,7 @@
  */
 import { UnionFind } from './unionFind';
 import { parseValueWithUnits } from './valueParser';
-import { componentToSpice, logicGateLinks, OPEN_CONTACT_OHMS } from './componentToSpice';
+import { componentToSpice, isHandSwitch, logicGateLinks, OPEN_CONTACT_OHMS } from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
 import type {
@@ -167,6 +167,13 @@ export interface BuildNetlistResult {
   memoryCells: SwitchMemoryCell[];
   /** The latch nets the deck seeds (.nodeset), with their seeds. */
   nodeMemoryCells: NodeMemoryCell[];
+  /**
+   * The cards the hand-worked contacts emitted (isHandSwitch: a pushbutton,
+   * a slide switch), by lower-case card name: all a press or a flip changes
+   * in the deck. The circuit service tells a rebuild that changed only these
+   * from any other one (velxio/velxio-prod#107).
+   */
+  handContacts: Set<string>;
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -316,6 +323,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // (velxio/velxio-prod#147).
   const latch = findLatches(components, (id, pin) => netLookup(id, pin));
   const memoryCells: SwitchMemoryCell[] = [];
+  const handContacts = new Set<string>();
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
     const operated = memory?.switches?.get(comp.id);
@@ -326,6 +334,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     });
     if (!emission) continue;
     cards.push(...emission.cards);
+    if (isHandSwitch(comp.metadataId)) {
+      for (const card of emission.cards) handContacts.add(card.trim().split(/\s+/, 1)[0]!.toLowerCase());
+    }
     if (emission.memory) memoryCells.push({ id: comp.id, ...emission.memory, seed: operated === true });
     if (emission.supplies?.length) powering.push({ id: comp.id, supplies: emission.supplies, cards: emission.cards });
     emitted.push({ id: comp.id, cards: emission.cards });
@@ -666,6 +677,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     analysis: resolved,
     memoryCells,
     nodeMemoryCells,
+    handContacts,
   };
 }
 

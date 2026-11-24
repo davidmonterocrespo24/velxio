@@ -223,10 +223,12 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
    * here; the circuit service also calls it with a result it cached for a
    * pad state the solver already answered (CircuitSimulationService's
    * state cache), so the subscribers of pin voltages (PinResolver) follow
-   * the published state whether or not the engine ran for it.
+   * the published state whether or not the engine ran for it. While the
+   * pins are held (holdPinVoltages) it only makes `result` the current one.
    */
   adoptResult(result: import('./ports/SolverPort').SolveResult): void {
     this.lastResult = result;
+    if (this.pinsHeld) return;
     for (const [key, net] of this.pinNetMap) {
       const idx = key.indexOf(':');
       if (idx < 0) continue;
@@ -241,6 +243,40 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
       const v = vec.real[vec.real.length - 1] ?? 0;
       this.publishVoltage(componentId, pinName, v);
     }
+  }
+
+  /**
+   * Publish every (component, pin) voltage from a net -> volts map without
+   * making anything the current result: the circuit service follows a step a
+   * pushbutton or a slide switch started with it, so a part that reads its
+   * pins' voltages follows the step as the meters do (velxio/velxio-prod#107).
+   * A net the map does not hold leaves its pins alone.
+   */
+  publishNetVoltages(volts: Readonly<Record<string, number>>): void {
+    for (const [key, net] of this.pinNetMap) {
+      const idx = key.indexOf(':');
+      if (idx < 0) continue;
+      const v = net === '0' ? 0 : volts[net];
+      if (v === undefined || !Number.isFinite(v)) continue;
+      this.publishVoltage(key.slice(0, idx), key.slice(idx + 1), v);
+    }
+  }
+
+  /** Set while the pins are held (holdPinVoltages). */
+  private pinsHeld = false;
+
+  /**
+   * While held, a solve becomes the current result without publishing its
+   * pin voltages, to the subscribers or to the cache getCurrentVoltage
+   * reads; publishNetVoltages still publishes. The circuit service
+   * holds them while it solves a step it will follow (velxio/velxio-prod
+   * #107): those solves end where the step settles, not where the circuit
+   * is, and a part reading its pins took that for a pulse (an input on the
+   * capacitor of an RC saw the final voltage, then the start of the charge,
+   * then the threshold again: three edges for one).
+   */
+  holdPinVoltages(hold: boolean): void {
+    this.pinsHeld = hold;
   }
 
   /** Stop the scheduler.  Engine stays warm so restart is cheap. */
@@ -261,6 +297,7 @@ class MixedModeSchedulerImpl implements SpiceVoltageSource {
     this.voltages.clear();
     this.pinNetMap.clear();
     this.lastResult = null;
+    this.pinsHeld = false;
   }
 
   /**
