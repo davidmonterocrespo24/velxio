@@ -8,6 +8,12 @@
  * .uf2 of that same build, and the board printed nothing on its USB port.
  * The dialog now asks the server for a build of its own (`for_hardware`),
  * which stays in the dialog: the emulator goes on running the simulator's.
+ *
+ * ESP32: the simulator's build of a WiFi sketch has its SSID swapped for the
+ * simulated network and its password dropped, so the flashed board looked
+ * for "Velxio-GUEST" at the user's home. Only such a build differs, and the
+ * server says which one is (`wifi_rewritten`): the dialog builds its own
+ * image then, and flashes every other ESP32 with the program it already has.
  */
 import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -41,6 +47,14 @@ vi.mock('../simulation/RP2040Simulator', () => ({
   }),
 }));
 
+// The texts with what they were given, so a test can read a log line's board.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) =>
+      values ? `${key} ${JSON.stringify(values)}` : key,
+  }),
+}));
+
 vi.mock('axios', async (importOriginal) => {
   const real = await importOriginal<typeof import('axios')>();
   return { ...real, default: { ...real.default, post: vi.fn(), get: vi.fn() } };
@@ -55,23 +69,36 @@ import axios from 'axios';
 import { compileCode, type CompileResult } from '../services/compilation';
 import { FlashModal } from '../components/simulator/FlashModal';
 import { installWebFlashImpl, type WebFlashImpl, type WebFlashRequest } from '../lib/proWebFlash';
+import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
-import { BOARD_KIND_FQBN, type BoardKind } from '../types/board';
-import { compileBoardForFlash, hardwareBuildDiffers } from '../utils/boardCompile';
+import { BOARD_KIND_FQBN, BOARD_KIND_LABELS, type BoardKind } from '../types/board';
+import {
+  compileBoardForFlash,
+  hardwareBuildDiffers,
+  needsHardwareBuild,
+} from '../utils/boardCompile';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const compile = vi.mocked(compileCode);
 const boardOf = (id: string) => useSimulatorStore.getState().boards.find((b) => b.id === id)!;
 
-/** The server's answer: the image of the target that was asked for. */
-function serverBuilds(): void {
+/**
+ * The server's answer: the image of the target that was asked for.
+ * `wifiRewritten` is what it says of a simulator build (never of one for
+ * hardware, whose sources it leaves alone); undefined is a server that
+ * predates the field.
+ */
+function serverBuilds(wifiRewritten?: boolean): void {
   compile.mockImplementation(async (_files, _fqbn, _project, _onProgress, extras) => {
     const name = extras?.forHardware ? 'HARDWARE' : 'SIMULATOR';
     return {
       success: true,
       binary_content: btoa(`${name}.bin`),
       uf2_content: btoa(`${name}.uf2`),
+      ...(wifiRewritten === undefined
+        ? {}
+        : { wifi_rewritten: extras?.forHardware ? false : wifiRewritten }),
       stdout: '',
       stderr: '',
     } as CompileResult;
@@ -94,6 +121,50 @@ describe('hardwareBuildDiffers', () => {
     [null, false],
   ])('%s: %s', (fqbn, differs) => {
     expect(hardwareBuildDiffers(fqbn)).toBe(differs);
+  });
+});
+
+describe('needsHardwareBuild', () => {
+  it.each([
+    ['esp32:esp32:esp32', true, true],
+    ['esp32:esp32:esp32', false, false],
+    // A server that predates the field: flashed as it always was.
+    ['esp32:esp32:esp32', undefined, false],
+    ['rp2040:rp2040:rpipico', undefined, true],
+    ['rp2040:rp2040:rpipico', false, true],
+    ['arduino:avr:uno', undefined, false],
+  ])('%s, wifiRewritten %s: %s', (fqbn, wifiRewritten, own) => {
+    expect(needsHardwareBuild({ wifiRewritten }, fqbn)).toBe(own);
+  });
+});
+
+describe('what the server says of a build', () => {
+  it('is recorded with the program, and only of the simulator\'s build', async () => {
+    serverBuilds(true);
+    const id = useSimulatorStore.getState().addBoard('esp32' as BoardKind, 0, 0);
+    expect(boardOf(id).wifiRewritten).toBeUndefined();
+
+    const sim = await compileBoardForFlash(boardOf(id), () => {});
+    expect(sim).toMatchObject({ ok: true, wifiRewritten: true });
+    expect(boardOf(id).wifiRewritten).toBe(true);
+
+    const own = await compileBoardForFlash(boardOf(id), () => {}, {
+      record: false,
+      forHardware: true,
+    });
+    expect(own).toMatchObject({ ok: true, wifiRewritten: false });
+    expect(boardOf(id).wifiRewritten).toBe(true);
+    expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
+  });
+
+  it('does not outlive the build it was said of', async () => {
+    const id = useSimulatorStore.getState().addBoard('esp32' as BoardKind, 0, 0);
+    const store = useSimulatorStore.getState();
+    store.compileBoardProgram(id, btoa('SIMULATOR.bin'), { wifiRewritten: true });
+    expect(boardOf(id).wifiRewritten).toBe(true);
+    // A firmware file loaded by hand, a caller that knows nothing of it.
+    store.compileBoardProgram(id, btoa('LOADED.bin'));
+    expect(boardOf(id).wifiRewritten).toBeUndefined();
   });
 });
 
@@ -158,10 +229,18 @@ describe('the flash dialog', () => {
     installWebFlashImpl(null);
   });
 
-  /** Opens the dialog on a board whose simulator build is current. */
-  async function open(kind: string): Promise<string> {
+  /**
+   * Opens the dialog on a board whose simulator build is current (`built`,
+   * with what the server said of it), or on one never compiled.
+   */
+  async function open(
+    kind: string,
+    built: { wifiRewritten?: boolean } | null = {},
+  ): Promise<string> {
     const id = useSimulatorStore.getState().addBoard(kind as BoardKind, 0, 0);
-    useSimulatorStore.getState().compileBoardProgram(id, btoa('SIMULATOR.bin'));
+    if (built) {
+      useSimulatorStore.getState().compileBoardProgram(id, btoa('SIMULATOR.bin'), built);
+    }
     const fqbn = (BOARD_KIND_FQBN as Record<string, string>)[kind];
     await act(async () => {
       root.render(createElement(FlashModal, { board: boardOf(id), fqbn, onClose: () => {} }));
@@ -199,5 +278,101 @@ describe('the flash dialog', () => {
     await press();
     expect(compile).not.toHaveBeenCalled();
     expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('SIMULATOR.bin')]);
+  });
+
+  const forHardware = () => compile.mock.calls.map((c) => c[4]?.forHardware === true);
+
+  it('builds an ESP32 its own image when its WiFi was rewritten for the simulator', async () => {
+    const id = await open('esp32', { wifiRewritten: true });
+    await press();
+    expect(forHardware()).toEqual([true]);
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('HARDWARE.bin')]);
+    expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
+  });
+
+  it.each([
+    ['nothing was rewritten', false],
+    ['the server predates the field', undefined],
+  ])('flashes an ESP32 with the simulator\'s program when %s, without a build', async (_why, said) => {
+    await open('esp32', { wifiRewritten: said });
+    await press();
+    expect(compile).not.toHaveBeenCalled();
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('SIMULATOR.bin')]);
+  });
+
+  it('learns from the build it makes that an ESP32 needs its own', async () => {
+    serverBuilds(true);
+    const id = await open('esp32', null);
+    await press();
+    // The simulator's first, as ever, then the board's.
+    expect(forHardware()).toEqual([false, true]);
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('HARDWARE.bin')]);
+    expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
+    expect(boardOf(id).wifiRewritten).toBe(true);
+  });
+
+  it('files its own build under the sources it was made from', async () => {
+    // The code changes while the simulator's build runs; the board's own is
+    // then made from the new code. The flash fails, the user undoes the
+    // edit and tries again: the dialog holds an image of OTHER code, and
+    // must build this one.
+    const id = await open('esp32', null);
+    const group = boardOf(id).activeFileGroupId;
+    const file = () => useEditorStore.getState().getGroupFiles(group)[0];
+    const written = file().content;
+    const edit = (content: string) =>
+      act(async () => useEditorStore.getState().updateGroupFile(group, file().id, content));
+    compile.mockImplementation(async (files, _fqbn, _project, _onProgress, extras) => {
+      const name = `${extras?.forHardware ? 'HARDWARE' : 'SIMULATOR'} of ${files[0].content}`;
+      if (!extras?.forHardware) await edit('EDITED');
+      return {
+        success: true,
+        binary_content: name,
+        wifi_rewritten: !extras?.forHardware,
+        stdout: '',
+        stderr: '',
+      } as CompileResult;
+    });
+    let unplugged = true;
+    installWebFlashImpl({
+      available: () => true,
+      flash: async (req: WebFlashRequest) => {
+        flashed.push(req);
+        if (unplugged) throw new Error('unplugged');
+        return { chipName: 'chip', elapsedMs: 1 };
+      },
+    } as WebFlashImpl);
+
+    await press();
+    expect(flashed.map((r) => r.binaryBase64)).toEqual(['HARDWARE of EDITED']);
+
+    await edit(written);
+    unplugged = false;
+    await press(/retry/i);
+    expect(flashed.map((r) => r.binaryBase64)[1]).toBe(`HARDWARE of ${written}`);
+  });
+
+  it('names the board in its log, not the id of its kind', async () => {
+    const id = await open('esp32', { wifiRewritten: true });
+    compile.mockResolvedValue({ success: false, error: 'stop', stdout: '', stderr: '' } as CompileResult);
+    await act(async () => {
+      button().click();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(boardOf(id).boardKind).toBe('esp32');
+    expect(host.textContent).toContain(`"revision":"${BOARD_KIND_LABELS.esp32}"`);
+    expect(BOARD_KIND_LABELS.esp32).not.toBe('esp32');
+  });
+
+  it.each([
+    ['nothing was rewritten', false],
+    ['the server predates the field', undefined],
+  ])('makes one build of a never-compiled ESP32 when %s', async (_why, said) => {
+    serverBuilds(said);
+    const id = await open('esp32', null);
+    await press();
+    expect(forHardware()).toEqual([false]);
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('SIMULATOR.bin')]);
+    expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
   });
 });

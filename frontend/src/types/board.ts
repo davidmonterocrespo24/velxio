@@ -186,6 +186,15 @@ export interface BoardInstance {
   activeFileGroupId: string;
   languageMode: LanguageMode; // 'arduino' (default), 'micropython' or 'espidf'
   hasWifi?: boolean; // set by compiler — true when sketch uses WiFi
+  /**
+   * ESP32: `compiledProgram` had its WiFi credentials rewritten for the
+   * simulated networks (CompileResult.wifi_rewritten), so a real board must
+   * not be flashed with it: the flash dialog builds its own image. Recorded
+   * with the program; undefined when the server did not say (an older
+   * server, a firmware file loaded by hand), which flashes the program as
+   * it always was.
+   */
+  wifiRewritten?: boolean;
   wifiStatus?: WifiStatus;
   bleStatus?: BleStatus;
   // ESP32-only — populated when the user opens Board Options... on the

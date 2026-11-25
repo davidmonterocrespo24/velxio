@@ -54,11 +54,12 @@ import {
 import { openExternal } from '../../desktop/tauriBridge';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
+import { boardDisplayName } from '../../types/board';
 import {
   compileBoardForFlash,
   currentSourceFingerprint,
-  hardwareBuildDiffers,
   isCompiledProgramStale,
+  needsHardwareBuild,
 } from '../../utils/boardCompile';
 import {
   canSaveToDrive,
@@ -129,12 +130,18 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   const hwUsesUf2 = fqbnUsesUf2(hwFqbn);
   // The flash builds an image of its own when the simulator's is not what
   // this board should run: another chip (a revision), or a build that only
-  // serves the simulator (hardwareBuildDiffers). Everyone else is flashed
-  // with the program the simulator runs.
-  const needsOwnBuild = isAltRevision || hardwareBuildDiffers(hwFqbn);
+  // serves the simulator (needsHardwareBuild: an RP2040's Serial on UART0,
+  // an ESP32's WiFi credentials swapped for the simulated network). Everyone
+  // else is flashed with the program the simulator runs. Asked of the board
+  // as it is NOW: a compile inside the dialog can be what tells.
+  const ownBuildFor = useCallback(
+    (b: BoardInstance) => isAltRevision || needsHardwareBuild(b, hwFqbn),
+    [isAltRevision, hwFqbn],
+  );
+  const needsOwnBuild = ownBuildFor(board);
   // That build lives here, not in the store: the emulator must never pick
-  // up an RP2040 image for a board it runs as RP2350, nor firmware whose
-  // serial monitor it cannot see.
+  // up an RP2040 image for a board it runs as RP2350, firmware whose serial
+  // monitor it cannot see, nor one that joins a network it does not beacon.
   const ownBuildRef = useRef<{ fqbn: string; hash: string; program: string; uf2: string | null } | null>(null);
   // What ownBuildRef holds, for the render (labels and notices).
   const [ownBuildKey, setOwnBuildKey] = useState<string | null>(null);
@@ -199,11 +206,13 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   const ensureProgram = useCallback(
     async (port: string | null): Promise<string | null> => {
       const live = useSimulatorStore.getState().boards.find((b) => b.id === board.id) ?? board;
-      const hash = currentSourceFingerprint(live);
-      if (needsOwnBuild) {
+      let ownBuild = ownBuildFor(live);
+      if (ownBuild) {
         // Reused while the sources and the revision stay the same.
         const own = ownBuildRef.current;
-        if (own && own.fqbn === hwFqbn && own.hash === hash) return own.program;
+        if (own && own.fqbn === hwFqbn && own.hash === currentSourceFingerprint(live)) {
+          return own.program;
+        }
       } else if (live.compiledProgram && !isCompiledProgramStale(live)) {
         return live.compiledProgram;
       }
@@ -213,38 +222,56 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
         logRef.current = [...logRef.current, line];
         setState((prev) => (prev.kind === 'compiling' ? { ...prev, log: logRef.current } : prev));
       };
-      push(
-        needsOwnBuild
-          ? t('editor.flash.log.compilingRevision', {
-              revision: activeRevision?.label ?? live.boardKind,
-            })
-          : live.compiledProgram
-            ? t('editor.flash.log.recompiling')
-            : t('editor.flash.log.compiling'),
-      );
-      const outcome = await compileBoardForFlash(
-        live,
-        push,
-        needsOwnBuild ? { fqbn: hwFqbn, record: false, forHardware: true } : {},
-      );
-      if (!outcome.ok) {
-        setState({
-          kind: 'error',
-          port,
-          message: t('editor.flash.compileFailed', { error: outcome.error }),
-          log: [...logRef.current],
-          stage: 'compile',
-        });
-        return null;
+      const build = async (own: boolean) => {
+        push(
+          own
+            ? t('editor.flash.log.compilingRevision', {
+                revision: activeRevision?.label ?? boardDisplayName(live) ?? live.boardKind,
+              })
+            : live.compiledProgram
+              ? t('editor.flash.log.recompiling')
+              : t('editor.flash.log.compiling'),
+        );
+        const outcome = await compileBoardForFlash(
+          live,
+          push,
+          own ? { fqbn: hwFqbn, record: false, forHardware: true } : {},
+        );
+        if (!outcome.ok) {
+          setState({
+            kind: 'error',
+            port,
+            message: t('editor.flash.compileFailed', { error: outcome.error }),
+            log: [...logRef.current],
+            stage: 'compile',
+          });
+          return null;
+        }
+        push(t('editor.flash.log.compiled', { seconds: (outcome.elapsedMs / 1000).toFixed(1) }));
+        return outcome;
+      };
+      if (!ownBuild) {
+        // The simulator's build, recorded on the board as the toolbar's is.
+        const outcome = await build(false);
+        if (!outcome) return null;
+        // An ESP32 whose WiFi credentials the server rewrote for the
+        // simulated network: that image is not for the board, which gets
+        // its own below. Any other build is the one to flash.
+        if (!outcome.wifiRewritten) return outcome.program;
+        ownBuild = true;
       }
-      push(t('editor.flash.log.compiled', { seconds: (outcome.elapsedMs / 1000).toFixed(1) }));
-      if (needsOwnBuild) {
-        ownBuildRef.current = { fqbn: hwFqbn, hash, program: outcome.program, uf2: outcome.uf2 };
-        setOwnBuildKey(`${hwFqbn}\n${hash}`);
-      }
+      // The fingerprint of what THIS build is made from, taken as it starts
+      // (compileBoardForFlash reads the sources before its first await): a
+      // build of the simulator's may have come first, and the code can have
+      // changed while it ran.
+      const hash = currentSourceFingerprint(live);
+      const outcome = await build(true);
+      if (!outcome) return null;
+      ownBuildRef.current = { fqbn: hwFqbn, hash, program: outcome.program, uf2: outcome.uf2 };
+      setOwnBuildKey(`${hwFqbn}\n${hash}`);
       return outcome.program;
     },
-    [board, t, needsOwnBuild, hwFqbn, activeRevision],
+    [board, t, ownBuildFor, hwFqbn, activeRevision],
   );
 
   /**
@@ -254,12 +281,15 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
    */
   const hardwareProgram = useCallback(
     (program: string): string | null => {
-      if (!needsOwnBuild) return program;
+      // The board as the store holds it: ensureProgram may just have learnt
+      // that its program is the simulator's alone.
+      const live = useSimulatorStore.getState().boards.find((b) => b.id === board.id) ?? board;
+      if (!ownBuildFor(live)) return program;
       const own = ownBuildRef.current;
       if (!own) return null;
       return hwUsesUf2 ? own.uf2 : own.program;
     },
-    [needsOwnBuild, hwUsesUf2],
+    [board, ownBuildFor, hwUsesUf2],
   );
 
   const refreshPorts = useCallback(async () => {

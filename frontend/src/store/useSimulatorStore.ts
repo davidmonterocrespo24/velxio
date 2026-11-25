@@ -1846,8 +1846,16 @@ interface SimulatorState {
   pasteClipboard: (nearBoardId?: string) => { kind: 'board' | 'component'; id: string } | null;
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
   setActiveBoardId: (boardId: string) => void;
-  /** Record a board's build: what its simulator runs. */
-  compileBoardProgram: (boardId: string, program: string) => void;
+  /**
+   * Record a board's build: what its simulator runs. `facts` is what the
+   * compile said of it (BoardInstance.wifiRewritten); a program recorded
+   * without them is one nothing is known about.
+   */
+  compileBoardProgram: (
+    boardId: string,
+    program: string,
+    facts?: { wifiRewritten?: boolean },
+  ) => void;
   loadMicroPythonProgram: (
     boardId: string,
     files: Array<{ name: string; content: string }>,
@@ -2590,8 +2598,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         esp32BridgeEpoch: s.esp32BridgeEpoch + 1,
       }));
       // A build that finished while the board waited goes into the new runtime.
-      const program = get().boards.find((b) => b.id === id)?.compiledProgram;
-      if (program) get().compileBoardProgram(id, program);
+      const built = get().boards.find((b) => b.id === id);
+      if (built?.compiledProgram) {
+        // The same build, into another runtime: what was said of it stands.
+        get().compileBoardProgram(id, built.compiledProgram, {
+          wifiRewritten: built.wifiRewritten,
+        });
+      }
     }
   }
 
@@ -3941,7 +3954,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       useEditorStore.getState().setActiveGroup(board.activeFileGroupId);
     },
 
-    compileBoardProgram: (boardId: string, program: string) => {
+    compileBoardProgram: (
+      boardId: string,
+      program: string,
+      facts?: { wifiRewritten?: boolean },
+    ) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) {
         console.warn(`[compileBoardProgram] board not found: ${boardId}`);
@@ -4009,7 +4026,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       set((s) => {
         const boards = s.boards.map((b) =>
           b.id === boardId
-            ? { ...b, compiledProgram: program, compiledSourceHash }
+            ? {
+                ...b,
+                compiledProgram: program,
+                compiledSourceHash,
+                wifiRewritten: facts?.wifiRewritten,
+              }
             : b,
         );
         const isActive = s.activeBoardId === boardId;
@@ -4332,6 +4354,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                 languageMode: mode,
                 compiledProgram: null,
                 hasWifi: undefined,
+                wifiRewritten: undefined,
               }
             : b,
         ),
@@ -4912,6 +4935,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ...b,
                   boardKind: type as BoardKind,
                   compiledProgram: null,
+                  wifiRewritten: undefined,
                   serialOutput: '',
                   serialBaudRate: 0,
                   serialLink: undefined,
@@ -4955,6 +4979,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ...b,
                   boardKind: type as BoardKind,
                   compiledProgram: null,
+                  wifiRewritten: undefined,
                   serialOutput: '',
                   serialBaudRate: 0,
                   serialLink: undefined,

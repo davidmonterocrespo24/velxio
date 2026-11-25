@@ -25,6 +25,22 @@ export function hardwareBuildDiffers(fqbn: string | null | undefined): boolean {
   return !!fqbn && fqbn.includes('rp2040');
 }
 
+/**
+ * Whether a flash of this board to `fqbn` needs an image of its own. By the
+ * FQBN (hardwareBuildDiffers), or by what the server said of the program on
+ * the board: an ESP32 build whose WiFi credentials were rewritten for the
+ * simulated networks would have the real board look for "Velxio-GUEST". The
+ * FQBN alone is too coarse there: most ESP32 sketches are flashed with the
+ * very image the simulator runs, and build nothing. A server that predates
+ * the field never says so, and the board is flashed as it always was.
+ */
+export function needsHardwareBuild(
+  board: Pick<BoardInstance, 'wifiRewritten'>,
+  fqbn: string | null | undefined,
+): boolean {
+  return hardwareBuildDiffers(fqbn) || board.wifiRewritten === true;
+}
+
 /** Per-board compile extras (ESP32 options, SPIFFS, manifest, language, analytics). */
 export function compileOptionsForBoard(
   board: BoardInstance | undefined,
@@ -87,7 +103,14 @@ export function isCompiledProgramStale(board: BoardInstance): boolean {
 }
 
 export type BoardCompileOutcome =
-  | { ok: true; program: string; uf2: string | null; elapsedMs: number }
+  | {
+      ok: true;
+      program: string;
+      uf2: string | null;
+      /** The server rewrote this build's WiFi credentials (see needsHardwareBuild). */
+      wifiRewritten: boolean;
+      elapsedMs: number;
+    }
   | { ok: false; error: string; elapsedMs: number };
 
 export interface BoardCompileOptions {
@@ -99,7 +122,7 @@ export interface BoardCompileOptions {
    * runs as RP2350: the caller keeps the result.
    */
   record?: boolean;
-  /** Firmware for a real board, not the simulator (see hardwareBuildDiffers). */
+  /** Firmware for a real board, not the simulator (see needsHardwareBuild). */
   forHardware?: boolean;
 }
 
@@ -153,10 +176,10 @@ export async function compileBoardForFlash(
     const uf2 = result.uf2_content ?? null;
     if (opts.record !== false) {
       const sim = useSimulatorStore.getState();
-      sim.compileBoardProgram(board.id, program);
+      sim.compileBoardProgram(board.id, program, { wifiRewritten: result.wifi_rewritten });
       if (result.has_wifi !== undefined) sim.updateBoard(board.id, { hasWifi: result.has_wifi });
     }
-    return { ok: true, program, uf2, elapsedMs };
+    return { ok: true, program, uf2, wifiRewritten: result.wifi_rewritten === true, elapsedMs };
   } catch (err) {
     return {
       ok: false,
