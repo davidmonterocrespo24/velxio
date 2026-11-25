@@ -131,7 +131,7 @@
         "maker": {
           "name": "Maker",
           "tagline": "For makers shipping real circuits with AI help.",
-          "f1": "500 daily AI credits (up to 15,000/month)",
+          "f1": "1,500 daily AI credits (up to 15,000/month)",
           "f2": "Unlisted projects + Velxio Desktop (offline)",
           "f3": "Unlimited ESP32, STM32 & Raspberry Pi run time",
           "cta": "Start Maker"
@@ -139,7 +139,7 @@
         "pro": {
           "name": "Pro",
           "tagline": "Private projects, GitHub Sync and BOM exports.",
-          "f1": "2,000 daily AI credits (up to 60,000/month)",
+          "f1": "5,000 daily AI credits (up to 60,000/month)",
           "f2": "Private projects + BOM CSV + schematic PNG",
           "f3": "GitHub Sync + watermark-free embeds",
           "cta": "Subscribe to Pro"

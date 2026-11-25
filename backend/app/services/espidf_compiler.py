@@ -1740,6 +1740,174 @@ def _wifi_rewrite_notes(replaced: list[str]) -> list[str]:
     ]
 
 
+def _ino_sketch(files: list[dict]) -> tuple[str, dict | None]:
+    """(the text compiled as the sketch, the file it is when there is no .ino).
+
+    Arduino tab semantics: EVERY .ino is part of the sketch. The main file
+    (literal sketch.ino, else the first .ino sent) comes first so its globals
+    are visible to the other tabs, and the rest are concatenated after it in
+    alphabetical order, exactly what arduino-cli/the IDE do. #line markers
+    keep compiler diagnostics pointing at the real file/line of each tab.
+    Without an .ino the first file is the sketch: its content already becomes
+    sketch.ino.cpp (see _write_arduino_user_files).
+    """
+    ino_files = [f for f in files if f['name'].endswith('.ino')]
+    if ino_files:
+        main_ino = next((f for f in ino_files if f['name'] == 'sketch.ino'), ino_files[0])
+        rest = sorted((f for f in ino_files if f is not main_ino), key=lambda f: f['name'])
+        content = '\n'.join(
+            f'#line 1 "{f["name"]}"\n{f["content"]}' for f in [main_ino] + rest
+        )
+        if content:
+            return content, None
+    if files:
+        return files[0]['content'], files[0]
+    return '', None
+
+
+def _wifi_user_sources(files: list[dict]) -> list[dict]:
+    """The files the WiFi normalization reads beside the .ino tabs: the headers
+    and .c/.cpp files written next to the sketch."""
+    return [
+        f for f in files
+        if not str(f.get('name') or '').endswith('.ino')
+        and str(f.get('name') or '').lower().endswith(_WIFI_SOURCE_SUFFIXES)
+    ]
+
+
+# A line of source as GCC quotes it under a diagnostic, and the caret line
+# below it: a gutter (`   12 | `, `      | `) and then the user's text.
+_SOURCE_GUTTER = re.compile(r'\s*\d*\s*\|')
+# R"delim( opens a raw string, which runs on to )delim" on any later line.
+_RAW_STRING_OPEN = re.compile(r'R"([^()\\\s"]{0,16})\(')
+_MASKED = '...'
+
+
+def _without_user_text(text: str, continued: bool = False) -> str:
+    """`text` (build output) without what the user's strings say, line by
+    line, failing closed: a line is cut wherever it may hold a string's text.
+
+    A build for a real board keeps the user's WiFi credentials in its
+    sources, and a compiler diagnostic quotes the line it is about: this is
+    what the server log gets of such a build's output.
+
+    - a line GCC quotes from the source keeps its gutter only. It is shown
+      alone, so nothing on it says whether it begins inside a string (the
+      second line of a continued one has no opening quote at all);
+    - any other line is cut from its first quote to its end. Pairing the
+      quotes would turn inside out on a line with an odd number of them;
+    - the line after one that ends in a backslash continues it, and the
+      lines of an open raw string belong to it: both go whole.
+    `continued` says the text begins on such a continuation.
+    """
+    out: list[str] = []
+    raw_end: str | None = None
+    for line in text.split('\n'):
+        body = line.rstrip('\r')
+        ends_spliced = body.endswith('\\')
+        if raw_end is not None:
+            if raw_end in body:
+                raw_end = None
+            out.append(_MASKED)
+        elif continued:
+            out.append(_MASKED)
+        else:
+            gutter = _SOURCE_GUTTER.match(body)
+            if gutter:
+                out.append(gutter.group(0) + ' ' + _MASKED)
+            else:
+                raw = _RAW_STRING_OPEN.search(body)
+                if raw and f'){raw.group(1)}"' not in body[raw.end():]:
+                    raw_end = f'){raw.group(1)}"'
+                quote = body.find('"')
+                out.append(body if quote < 0 else body[:quote] + '"' + _MASKED)
+        continued = ends_spliced
+    return '\n'.join(out)
+
+
+def _log_tail(text: str, limit: int, user_text: bool = True) -> str:
+    """The last `limit` characters of a build's output, for the server log.
+    Without `user_text` they go through _without_user_text, and the line the
+    cut landed in is dropped first: it may begin inside a string."""
+    tail = text[-limit:]
+    if user_text:
+        return tail
+    continued = False
+    if len(text) > limit:
+        cut_line, _, tail = tail.partition('\n')
+        continued = cut_line.rstrip('\r').endswith('\\')
+    return _without_user_text(tail, continued)
+
+
+# What a build leaves in main/ that the next one needs as it is: the two
+# configure inputs _prepare_persistent_project_dir stashes before it resets
+# main/ (see there). Neither holds a line of the user's sources.
+_MAIN_CONFIGURE_INPUTS = frozenset(('CMakeLists.txt', 'idf_component.yml'))
+# The image and what it is linked from, under build/.
+_SKETCH_OUTPUTS = (
+    'velxio-sketch.elf', 'velxio-sketch.bin', 'velxio-sketch.map', 'merged_flash.bin',
+)
+
+
+def _forget_hardware_build(project_dir: Path) -> None:
+    """Remove from a shared variant dir what a build for a real board left
+    there with the user's network in it: the sources in main/, the main
+    component's objects and archive, the linked image and the merged one.
+
+    Run under the variant lock, after the image was read. It costs the next
+    build nothing it would not do anyway: main/ is reset from the template
+    before every build, its sources are rewritten and compiled when they
+    differ (they do, from a sketch with someone's password in it), and the
+    image is linked again. The two configure inputs stay, so the next build
+    still finds them unchanged and skips the configure; the libraries'
+    objects stay, so the dir is as warm as it was. Dropping the main
+    component's objects is what the app_main heal in _compile_in_dir does.
+
+    Never raises: a file that would not go is one the next build overwrites.
+    """
+    main_dir = project_dir / 'main'
+    forgotten: set[str] = set()
+    try:
+        entries = list(main_dir.iterdir())
+    except OSError:
+        entries = []
+    for path in entries:
+        if path.name in _MAIN_CONFIGURE_INPUTS:
+            continue
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                continue
+        forgotten.add(path.name)
+    build_dir = project_dir / 'build'
+    main_build = build_dir / 'esp-idf' / 'main'
+    shutil.rmtree(main_build / 'CMakeFiles' / '__idf_main.dir', ignore_errors=True)
+    for path in [main_build / 'libmain.a'] + [build_dir / name for name in _SKETCH_OUTPUTS]:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    # The record of what each input held (a digest per file) forgets them
+    # too; every other entry stays, or the next build would take the
+    # libraries for changed and compile them again.
+    record_path = project_dir / _INPUT_DIGESTS
+    try:
+        record = json.loads(record_path.read_text(encoding='utf-8'))
+        kept = {
+            rel: entry for rel, entry in record.items()
+            if not (rel.startswith('main/') and rel.split('/')[1] in forgotten)
+        }
+        if len(kept) != len(record):
+            tmp = project_dir / (_INPUT_DIGESTS + '.tmp')
+            tmp.write_text(json.dumps(kept), encoding='utf-8')
+            os.replace(tmp, record_path)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
 def _matching_paren(code: str, open_idx: int) -> int:
     """Index of the ')' that closes the '(' at open_idx, or -1. Skips strings."""
     depth = 0
@@ -6582,6 +6750,7 @@ class ESPIDFCompiler:
         custom_wifi_ssids: list[str] | None = None,
         cpu_nice: int | None = None,
         _force_replica: int | None = None,
+        for_hardware: bool = False,
     ) -> dict:
         """
         Compile Arduino sketch using ESP-IDF.
@@ -6590,6 +6759,16 @@ class ESPIDFCompiler:
         point parts: the WiFi normalization below stands down entirely (no
         SSID rewrite, no channel forcing) — the user's airspace is exactly
         what they typed, typos included, which is now the truthful outcome.
+
+        `for_hardware` builds the firmware for a real board: the WiFi
+        normalization stands down the same way, so the image joins the
+        network the sketch names, with its password. Such an image never
+        goes to an emulator (the caller keys its caches on it). The build
+        dir is shared with the simulator's builds, which is safe because
+        every build writes its own sources and links its own image; what
+        this one wrote there with the password in it is removed before the
+        dir is given to anyone else (_forget_hardware_build), it stores no
+        object in ccache, and it warms no replica.
 
         Returns dict compatible with ArduinoCLIService.compile():
             success, binary_content (base64), binary_type, stdout, stderr, error
@@ -6782,7 +6961,10 @@ class ESPIDFCompiler:
                         replica = _force_replica
                     else:
                         replica, warm = self._pick_replica(idf_target, eff_hash)
-                        if warm is not None:
+                        # A replica is warmed with a build whose result is
+                        # thrown away: never one with the user's password in
+                        # it. The next simulator build that queues warms it.
+                        if warm is not None and not for_hardware:
                             self._warm_replica_in_background(
                                 warm, idf_target, eff_hash, files, board_fqbn,
                                 board_options=board_options,
@@ -6819,9 +7001,13 @@ class ESPIDFCompiler:
                                 pure_idf=pure_idf, board_fqbn=board_fqbn,
                                 custom_wifi_ssids=custom_wifi_ssids,
                                 denied_libraries=denied, speculative_out=speculative,
-                                cpu_nice=cpu_nice,
+                                cpu_nice=cpu_nice, for_hardware=for_hardware,
                             )
                         finally:
+                            if for_hardware:
+                                # Still under the lock: nobody builds here
+                                # before the user's network is out of the dir.
+                                await asyncio.to_thread(_forget_hardware_build, project_dir)
                             # Re-stamp at the END of the build too: eviction
                             # sorts by this, and a long build must not be the
                             # coldest sibling because it started long ago.
@@ -6840,7 +7026,7 @@ class ESPIDFCompiler:
                         arduino_mode=arduino_mode, use_idf5=use_idf5,
                         pure_idf=pure_idf, board_fqbn=board_fqbn,
                         custom_wifi_ssids=custom_wifi_ssids,
-                        cpu_nice=cpu_nice,
+                        cpu_nice=cpu_nice, for_hardware=for_hardware,
                     )
             finally:
                 if scope_dir is not None:
@@ -7010,6 +7196,7 @@ class ESPIDFCompiler:
         denied_libraries: set[str] | None = None,
         speculative_out: set[str] | None = None,
         cpu_nice: int | None = None,
+        for_hardware: bool = False,
     ) -> dict:
         """Inner compile body: writes sketch + libs into `project_dir`,
         runs cmake + ninja, merges binaries. Caller is responsible for
@@ -7023,6 +7210,15 @@ class ESPIDFCompiler:
         (app_main entry point) — no Arduino wrap, no Arduino libraries.
         The template's main/CMakeLists.txt picks its pure branch via the
         VELXIO_PURE_SKETCH env var set in _build_env.
+
+        for_hardware: the image is for a real board. The sources are built
+        as the user wrote them (no WiFi normalization); a successful result
+        says `wifi_rewritten`, whether this build's sources were changed for
+        the simulated networks, which is when a board needs a build of its
+        own. It is read off what the normalizers returned HERE, inside the
+        build: an overlay may hold a rewrite back (it wraps them, and knows
+        the request only while this method runs), and nothing outside can
+        tell what they will do.
         """
         # board_options is already normalised by compile() — defensive in
         # case _compile_in_dir is called directly from a test path.
@@ -7113,33 +7309,8 @@ class ESPIDFCompiler:
         partition_csv = self._render_partition_csv(board_options['partitionScheme'])
         _write_if_changed(project_dir / 'partitions.csv', partition_csv)
 
-        # Get sketch content — Arduino tab semantics: EVERY .ino is part of
-        # the sketch. The main file (literal sketch.ino, else the first .ino
-        # sent) comes first so its globals are visible to the other tabs,
-        # and the rest are concatenated after it in alphabetical order —
-        # exactly what arduino-cli/the IDE do. #line markers keep compiler
-        # diagnostics pointing at the real file/line of each tab.
-        ino_files = [f for f in files if f['name'].endswith('.ino')]
-        main_content = ''
-        if ino_files:
-            main_ino = next(
-                (f for f in ino_files if f['name'] == 'sketch.ino'),
-                ino_files[0],
-            )
-            rest = sorted(
-                (f for f in ino_files if f is not main_ino),
-                key=lambda f: f['name'],
-            )
-            main_content = '\n'.join(
-                f'#line 1 "{f["name"]}"\n{f["content"]}'
-                for f in [main_ino] + rest
-            )
-        # The file compiled as the sketch when there is no .ino: its content
-        # already becomes sketch.ino.cpp (see _write_arduino_user_files).
-        entry_file = None
-        if not main_content and files:
-            main_content = files[0]['content']
-            entry_file = files[0]
+        # The sketch: every .ino tab as one text (see _ino_sketch).
+        main_content, entry_file = _ino_sketch(files)
 
         # ── The networks the simulated radios broadcast ──────────────────
         # Every radio (the QEMU fork and the in-browser engines) beacons the
@@ -7148,7 +7319,9 @@ class ESPIDFCompiler:
         # channel 6), the password is dropped (the networks are open), and the
         # compile log names every SSID that was swapped. A project with its own
         # access point parts (custom_wifi_ssids) defines its own airspace:
-        # nothing is rewritten then.
+        # nothing is rewritten then. Nor for a real board (for_hardware), whose
+        # air carries the network the sketch names: its sources are built as
+        # written, a simulated network's name included.
         # Detect WiFi BEFORE normalization so the flag reflects the original sketch.
         # header -> display name of the library the resolver merged for it.
         # Declared at function scope: the success return reads it for EVERY
@@ -7159,6 +7332,10 @@ class ESPIDFCompiler:
         _all_text = '\n'.join(f.get('content', '') for f in files)
         # The SSIDs the normalizers swapped for the default network.
         wifi_replaced: list[str] = []
+        # Whether the normalizers changed any source: the simulator's build
+        # is then not what a real board should run.
+        wifi_rewritten = False
+        normalize_wifi = not custom_wifi_ssids and not for_hardware
         if pure_idf:
             has_wifi = self._detect_idf_wifi_usage(_all_text)
         else:
@@ -7175,16 +7352,11 @@ class ESPIDFCompiler:
             # .c/.cpp files written beside them. The SSID WiFi.begin() is
             # given is often defined in another file (a secrets.h); reading
             # the tabs alone left it untouched (velxio/velxio-prod#191).
-            if not custom_wifi_ssids:
-                user_sources = [
-                    f for f in files
-                    if not str(f.get('name') or '').endswith('.ino')
-                    and str(f.get('name') or '').lower().endswith(_WIFI_SOURCE_SUFFIXES)
-                ]
-                rewritten = self._normalize_wifi_sources(
-                    [main_content] + [str(f.get('content', '')) for f in user_sources],
-                    wifi_replaced,
-                )
+            if normalize_wifi:
+                user_sources = _wifi_user_sources(files)
+                written = [main_content] + [str(f.get('content', '')) for f in user_sources]
+                rewritten = self._normalize_wifi_sources(written, wifi_replaced)
+                wifi_rewritten = rewritten != written
                 main_content = rewritten[0]
                 copies = {
                     id(f): {**f, 'content': content}
@@ -7219,9 +7391,10 @@ class ESPIDFCompiler:
                 if not name:
                     continue
                 content = f.get('content', '')
-                if has_wifi:
-                    if not custom_wifi_ssids:
-                        content = self._normalize_wifi_for_qemu_idf(content, wifi_replaced)
+                if has_wifi and normalize_wifi:
+                    normalized = self._normalize_wifi_for_qemu_idf(content, wifi_replaced)
+                    wifi_rewritten = wifi_rewritten or normalized != content
+                    content = normalized
                 (main_dir / name).write_text(content, encoding='utf-8')
                 wrote_any = True
             if not wrote_any:
@@ -7558,6 +7731,10 @@ class ESPIDFCompiler:
             idf_target, use_idf5=use_idf5, arduino_mode=arduino_mode,
             pure_idf=pure_idf,
         )
+        if for_hardware:
+            # The objects of this build hold the user's network: ccache
+            # serves the ones it has (the core, the libraries) and keeps none.
+            env['CCACHE_READONLY'] = '1'
 
         # Step 1: cmake configure
         cmake_cmd = [
@@ -7866,15 +8043,22 @@ class ESPIDFCompiler:
             # Put extracted errors in stderr so the console highlights them
             combined_stderr = (extracted + '\n\n' + all_stderr).strip() if extracted else all_stderr
 
+            # A build for a real board holds the user's WiFi credentials, and
+            # a diagnostic quotes its source line: the server log gets the
+            # output without the user's text (_log_tail). The user reads it
+            # whole.
             logger.error(
                 # Dir and mode on the header: a missing app_main in a pure
                 # ESP-IDF build is the user's own error, in Arduino mode it
                 # means a poisoned dir (scripts watching the log tell them apart).
                 f'[espidf] ninja build failed in {project_dir} '
                 f'mode={"arduino" if arduino_mode else "pure-idf"} (stdout):\n'
-                f'{ninja_result.stdout[-4000:]}'
+                f'{_log_tail(ninja_result.stdout, 4000, user_text=not for_hardware)}'
             )
-            logger.error(f'[espidf] ninja build failed (stderr):\n{ninja_result.stderr[-2000:]}')
+            logger.error(
+                '[espidf] ninja build failed (stderr):\n'
+                + _log_tail(ninja_result.stderr, 2000, user_text=not for_hardware)
+            )
             return {
                 'success': False,
                 'error': summary,
@@ -7940,6 +8124,7 @@ class ESPIDFCompiler:
             'binary_content': binary_b64,
             'binary_type': 'bin',
             'has_wifi': has_wifi,
+            'wifi_rewritten': wifi_rewritten,
             'stdout': all_stdout,
             'stderr': all_stderr,
         }

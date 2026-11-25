@@ -54,10 +54,12 @@ import {
 import { openExternal } from '../../desktop/tauriBridge';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useProjectStore } from '../../store/useProjectStore';
+import { boardDisplayName } from '../../types/board';
 import {
   compileBoardForFlash,
   currentSourceFingerprint,
   isCompiledProgramStale,
+  needsHardwareBuild,
 } from '../../utils/boardCompile';
 import {
   canSaveToDrive,
@@ -113,7 +115,7 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   const isMpy = board.languageMode === 'micropython';
   const mpyWebOk = isMpy && !isTauri() && webFlashMpyAvailable(board.boardKind);
   // RP2040 / RP2350: picotool and the BOOTSEL drive take a .uf2, not the
-  // raw .bin the emulator runs, so the flash needs `compiledUf2`.
+  // raw .bin the emulator runs.
   const usesUf2 = fqbnUsesUf2(fqbn);
   // Hardware revisions of this kind (a Unicorn with a Pico W vs a Pico 2 W
   // aboard). The first one is what the simulator runs; picking another
@@ -126,9 +128,26 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   const hwFqbn = activeRevision?.fqbn ?? fqbn;
   const isAltRevision = hwFqbn !== fqbn;
   const hwUsesUf2 = fqbnUsesUf2(hwFqbn);
-  // The alternate-revision build lives here, not in the store: the emulator
-  // must never pick up an RP2040 image for a board it runs as RP2350.
-  const altBuildRef = useRef<{ fqbn: string; hash: string; program: string; uf2: string | null } | null>(null);
+  // The flash builds an image of its own when the simulator's is not what
+  // this board should run: another chip (a revision), or a build that only
+  // serves the simulator (needsHardwareBuild: an RP2040's Serial on UART0,
+  // an ESP32's WiFi credentials swapped for the simulated network). Everyone
+  // else is flashed with the program the simulator runs. Asked of the board
+  // as it is NOW: a compile inside the dialog can be what tells.
+  const ownBuildFor = useCallback(
+    (b: BoardInstance) => isAltRevision || needsHardwareBuild(b, hwFqbn),
+    [isAltRevision, hwFqbn],
+  );
+  const needsOwnBuild = ownBuildFor(board);
+  // That build lives here, not in the store: the emulator must never pick
+  // up an RP2040 image for a board it runs as RP2350, firmware whose serial
+  // monitor it cannot see, nor one that joins a network it does not beacon.
+  const ownBuildRef = useRef<{ fqbn: string; hash: string; program: string; uf2: string | null } | null>(null);
+  // What ownBuildRef holds, for the render (labels and notices).
+  const [ownBuildKey, setOwnBuildKey] = useState<string | null>(null);
+  const ownBuildReady =
+    ownBuildKey !== null && ownBuildKey === `${hwFqbn}\n${currentSourceFingerprint(board)}`;
+  const buildStatus = buildStatusOf(board, needsOwnBuild, ownBuildReady);
   const pickRevision = useCallback(
     (id: string) => {
       setRevisionId(id);
@@ -187,19 +206,14 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   const ensureProgram = useCallback(
     async (port: string | null): Promise<string | null> => {
       const live = useSimulatorStore.getState().boards.find((b) => b.id === board.id) ?? board;
-      if (isAltRevision) {
-        // Another chip than the simulator's: a build of its own, reused
-        // while the sources and the revision stay the same.
-        const alt = altBuildRef.current;
-        const hash = currentSourceFingerprint(live);
-        if (alt && alt.fqbn === hwFqbn && alt.hash === hash) return alt.program;
-      } else if (
-        live.compiledProgram &&
-        !isCompiledProgramStale(live) &&
-        (!usesUf2 || live.compiledUf2)
-      ) {
-        // A fresh build is reusable unless this board needs the .uf2 and
-        // the build predates it (older server): then rebuild to get one.
+      let ownBuild = ownBuildFor(live);
+      if (ownBuild) {
+        // Reused while the sources and the revision stay the same.
+        const own = ownBuildRef.current;
+        if (own && own.fqbn === hwFqbn && own.hash === currentSourceFingerprint(live)) {
+          return own.program;
+        }
+      } else if (live.compiledProgram && !isCompiledProgramStale(live)) {
         return live.compiledProgram;
       }
       logRef.current = [];
@@ -208,59 +222,74 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
         logRef.current = [...logRef.current, line];
         setState((prev) => (prev.kind === 'compiling' ? { ...prev, log: logRef.current } : prev));
       };
-      push(
-        isAltRevision
-          ? t('editor.flash.log.compilingRevision', { revision: activeRevision?.label ?? hwFqbn })
-          : live.compiledProgram
-            ? t('editor.flash.log.recompiling')
-            : t('editor.flash.log.compiling'),
-      );
-      const outcome = await compileBoardForFlash(
-        live,
-        push,
-        isAltRevision ? { fqbn: hwFqbn, record: false } : {},
-      );
-      if (!outcome.ok) {
-        setState({
-          kind: 'error',
-          port,
-          message: t('editor.flash.compileFailed', { error: outcome.error }),
-          log: [...logRef.current],
-          stage: 'compile',
-        });
-        return null;
+      const build = async (own: boolean) => {
+        push(
+          own
+            ? t('editor.flash.log.compilingRevision', {
+                revision: activeRevision?.label ?? boardDisplayName(live) ?? live.boardKind,
+              })
+            : live.compiledProgram
+              ? t('editor.flash.log.recompiling')
+              : t('editor.flash.log.compiling'),
+        );
+        const outcome = await compileBoardForFlash(
+          live,
+          push,
+          own ? { fqbn: hwFqbn, record: false, forHardware: true } : {},
+        );
+        if (!outcome.ok) {
+          setState({
+            kind: 'error',
+            port,
+            message: t('editor.flash.compileFailed', { error: outcome.error }),
+            log: [...logRef.current],
+            stage: 'compile',
+          });
+          return null;
+        }
+        push(t('editor.flash.log.compiled', { seconds: (outcome.elapsedMs / 1000).toFixed(1) }));
+        return outcome;
+      };
+      if (!ownBuild) {
+        // The simulator's build, recorded on the board as the toolbar's is.
+        const outcome = await build(false);
+        if (!outcome) return null;
+        // An ESP32 whose WiFi credentials the server rewrote for the
+        // simulated network: that image is not for the board, which gets
+        // its own below. Any other build is the one to flash.
+        if (!outcome.wifiRewritten) return outcome.program;
+        ownBuild = true;
       }
-      push(t('editor.flash.log.compiled', { seconds: (outcome.elapsedMs / 1000).toFixed(1) }));
-      if (isAltRevision) {
-        altBuildRef.current = {
-          fqbn: hwFqbn,
-          hash: currentSourceFingerprint(live),
-          program: outcome.program,
-          uf2: outcome.uf2,
-        };
-      }
+      // The fingerprint of what THIS build is made from, taken as it starts
+      // (compileBoardForFlash reads the sources before its first await): a
+      // build of the simulator's may have come first, and the code can have
+      // changed while it ran.
+      const hash = currentSourceFingerprint(live);
+      const outcome = await build(true);
+      if (!outcome) return null;
+      ownBuildRef.current = { fqbn: hwFqbn, hash, program: outcome.program, uf2: outcome.uf2 };
+      setOwnBuildKey(`${hwFqbn}\n${hash}`);
       return outcome.program;
     },
-    [board, t, usesUf2, isAltRevision, hwFqbn, activeRevision],
+    [board, t, ownBuildFor, hwFqbn, activeRevision],
   );
 
   /**
    * The bytes real hardware takes: the .uf2 for RP2 boards (null when the
-   * build has none), the program itself for everyone else. An alternate
-   * revision's build comes from the dialog's own copy.
+   * build has none), the program itself for everyone else. A build of the
+   * flash's own comes from the dialog's copy.
    */
   const hardwareProgram = useCallback(
     (program: string): string | null => {
-      if (isAltRevision) {
-        const alt = altBuildRef.current;
-        if (!alt) return null;
-        return hwUsesUf2 ? alt.uf2 : alt.program;
-      }
-      if (!usesUf2) return program;
-      const live = useSimulatorStore.getState().boards.find((b) => b.id === board.id);
-      return live?.compiledUf2 ?? null;
+      // The board as the store holds it: ensureProgram may just have learnt
+      // that its program is the simulator's alone.
+      const live = useSimulatorStore.getState().boards.find((b) => b.id === board.id) ?? board;
+      if (!ownBuildFor(live)) return program;
+      const own = ownBuildRef.current;
+      if (!own) return null;
+      return hwUsesUf2 ? own.uf2 : own.program;
     },
-    [board.id, usesUf2, isAltRevision, hwUsesUf2],
+    [board, ownBuildFor, hwUsesUf2],
   );
 
   const refreshPorts = useCallback(async () => {
@@ -601,7 +630,7 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
 
         {flashAllowed && state.kind === 'picking' && (
           <PickerView
-            board={board}
+            status={buildStatus}
             ports={state.ports}
             selected={state.selectedPath}
             onSelect={(p) => setState({ ...state, selectedPath: p })}
@@ -613,6 +642,7 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
         {flashAllowed && state.kind === 'web-ready' && (
           <WebReadyView
             board={board}
+            status={buildStatus}
             mpyWebOk={mpyWebOk}
             onFlash={() => void doWebFlash()}
             bootloader={bootloaderHint}
@@ -625,7 +655,7 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
 
         {flashAllowed && state.kind === 'download-only' && (
           <DownloadOnlyView
-            board={board}
+            status={buildStatus}
             downloaded={state.downloaded}
             drive={state.drive}
             onDownload={() => void doDownload()}
@@ -732,7 +762,7 @@ const BootloaderPanel = ({ hint, status, onEnter }: BootloaderPanelProps) => {
 // ── Download-only subview (RP2 boards on a browser without a flasher) ──
 
 interface DownloadOnlyProps {
-  board: BoardInstance;
+  status: BuildStatus;
   downloaded?: string;
   /** Drive name when the file went straight onto the BOOTSEL drive. */
   drive?: string;
@@ -741,9 +771,8 @@ interface DownloadOnlyProps {
   onSaveToDrive?: () => void;
 }
 
-const DownloadOnlyView = ({ board, downloaded, drive, onDownload, onSaveToDrive }: DownloadOnlyProps) => {
+const DownloadOnlyView = ({ status, downloaded, drive, onDownload, onSaveToDrive }: DownloadOnlyProps) => {
   const { t } = useTranslation();
-  const status = buildStatusOf(board);
   return (
     <div>
       <div style={{ ...insetBoxStyle, padding: 16, marginBottom: 12 }}>
@@ -818,7 +847,7 @@ const PaidGateView = ({ onClose }: { onClose: () => void }) => {
 // ── Picker subview ──────────────────────────────────────────────────
 
 interface PickerProps {
-  board: BoardInstance;
+  status: BuildStatus;
   ports: SerialPortInfo[];
   selected: string | null;
   onSelect: (path: string) => void;
@@ -829,19 +858,26 @@ interface PickerProps {
 /**
  * Build status for the notices + button label: 'fresh' (flash as is),
  * 'stale' (code changed since the build: warn + rebuild), 'none' (compile
- * first). MicroPython never compiles.
+ * first), 'own' (the simulator's build is current, the board's own is yet to
+ * be built: compile first, nothing to warn of). MicroPython never compiles.
  */
-type BuildStatus = 'fresh' | 'stale' | 'none' | 'mpy';
+type BuildStatus = 'fresh' | 'stale' | 'none' | 'own' | 'mpy';
 
-function buildStatusOf(board: BoardInstance): BuildStatus {
+function buildStatusOf(
+  board: BoardInstance,
+  needsOwnBuild: boolean,
+  ownBuildReady: boolean,
+): BuildStatus {
   if (board.languageMode === 'micropython') return 'mpy';
+  if (needsOwnBuild && ownBuildReady) return 'fresh';
   if (!board.compiledProgram) return 'none';
-  return isCompiledProgramStale(board) ? 'stale' : 'fresh';
+  if (isCompiledProgramStale(board)) return 'stale';
+  return needsOwnBuild ? 'own' : 'fresh';
 }
 
 const BuildNotice = ({ status }: { status: BuildStatus }) => {
   const { t } = useTranslation();
-  if (status === 'fresh' || status === 'mpy') return null;
+  if (status === 'fresh' || status === 'own' || status === 'mpy') return null;
   return (
     <div
       style={{
@@ -860,15 +896,14 @@ const BuildNotice = ({ status }: { status: BuildStatus }) => {
 };
 
 const flashButtonLabel = (t: (k: string) => string, status: BuildStatus, web: boolean) => {
-  if (status === 'none' || status === 'stale') {
+  if (status === 'none' || status === 'stale' || status === 'own') {
     return web ? t('editor.flash.connectCompileFlash') : t('editor.flash.compileFlash');
   }
   return web ? t('editor.flash.connectFlash') : t('editor.flash.flash');
 };
 
-const PickerView = ({ board, ports, selected, onSelect, onRefresh, onFlash }: PickerProps) => {
+const PickerView = ({ status, ports, selected, onSelect, onRefresh, onFlash }: PickerProps) => {
   const { t } = useTranslation();
-  const status = buildStatusOf(board);
 
   if (ports.length === 0) {
     return (
@@ -934,6 +969,7 @@ const PickerView = ({ board, ports, selected, onSelect, onRefresh, onFlash }: Pi
 
 interface WebReadyProps {
   board: BoardInstance;
+  status: BuildStatus;
   /** MicroPython path available (overlay implements firmware+upload). */
   mpyWebOk: boolean;
   onFlash: () => void;
@@ -949,6 +985,7 @@ interface WebReadyProps {
 
 const WebReadyView = ({
   board,
+  status,
   mpyWebOk,
   onFlash,
   bootloader,
@@ -962,7 +999,6 @@ const WebReadyView = ({
   // a flash image — they flash only via the overlay's MicroPython path
   // (firmware install + raw-REPL file upload), which needs no compile.
   const isMpy = board.languageMode === 'micropython';
-  const status = buildStatusOf(board);
   const canFlash = isMpy ? mpyWebOk : true;
   return (
     <div>

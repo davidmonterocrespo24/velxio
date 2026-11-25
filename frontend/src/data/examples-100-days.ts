@@ -100,11 +100,13 @@ def read_avg(adc, n=10):
 def read_pm25():
     pm_led.off()
     time.sleep_us(280)
-    val = pm_adc.read()
+    # read_uv() applies the chip's ADC calibration; a linear code * 3.3 / 4095
+    # reads about 0.14 V low at mid-scale on a real ESP32.
+    uv = pm_adc.read_uv()
     time.sleep_us(40)
     pm_led.on()
     time.sleep_us(9680)
-    return round(val * (3.3 / 4095), 3)
+    return round(uv / 1_000_000, 3)
 
 # ================= MAIN LOOP =================
 print("System Initializing...")
@@ -343,21 +345,23 @@ from time import sleep
 
 # Initialize LDR on ADC pin 34
 ldr = ADC(Pin(34))
-ldr.atten(ADC.ATTN_11DB)  # full range 0-3.3V
+ldr.atten(ADC.ATTN_11DB)  # 12 dB: reads up to about 3.1 V
 
 # Initialize LED on GPIO2
 led = Pin(2, Pin.OUT)
 
 # Threshold for turning LED on/off. The LDR module's AO rises as the light
 # falls (its LDR sits between AO and GND under a 10k resistor), so darkness
-# reads HIGH: 4095 in the dark, about 1800 at 25 lux, 400-600 in a lit room.
-threshold = 1800
+# reads HIGH: 4095 in the dark, about 1725 at 25 lux, about 400 at 400 lux.
+# The threshold is a voltage, because the code a voltage reads as depends on
+# the chip's ADC calibration: 1.45 V on AO is about 30 lux.
+THRESHOLD_UV = 1_450_000
 
 while True:
     light = ldr.read()       # Read LDR value
     print(light)
     
-    if light > threshold:    # It's dark
+    if ldr.read_uv() > THRESHOLD_UV:    # It's dark
         led.on()             # Turn LED ON
     else:                    # It's bright
         led.off()            # Turn LED OFF
@@ -666,8 +670,9 @@ AUTH = "jXJlUYM2K8a5uA2c"
 # Here the ADC is per-pin and 12-bit: GPIO34 is ADC1 and input-only, which is
 # what the Velxio canvas wires the battery divider (potentiometer) to.
 adc = ADC(Pin(34))
-adc.atten(ADC.ATTN_11DB)   # full 0-3.3 V range
-ADC_FULL_SCALE = 4095      # 12-bit here (the NodeMCU original used 1023)
+# 12 dB reads up to about 3.1 V. read_uv() turns the reading into volts through the
+# chip's ADC calibration; a linear code / 4095 * 3.3 reads up to 0.2 V low.
+adc.atten(ADC.ATTN_11DB)
 RATIO = 0.863
 
 BATTERY_TABLE = [
@@ -678,8 +683,7 @@ BATTERY_TABLE = [
 ]
 
 def read_voltage(samples=20):
-    raw = sum(adc.read() for _ in range(samples)) / samples
-    v_a0 = (raw / ADC_FULL_SCALE) * 3.3
+    v_a0 = sum(adc.read_uv() for _ in range(samples)) / samples / 1_000_000
     v_bat = (v_a0 * 2) * RATIO
     return round(v_bat, 2)
 
@@ -3394,8 +3398,7 @@ led.value(0)
 
 # ─── Calibration ─────────────────────────────────────────────
 
-ADC_MAX            = 4095
-ADC_VREF           = 3.3
+ADC_VREF           = 3.3      # supply; the ZMPT101B output idles at ADC_VREF / 2
 ZMPT_SENSITIVITY   = 133.8    # voltage calibrated: actual=216V
 ACS712_SENSITIVITY = 0.100    # V/A for 20A variant
 ACS_ZERO_FAN       = 0.8736
@@ -3465,8 +3468,9 @@ def v4_handler(value):
 def read_voltage_rms():
     sum_sq = 0.0
     for _ in range(SAMPLE_COUNT):
-        raw = adc_voltage.read()
-        v = (raw / ADC_MAX) * ADC_VREF
+        # read_uv() applies the chip's ADC calibration; a linear code / 4095 * 3.3
+        # reads mid-rail about 0.14 V low and turns it into a false AC voltage.
+        v = adc_voltage.read_uv() / 1_000_000
         centered = v - (ADC_VREF / 2.0)
         scaled = centered * ZMPT_SENSITIVITY
         sum_sq += scaled * scaled
@@ -3475,8 +3479,7 @@ def read_voltage_rms():
 def read_current_rms(adc, zero_offset, factor):
     sum_sq = 0.0
     for _ in range(SAMPLE_COUNT):
-        raw = adc.read()
-        v = (raw / ADC_MAX) * ADC_VREF
+        v = adc.read_uv() / 1_000_000
         centered = v - zero_offset
         amps = centered / ACS712_SENSITIVITY
         sum_sq += amps * amps
@@ -3593,8 +3596,7 @@ r2.value(1)
 led.value(0)
 
 # ─── Calibration ─────────────────────────────────────────────
-ADC_MAX            = 4095
-ADC_VREF           = 3.3
+ADC_VREF           = 3.3      # supply; the ZMPT101B output idles at ADC_VREF / 2
 ZMPT_SENSITIVITY   = 133.8    # voltage calibrated: actual=216V
 ACS712_SENSITIVITY = 0.100    # V/A for 20A variant
 ACS_ZERO_FAN       = 0.8736
@@ -3649,8 +3651,9 @@ def v4_handler(value):
 def read_voltage_rms():
     sum_sq = 0.0
     for _ in range(SAMPLE_COUNT):
-        raw = adc_voltage.read()
-        v = (raw / ADC_MAX) * ADC_VREF
+        # read_uv() applies the chip's ADC calibration; a linear code / 4095 * 3.3
+        # reads mid-rail about 0.14 V low and turns it into a false AC voltage.
+        v = adc_voltage.read_uv() / 1_000_000
         centered = v - (ADC_VREF / 2.0)
         scaled = centered * ZMPT_SENSITIVITY
         sum_sq += scaled * scaled
@@ -3659,8 +3662,7 @@ def read_voltage_rms():
 def read_current_rms(adc, zero_offset, factor):
     sum_sq = 0.0
     for _ in range(SAMPLE_COUNT):
-        raw = adc.read()
-        v = (raw / ADC_MAX) * ADC_VREF
+        v = adc.read_uv() / 1_000_000
         centered = v - zero_offset
         amps = centered / ACS712_SENSITIVITY
         sum_sq += amps * amps
@@ -4410,6 +4412,9 @@ import time
 # Here ADC1 lives on GPIO32-39 and GPIO0 is a strap pin, so the joystick reads
 # on GPIO34 and the servo is driven from GPIO13.
 vrx = machine.ADC(machine.Pin(34))  # Joystick X axis
+# 12 dB lets the ADC read the stick's 0-3.3 V swing (up to about 3.1 V). It is
+# MicroPython's default on the ESP32; it is set here so the range is explicit.
+vrx.atten(machine.ADC.ATTN_11DB)
 servo = machine.PWM(machine.Pin(13))
 servo.freq(50)  # SG90 = 50Hz
 
@@ -4424,15 +4429,28 @@ def set_angle(angle):
 def map_val(x, in_min, in_max, out_min, out_max):
     return int((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min)
 
+def read_x():
+    # Average 5 samples for smooth reading
+    return sum(vrx.read_u16() for _ in range(5)) // 5
+
+# ── Rest calibration ──────────────────────────────────────────
+# The ESP32 ADC is not linear, so the stick's centre (half the supply) does not
+# read as 32768. Read it at boot, with the stick released, and use it as 90°.
+rest = sum(read_x() for _ in range(10)) // 10
+rest = min(max(rest, 1), 65534)
+
 # ── Main loop ─────────────────────────────────────────────────
 print("Joystick Servo Control ready!")
+print(f"Rest: {rest}")
 
 while True:
-    # Average 5 samples for smooth reading
-    x_raw = sum(vrx.read_u16() for _ in range(5)) // 5
+    x_raw = read_x()
     
-    # Map joystick (0-65535) to angle (0-180)
-    angle = map_val(x_raw, 0, 65535, 0, 180)
+    # Map joystick to angle: 0..rest to 0-90, rest..65535 to 90-180
+    if x_raw <= rest:
+        angle = map_val(x_raw, 0, rest, 0, 90)
+    else:
+        angle = map_val(x_raw, rest, 65535, 90, 180)
     
     set_angle(angle)
     print(f"Raw: {x_raw}  Angle: {angle}°")
@@ -4693,8 +4711,11 @@ import time
 
 # MQ4 gas sensor setup
 mq4 = ADC(Pin(34))  # Analog input pin
-mq4.atten(ADC.ATTN_11DB)  # Full voltage range
-mq4.width(ADC.WIDTH_10BIT)  # 10-bit resolution
+mq4.atten(ADC.ATTN_11DB)  # Full voltage range (reads up to about 3.1 V)
+# The ADC stays at 12 bits: at a lower width MicroPython v1.28's read_uv()
+# scales the reading up twice (and ESP-IDF's calibration a second time), so
+# a 0.49 V output reads as 1.52 V. The 10-bit reading the threshold was tuned
+# in is the 12-bit one divided by 4.
 
 # Buzzer setup
 buzzer = Pin(15, Pin.OUT)
@@ -4703,8 +4724,8 @@ buzzer = Pin(15, Pin.OUT)
 GAS_THRESHOLD = 240
 
 while True:
-    gas_value = mq4.read()
-    voltage = gas_value * 3.3 / 1023
+    gas_value = mq4.read() >> 2  # 0-1023, as with WIDTH_10BIT
+    voltage = mq4.read_uv() / 1_000_000  # calibrated; code * 3.3 / 1023 reads low
     
     print("Gas reading (raw):", gas_value)
     print("Voltage:", round(voltage, 2), "V")

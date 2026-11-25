@@ -42,7 +42,8 @@ interface SdCardPanelProps {
 }
 
 function fileBytes(f: UploadedSdFile): number {
-  const b = f.contentB64;
+  // An entry with no bytes (named by url and not fetched) weighs nothing.
+  const b = f.contentB64 ?? '';
   const pad = b.endsWith('==') ? 2 : b.endsWith('=') ? 1 : 0;
   return Math.max(0, Math.floor((b.length * 3) / 4) - pad);
 }

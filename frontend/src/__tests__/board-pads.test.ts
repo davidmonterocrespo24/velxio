@@ -10,6 +10,7 @@
  * family nobody listed still lists its own pads.
  */
 import { describe, it, expect, afterEach } from 'vitest';
+import '@wokwi/elements';
 import { boardPads } from '../simulation/boardPads';
 import type { BoardKind } from '../types/board';
 
@@ -20,6 +21,14 @@ function mountBoard(id: string, pinInfo: Array<{ name: string; x: number; y: num
   (el as HTMLElement & { pinInfo?: unknown }).pinInfo = pinInfo;
   document.body.appendChild(el);
   return el;
+}
+
+/** Mount the board's real element, the one the canvas draws, under `id`. */
+function mountElement(tag: string, id: string): string[] {
+  const el = document.createElement(tag) as HTMLElement & { pinInfo?: Array<{ name: string }> };
+  el.id = id;
+  document.body.appendChild(el);
+  return (el.pinInfo ?? []).map((p) => p.name);
 }
 
 afterEach(() => {
@@ -70,18 +79,39 @@ describe('boardPads', () => {
     ]);
   });
 
-  it('keeps one entry per pin when a board exposes the same GPIO twice', () => {
-    // An Uno breaks A4/A5 out again on its I2C header.
-    mountBoard('uno-1', [
-      { name: 'A4', x: 10, y: 10 },
-      { name: 'A5', x: 20, y: 10 },
-      { name: 'A4', x: 30, y: 10 },
-      { name: 'A5', x: 40, y: 10 },
-    ]);
+  it('keeps one entry per pin, under the name printed on the board, when a pin has two pads', () => {
+    // The Uno breaks A4/A5 out again on the SDA/SCL pads beside AREF, and its
+    // element publishes those two first, as 'A5.2' and 'A4.2': '.N' is how the
+    // element names the Nth pad of a name, not what the board says. The picker
+    // offered "A4.2" and "A5.2", so "add channels A4 and A5" matched nothing
+    // in it (velxio/velxio-prod#240).
+    const names = mountElement('wokwi-arduino-uno', 'uno-1');
+    expect(names.filter((n) => /^A[45](\.2)?$/.test(n))).toEqual(['A5.2', 'A4.2', 'A4', 'A5']);
     expect(boardPads('uno-1', 'arduino-uno')).toEqual([
-      { pin: 18, label: 'A4' },
-      { pin: 19, label: 'A5' },
+      ...Array.from({ length: 14 }, (_, i) => ({ pin: i, label: String(i) })),
+      ...Array.from({ length: 6 }, (_, i) => ({ pin: 14 + i, label: `A${i}` })),
     ]);
+  });
+
+  it('keeps the printed name when the second pad is the one the element lists last', () => {
+    // The Nano publishes its ICSP pads after the header, as '11.2', '12.2'
+    // and '13.2': the order that already worked must keep working.
+    const names = mountElement('wokwi-arduino-nano', 'nano-1');
+    expect(names.filter((n) => /^1[123](\.2)?$/.test(n))).toEqual([
+      '12',
+      '11',
+      '13',
+      '12.2',
+      '13.2',
+      '11.2',
+    ]);
+    const pads = boardPads('nano-1', 'arduino-nano');
+    expect(pads.filter((p) => p.pin >= 11 && p.pin <= 13)).toEqual([
+      { pin: 11, label: '11' },
+      { pin: 12, label: '12' },
+      { pin: 13, label: '13' },
+    ]);
+    expect(pads.filter((p) => /\.\d+$/.test(p.label))).toEqual([]);
   });
 
   it('says nothing when the board is not on the canvas, so the caller can fall back', () => {

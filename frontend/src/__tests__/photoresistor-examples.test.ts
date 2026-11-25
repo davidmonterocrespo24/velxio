@@ -162,17 +162,25 @@ describe('night lights light in the dark and not in daylight (#103)', () => {
   it('100d-auto-night-light: the lamp is off at 400 lux and on at 15, 5, 1 and 0 lux, on both ESP32 engines', { timeout: 60_000 }, async () => {
     const ex = example('100d-auto-night-light-using-ldr-esp32-plus-micropython');
     const main = ex.files?.find((f) => f.name === 'main.py')?.content ?? '';
-    const threshold = Number(/^threshold = (\d+)/m.exec(main)?.[1]);
-    const op = /if light ([<>]) threshold:\s+# It's dark/.exec(main)?.[1];
+    // Since velxio/velxio-prod#171 the sketch compares ldr.read_uv(), the
+    // calibrated voltage, with a threshold in microvolts.
+    const threshold = Number(/^THRESHOLD_UV = ([\d_]+)/m.exec(main)?.[1].replace(/_/g, ''));
+    const op = /if ldr\.read_uv\(\) ([<>]) THRESHOLD_UV:\s+# It's dark/.exec(main)?.[1];
     expect(Number.isFinite(threshold)).toBe(true);
-    const lampOn = (reading: number) => (op === '>' ? reading > threshold : reading < threshold);
+    expect(op).toBeDefined();
+    const lampOn = (uv: number) => (op === '>' ? uv > threshold : uv < threshold);
+    // read_uv() on both engines (esp32js and QEMU from #171 on): the 11 dB code
+    // ESP-IDF's line-fitting calibration gives, turned back into microvolts.
+    const readUv = (v: number) => {
+      const code = esp32Reads(v)[1];
+      return Math.round(142_000 + (code * 52_800_000) / 65_536);
+    };
     // The 100-days canvases name the board `arduino-uno` whatever it is.
     const board = { id: 'arduino-uno', kind: 'esp32' as BoardKind };
     for (const [lux, on] of [[400, false], [30, false], [15, true], [5, true], [1, true], [0, true]] as const) {
       const v = await solve(withProps(ex, 'night-ldr', { lux }), board);
-      for (const reading of esp32Reads(v('arduino-uno:34'))) {
-        expect(lampOn(reading), `${lux} lux reads ${reading}`).toBe(on);
-      }
+      const uv = readUv(v('arduino-uno:34'));
+      expect(lampOn(uv), `${lux} lux reads ${uv} uV`).toBe(on);
     }
   });
 

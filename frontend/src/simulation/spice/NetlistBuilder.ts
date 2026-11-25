@@ -19,7 +19,13 @@
  */
 import { UnionFind } from './unionFind';
 import { parseValueWithUnits } from './valueParser';
-import { componentToSpice, logicGateLinks, OPEN_CONTACT_OHMS } from './componentToSpice';
+import {
+  componentToSpice,
+  isHandSwitch,
+  logicGateLinks,
+  OPEN_CONTACT_OHMS,
+  saturatingOpampGain,
+} from './componentToSpice';
 import { auxRailNetName, isAuxRailNet } from './boardPinGroups';
 import { hasInternalNets, breadboardGroupKey } from '../../utils/breadboardNets';
 import type {
@@ -165,8 +171,16 @@ export interface BuildNetlistResult {
    * their control nodes after a solve to know where they ended.
    */
   memoryCells: SwitchMemoryCell[];
-  /** The latch nets the deck seeds (.nodeset), with their seeds. */
+  /** The latch nets and the outputs of op-amps on positive feedback that the
+   *  deck seeds (.nodeset), with their seeds. */
   nodeMemoryCells: NodeMemoryCell[];
+  /**
+   * The cards the hand-worked contacts emitted (isHandSwitch: a pushbutton,
+   * a slide switch), by lower-case card name: all a press or a flip changes
+   * in the deck. The circuit service tells a rebuild that changed only these
+   * from any other one (velxio/velxio-prod#107).
+   */
+  handContacts: Set<string>;
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -316,6 +330,11 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // (velxio/velxio-prod#147).
   const latch = findLatches(components, (id, pin) => netLookup(id, pin));
   const memoryCells: SwitchMemoryCell[] = [];
+  const handContacts = new Set<string>();
+  // Op-amps whose output stops at their rails, and the nets parts drive
+  // with no V, B, E or H card of their own, for step 7.5.
+  const opamps: SaturatingOpamp[] = [];
+  const drivenNets: Array<{ id: string; nets: readonly string[] }> = [];
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
     const operated = memory?.switches?.get(comp.id);
@@ -326,8 +345,26 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     });
     if (!emission) continue;
     cards.push(...emission.cards);
+    if (isHandSwitch(comp.metadataId)) {
+      for (const card of emission.cards) handContacts.add(card.trim().split(/\s+/, 1)[0]!.toLowerCase());
+    }
     if (emission.memory) memoryCells.push({ id: comp.id, ...emission.memory, seed: operated === true });
     if (emission.supplies?.length) powering.push({ id: comp.id, supplies: emission.supplies, cards: emission.cards });
+    if (emission.drives?.length) drivenNets.push({ id: comp.id, nets: emission.drives });
+    const gain = saturatingOpampGain(comp.metadataId);
+    const [inp, inn, out] = [localLookup('IN+'), localLookup('IN-'), localLookup('OUT')];
+    if (gain !== null && inp && inn && out) {
+      opamps.push({
+        id: comp.id,
+        gain,
+        inp,
+        inn,
+        out,
+        vp: localLookup('V+'),
+        vm: localLookup('V-'),
+        cards: new Set(emission.cards),
+      });
+    }
     emitted.push({ id: comp.id, cards: emission.cards });
     for (const m of emission.modelsUsed) modelLines.add(m);
     // Every net this component connects to now has a real SPICE element on it.
@@ -340,7 +377,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
     partNets.push({
       nets: [...joined],
-      reactive: emission.cards.some((c) => /^[CL]/i.test(c)),
+      // A part whose C and L a PWM's split states describe (a DC motor's
+      // winding and shaft) leaves its pads static (SpiceEmission.pwmStatic).
+      reactive: !emission.pwmStatic && emission.cards.some((c) => /^[CL]/i.test(c)),
     });
   }
 
@@ -538,6 +577,15 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     cards.push(`R_autopull_${net} ${net} 0 100Meg`);
   }
 
+  // ── 7.5. Op-amps on positive feedback ────────────────────────────────────
+  // An op-amp whose resistors take its output back to IN+ more than to IN-
+  // (a Schmitt trigger) has two stable states, one at each rail, and an
+  // unstable one between them where IN+ meets IN-. An operating point has no
+  // history and lands on that middle one: inside its band the book's trigger
+  // read OUT = 27.5 - 10 * Vin, 2.47 V for 2.5 V in (velxio/velxio-prod#134).
+  // The deck seeds it in step 8, as it does a latch's nets (#147).
+  const bistable = findBistableOpamps(opamps, cards, drivenNets);
+
   // ── 8. Compose netlist ────────────────────────────────────────────────────
   const lines: string[] = [`* Velxio circuit @ ${new Date().toISOString()}`];
   lines.push(...cards);
@@ -554,8 +602,44 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
           : 0;
     return { key: o.key, net: o.net, threshold: dominantVcc / 2, seed };
   });
+  // Op-amp seeds: where OUT was at the last solve, or its low rail at power
+  // up, where a real op-amp's output sits before its supply comes up. A
+  // remembered state seeds IN+ with the same volts: IN+ lies between OUT and
+  // what its resistors tie it to, so started at OUT's level it drives the
+  // op-amp the way OUT is, and it is what moves a behavioural op-amp (LM741,
+  // TL072), whose OUT an ideal source holds against .nodeset. At power-up
+  // IN+ is left alone, and a behavioural op-amp starts on its low clamp as
+  // it did unseeded: the low rail is a guess where V- is on a net no rail
+  // names (a battery, a generator, a bench supply), and IN+ at that guess,
+  // 0 V, on a dual-supply trigger with IN- on ground put the LM741 and the
+  // TL072 on their middle point. A supply pin on a net no rail names counts
+  // as 0 V (V-) or the logic rail (V+): either way the two states lie on
+  // both sides of the threshold.
+  const railVolts = (net: string): number | undefined =>
+    net === '0' ? 0 : net === 'vcc_rail' ? dominantVcc : auxRailVolts.get(net);
+  for (const op of bistable) {
+    const low = railVolts(op.vm ?? '0') ?? 0;
+    const high = railVolts(op.vp ?? 'vcc_rail') ?? dominantVcc;
+    const key = `${op.id}:OUT`;
+    const remembered = memory?.nodes?.get(key);
+    const known = remembered !== undefined && Number.isFinite(remembered);
+    const seed = known ? Math.round(remembered * 1000) / 1000 : low;
+    nodeMemoryCells.push({
+      key,
+      net: op.out,
+      threshold: (low + high) / 2,
+      seed,
+      ...(known && op.inp !== op.out ? { alsoSeeded: [op.inp] } : {}),
+    });
+  }
   if (nodeMemoryCells.length > 0) {
-    lines.push(`.nodeset ${nodeMemoryCells.map((c) => `V(${c.net})=${c.seed}`).join(' ')}`);
+    const seeds = new Map<string, number>();
+    for (const c of nodeMemoryCells) {
+      for (const net of [c.net, ...(c.alsoSeeded ?? [])]) {
+        if (!seeds.has(net)) seeds.set(net, c.seed);
+      }
+    }
+    lines.push(`.nodeset ${[...seeds].map(([net, v]) => `V(${net})=${v}`).join(' ')}`);
   }
   lines.push(...extraCards);
 
@@ -664,6 +748,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     analysis: resolved,
     memoryCells,
     nodeMemoryCells,
+    handContacts,
   };
 }
 
@@ -749,6 +834,146 @@ function findLatches(
     outputs.push({ key: d.key, net: d.net, powerUpHigh: k % 2 === 1 });
   }
   return { nets, outputs };
+}
+
+/** An op-amp whose output stops at its rails (saturatingOpampGain). */
+interface SaturatingOpamp {
+  id: string;
+  /** Open-loop gain. */
+  gain: number;
+  inp: string;
+  inn: string;
+  out: string;
+  /** Its V+ and V- nets, null where the pin is unwired. */
+  vp: string | null;
+  vm: string | null;
+  /** Its own cards, which findBistableOpamps leaves out of the network. */
+  cards: ReadonlySet<string>;
+}
+
+/** Nets beyond which findBistableOpamps does not solve an op-amp's network
+ *  (a dense solve of n nets costs n^3 / 3). */
+const MAX_FEEDBACK_NETS = 200;
+
+/**
+ * The op-amps on positive feedback (velxio/velxio-prod#134): the deck's
+ * resistors take a change of OUT back to IN+ by a fraction beta+ and to IN-
+ * by beta-, and the open-loop gain times (beta+ - beta-) is above 1, so a
+ * nudge off the balance point runs away to a rail and the part has two
+ * stable states, as a Schmitt trigger does. An amplifier (beta- larger) and
+ * a comparator (no feedback) have one operating point.
+ *
+ * The fractions are those of the deck's resistors alone, every source held:
+ * a V, B (V =), E or H card is a fixed voltage across its first two nodes,
+ * an inductor a short, and a net another part says it drives (an LM358's
+ * OUT) is held. A capacitor is open, and so is a semiconductor: feedback
+ * through a diode or a transistor does not count. The op-amp's own cards are
+ * left out; OUT is the 1 V the fractions are measured against.
+ */
+function findBistableOpamps(
+  opamps: readonly SaturatingOpamp[],
+  cards: readonly string[],
+  drivenNets: ReadonlyArray<{ id: string; nets: readonly string[] }>,
+): SaturatingOpamp[] {
+  if (opamps.length === 0) return [];
+  const parsed = cards.map((card) => ({ card, t: card.trim().split(/\s+/) }));
+  const bistable: SaturatingOpamp[] = [];
+  for (const op of opamps) {
+    // Nets a held voltage joins; ground's set stands for "held".
+    const uf = new UnionFind();
+    const find = (net: string): string => uf.find(net);
+    const resistors: Array<[string, string, number]> = [];
+    for (const { card, t } of parsed) {
+      if (op.cards.has(card) || t.length < 4) continue;
+      const kind = t[0]!.charAt(0).toUpperCase();
+      if (kind === 'V' || kind === 'L' || kind === 'E' || kind === 'H') uf.union(t[1]!, t[2]!);
+      else if (kind === 'B' && /^v\s*=/i.test(t.slice(3).join(' '))) uf.union(t[1]!, t[2]!);
+      else if (kind === 'R') {
+        const ohms = parseValueWithUnits(t[3], NaN);
+        if (Number.isFinite(ohms) && ohms > 0) resistors.push([t[1]!, t[2]!, 1 / ohms]);
+      }
+    }
+    for (const d of drivenNets) if (d.id !== op.id) for (const n of d.nets) uf.union(n, '0');
+    const held = find('0');
+    const out = find(op.out);
+    if (out === held) continue;
+    const links = new Map<string, Array<[string, number]>>();
+    for (const [a0, b0, g] of resistors) {
+      const a = find(a0);
+      const b = find(b0);
+      if (a === b) continue;
+      if (!links.has(a)) links.set(a, []);
+      if (!links.has(b)) links.set(b, []);
+      links.get(a)!.push([b, g]);
+      links.get(b)!.push([a, g]);
+    }
+    // The nets OUT reaches through resistors without crossing a held one.
+    const index = new Map<string, number>();
+    const queue = [out];
+    for (let i = 0; i < queue.length; i++) {
+      for (const [m] of links.get(queue[i]!) ?? []) {
+        if (m === held || m === out || index.has(m)) continue;
+        index.set(m, index.size);
+        queue.push(m);
+      }
+    }
+    const inp = find(op.inp);
+    if (inp !== out && !index.has(inp)) continue; // nothing feeds IN+ back
+    if (index.size > MAX_FEEDBACK_NETS) continue;
+    // Kirchhoff's current law at each reached net, OUT at 1 V, held at 0 V.
+    const n = index.size;
+    const g = Array.from({ length: n }, () => new Float64Array(n));
+    const rhs = new Float64Array(n);
+    for (const [net, i] of index) {
+      const row = g[i];
+      for (const [m, gm] of links.get(net) ?? []) {
+        row[i] += gm;
+        const j = index.get(m);
+        if (m === out) rhs[i] += gm;
+        else if (j !== undefined) row[j] -= gm;
+      }
+    }
+    const v = solveDense(g, rhs);
+    if (!v) continue;
+    const fraction = (net: string): number => {
+      const c = find(net);
+      if (c === out) return 1;
+      const i = index.get(c);
+      return i === undefined ? 0 : v[i];
+    };
+    if (op.gain * (fraction(op.inp) - fraction(op.inn)) > 1) bistable.push(op);
+  }
+  return bistable;
+}
+
+/** Solve a * x = b (Gaussian elimination, partial pivoting); null if singular.
+ *  Overwrites `a` and `b`. */
+function solveDense(a: Float64Array[], b: Float64Array): Float64Array | null {
+  const n = b.length;
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
+    if (!(Math.abs(a[pivot][col]) > 0)) return null;
+    if (pivot !== col) {
+      [a[pivot], a[col]] = [a[col], a[pivot]];
+      [b[pivot], b[col]] = [b[col], b[pivot]];
+    }
+    const top = a[col];
+    for (let r = col + 1; r < n; r++) {
+      const row = a[r];
+      const f = row[col] / top[col];
+      if (f === 0) continue;
+      for (let k = col; k < n; k++) row[k] -= f * top[k];
+      b[r] -= f * b[col];
+    }
+  }
+  const x = new Float64Array(n);
+  for (let r = n - 1; r >= 0; r--) {
+    let s = b[r];
+    for (let k = r + 1; k < n; k++) s -= a[r][k] * x[k];
+    x[r] = s / a[r][r];
+  }
+  return x;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

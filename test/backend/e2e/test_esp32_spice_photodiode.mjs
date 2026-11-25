@@ -27,8 +27,9 @@
  *      solve in ngspice-WASM without errors.
  *   2. The backend `esp32_adc_set` WebSocket message actually changes what
  *      `analogRead()` returns inside the guest.
- *   3. The lux → solved-voltage → injected-mV → 12-bit raw value pipeline
- *      round-trips within ±50 counts on a real Arduino sketch.
+ *   3. The lux → solved-voltage → injected-mV → ADC reading pipeline
+ *      round-trips on a real Arduino sketch, under one ADC model for every
+ *      lux level (see ADC models below).
  *
  * Run:
  *   cd test/backend/e2e && npm install && node test_esp32_spice_photodiode.mjs
@@ -68,6 +69,8 @@ const ADC_PIN  = 34;      // GPIO34 == ADC1_CH6 on ESP32
 const ADC_CH   = 6;       // channel number the backend expects
 
 // ─── ESP32 sketch (compiled on-the-fly via /api/compile/) ─────────────────────
+// Prints the raw code and analogReadMilliVolts(), the way a sketch measures
+// volts on a real ESP32 (the raw code follows the chip's curve).
 const SKETCH = `// ESP32 photodiode ADC reader for SPICE co-simulation test
 void setup() {
   Serial.begin(115200);
@@ -78,10 +81,34 @@ void setup() {
 
 void loop() {
   int raw = analogRead(${ADC_PIN});
-  float v = raw * ${VCC_V} / 4095.0;
-  Serial.printf("PD: raw=%d v=%.3fV\\n", raw, v);
+  uint32_t mv = analogReadMilliVolts(${ADC_PIN});
+  Serial.printf("PD: raw=%d mv=%u\\n", raw, (unsigned)mv);
   delay(400);
 }`;
+
+// ─── ADC models ───────────────────────────────────────────────────────────────
+// A run passes when ONE model explains every lux level, each with its own
+// tolerance (neither is widened to fit the other):
+//   linear  the libqemu velxio.dev served before velxio/velxio-prod#171: the
+//           pad voltage converted linearly over 0-3.3 V; raw within 50 counts
+//           of V / 3.3 * 4095, the tolerance this test always had.
+//   chip    the libqemu after #171, which converts like a real ESP32: the raw
+//           code follows the chip's 12 dB curve and analogReadMilliVolts()
+//           gives the pad voltage back from the eFuse calibration, to within
+//           MV_TOL. Above the range (about 3.13 V at 12 dB, so lux=0's 3.3 V)
+//           the code is 4095 and the millivolts stop at the top of the range,
+//           below the pad.
+// Drop `linear` once CI downloads the curve library.
+// MV_TOL: the worker hands libqemu the voltage in 12-bit steps of the 3.3 V
+// scale (0.806 mV, so +-0.4 mV), a 12 dB code is 0.8-1.3 mV wide, and ESP-IDF
+// returns whole millivolts: 3 mV covers the three.
+const MV_TOL = 3;
+const ADC_MODELS = [
+  { name: 'linear (libqemu before velxio/velxio-prod#171)',
+    fits: (raw, mv, v) => Math.abs(raw - Math.round(v / VCC_V * 4095)) <= 50 },
+  { name: "the chip's curve and eFuse calibration (libqemu after #171)",
+    fits: (raw, mv, v) => (raw >= 4095 ? mv <= v * 1000 + MV_TOL : Math.abs(mv - v * 1000) <= MV_TOL) },
+];
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 const T0  = Date.now();
@@ -182,12 +209,13 @@ function runCoSim(firmware_b64) {
     }, TIMEOUT_S * 1000);
 
     function inject(lux) {
-      const mv = Math.round(solved[lux] * 1000);
+      // The solved voltage with its fraction of a millivolt, as the tab sends it
+      const mv = solved[lux] * 1000;
       ws.send(JSON.stringify({
         type: 'esp32_adc_set',
         data: { channel: ADC_CH, millivolts: mv },
       }));
-      spice(`Injected lux=${lux} (${solved[lux].toFixed(3)}V, ${mv}mV) -> CH${ADC_CH}`);
+      spice(`Injected lux=${lux} (${solved[lux].toFixed(3)}V, ${mv.toFixed(1)}mV) -> CH${ADC_CH}`);
     }
 
     ws.addEventListener('open', () => {
@@ -220,9 +248,9 @@ function runCoSim(firmware_b64) {
           inject(currentLux);
         }
 
-        const m = line.match(/PD:\s*raw=(\d+)\s+v=([\d.]+)V/);
+        const m = line.match(/PD:\s*raw=(\d+)\s+mv=(\d+)/);
         if (m) {
-          const reading = { raw: parseInt(m[1]), v: parseFloat(m[2]) };
+          const reading = { raw: parseInt(m[1]), mv: parseInt(m[2]) };
           if (!readings[currentLux]) readings[currentLux] = [];
           readings[currentLux].push(reading);
 
@@ -264,14 +292,12 @@ function validate(result) {
   let pass = !timedOut;
   if (timedOut) err('Timed out before collecting readings for all lux levels');
 
-  const expected = {};
   for (const lux of LUX_SWEEP) {
-    expected[lux] = Math.round(solved[lux] / VCC_V * 4095);
-    info(`lux=${lux.toString().padStart(5)}  V=${solved[lux].toFixed(4)}V  expected raw=${expected[lux]}`);
+    info(`lux=${lux.toString().padStart(5)}  V=${solved[lux].toFixed(4)}V  linear raw=${Math.round(solved[lux] / VCC_V * 4095)}`);
   }
   info('');
 
-  const avgs = {};
+  const batches = {};
   for (const lux of LUX_SWEEP) {
     const rs = readings[lux] ?? [];
     if (rs.length === 0) {
@@ -279,22 +305,35 @@ function validate(result) {
       pass = false;
       continue;
     }
-    avgs[lux] = rs.reduce((s, r) => s + r.raw, 0) / rs.length;
-    const diff = Math.abs(avgs[lux] - expected[lux]);
-    // Tolerance 50 counts matches the voltage-divider test — accounts for
-    // the millivolt round-trip + QEMU scheduling jitter.
-    if (diff > 50) {
-      err(`lux=${lux}: avg raw=${avgs[lux].toFixed(0)} (expected ${expected[lux]}, off by ${diff.toFixed(0)} > 50)`);
-      pass = false;
+    const b = {
+      raw: rs.reduce((s, r) => s + r.raw, 0) / rs.length,
+      mv: rs.reduce((s, r) => s + r.mv, 0) / rs.length,
+      v: solved[lux],
+    };
+    batches[lux] = b;
+    info(`lux=${lux}: avg raw=${b.raw.toFixed(0)} avg mv=${b.mv.toFixed(1)} (pad ${(b.v * 1000).toFixed(1)} mV)`);
+  }
+
+  // One ADC model has to explain every lux level
+  const bs = Object.values(batches);
+  if (bs.length === LUX_SWEEP.length) {
+    const model = ADC_MODELS.find(m => bs.every(b => m.fits(b.raw, b.mv, b.v)));
+    if (model) {
+      ok(`Every lux level fits one ADC model: ${model.name}`);
     } else {
-      ok(`lux=${lux}: avg raw=${avgs[lux].toFixed(0)} (expected ${expected[lux]}, within tolerance)`);
+      err('No ADC model explains every lux level:');
+      for (const m of ADC_MODELS) {
+        const off = LUX_SWEEP.filter(l => !m.fits(batches[l].raw, batches[l].mv, batches[l].v));
+        err(`  ${m.name}: off at lux ${off.join(', ')}`);
+      }
+      pass = false;
     }
   }
 
   // Monotonicity: brighter = lower voltage = lower raw. If the photodiode
   // cards or the ADC injection pipeline are broken, readings would be flat
   // or random.
-  const ordered = LUX_SWEEP.map(l => avgs[l]).filter(v => v !== undefined);
+  const ordered = LUX_SWEEP.map(l => batches[l]?.raw).filter(v => v !== undefined);
   const monotone = ordered.every((v, i) => i === 0 || v <= ordered[i - 1]);
   if (!monotone) {
     err(`Readings not monotonically decreasing with lux: ${ordered.map(v => v?.toFixed(0)).join(' > ')}`);

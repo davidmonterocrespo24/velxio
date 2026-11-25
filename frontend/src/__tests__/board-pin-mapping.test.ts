@@ -120,7 +120,10 @@ const ESP32_FAMILY_PADS: Record<string, string[]> = {
     'GPIO14', 'GPIO12', 'GND', 'GPIO13', 'GPIO15', 'GPIO2', 'GPIO0', 'GPIO4', 'GPIO16',
     'GPIO17', 'GPIO5', 'GPIO18', 'GPIO23', 'GPIO19', 'GPIO22', '3V',
   ],
-  'xiao-esp32-s3': ['D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', '3V3', 'GND', '5V'],
+  'xiao-esp32-s3': [
+    'D0', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', '3V3', 'GND', '5V',
+    'MTMS', 'MTDI', 'MTCK', 'MTDO',
+  ],
   'arduino-nano-esp32': [
     'D12', 'D11', 'D10', 'D9', 'D8', 'D7', 'D6', 'D5', 'D4', 'D3', 'D2', 'GND.1', 'RST',
     'RX0', 'TX1', 'D13', '3V3', 'B0', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7',
@@ -181,6 +184,12 @@ describe('boardPinToNumber — the pads that were dead', () => {
   it('the Nano ESP32 reaches GPIO44/43 through the pads it actually draws', () => {
     expect(boardPinToNumber('arduino-nano-esp32', 'RX0')).toBe(44);
     expect(boardPinToNumber('arduino-nano-esp32', 'TX1')).toBe(43);
+  });
+
+  it("the XIAO ESP32-S3's back pads are its JTAG pins, and the C3 has none of its own", () => {
+    const of = (n: string) => boardPinToNumber('xiao-esp32-s3', n);
+    expect(['MTMS', 'MTDI', 'MTCK', 'MTDO'].map(of)).toEqual([42, 41, 39, 40]);
+    expect(boardPinToNumber('xiao-esp32-c3', 'MTDI')).toBeNull();
   });
 
   it('supply pads are -1, not the digit their name starts with', () => {

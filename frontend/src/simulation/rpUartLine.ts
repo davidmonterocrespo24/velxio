@@ -10,8 +10,8 @@
  *
  * Which port is the console is the caller's business: arduino-pico's `Serial` is the
  * USB-CDC on a real Pico, but the compile service prepends `#define Serial Serial1` to
- * every rp2040-family sketch, so the sketch's `Serial` IS UART0 here (see
- * RP2350Simulator.serialConsole) and the rate matters exactly as on a wire.
+ * an rp2040-family sketch built for the simulator, so the sketch's `Serial` IS UART0 here
+ * (see RP2350Simulator.serialConsole) and the rate matters exactly as on a wire.
  */
 import type { SerialLink } from '../store/serialWire';
 

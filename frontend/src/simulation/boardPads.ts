@@ -55,6 +55,18 @@ function friendlier(candidate: string, held: string): boolean {
 }
 
 /**
+ * Between two pads that carry the same pin, likewise. An element tells a
+ * repeated name apart with a '.N' suffix (the Uno's SDA/SCL pads beside AREF
+ * are 'A4.2' and 'A5.2', listed before the analog header's A4 and A5), and
+ * nobody reads 'A4.2' off a board: a name without that suffix wins.
+ * Otherwise the pad the element lists first keeps the label.
+ */
+function friendlierPad(candidate: string, held: string): boolean {
+  const copy = (s: string) => (/\.\d+$/.test(s) ? 1 : 0);
+  return copy(candidate) < copy(held);
+}
+
+/**
  * Monitorable pads of the board rendered as `boardId`, or an empty list when
  * its element is not mounted (the caller then falls back to whatever it knows).
  * Power and ground pads are left out: `pinNameToArduinoPin` reports them as -1.
@@ -85,10 +97,12 @@ export function boardPads(boardId: string, boardKind: BoardKind): BoardPad[] {
     pads.set(key, { pin, label: name });
   }
 
+  // One entry per pin: a pin broken out on two pads is one channel.
   const byPin = new Map<number, string>();
   for (const { pin, label } of pads.values()) {
     if (pin < 0) continue; // a rail, or a pad this family does not number
-    if (!byPin.has(pin)) byPin.set(pin, label);
+    const held = byPin.get(pin);
+    if (held === undefined || friendlierPad(label, held)) byPin.set(pin, label);
   }
   return [...byPin].map(([pin, label]) => ({ pin, label })).sort(bySilkscreen);
 }

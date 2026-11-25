@@ -115,7 +115,9 @@ describe('LM358 without a board (#126)', () => {
       const r = await runNetlist(netlist);
       const vout = settled(r.vec(`v(${pinNetMap.get('u1:OUT')})`) as number[]);
       expect(Math.min(...vout)).toBeLessThan(0.1);
-      // An LM358 on 5 V tops out about 1.5 V under V+ (TI SLOS068, VOH).
+      // The model on 5 V tops out about 1 V under V+, 3.96 V into this
+      // 10 kOhm load (lm358Subckt.ts); TI guarantees no lower than
+      // V+ - 1.5 V into 2 kOhm (SLOS068, VOH).
       expect(Math.max(...vout)).toBeGreaterThan(3.2);
       expect(Math.max(...vout)).toBeLessThan(4.2);
     },

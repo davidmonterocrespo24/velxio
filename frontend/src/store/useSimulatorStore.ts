@@ -36,7 +36,7 @@ import { blockedByBoardGate, reportBoardRunRefused } from '../lib/proBoardGate';
 import { getSerialTxInterceptor } from '../lib/proHardwareSerial';
 import { boardBox, boardSize, normalizeRotation, normalizeScale } from '../utils/boardGeometry';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
-import { useOscilloscopeStore } from './useOscilloscopeStore';
+import { useOscilloscopeStore, type OscRun, type OscSample } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 import { PiBridgeShim } from '../simulation/PiBridgeShim';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
@@ -110,6 +110,7 @@ import {
   busRegistry,
   createStoreNetResolver,
   RemoteSpiLane,
+  type HardwareBusSignal,
 } from '../simulation/buses';
 import { RemoteI2cLane } from '../simulation/buses/remoteI2c';
 import { RemoteUartLane } from '../simulation/buses/remoteUart';
@@ -245,6 +246,12 @@ export class Esp32BridgeShim {
   /** Levels the circuit applies; the engine only reports the ones it drives. */
   private externalScope = new ExternalPinScopeFeed(() => performance.now());
   private bridge: Esp32Bridge;
+
+  /** The clock this board's scope samples are stamped on: the page's own,
+   *  as the bridge stamps its edges (see boardScopeClockMs). */
+  scopeClockMs(): number {
+    return performance.now();
+  }
 
   /**
    * Canvas parts waiting for a decoded WS2812 frame, keyed by their DIN pin.
@@ -1154,6 +1161,11 @@ class Stm32BridgeShim {
   private bridge: Stm32Bridge;
   private _i2cTransactionListeners = new I2cEchoListeners();
 
+  /** The clock this board's scope samples are stamped on (see boardScopeClockMs). */
+  scopeClockMs(): number {
+    return performance.now();
+  }
+
   /** The board's SPI lane: the STM32 runs in a backend QEMU worker, so its
    *  controller port is fed by the worker's batches and its responders travel
    *  there as a bus map (project board-buses-2026-09, F4). */
@@ -1450,6 +1462,48 @@ const stm32BridgeMap = new Map<string, Stm32Bridge>();
 export const getBoardSimulator = (id: string) => simulatorMap.get(id);
 export const getBoardPinManager = (id: string) => pinManagerMap.get(id);
 export const getBoardBridge = (id: string) => bridgeMap.get(id);
+
+/**
+ * The clock a board's oscilloscope samples are stamped on, in ms: the guest's
+ * cycle counter for an engine in the tab, the page's clock for a bridge that
+ * stamps the edges it is sent. null for an engine that keeps none. The scope
+ * scrolls on it while it free-runs, so a wait with no edge still moves the
+ * trace (velxio/velxio-prod#196).
+ */
+export function boardScopeClockMs(id: string): number | null {
+  const sim = simulatorMap.get(id) as { scopeClockMs?: () => number } | undefined;
+  const t = sim?.scopeClockMs?.();
+  return typeof t === 'number' && Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The hardware I2C or SPI line on a board pin that the scope does NOT draw,
+ * for the note on its channel (velxio/velxio-prod#160): the AVR and RP2040
+ * engines draw their transfers (simulation/busScope.ts); the others move no
+ * pin for one, and the trace stays flat while the bus is busy. null when the
+ * pin carries no such line, or the engine draws it.
+ */
+export function scopeUndrawnBusSignal(boardId: string, pin: number): HardwareBusSignal | null {
+  const sim = simulatorMap.get(boardId) as { scopeDrawsHardwareBuses?: boolean } | undefined;
+  if (sim?.scopeDrawsHardwareBuses) return null;
+  return busRegistry.hardwareSignalOf(boardId, pin);
+}
+
+/**
+ * Where a scope channel on `pin` of a RUNNING board starts: the level the pin
+ * has now, at the board's clock. The channel then knows its level from that
+ * moment and shows "no data" before it, where it used to draw LOW until the
+ * first edge (velxio/velxio-prod#196). null for a board that is not running
+ * (every pad starts the run LOW) or keeps no clock.
+ */
+export function scopeSeedFor(boardId: string, pin: number): { timeMs: number; state: boolean } | null {
+  const board = useSimulatorStore.getState().boards.find((b) => b.id === boardId);
+  if (!board?.running) return null;
+  const timeMs = boardScopeClockMs(boardId);
+  const pm = pinManagerMap.get(boardId);
+  if (timeMs === null || !pm) return null;
+  return { timeMs, state: pm.getPinState(pin) };
+}
 
 /** Upload a QEMU-Linux board's editor file group into the guest home and run
  * its script (guestHome/autoRun overridable per overlay board). Used by the
@@ -1793,11 +1847,11 @@ interface SimulatorState {
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
   setActiveBoardId: (boardId: string) => void;
   /**
-   * Record a board's build. `extras.uf2` is the RP2 hardware-flash artifact
-   * (see BoardInstance.compiledUf2); omitted/null for every other family.
+   * Record the simulator program, the compiler Wi-Fi result, and the source
+   * fingerprint used to detect stale builds.
    */
   compileBoardProgram: (boardId: string, program: string, extras?: {
-    uf2?: string | null;
+    wifiRewritten?: boolean;
     buildSettings?: BoardBuildSettings;
     sourceHash?: string | null;
   }) => void;
@@ -2204,15 +2258,39 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     // timestamp costs something (the in-browser engines read
     // performance.now() per edge, a few hundred ns in some browsers, times
     // millions of edges on a bit-banged bus) asks first; the answer is the
-    // same test the feed runs, so skipping it drops nothing.
+    // same test the feed runs, so skipping it drops nothing. The bus
+    // synthesizers ask on every Wire or SPI step (simulation/busScope.ts),
+    // so the board's watched pins are kept as a set, rebuilt when the
+    // channel list changes.
+    let seenChannels: unknown = null;
+    let watched = new Set<number>();
     const wants = (pin: number): boolean => {
       const { channels } = useOscilloscopeStore.getState();
-      for (const ch of channels) {
-        if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === pin) return true;
+      if (channels !== seenChannels) {
+        seenChannels = channels;
+        watched = new Set();
+        for (const ch of channels) {
+          if (ch.kind === 'digital' && ch.boardId === boardId) watched.add(ch.pin);
+        }
       }
-      return false;
+      return watched.has(pin);
     };
-    return Object.assign(feed, { wants });
+    // Many samples in one store update, a run per pin: the shape a
+    // synthesized Wire or SPI transfer comes in (simulation/busScope.ts,
+    // velxio/velxio-prod#160).
+    const runs = (pinRuns: readonly { pin: number; samples: readonly OscSample[] }[]) => {
+      const { channels, pushSampleRuns } = useOscilloscopeStore.getState();
+      const out: OscRun[] = [];
+      for (const r of pinRuns) {
+        for (const ch of channels) {
+          if (ch.kind === 'digital' && ch.boardId === boardId && ch.pin === r.pin) {
+            out.push({ channelId: ch.id, samples: r.samples });
+          }
+        }
+      }
+      if (out.length > 0) pushSampleRuns(out);
+    };
+    return Object.assign(feed, { wants, runs });
   }
 
   // Create + fully wire the simulation bridge and shim for an ESP32-family
@@ -2519,11 +2597,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         esp32BridgeEpoch: s.esp32BridgeEpoch + 1,
       }));
       // A build that finished while the board waited goes into the new runtime.
-      const compiled = get().boards.find((b) => b.id === id);
-      if (compiled?.compiledProgram) {
-        get().compileBoardProgram(id, compiled.compiledProgram, {
-          uf2: compiled.compiledUf2,
-          sourceHash: compiled.compiledSourceHash,
+      const built = get().boards.find((b) => b.id === id);
+      if (built?.compiledProgram) {
+        // Keep the build metadata when attaching the same program to a new runtime.
+        get().compileBoardProgram(id, built.compiledProgram, {
+          wifiRewritten: built.wifiRewritten,
+          sourceHash: built.compiledSourceHash,
         });
       }
     }
@@ -3946,13 +4025,15 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         },
         useEditorStore.getState().getGroupFiles(board.activeFileGroupId),
       );
-      // The .uf2 rides along for RP2 boards (hardware flash); everything
-      // else leaves it null so a stale one never outlives its build.
-      const compiledUf2 = extras?.uf2 ?? null;
       set((s) => {
         const boards = s.boards.map((b) =>
           b.id === boardId
-            ? { ...b, compiledProgram: program, compiledSourceHash, compiledUf2 }
+            ? {
+                ...b,
+                compiledProgram: program,
+                compiledSourceHash,
+                wifiRewritten: extras?.wifiRewritten,
+              }
             : b,
         );
         const isActive = s.activeBoardId === boardId;
@@ -4239,7 +4320,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
       set((s) => {
         const boards = s.boards.map((b) =>
-          b.id === boardId ? { ...b, compiledProgram: 'micropython-loaded', compiledUf2: null } : b,
+          b.id === boardId ? { ...b, compiledProgram: 'micropython-loaded' } : b,
         );
         const isActive = s.activeBoardId === boardId;
         return {
@@ -4274,8 +4355,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                 ...b,
                 languageMode: mode,
                 compiledProgram: null,
-                compiledUf2: null,
                 hasWifi: undefined,
+                wifiRewritten: undefined,
               }
             : b,
         ),
@@ -4856,7 +4937,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ...b,
                   boardKind: type as BoardKind,
                   compiledProgram: null,
-                  compiledUf2: null,
+                  wifiRewritten: undefined,
                   serialOutput: '',
                   serialBaudRate: 0,
                   serialLink: undefined,
@@ -4900,7 +4981,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ...b,
                   boardKind: type as BoardKind,
                   compiledProgram: null,
-                  compiledUf2: null,
+                  wifiRewritten: undefined,
                   serialOutput: '',
                   serialBaudRate: 0,
                   serialLink: undefined,

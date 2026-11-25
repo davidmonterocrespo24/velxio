@@ -509,6 +509,11 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
       D8: 7,
       D9: 8,
       D10: 9,
+      // The JTAG pads on the back of the board.
+      MTMS: 42,
+      MTDI: 41,
+      MTCK: 39,
+      MTDO: 40,
     };
     const NANO_ESP32_MAP: Record<string, number> = {
       D0: 44,

@@ -35,8 +35,8 @@ export const PICO_HEADER_GPIOS: readonly number[] = [
 export const PICO_TABLE: BoardPinFunctions = staticTable({
   routing: 'mux',
   controllers: [
-    // velxio's compile prepends `#define Serial Serial1` to the sketch
-    // (backend arduino_cli.py), so a sketch's Serial is UART0 too.
+    // velxio's compile prepends `#define Serial Serial1` to a sketch built for
+    // the simulator (backend arduino_cli.py), so its Serial is UART0 too.
     {
       bus: 'uart',
       unit: 0,

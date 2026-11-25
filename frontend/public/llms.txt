@@ -1,84 +1,92 @@
-# Velxio — Online Circuit & Arduino Simulator
+# Velxio: Online Circuit and Microcontroller Simulator
 
-> Velxio is a free, open-source (AGPLv3) browser-based simulator for
-> microcontrollers (Arduino, ESP32, RP2040, RISC-V, ATtiny85, Raspberry Pi).
-> Includes an integrated AI agent that writes embedded code, places
-> components, and wires up circuits via natural language. Hosted at
-> https://velxio.dev with optional Pro tiers; runs identically as a
-> self-hosted Docker image or a Linux / Windows / macOS desktop app.
+> Velxio is a browser-based simulator for electronics and embedded code. You
+> place a board and parts, wire them, write the firmware, and run the real
+> compiled binary on an emulated chip. A built-in AI agent can do the whole
+> job from a description: pick the parts, wire the circuit, write the
+> firmware, compile it, run it, read the output and fix what is wrong. Hosted
+> at https://velxio.dev. The core is open source (AGPLv3) and can be
+> self-hosted with Docker.
 
 ## Key facts
 
-- Free at https://velxio.dev (anonymous use; 100 daily compiles).
-- Open source under AGPLv3 — https://github.com/davidmonterocrespo24/velxio.
-- Pro tiers: Maker $7/mo, Pro $19/mo (or $70 / $190 annual). Free is permanent.
-- 19 supported boards across 5 CPU architectures (AVR, ARM Cortex-M, Xtensa, RISC-V, ARM Cortex-A for Pi 3/4/5).
-- Real-time SPICE analog co-simulation via WebAssembly ngspice — measures voltages, current, power and shorts.
-- Built-in AI agent (Claude-powered) that writes Arduino / MicroPython, drops components onto the canvas, and wires them.
-- GitHub Sync (Pro) — every project save commits sketch.ino + velxio.json + a generated README to the user's chosen repo.
-- Iframe embed of any public project — https://velxio.dev/embed/<id>.
-- Desktop app for offline use (Maker / Pro): Linux deb, Windows MSI, macOS dmg.
+- Free plan at https://velxio.dev. No install: it runs in a modern browser.
+- Open-core: the simulator is AGPLv3, https://github.com/davidmonterocrespo24/velxio. The hosted site adds paid features on top.
+- 55 boards: AVR, ESP32 (Xtensa and RISC-V), RP2040 and RP2350, BBC micro:bit, STM32, Seeed XIAO, and Raspberry Pi running Linux.
+- The firmware you run is the compiled firmware (Arduino C++, MicroPython or ESP-IDF, depending on the board).
+- Real-time SPICE analog co-simulation with ngspice in WebAssembly: voltages, currents, shorts.
+- AI agent that writes firmware, places components, wires them, compiles, runs the simulation and checks the result.
+- Supported boards can be flashed from the browser once the project works in the simulator.
+- GitHub Sync (Pro): every project save is committed to a repository you choose.
+- Embed any public project with an iframe: https://velxio.dev/embed/<id>.
 
-## Tier comparison
+## Plans
 
-| Tier | Price | Daily compiles | Visibility | Premium features |
+| Plan | Price | AI | Projects | Main extras |
 |---|---|---|---|---|
-| Free | $0 | 100 | public only | — |
-| Maker | $7 / mo | 500 | + unlisted | desktop offline, IoT gateway |
-| Pro | $19 / mo | 2 000 | + private | BOM export (CSV), schematic image (PNG), GitHub Sync, embed without "Powered by Velxio" watermark |
+| Free | $0 | Basic chat, 50 messages a day | public | 150 compiles a day when signed in |
+| No AI | $4/mo or $36/yr | none | public, unlisted | the Maker simulator features without the AI |
+| Maker | $7/mo or $69/yr | Agent and Tutor, 1,500 credits a day | public, unlisted | STM32 and Raspberry Pi Linux boards, IoT gateway, unlimited compiles |
+| Pro | $19/mo or $189/yr | Agent and Tutor, 5,000 credits a day | public, unlisted, private | BOM export, schematic image, GitHub Sync, connect an external agent, My Chips |
 
-## Comparison vs alternatives
-
-- **vs Wokwi**: Velxio adds the AI agent, the open-source AGPLv3 codebase, a real-time SPICE analog engine, and a self-hostable Docker image / desktop app. Pricing is similar ($7 Maker tier maps to Wokwi's $7 Hobby).
-- **vs Tinkercad Circuits**: Velxio supports many more architectures (ESP32 / RP2040 / RISC-V / ATtiny85 / Raspberry Pi vs Arduino-Uno only), runs offline as a desktop app, and is open source.
-- **vs Proteus**: Velxio is web-first, free for individuals, integrates an AI agent, and runs without an installer. Proteus is desktop-only, paid per-seat, and Windows-only.
-- **vs PlatformIO**: PlatformIO is a build / debug toolchain (CLI + VS Code). Velxio is the simulator on top — you can take a sketch built in PlatformIO and run it in Velxio's emulator without flashing hardware.
+AI credits also have a monthly ceiling: 15,000 on Maker and 60,000 on Pro. See https://velxio.dev/pricing for current prices and limits.
 
 ## Supported boards
 
-- AVR: Arduino Uno, Arduino Nano, Arduino Mega, ATtiny85.
-- ESP32 family: DevKit V1, ESP32-S3, ESP32-C3, ESP32-CAM, DevKit-C-V4, Wemos LOLIN32 Lite, XIAO ESP32-S3, XIAO ESP32-C3, Arduino Nano ESP32, AiTewinRobot ESP32-C3 SuperMini.
-- RP2040: Raspberry Pi Pico, Pico W.
-- ARM Cortex-A (QEMU-emulated Linux): Raspberry Pi 3B, Pi 4, Pi 5.
+- Arduino and AVR: Uno, Nano, Mega 2560, ATtiny85.
+- ESP32: DevKit V1, DevKit-C V4, ESP32-CAM, Wemos Lolin32 Lite, M5Stack Core.
+- ESP32-S3: DevKit, XIAO ESP32-S3, XIAO ESP32S3 Sense, Arduino Nano ESP32, M5 Cardputer ADV.
+- ESP32-C3 and C6: ESP32-C3 DevKit, C3 SuperMini, XIAO ESP32-C3, ESP32-C6 DevKit, XIAO ESP32C6.
+- RP2040 and RP2350: Raspberry Pi Pico, Pico W, XIAO RP2040, XIAO RP2350, Pimoroni Pico Plus 2 W, Badger 2350, Galactic Unicorn, Stellar Unicorn.
+- Other Seeed XIAO: SAMD21, RA4M1, nRF52840 Sense, nRF54L15 Sense, MG24 Sense.
+- BBC micro:bit V2, alone or on DFRobot boards such as Maqueen Lite and micro:Driver.
+- STM32 (Cortex-M3 and M4): Blue Pill, Black Pill, F4 Discovery, Olimex H405, Netduino 2 and Plus 2.
+- Linux boards: Raspberry Pi Zero, 1, 2, 3, 4 and 5, and the DFRobot UNIHIKER M10.
+
+STM32 and Linux boards run on Velxio's servers and need a paid plan. A free account gets three 15-minute trial sessions per family (STM32, Raspberry Pi, UNIHIKER).
+
+## Compared with other tools
+
+- **Wokwi**: both run real firmware in the browser. Velxio has an open-source core you can self-host, SPICE analog simulation, and an agent that builds and tests the circuit.
+- **Tinkercad Circuits**: aimed at first steps with a small set of boards. Velxio covers ESP32, RP2040, RISC-V, STM32 and Raspberry Pi Linux.
+- **Proteus**: a paid desktop program. Velxio runs in the browser and has a free plan.
+- **PlatformIO**: a build and debug toolchain. Velxio is a simulator, so a sketch can be tried without hardware.
 
 ## Docs and resources
 
 - [Home](https://velxio.dev)
 - [Editor](https://velxio.dev/editor)
-- [Documentation](https://velxio.dev/docs)
+- [Documentation](https://velxio.dev/docs/)
+- [Supported boards](https://velxio.dev/docs/boards/overview/)
+- [AI assistant](https://velxio.dev/docs/ai/overview/)
 - [Examples gallery](https://velxio.dev/examples)
 - [Pricing](https://velxio.dev/pricing)
 - [Blog](https://velxio.dev/blog/)
-- [GitHub repo (OSS)](https://github.com/davidmonterocrespo24/velxio)
+- [GitHub repository](https://github.com/davidmonterocrespo24/velxio)
 - [Discord community](https://discord.gg/3mARjJrh4E)
 
 ## Key use cases
 
-- Learning embedded systems / microcontrollers without buying hardware.
-- Prototyping Arduino / ESP32 / Pico sketches before flashing real boards.
-- Teaching embedded systems in classrooms — projects are shareable as public links or embedded iframes in course materials.
-- Validating sketches against real component models (LEDs with forward voltages, resistors with tolerance, RC filters, op-amps via SPICE).
-- AI-assisted circuit design: describe the system in English, let the agent place the components, wire them up, and write the firmware.
-- Hosting a portfolio of embedded projects with GitHub Sync — every save commits to the user's repo.
+- Describe a device in plain language and get a working circuit and firmware, tested in the simulator.
+- Learn embedded systems without buying hardware.
+- Try Arduino, ESP32, Pico or micro:bit code before flashing a real board.
+- Teach: share projects as links or embed them in course pages.
+- Check analog behavior: LEDs, RC filters, op-amps and transistors through SPICE.
 
 ## Common questions
 
-**Is Velxio free?** Yes, the simulator is free forever. The AI agent has a daily message cap that resets midnight UTC. Paid tiers ($7 Maker, $19 Pro) increase the cap and unlock premium features (private projects, offline desktop, BOM, schematic export, GitHub Sync).
+**Is Velxio free?** There is a permanent free plan with public projects, the in-browser boards, 150 compiles a day for a signed-in account and Basic AI chat. The agent that builds projects is on Maker and Pro.
 
-**Does Velxio require installation?** No, it runs in any modern browser. A desktop app (Linux / Windows / macOS) is available to paid users for offline work.
+**Does Velxio require installation?** No. It runs in a modern browser. Self-hosting uses Docker.
 
-**What boards does it support?** Arduino Uno / Nano / Mega, the ESP32 family (DevKit, S3, C3, CAM and several breakout variants), Raspberry Pi Pico / Pico W, Raspberry Pi 3 / 4 / 5 (QEMU-emulated Linux), and ATtiny85.
+**What does the AI agent do?** It reads the circuit and the code of your project, picks and places parts, wires them, writes the firmware, installs libraries, compiles, runs the simulation, reads the serial output and the display, and corrects its own errors. Basic mode only answers questions and shows code in the chat. Tutor mode teaches step by step.
 
-**Is the code I write private?** Free users have public projects only. Maker tier ($7/mo) adds unlisted visibility (URL-only access). Pro tier ($19/mo) adds fully private projects, visible only to the owner.
+**Is my code private?** Free projects are public. Maker and No AI add unlisted projects (reachable by link only). Pro adds private projects.
 
-**Can I self-host Velxio?** Yes — the AGPLv3 open-source image is on GitHub Container Registry and Docker Hub. The Pro features are a private overlay layered on top; self-hosted users get the free-tier feature set.
+**Can I self-host Velxio?** Yes. The AGPLv3 image is published on GitHub Container Registry and Docker Hub. The paid features and the AI agent of velxio.dev are a private overlay and are not part of it.
 
-**Can I embed a Velxio project in my blog?** Yes — public projects expose `https://velxio.dev/embed/<id>`, designed for iframe consumption. Free-tier owners see a "Powered by Velxio" watermark; paid-tier owners get a clean embed.
-
-**How does the AI agent work?** It uses Anthropic's Claude under the hood. Free users get a small daily message budget; paid tiers raise it. The agent can read your current canvas + code, place components, draw wires, and write firmware in Arduino C++ or MicroPython.
+**Can I embed a project?** Yes, public projects can be embedded with https://velxio.dev/embed/<id>. Projects of free accounts show a "Powered by Velxio" badge.
 
 ## License
 
-The open-source codebase is **AGPLv3**. The Pro tier is built on top of the same codebase via a private overlay — both run locally inside a single container and can be deployed without sending project data to any external cloud service.
-
-The Pro overlay (analytics, billing, AI agent integration) is the only piece NOT under AGPLv3; it lives in a separate private repository.
+The open-source core is AGPLv3. The AI agent, billing and the other paid features of velxio.dev are private and are not covered by it.

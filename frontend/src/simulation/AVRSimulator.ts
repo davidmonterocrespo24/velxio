@@ -64,6 +64,8 @@ import { hexToUint8Array } from '../utils/hexParser';
 import type { SerialLink } from '../store/serialWire';
 import { I2CBusManager, nullI2CMaster } from './I2CBusManager';
 import { boardPinsFromPinManager } from './buses/boardPins';
+import { I2cScopeSynth, SpiScopeSynth, type ScopeSink } from './busScope';
+import { ATMEGA328P_TABLE, ATMEGA2560_TABLE } from './buses/boardPinTables/avr';
 
 /**
  * AVRSimulator - Emulates Arduino Uno (ATmega328p) using avr8js
@@ -86,7 +88,7 @@ interface PwmPinDef {
    *  TCCR1 / GTCCR on the ATtiny85) and their mask. Absent: always connected. */
   comAddr?: number;
   comMask?: number;
-  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85. */
+  /** The timer the channel belongs to, for the duty its mode gives (pwmDuty); absent on the ATtiny85's Timer1. */
   timer?: PwmTimer;
 }
 
@@ -112,6 +114,12 @@ const TIMER2: PwmTimer = { wide: false, tccrA: 0xb0, tccrB: 0xb1, ocrA: 0xb3 };
 const TIMER3: PwmTimer = { wide: true, tccrA: 0x90, tccrB: 0x91, ocrA: 0x98, icr: 0x96 };
 const TIMER4: PwmTimer = { wide: true, tccrA: 0xa0, tccrB: 0xa1, ocrA: 0xa8, icr: 0xa6 };
 const TIMER5: PwmTimer = { wide: true, tccrA: 0x120, tccrB: 0x121, ocrA: 0x128, icr: 0x126 };
+/**
+ * The ATtiny85's Timer0: the ATmega's 8-bit timer at its own addresses
+ * (ATtiny25/45/85 datasheet, chapter 11). ATTinyCore runs it in fast PWM like
+ * the Uno's, so analogWrite on PB0 and PB1 is (OCR + 1)/256 too.
+ */
+const TINY85_TIMER0: PwmTimer = { wide: false, tccrA: 0x4a, tccrB: 0x53, ocrA: 0x49 };
 
 /**
  * A waveform generation mode: the PWM it makes (null for Normal, CTC and the
@@ -290,9 +298,11 @@ const MEGA_PIN_TO_PORT = (() => {
 // digitalWrite after turnOffPWM, which clears those bits and leaves OCR as it
 // was, as on the Uno; without them the last duty stuck (velxio/velxio-prod#141).
 // They also decide which of PB1's two channels (OC0B, OC1A) drives it.
+// Timer0's channels take the duty of its mode (pwmDuty), as on the ATmega;
+// Timer1's PWM is its own (TOP in OCR1C) and keeps OCR/255.
 const PWM_PINS_TINY85: PwmPinDef[] = [
-  { ocrAddr: 0x49, pin: 0, label: 'OCR0A', comAddr: 0x4a, comMask: 0xc0 }, // Timer0A → PB0
-  { ocrAddr: 0x48, pin: 1, label: 'OCR0B', comAddr: 0x4a, comMask: 0x30 }, // Timer0B → PB1
+  { ocrAddr: 0x49, pin: 0, label: 'OCR0A', comAddr: 0x4a, comMask: 0xc0, timer: TINY85_TIMER0 }, // Timer0A → PB0
+  { ocrAddr: 0x48, pin: 1, label: 'OCR0B', comAddr: 0x4a, comMask: 0x30, timer: TINY85_TIMER0 }, // Timer0B → PB1
   { ocrAddr: 0x4e, pin: 1, label: 'OCR1A', comAddr: 0x50, comMask: 0x30 }, // Timer1A → PB1 (attinyTimer1Config.OCR1A)
   { ocrAddr: 0x4b, pin: 4, label: 'OCR1B', comAddr: 0x4c, comMask: 0x30 }, // Timer1B → PB4 (attinyTimer1Config.OCR1B)
 ];
@@ -773,6 +783,163 @@ class AvrCpu extends CPU {
   }
 }
 
+/** avr8js's TimerMode.FastPWM; the enum is not exported. */
+const AVR8JS_FAST_PWM = 3;
+
+type CompareChannel = 'A' | 'B' | 'C';
+
+/**
+ * The parts of an avr8js 0.21.0 AVRTimer that chipFastPwm reaches. Its
+ * typings declare them private, so the timer is seen through this shape.
+ */
+interface AvrTimerInternals {
+  cpu: CPU;
+  config: AVRTimerConfig;
+  timerMode: number;
+  readonly TOP: number;
+  hasOCRC: boolean;
+  ocrA: number;
+  ocrB: number;
+  ocrC: number;
+  nextOcrA: number;
+  nextOcrB: number;
+  nextOcrC: number;
+  compA: number;
+  compB: number;
+  compC: number;
+  OCFA: AVRInterruptConfig;
+  OCFB: AVRInterruptConfig;
+  OCFC: AVRInterruptConfig;
+  timerUpdated(value: number, prevValue: number): void;
+  updateCompPin(compValue: number, pinName: CompareChannel, bottom?: boolean): void;
+}
+
+/**
+ * An avr8js timer whose fast PWM compare matches land where the chip's do
+ * (velxio/velxio-prod#155).
+ *
+ * "Whenever TCNT0 equals OCR0A or OCR0B, the comparator signals a match. A
+ * match will set the Output Compare Flag (OCF0A or OCF0B) at the next timer
+ * clock cycle" (ATmega328P datasheet DS40002061B, section 15.5; the same for
+ * the 16-bit timers), and the waveform generator acts on the match then. In
+ * fast PWM the pin is set at BOTTOM and cleared as TCNT leaves OCR, so it is
+ * HIGH for OCR + 1 of TOP + 1 ticks: OCR at BOTTOM is a one-tick spike and
+ * OCR at TOP a constant HIGH (section 15.7.3), and inverting mode is the
+ * complement. avr8js acts on a match when TCNT reaches OCR, one tick early:
+ * the pin was HIGH for OCR ticks (256 us of 1024 for analogWrite(6, 64),
+ * where the chip gives 260), OCR = 0 was a constant HIGH and OCR = TOP fell
+ * for one tick. Its fast PWM also never set channel C at BOTTOM, so OC1C,
+ * OC3C, OC4C and OC5C on the Mega stayed LOW.
+ *
+ * In fast PWM only, each count step here applies its matches as the chip
+ * does, flag and pin together and in order: the matches before the wrap,
+ * then BOTTOM, then the matches after it against the OCR that BOTTOM loads
+ * (OCR is double-buffered in this mode). A match at TOP is the wrap itself:
+ * BOTTOM wins, and a toggle still toggles. A CPU write to TCNT blocks the
+ * match of the next timer clock (section 15.5.2). Every other mode is left to
+ * avr8js, so millis() (the overflow), tone() (CTC), Servo (normal mode) and
+ * the phase-correct pins, whose duty avr8js gets right, run as before.
+ */
+function chipFastPwm(timer: AVRTimer): AVRTimer {
+  const t = timer as unknown as AvrTimerInternals;
+  const stock = AVRTimer.prototype as unknown as AvrTimerInternals;
+  const stockUpdated = stock.timerUpdated;
+  const stockCompPin = stock.updateCompPin;
+  const cpu = t.cpu;
+  const { OCFA, OCFB, OCFC, hasOCRC } = t;
+
+  /**
+   * One channel's part of a count step from prevValue to value: TCNT leaves
+   * OCR before the wrap (or in a step without one), then at the wrap itself
+   * when OCR is TOP, then BOTTOM, then the matches after the wrap against the
+   * OCR that BOTTOM loads.
+   */
+  const step = (
+    ch: CompareChannel,
+    flag: AVRInterruptConfig,
+    comp: number,
+    ocr: number,
+    nextOcr: number,
+    prevValue: number,
+    value: number,
+    wrapped: boolean,
+    top: number,
+    blockedAt: number,
+  ): void => {
+    const free = ocr !== blockedAt;
+    if (free && prevValue <= ocr && ocr < (wrapped ? top : value)) {
+      cpu.setInterruptFlag(flag);
+      if (comp) stockCompPin.call(t, comp, ch, false);
+    }
+    if (!wrapped) return;
+    if (free && ocr === top) {
+      cpu.setInterruptFlag(flag);
+      if (comp === 1) stockCompPin.call(t, comp, ch, false);
+    }
+    if (comp) stockCompPin.call(t, comp, ch, true);
+    if (nextOcr < value) {
+      cpu.setInterruptFlag(flag);
+      if (comp) stockCompPin.call(t, comp, ch, false);
+    }
+  };
+
+  // A write to TCNT: avr8js's hook runs a compare on the written value (a
+  // no-op, nothing counted), and the next count step must not match on it.
+  let inTcntWrite = false;
+  let tcntWritten = false;
+  const tcntAddr = t.config.TCNT;
+  const stockTcntWrite = cpu.writeHooks[tcntAddr];
+  cpu.writeHooks[tcntAddr] = (value, oldValue, addr, mask) => {
+    tcntWritten = true;
+    inTcntWrite = true;
+    try {
+      return stockTcntWrite(value, oldValue, addr, mask);
+    } finally {
+      inTcntWrite = false;
+    }
+  };
+
+  // avr8js applies fast PWM's BOTTOM after the step's matches; the step
+  // applies it in its place, so that call does nothing.
+  t.updateCompPin = (compValue, pinName, bottom = false) => {
+    if (bottom) return;
+    stockCompPin.call(t, compValue, pinName, false);
+  };
+
+  t.timerUpdated = (value, prevValue) => {
+    if (inTcntWrite) return;
+    let blockedAt = -1;
+    if (tcntWritten) {
+      blockedAt = prevValue;
+      tcntWritten = false;
+    }
+    if (t.timerMode !== AVR8JS_FAST_PWM) {
+      stockUpdated.call(t, value, prevValue);
+      return;
+    }
+    // A count step is at least one tick, so a step back to the same value
+    // went round once.
+    const wrapped = prevValue >= value;
+    // Most steps leave no OCR behind: nothing to do (a prescaler of 1 steps
+    // after every instruction).
+    if (
+      !wrapped &&
+      (t.ocrA < prevValue || t.ocrA >= value) &&
+      (t.ocrB < prevValue || t.ocrB >= value) &&
+      (!hasOCRC || t.ocrC < prevValue || t.ocrC >= value)
+    ) {
+      return;
+    }
+    const top = t.TOP;
+    step('A', OCFA, t.compA, t.ocrA, t.nextOcrA, prevValue, value, wrapped, top, blockedAt);
+    step('B', OCFB, t.compB, t.ocrB, t.nextOcrB, prevValue, value, wrapped, top, blockedAt);
+    if (hasOCRC) {
+      step('C', OCFC, t.compC, t.ocrC, t.nextOcrC, prevValue, value, wrapped, top, blockedAt);
+    }
+  };
+  return timer;
+}
+
 /**
  * Peripheral configs of each ATmega variant. The ATmega2560 keeps the
  * ATmega328P's register addresses for Timer0-2, USART0, SPI, TWI, ADC and
@@ -1196,6 +1363,8 @@ class AvrSpiPort implements SpiControllerPort {
   private cpu: CPU | null = null;
   private spcr = spiConfig.SPCR;
   private handler: ((mosi: number, bits: number) => number) | null = null;
+  /** Hears every frame with its answer, to draw it on the scope (busScope.ts). */
+  scopeFrame: ((mosi: number, miso: number) => void) | null = null;
   /** The CPU was (re)built: take over its SPI peripheral. */
   attach(engine: AVRSPI, cpu: CPU, config: SPIConfig): void {
     this.engine = engine;
@@ -1217,6 +1386,7 @@ class AvrSpiPort implements SpiControllerPort {
     // write, 64 bytes at 125 kHz took 56 us instead of 4.1 ms
     // (velxio/velxio-prod#159).
     const miso = this.handler ? this.handler(mosi, 8) & 0xff : 0xff;
+    this.scopeFrame?.(mosi & 0xff, miso);
     cpu.addClockEvent(() => engine.completeTransfer(miso), engine.transferCycles);
   }
 
@@ -1256,6 +1426,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
   // their pins via the part layer. Input-control parts (button / slide-switch)
   // check this flag and skip their direct seed — see BasicParts.spiceDriven().
   readonly spiceDrivenInputs = true;
+  /** Wire and SPI transfers are drawn on the scope (busScope.ts); the
+   *  ATtiny85's USI moves its pins itself. */
+  readonly scopeDrawsHardwareBuses = true;
   private cpu: CPU | null = null;
   /** Peripherals kept alive by reference so GC doesn't collect their CPU hooks */
   private peripherals: unknown[] = [];
@@ -1347,6 +1520,15 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    */
   private lastTxEnable: boolean[] = [];
 
+  /**
+   * Wire and SPI on the scope (velxio/velxio-prod#160): avr8js moves no pin
+   * for a TWI or SPI transfer, so these draw each step on SDA/SCL and
+   * SCK/MOSI/MISO, for the scope only (busScope.ts). None on the ATtiny85,
+   * whose USI the fabric decodes from its pins.
+   */
+  private twiScope: I2cScopeSynth | null = null;
+  private spiScope: SpiScopeSynth | null = null;
+
   /** What getBusBinding() hands the fabric, built once. */
   private busBinding: EngineBinding | null = null;
   /** Told about every MCU reset, after the board's pins went back to undriven. */
@@ -1390,10 +1572,10 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         complete();
         return;
       }
-      const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
-      const sclCycles = 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+      const sclCycles = this.twiSclCycles(cpu);
       cpu.addClockEvent(complete, phase === 'byte' ? 9 * sclCycles : sclCycles);
     });
+    if (boardVariant !== 'tiny85') this.attachBusScopes(boardVariant);
     // Seed the input register to the pull's resting level the instant the
     // firmware enables it (INPUT_PULLUP -> HIGH). Real silicon does this in
     // nanoseconds; without the seed, digitalRead returned 0 from pinMode
@@ -1413,6 +1595,88 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     if (this.boardVariant === 'mega') return PWM_PINS_MEGA;
     if (this.boardVariant === 'tiny85') return PWM_PINS_TINY85;
     return PWM_PINS_UNO;
+  }
+
+  /**
+   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts), reached
+   * by the clock or not: the run stopped, or a caller that steps the CPU
+   * itself is about to read the scope.
+   */
+  flushScopeEdges(): void {
+    this.twiScope?.flush();
+    this.spiScope?.flush();
+  }
+
+  /** Hand the scope the Wire and SPI edges the clock has reached: once a frame. */
+  releaseScopeEdges(): void {
+    this.twiScope?.release();
+    this.spiScope?.release();
+  }
+
+  /**
+   * A pad's own edge is about to reach the scope (the sketch's PORT write, a
+   * level the circuit put on it): a Wire or SPI drawing on that pad gives way
+   * first, so the scope gets the pad's samples in time order (busScope.ts).
+   */
+  private padScopeEdge(pin: number, timeMs: number): void {
+    this.twiScope?.padEdge(pin, timeMs);
+    this.spiScope?.padEdge(pin, timeMs);
+  }
+
+  /** The scope slot, for the levels the circuit puts on a pad (externalScope). */
+  private readonly padScope = (pin: number, state: boolean, timeMs: number): void => {
+    const sink = this.onPinChangeWithTime;
+    if (!sink) return;
+    this.padScopeEdge(pin, timeMs);
+    sink(pin, state, timeMs);
+  };
+
+  /** One SCL period in CPU cycles: 16 + 2 * TWBR * 4^TWPS (ATmega328P 22.5.2). */
+  private twiSclCycles(cpu: CPU): number {
+    const prescaler = 1 << (2 * (cpu.data[twiConfig.TWSR] & 0x03));
+    return 16 + 2 * cpu.data[twiConfig.TWBR] * prescaler;
+  }
+
+  /**
+   * Draw Wire and SPI on the scope: the TWI's steps on SDA and SCL, each SPI
+   * frame on SCK, MOSI and MISO, at the pins the board table fixes, timed on
+   * the same clock and the same SCL period the TWI spends (velxio/velxio-prod#160).
+   */
+  private attachBusScopes(variant: 'uno' | 'mega'): void {
+    const table = variant === 'mega' ? ATMEGA2560_TABLE : ATMEGA328P_TABLE;
+    const pins = (bus: 'i2c' | 'spi') =>
+      table.controllers.find((c) => c.bus === bus && c.unit === 0)?.defaultPins ?? {};
+    const first = (p: number | number[] | undefined) => (Array.isArray(p) ? p[0] : p);
+    const i2c = pins('i2c');
+    const spi = pins('spi');
+    const sink = () => this.onPinChangeWithTime as ScopeSink | null;
+    const nowMs = () => this.scopeClockMs();
+    this.twiScope = new I2cScopeSynth({
+      sink,
+      sda: () => first(i2c.sda),
+      scl: () => first(i2c.scl),
+      nowMs,
+      timing: () => {
+        const cpu = this.cpu;
+        if (!cpu) return null;
+        // SCL's two halves, in ms at 16 MHz.
+        const halfMs = this.twiSclCycles(cpu) / 16_000 / 2;
+        return { lowMs: halfMs, highMs: halfMs };
+      },
+    });
+    this.i2cBus.setScopeTap(this.twiScope);
+    const port = this.spiPort;
+    if (!port) return;
+    this.spiScope = new SpiScopeSynth({
+      sink,
+      sck: () => first(spi.sck),
+      mosi: () => first(spi.mosi),
+      miso: () => first(spi.miso),
+      nowMs,
+      config: () => port.config(),
+    });
+    const scope = this.spiScope;
+    port.scopeFrame = (mosi, miso) => scope.frame(mosi, miso, 8);
   }
 
   /** The USARTs this variant has, with their pins. */
@@ -1516,7 +1780,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       this.adc = new AVRADC(cpu, attiny85AdcConfig);
       this.usart = null;
       this.peripherals = [
-        new AVRTimer(cpu, attiny85Timer0Config),
+        chipFastPwm(new AVRTimer(cpu, attiny85Timer0Config)),
         new ATtinyTimer1(cpu, attinyTimer1Config),
         // The ATtiny85 also has no hardware TWI: TinyWireM / Tiny4kOLED drive
         // I2C through the USI peripheral in two-wire mode, PB0 (SDA) / PB2
@@ -1546,9 +1810,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
       this.i2cBus.attachMaster(this.twi);
 
       this.peripherals = [
-        new AVRTimer(cpu, cfg.timer0),
-        new AVRTimer(cpu, cfg.timer1),
-        new AVRTimer(cpu, cfg.timer2),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer0)),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer1)),
+        chipFastPwm(new AVRTimer(cpu, cfg.timer2)),
         ...usarts,
         spi,
         this.twi,
@@ -1559,9 +1823,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // usual choice for user-defined CTC / ISR timing, so they have to
         // tick like the others (#356).
         this.peripherals.push(
-          new AVRTimer(cpu, megaTimer3Config),
-          new AVRTimer(cpu, megaTimer4Config),
-          new AVRTimer(cpu, megaTimer5Config),
+          chipFastPwm(new AVRTimer(cpu, megaTimer3Config)),
+          chipFastPwm(new AVRTimer(cpu, megaTimer4Config)),
+          chipFastPwm(new AVRTimer(cpu, megaTimer5Config)),
         );
       }
 
@@ -1612,6 +1876,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
    */
   private announceMcuReset(): void {
     this.pinManager.hardResetPinStates();
+    // The new CPU's clock starts at 0, and the bus with it.
+    this.twiScope?.reset();
+    this.spiScope?.reset();
     this.busResetHandler?.();
   }
 
@@ -1788,6 +2055,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // reported here is stale: the next injected level must be reported
         // even when it repeats that memory.
         this.externalScope.forget(pin);
+        this.padScopeEdge(pin, timeMs);
         this.onPinChangeWithTime(pin, state, timeMs);
       }
     }
@@ -2015,6 +2283,9 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
         // self-heal across both startup races and Serial.end()/begin()
         // toggles in the sketch.
         for (const port of this.uartPorts) port.retryPending();
+        // The Wire and SPI edges the clock reached this frame go to the
+        // scope in one go.
+        this.releaseScopeEdges();
 
         frameCount++;
         if (frameCount % 60 === 0) {
@@ -2046,6 +2317,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     this.scheduledPinChanges = [];
     this.lines?.reset();
     this.externalScope.reset();
+    this.flushScopeEdges();
 
     // Drop any bytes the previous run had queued for the sketch's RX
     // but never delivered (RX disabled, busy, or the sketch hadn't
@@ -2117,6 +2389,12 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     return 16000000;
   }
 
+  /** The guest clock every scope sample of this board is stamped on, in ms
+   *  (cycles / 16 000, as firePinChangeWithTime stamps them). */
+  scopeClockMs(): number {
+    return this.cpu ? this.cpu.cycles / 16_000 : 0;
+  }
+
   /**
    * Set the state of an Arduino pin externally (e.g. from a UI button)
    */
@@ -2155,7 +2433,7 @@ export class AVRSimulator implements LineCapable, BusCapableSimulator {
     // drives the pad, as the register is: the injected level is not on the
     // wire then.
     this.pinManager.triggerPinChange(arduinoPin, state, 'external');
-    this.externalScope.emit(this.onPinChangeWithTime, arduinoPin, state);
+    this.externalScope.emit(this.padScope, arduinoPin, state);
   }
 
   /**

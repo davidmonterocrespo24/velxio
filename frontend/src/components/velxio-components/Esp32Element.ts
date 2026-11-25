@@ -256,7 +256,7 @@ const PINS_WEMOS_LOLIN32 = [
 
 // Seeed XIAO ESP32-S3: 18.1 mm × 23.4 mm → 91 × 117 px
 // Left col: x = 1.43 mm → 7 px  |  Right col: x = 16.51 mm → 83 px
-const PINS_XIAO_ESP32_S3 = [
+const PINS_XIAO_HEADER = [
   { name: 'D0', x: 7, y: 25 },
   { name: 'D1', x: 7, y: 37 },
   { name: 'D2', x: 7, y: 50 },
@@ -308,8 +308,24 @@ const PINS_ARDUINO_NANO_ESP32 = [
   { name: 'VIN', x: 202, y: 84 },
 ];
 
-// Seeed XIAO ESP32-C3: 18.1 mm × 23.4 mm → 91 × 117 px (same form as XIAO ESP32-S3)
-const PINS_XIAO_ESP32_C3 = PINS_XIAO_ESP32_S3;
+/**
+ * The JTAG pads on the BACK of the XIAO ESP32-S3, plain GPIOs when JTAG is not
+ * in use (Seeed's pin map: MTMS 42, MTDI 41, MTCK 39, MTDO 40). No header pin,
+ * so no socket and no breadboard takes them; a XIAO that is seated on a shield
+ * reaches a second module through them. Below the module, off both header
+ * columns.
+ */
+const BACK_PADS_XIAO_ESP32_S3 = [
+  { name: 'MTMS', x: 27, y: 111, description: 'back pad' },
+  { name: 'MTDI', x: 39, y: 111, description: 'back pad' },
+  { name: 'MTCK', x: 51, y: 111, description: 'back pad' },
+  { name: 'MTDO', x: 63, y: 111, description: 'back pad' },
+];
+const PINS_XIAO_ESP32_S3 = [...PINS_XIAO_HEADER, ...BACK_PADS_XIAO_ESP32_S3];
+
+// Seeed XIAO ESP32-C3: 18.1 mm × 23.4 mm → 91 × 117 px (same form as XIAO ESP32-S3).
+// Its back pads are the GPIOs of D2 to D5 again, so they are not listed.
+const PINS_XIAO_ESP32_C3 = PINS_XIAO_HEADER;
 
 // Aitewinrobot ESP32-C3 SuperMini: 18.0 mm × 24.576 mm → 90 × 123 px
 // Left col: x = 1.46 mm → 7 px  |  Right col: x = 16.70 mm → 84 px
@@ -397,7 +413,7 @@ interface BoardConfig {
   svgUrl: string;
   w: number;
   h: number;
-  pins: { name: string; x: number; y: number }[];
+  pins: { name: string; x: number; y: number; description?: string }[];
 }
 
 const BOARD_CONFIGS: Record<string, BoardConfig> = {
@@ -427,6 +443,27 @@ const BOARD_CONFIGS: Record<string, BoardConfig> = {
     pins: PINS_AITEWIN_C3,
   },
 };
+
+/** Back pads as seen through the board: a dashed outline with its name, because
+ *  the copper is on the other face. */
+function backPads({ w, h, pins }: BoardConfig): string {
+  const pads = pins.filter((p) => p.description === 'back pad');
+  if (!pads.length) return '';
+  return (
+    `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" ` +
+    `style="position:absolute;left:0;top:0;pointer-events:none">` +
+    pads
+      .map(
+        (p) =>
+          `<rect x="${p.x - 3.6}" y="${p.y - 3.6}" width="7.2" height="7.2" rx="1.4" ` +
+          `fill="#c8a02e" fill-opacity="0.55" stroke="#ffd766" stroke-width="0.7" stroke-dasharray="1.6 1"/>` +
+          `<text x="${p.x}" y="${p.y - 5}" font-size="3.6" font-family="monospace" fill="#e8e8ec" ` +
+          `text-anchor="middle">${p.name}</text>`,
+      )
+      .join('') +
+    `</svg>`
+  );
+}
 
 // ─── Custom element ───────────────────────────────────────────────────────────
 
@@ -527,6 +564,7 @@ class Esp32Element extends HTMLElement {
         draggable="false"
         alt="ESP32 board"
       />
+      ${backPads(this.config)}
       ${ledDivs}
     `;
     // A re-render (board-kind change) rebuilds the dots dark; put back what

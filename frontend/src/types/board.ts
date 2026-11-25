@@ -167,14 +167,6 @@ export interface BoardInstance {
    */
   compiledSourceHash?: string | null;
   /**
-   * RP2040 / RP2350 only: the .uf2 the compile produced next to the .bin,
-   * base64. `compiledProgram` stays the raw .bin the emulator loads; this is
-   * what real hardware takes (BOOTSEL drive, picotool, the flash dialog's
-   * download link). Null for other families and for builds recorded before
-   * the field existed.
-   */
-  compiledUf2?: string | null;
-  /**
    * Hardware revision picked in the flash dialog (HardwareRevision.id),
    * for kinds whose real board comes in more than one chip. Undefined =
    * the one the simulator runs.
@@ -194,6 +186,15 @@ export interface BoardInstance {
   activeFileGroupId: string;
   languageMode: LanguageMode; // 'arduino' (default), 'micropython' or 'espidf'
   hasWifi?: boolean; // set by compiler — true when sketch uses WiFi
+  /**
+   * ESP32: `compiledProgram` had its WiFi credentials rewritten for the
+   * simulated networks (CompileResult.wifi_rewritten), so a real board must
+   * not be flashed with it: the flash dialog builds its own image. Recorded
+   * with the program; undefined when the server did not say (an older
+   * server, a firmware file loaded by hand), which flashes the program as
+   * it always was.
+   */
+  wifiRewritten?: boolean;
   wifiStatus?: WifiStatus;
   bleStatus?: BleStatus;
   // ESP32-only — populated when the user opens Board Options... on the

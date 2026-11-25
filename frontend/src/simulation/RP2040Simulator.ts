@@ -4,6 +4,8 @@ import { PinManager } from './PinManager';
 import { ExternalPinScopeFeed } from './externalPinScope';
 import { I2CBusManager, wireRpI2cToBus, nullI2CMaster } from './I2CBusManager';
 import type { I2CDevice } from './I2CBusManager';
+import { I2cScopeSynth, SpiScopeSynth, type ScopeSink } from './busScope';
+import { trackRpSysClock, type RpSysClockMcu } from './rpSysClock';
 import { bootromB1 } from './rp2040-bootrom';
 import { loadUF2, loadUserFiles, getFirmware } from './MicroPythonLoader';
 import { type PioPeripheral, createPioPeripheral } from './PioPeripheral';
@@ -466,6 +468,8 @@ class RpSpiPort implements SpiControllerPort {
 }
 
 export class RP2040Simulator implements LineCapable, BusCapableSimulator {
+  /** Wire and SPI transfers are drawn on the scope (busScope.ts). */
+  readonly scopeDrawsHardwareBuses = true;
   // Drive digital INPUT pins from the solved circuit (connectDigitalInputsToMcu)
   // instead of the legacy part-seed, so digitalRead() reflects the REAL wiring:
   // a pin tied to a rail reads that rail, a button-to-GND on an INPUT_PULLUP pin
@@ -561,8 +565,8 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
   // UART0 and UART1 each have a port that lives as long as this simulator;
   // wireUart() points every new SoC's onByte at it. What a controller
   // transmits reaches the fabric's handler, and UART0 alone also reaches the
-  // console (it is the console of an Arduino sketch: the compile service
-  // prepends `#define Serial Serial1`). UART1 used to be copied into the
+  // console (it is the console of an Arduino sketch: a build for the
+  // simulator gets `#define Serial Serial1`). UART1 used to be copied into the
   // same console callback, which made a part hear every UART and answer on
   // UART0 only (finding rp2040-uart-lumped-and-uart0-only-rx).
   private readonly uartPorts: [RpUartPort, RpUartPort];
@@ -611,6 +615,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     }
 
     const miso = port.frame !== null ? port.frame(mosi, bits) & mask : mask;
+    this.spiScopes[unit].frame(mosi & mask, miso, bits);
 
     if (hwCs) this.endSpiHwCsFrame(mcu, unit, bits);
     spi.completeTransmit(miso);
@@ -747,6 +752,9 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     // put back by the target itself (the fabric restarts its decoders below).
     this.busHeldLow.clear();
     this.pinManager.hardResetPinStates();
+    // The new SoC's clock starts over, and the buses' cursors with it.
+    for (const scope of this.i2cScopes) scope.reset();
+    for (const scope of this.spiScopes) scope.reset();
     this.refreshSpiRouting(0);
     this.refreshSpiRouting(1);
     this.refreshI2cRouting(0);
@@ -781,6 +789,18 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
    */
   private i2cBuses: [I2CBusManager, I2CBusManager];
 
+  /**
+   * Wire/Wire1 and SPI/SPI1 on the scope (velxio/velxio-prod#160): rp2040js
+   * moves no pin for an I2C or SPI transfer, so each controller's steps are
+   * drawn on the pads funcsel routes it to, for the scope only
+   * (busScope.ts). Every step completes at once on this engine, so the
+   * synthesizers keep their own bus-busy cursor.
+   */
+  private readonly i2cScopes: [I2cScopeSynth, I2cScopeSynth];
+  private readonly spiScopes: [SpiScopeSynth, SpiScopeSynth];
+  /** The clk_sys the guest programmed (rpSysClock.ts); the I2C counts are in it. */
+  private guestSysHz: (() => number) | null = null;
+
   constructor(pinManager: PinManager) {
     this.pinManager = pinManager;
     // Each manager is also that controller's port for the bus fabric, with
@@ -793,6 +813,37 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
       new RpSpiPort(0, () => this.rp2040?.spi[0] ?? null, () => this.spiRouting[0]),
       new RpSpiPort(1, () => this.rp2040?.spi[1] ?? null, () => this.spiRouting[1]),
     ];
+    const sink = () => this.onPinChangeWithTime as ScopeSink | null;
+    const nowMs = () => this.clockMs();
+    const i2cScope = (unit: 0 | 1) =>
+      new I2cScopeSynth({
+        sink,
+        sda: () => this.i2cRouting[unit].sda,
+        scl: () => this.i2cRouting[unit].scl,
+        nowMs,
+        timing: () => {
+          // SCL's LOW and HIGH counts of the speed mode in use, in clk_sys
+          // cycles (IC_SS/FS_SCL_LCNT, _HCNT), as pico-sdk's
+          // i2c_set_baudrate computes them from the clk_sys the guest set up.
+          const i2c = this.rp2040?.i2c[unit];
+          const hz = this.guestSysHz?.() ?? this.rp2040?.clkSys ?? F_CPU;
+          if (!i2c || !(hz > 0)) return null;
+          return { lowMs: (i2c.sclLowPeriod / hz) * 1000, highMs: (i2c.sclHighPeriod / hz) * 1000 };
+        },
+      });
+    this.i2cScopes = [i2cScope(0), i2cScope(1)];
+    this.i2cBuses[0].setScopeTap(this.i2cScopes[0]);
+    this.i2cBuses[1].setScopeTap(this.i2cScopes[1]);
+    const spiScope = (unit: 0 | 1) =>
+      new SpiScopeSynth({
+        sink,
+        sck: () => this.spiRouting[unit].sck,
+        mosi: () => this.spiRouting[unit].mosi,
+        miso: () => this.spiRouting[unit].miso,
+        nowMs,
+        config: () => this.spiPorts[unit].config(),
+      });
+    this.spiScopes = [spiScope(0), spiScope(1)];
     this.uartPorts = [
       new RpUartPort(0, () => this.rp2040?.uart[0] ?? null, () => this.uartRouting[0], (b) => this.queueUartByte(0, b)),
       new RpUartPort(1, () => this.rp2040?.uart[1] ?? null, () => this.uartRouting[1], (b) => this.queueUartByte(1, b)),
@@ -883,6 +934,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     this.rp2040 = new RP2040();
     this.rp2040.logger = new ConsoleLogger(LogLevel.Error, false);
     this.rp2040.loadBootrom(bootromB1);
+    this.followGuestClock(this.rp2040);
 
     // 3. Load UF2 firmware into flash
     loadUF2(firmware, this.rp2040.flash);
@@ -1254,6 +1306,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
       RP2040_CLOCKS_KEY,
       () => line.publish(),
     );
+    this.followGuestClock(this.rp2040);
     // Both PL011s clock into their ports (the console is UART0's, in
     // uartTransmitted); the fabric hears them from there.
     this.wireUart(this.rp2040);
@@ -1584,7 +1637,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
         // The core owns the pad now, so the external door's memory of this pin
         // is stale (see externalPinScope).
         this.externalScope.forget(pin);
-        this.onPinChangeWithTime?.(pin, isHigh, this.clockMs());
+        if (this.onPinChangeWithTime) this.padScope(pin, isHigh, this.clockMs());
       });
       this.gpioUnsubscribers.push(unsub);
     }
@@ -1697,8 +1750,42 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
         instructionsExecuted++;
       }
     }
+    // The Wire and SPI edges the clock reached this frame go to the scope
+    // in one go; the ones drawn ahead of it wait (busScope.ts).
+    this.releaseScopeEdges();
     return { cyclesAdvanced: cyclesDone, instructionsExecuted };
   }
+
+  /**
+   * Hand the scope the Wire and SPI edges drawn so far (busScope.ts), reached
+   * by the clock or not: the run stopped, or a caller that steps the CPU
+   * itself is about to read the scope.
+   */
+  flushScopeEdges(): void {
+    for (const scope of this.i2cScopes) scope.flush();
+    for (const scope of this.spiScopes) scope.flush();
+  }
+
+  /** Hand the scope the Wire and SPI edges the clock has reached: once a frame. */
+  releaseScopeEdges(): void {
+    for (const scope of this.i2cScopes) scope.release();
+    for (const scope of this.spiScopes) scope.release();
+  }
+
+  /**
+   * The scope slot for a pad's own edges (the core driving it, the level the
+   * circuit or a pull puts on it). A Wire or SPI drawing on that pad gives
+   * way first, so the scope gets the pad's samples in time order: arduino-pico
+   * bit-bangs its address probes on the I2C pads while the drawing of the
+   * transfer before is still ahead of the clock (busScope.ts).
+   */
+  private readonly padScope = (pin: number, state: boolean, timeMs: number): void => {
+    const sink = this.onPinChangeWithTime;
+    if (!sink) return;
+    for (const scope of this.i2cScopes) scope.padEdge(pin, timeMs);
+    for (const scope of this.spiScopes) scope.padEdge(pin, timeMs);
+    sink(pin, state, timeMs);
+  };
 
   /** Execute one ARM instruction in the production loop, advancing the clock
    *  and stepping PIO. Returns the cycles it took. */
@@ -1767,6 +1854,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     this.uartTxSeeded = [false, false];
     this.lastTimestamp = 0;
     this.idleDetector.reset();
+    this.flushScopeEdges();
     console.log('[RP2040] Simulation stopped');
   }
 
@@ -1783,6 +1871,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
         this.rp2040 = new RP2040();
         this.rp2040.logger = new ConsoleLogger(LogLevel.Error, false);
         this.rp2040.loadBootrom(bootromB1);
+        this.followGuestClock(this.rp2040);
         this.rp2040.flash.set(this.flashCopy);
         this.rp2040.core.PC = 0x10000000;
 
@@ -1836,6 +1925,20 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
 
   getSpeed(): number {
     return this.speed;
+  }
+
+  /** The guest clock every scope sample of this board is stamped on, in ms. */
+  scopeClockMs(): number {
+    return this.clockMs();
+  }
+
+  /**
+   * Follow the clk_sys a new SoC's guest programs (rpSysClock.ts), before it
+   * runs: the engine keeps its own at 125 MHz, and the scope draws I2C at the
+   * SCL rate the guest counted for its clock (velxio/velxio-prod#160).
+   */
+  private followGuestClock(mcu: RP2040): void {
+    this.guestSysHz = trackRpSysClock(mcu as unknown as RpSysClockMcu, RP2040_CLOCKS_KEY);
   }
 
   /** Guest time in ms, the base every digital scope sample on this board uses. */
@@ -1927,7 +2030,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     if (!gpio) return;
     gpio.setInputValue(level);
     if (gpio.outputEnable) return;
-    this.externalScope.emit(this.onPinChangeWithTime, pin, level);
+    this.externalScope.emit(this.padScope, pin, level);
   }
 
   /**
@@ -1955,7 +2058,7 @@ export class RP2040Simulator implements LineCapable, BusCapableSimulator {
     // chip-board-pin-read-blind-to-other-parts, closed on the AVR first).
     // Left out while the core drives the pad, as the register is.
     this.pinManager.triggerPinChange(arduinoPin, state, 'external');
-    this.externalScope.emit(this.onPinChangeWithTime, arduinoPin, state);
+    this.externalScope.emit(this.padScope, arduinoPin, state);
   }
 
   /**

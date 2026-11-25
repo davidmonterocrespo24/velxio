@@ -38,6 +38,9 @@ import { LED_UNLIMITED_AMPS } from '../ledLimits';
 import { isRatedResistor, resistorPowerRating } from '../parts/resistorRating';
 import { RGB_LED_CHANNELS, rgbLedSenseKey, rgbLedSenseSource } from '../rgbLed';
 import { gpioOverVoltages } from './gpioOverVoltage';
+import { readTransistor, transistorFindings, type RatingsLookup } from './transistorStress';
+import { flagProperty } from '../../utils/flagProperty';
+import type { TimeWaveforms } from '../spice/types';
 
 export type WarningSeverity = 'error' | 'warning';
 export type WarningCode =
@@ -61,7 +64,10 @@ export type WarningCode =
   | 'unpowered-net'
   | 'no-return-path'
   | 'voltage-mismatch'
-  | 'bus-off-pins';
+  | 'bus-off-pins'
+  | 'transistor-overvoltage'
+  | 'transistor-overcurrent'
+  | 'transistor-overpower';
 
 export interface CircuitWarning {
   severity: WarningSeverity;
@@ -108,6 +114,12 @@ export interface VerifierConfig {
    * live solver never synthesizes. Used to word a conflict honestly.
    */
   synthesizedPins?: ReadonlySet<string>;
+  /**
+   * A part's datasheet ratings, from its metadata (PartRatings): the
+   * transistors Rule 7 holds to them. verifyCircuitFromStore reads the
+   * component registry; without it, the rule is skipped.
+   */
+  ratingsOf?: RatingsLookup;
 }
 
 
@@ -982,7 +994,11 @@ export async function verifyCircuit(
   // (velxio/velxio-prod#117). A circuit whose source moves on its own is
   // also solved over the transient window the live simulation runs, and the
   // source, resistor and capacitor checks take what it does there.
-  const moving = await transientReadings(input);
+  const moving = await transientReadings(
+    input,
+    // Rule 7 reads the whole window when the circuit has a rated part.
+    !!config.ratingsOf && input.components.some((c) => config.ratingsOf!(c.metadataId) !== undefined),
+  );
 
   // ── Rule 1: short circuit / power source overload ──────────────────────
   // Every voltage source (battery / signal-generator / power-supply) emits
@@ -1349,6 +1365,38 @@ export async function verifyCircuit(
     }
   }
 
+  // ── Rule 7: transistors held to their datasheet ratings (#138) ─────────
+  // V_CEO / V_DSS, I_C / I_D and P_D from the part's metadata. The collector
+  // or drain and a bipolar base carry 0 V sense sources (componentToSpice,
+  // transistorSenseKeys), so the solve gives the currents too. On an
+  // operating point this catches a supply above the part's rating, a load
+  // that asks for more current than it takes, or a part left half on that
+  // overheats; over the window of a moving source (a generator into a coil,
+  // with no flyback diode), the kick at every edge. A pin's edges are the
+  // runtime monitor's: this check drives every wired pin HIGH and holds it.
+  // Non-blocking, like the resistor's power rule: the solve stands.
+  if (config.ratingsOf) {
+    for (const comp of input.components) {
+      const part = config.ratingsOf(comp.metadataId);
+      if (!part) continue;
+      const reading = readTransistor(comp.id, part.ratings.kind, pinNetMap, {
+        nodeVoltages: solve.nodeVoltages,
+        branchCurrents,
+        timeWaveforms: moving?.capture ?? undefined,
+      });
+      if (!reading) continue;
+      for (const f of transistorFindings(comp.id, part, reading, flagProperty(comp.properties?.heatsink))) {
+        warnings.push({
+          severity: 'warning',
+          code: `transistor-over${f.rule}` as WarningCode,
+          componentId: comp.id,
+          message: f.message,
+          metric: f.value,
+        });
+      }
+    }
+  }
+
   return {
     errors,
     warnings,
@@ -1365,6 +1413,9 @@ interface TransientReadings {
   sourceAmps: Map<string, { rms: number; peak: number }>;
   /** Electrolytic capacitor id -> lowest and highest V(+) - V(-), V. */
   capVolts: Map<string, { min: number; max: number }>;
+  /** The whole window: every net and every V source (the transistors' sense
+   *  sources among them), for Rule 7; null when no part has ratings. */
+  capture: TimeWaveforms | null;
 }
 
 /**
@@ -1377,7 +1428,7 @@ interface TransientReadings {
  * circuit, and when the transient cannot be built or solved: the
  * operating-point checks still run.
  */
-async function transientReadings(input: BuildNetlistInput): Promise<TransientReadings | null> {
+async function transientReadings(input: BuildNetlistInput, withCapture = false): Promise<TransientReadings | null> {
   const analysis = input.analysis;
   if (analysis.kind !== 'tran' || !analysis.timeVarying) return null;
   let built: ReturnType<typeof buildNetlist>;
@@ -1407,7 +1458,22 @@ async function transientReadings(input: BuildNetlistInput): Promise<TransientRea
     const vb = node(b);
     return va && vb ? spanStats(time, subtract(va, vb), span) : null;
   };
-  const out: TransientReadings = { resistorWatts: new Map(), sourceAmps: new Map(), capVolts: new Map() };
+  let capture: TimeWaveforms | null = null;
+  if (withCapture) {
+    const nodes = new Map<string, number[]>();
+    for (const net of built.nets) {
+      const v = read(`v(${net})`);
+      if (v) nodes.set(net, v);
+    }
+    const branches = new Map<string, number[]>();
+    for (const m of built.netlist.matchAll(/^[ \t]*(V\S+)/gim)) {
+      const name = m[1]!.toLowerCase();
+      const i = read(`i(${name})`);
+      if (i) branches.set(name, i);
+    }
+    capture = { time, nodes, branches, period: analysis.period };
+  }
+  const out: TransientReadings = { resistorWatts: new Map(), sourceAmps: new Map(), capVolts: new Map(), capture };
   // The resistors as Rule 3 finds them, from their cards.
   for (const m of built.netlist.matchAll(/^R_(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/gm)) {
     const [, id, n1, n2, valStr] = m;

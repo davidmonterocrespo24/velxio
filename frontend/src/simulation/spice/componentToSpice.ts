@@ -59,6 +59,18 @@ export interface SpiceEmission {
    * (MapperContext.operated), so a sealed-in relay stays in.
    */
   memory?: { control: string; on: number; off: number };
+  /**
+   * The part's C and L cards hold a state that a PWM pad's two levels,
+   * weighted by the duty, describe as well as its mean does not: a DC
+   * motor's winding settles in a fraction of a PWM period, and its shaft
+   * averages the periods, as the duty-weighted mean of the two levels' speeds
+   * does. Such a part leaves a pad that drives it, straight or through a
+   * switch, a static pad (BuildNetlistResult.staticPads): at its mean, the
+   * pad would hold an IRF540's gate at 2.5 V, which passes nothing, where
+   * the real gate is fully on half of each period (velxio/velxio-prod#152,
+   * #164). Without it, any C or L card makes the pad's network reactive.
+   */
+  pwmStatic?: boolean;
 }
 
 export type NetLookup = (pinName: string) => string | null;
@@ -118,6 +130,50 @@ function behaviouralOpamp(
   ];
   if (vp) cards.push(`R_${comp.id}_iq ${vp} ${vm ?? '0'} ${p.iq}`);
   return { cards, modelsUsed: new Set() };
+}
+
+/**
+ * One LM358 amplifier: the macro-model subcircuit (National's, with the local
+ * changes models/lm358Subckt.ts lists). Slew rate (0.49 V/µs), GBW (about
+ * 1 MHz) and the output's swing to each rail come with it, where the
+ * behavioural B-source clamp it replaced had none. Its supply pins take the
+ * part's V+ / V- nets, unwired the logic rail and ground. The subcircuit's
+ * output is no V, B or E card, so the part says it drives OUT.
+ */
+function lm358MacroModel(comp: ComponentForSpice, netLookup: NetLookup): SpiceEmission | null {
+  const inp = netLookup('IN+');
+  const inn = netLookup('IN-');
+  const out = netLookup('OUT');
+  if (!inp || !inn || !out) return null;
+  const { vp, vm } = opampSupply(netLookup);
+  return {
+    cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
+    modelsUsed: new Set([LM358_SUBCKT]),
+    drives: [out],
+  };
+}
+
+/** The behavioural op-amps' figures (see behaviouralOpamp and the mappers). */
+const LM741_OPAMP = { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' } as const;
+const TL072_OPAMP = { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' } as const;
+
+/**
+ * The open-loop gain of each op-amp part whose output stops at its rails: the
+ * behavioural parts' `gain`, and the LM358 macro-model's 99.9 dB, which the
+ * LM324 runs too. NetlistBuilder reads it to find an op-amp its own output
+ * drives further the way it goes (a Schmitt trigger), whose loop has two
+ * stable states (velxio/velxio-prod#134). The ideal op-amp is not listed: it
+ * has no rails, so with positive feedback its one solution is the linear one.
+ */
+const SATURATING_OPAMP_GAIN: Readonly<Record<string, number>> = {
+  'opamp-lm358': 10 ** (99.9 / 20),
+  'opamp-lm324': 10 ** (99.9 / 20),
+  'opamp-lm741': LM741_OPAMP.gain,
+  'opamp-tl072': TL072_OPAMP.gain,
+};
+
+export function saturatingOpampGain(metadataId: string): number | null {
+  return SATURATING_OPAMP_GAIN[metadataId] ?? null;
 }
 
 /** A volt figure for a card, without float noise (0.55 * 5 is 2.7500000000000004). */
@@ -413,6 +469,116 @@ function regulatorCards(id: string, vin: string, ref: string, vout: string, expr
   ];
 }
 
+/**
+ * The collector-emitter breakdown of a bipolar transistor, as a subcircuit
+ * across C and E (velxio/velxio-prod#138).
+ *
+ * The Gummel-Poon model has no breakdown at all, so a coil switched off with
+ * no flyback diode put its energy into the junction capacitances: a 2N2222
+ * from 5 V rose to 1141 V, a BC547 to 1863 V, a 2N3906 to -2060 V, where a
+ * real part avalanches just past its rating and dissipates the energy, or
+ * fails. The MOSFETs got the same clamp from their body diode's BV in #110.
+ *
+ * Two diodes in series: one breaks down at the part's rated V(BR)CEO (1 mA
+ * there), and the other blocks, so the pair conducts only from collector to
+ * emitter (emitter to collector on a PNP) once V_CE passes the rating plus
+ * the blocking diode's drop: the relay's coil (71 mA) clamps 0.9 V over it.
+ * A single diode would also conduct forward, a body diode a bipolar
+ * transistor does not have; it clamped the ringing after the kick at
+ * -0.64 V. Neither diode has capacitance or stored charge, and below the
+ * rating the pair leaks femtoamperes: the part's switching and gain are the
+ * Gummel-Poon card's.
+ *
+ * A subcircuit and not two D cards: the start-up and the time step of a
+ * transient read a D card in a deck as a rectifier, which wants a finer step
+ * (settleTime.ts), and a clamp that conducts only past the rating is not
+ * one. Parts with the same rating share the subcircuit's text, so the deck
+ * defines it once.
+ */
+export function bjtBreakdownSubckt(vceo: number): { name: string; text: string } {
+  const name = `BJT_CEO_BV_${String(vceo).replace('.', 'P')}`;
+  return {
+    name,
+    text: [
+      `.subckt ${name} hi lo`,
+      'D_bv mid hi DBV',
+      'D_bk mid lo DBK',
+      `.model DBV D(Is=1e-14 BV=${vceo} IBV=1m)`,
+      '.model DBK D(Is=1e-14)',
+      `.ends ${name}`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * The 0 V sources a transistor's mapper puts in its leads, by the keys the
+ * solve gives their currents (lower case, as `branchCurrents` and a
+ * capture's `branches` hold them): the collector's or the drain's (`main`),
+ * and a bipolar transistor's base (`control`). Each reads the current INTO
+ * the part, so the circuit check and the runtime monitor see what the part
+ * carries and dissipates against its ratings (velxio/velxio-prod#138). A
+ * MOSFET's gate draws nothing at DC and has none.
+ */
+export function transistorSenseKeys(id: string, bipolar: boolean): { main: string; control: string | null } {
+  return bipolar
+    ? { main: `v_${id}_c`.toLowerCase(), control: `v_${id}_b`.toLowerCase() }
+    : { main: `v_${id}_d`.toLowerCase(), control: null };
+}
+
+/**
+ * A bipolar transistor: its Gummel-Poon card, `model` (the `.model` line,
+ * named `name`), and its C-E breakdown at the rated `vceo`
+ * (bjtBreakdownSubckt): from C to E on an NPN, from E to C on a PNP. The
+ * collector and the base reach the card through their sense sources
+ * (transistorSenseKeys), the breakdown included: its current is collector
+ * current.
+ */
+function bjtEmission(
+  comp: ComponentForSpice,
+  netLookup: NetLookup,
+  part: { name: string; model: string; vceo: number; pnp: boolean },
+): SpiceEmission | null {
+  const c = netLookup('C');
+  const b = netLookup('B');
+  const e = netLookup('E');
+  if (!c || !b || !e) return null;
+  const clamp = bjtBreakdownSubckt(part.vceo);
+  const ci = `${comp.id}_ci`;
+  const bi = `${comp.id}_bi`;
+  const [hi, lo] = part.pnp ? [e, ci] : [ci, e];
+  return {
+    cards: [
+      `V_${comp.id}_c ${c} ${ci} DC 0`,
+      `V_${comp.id}_b ${b} ${bi} DC 0`,
+      `Q_${comp.id} ${ci} ${bi} ${e} ${part.name}`,
+      `X_${comp.id}_bv ${hi} ${lo} ${clamp.name}`,
+    ],
+    modelsUsed: new Set([part.model, clamp.text]),
+  };
+}
+
+/**
+ * A MOSFET: its VDMOS card, `model` (named `name`), with the drain reaching
+ * it through its sense source (transistorSenseKeys). The body diode, its
+ * avalanche (BV) included, is inside the card, so its current is drain
+ * current.
+ */
+function mosfetEmission(
+  comp: ComponentForSpice,
+  netLookup: NetLookup,
+  part: { name: string; model: string },
+): SpiceEmission | null {
+  const d = netLookup('D');
+  const g = netLookup('G');
+  const s = netLookup('S');
+  if (!d || !g || !s) return null;
+  const di = `${comp.id}_di`;
+  return {
+    cards: [`V_${comp.id}_d ${d} ${di} DC 0`, `M_${comp.id} ${di} ${g} ${s} ${part.name}`],
+    modelsUsed: new Set([part.model]),
+  };
+}
+
 const MAPPERS: Record<string, Mapper> = {
   // Custom chip — emit a DC voltage source for every pin the chip's WASM is
   // currently driving as an output (recorded in customChips/chipPinDrives).
@@ -614,80 +780,66 @@ const MAPPERS: Record<string, Mapper> = {
   // from LTSpice-Libraries (Linear Tech standard.bjt). These include junction
   // capacitances (CJC/CJE) and transit times (TF/TR/ITF/VTF/XTF) so the parts
   // model AC and switching behaviour correctly, not just DC saturation.
-  'bjt-2n2222': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N2222`],
-      modelsUsed: new Set([
-        // ISE/NE (velxio/velxio-prod#136): the stock card had no base
-        // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
-        // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
-        // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
-        // (179 at 10 mA, 141 at 150 mA as before, every point above the
-        // datasheet minimums 35 / 50 / 75 / 100).
+  //
+  // Each carries its collector-emitter breakdown at the rated V(BR)CEO
+  // (bjtBreakdownSubckt, velxio/velxio-prod#138): 40 V for the 2N2222
+  // (onsemi P2N2222A, Rev. 7) and the 2N3906 (onsemi 2N3906, Rev. 4), 45 V
+  // for the BC547 (onsemi BC546, Rev. 8) and the BC557 (onsemi BC556B,
+  // Rev. 3), 60 V for the 2N3055 (onsemi 2N3055, Rev. 7: VCEO(sus)).
+  'bjt-2n2222': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N2222',
+      vceo: 40,
+      pnp: false,
+      // ISE/NE (velxio/velxio-prod#136): the stock card had no base
+      // leakage term, so its gain stayed at 218 down to 0.1 mA. onsemi's
+      // P2N2222A typical curve (Fig. 3, VCE 10 V) falls to about 150 at
+      // 1 mA and 105 at 0.1 mA; with these two the card gives 152 and 108
+      // (179 at 10 mA, 141 at 150 mA as before, every point above the
+      // datasheet minimums 35 / 50 / 75 / 100).
+      model:
         '.model Q2N2222 NPN(IS=1E-14 VAF=100 BF=200 IKF=0.3 ISE=2.5E-13 NE=1.588 XTB=1.5 BR=3 CJC=8E-12 CJE=25E-12 TR=100E-9 TF=400E-12 ITF=1 VTF=2 XTF=3 RB=10 RC=.3 RE=.2)',
-      ]),
-    };
-  },
-  'bjt-bc547': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} QBC547`],
-      modelsUsed: new Set([
+    }),
+  'bjt-bc547': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'QBC547',
+      vceo: 45,
+      pnp: false,
+      model:
         '.model QBC547 NPN(IS=2.39E-14 NF=1.008 ISE=3.545E-15 NE=1.541 BF=294.3 IKF=0.1357 VAF=63.2 NR=1.004 ISC=6.272E-14 NC=1.243 BR=7.946 IKR=0.1144 VAR=25.9 RB=1 IRB=1u RBM=1 RE=0.4683 RC=0.85 XTB=0 EG=1.11 XTI=3 CJE=1.358E-11 VJE=0.65 MJE=0.3279 TF=4.391E-10 XTF=120 VTF=2.643 ITF=0.7495 CJC=3.728E-12 VJC=0.3997 MJC=0.2955 XCJC=0.6193 TR=1E-32)',
-      ]),
-    };
-  },
-  'bjt-2n3055': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3055`],
-      modelsUsed: new Set([
-        // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
-        // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
-        // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
-        // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
-        // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
-        // Junction capacitances and transit times are the old card's.
+    }),
+  'bjt-2n3055': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N3055',
+      vceo: 60,
+      pnp: false,
+      // Fitted to onsemi's 2N3055 (Rev. 7) at VCE 4 V (velxio/velxio-prod
+      // #136): VBE 0.63 V at 0.1 A and 0.73 V at 1 A (Fig. 7: about 0.62 /
+      // 0.72 V), hFE 112 / 92 (Fig. 3: about 110 / 95) and 57 at 4 A
+      // (guaranteed 20-70). The card before (IS=2.37E-8 BF=73 IK=1) read
+      // VBE 0.40 / 0.50 V and hFE 66 / 36 / 15, under the 4 A minimum.
+      // Junction capacitances and transit times are the old card's.
+      model:
         '.model Q2N3055 NPN(IS=3E-12 BF=115 IKF=4 BR=2.66 RB=.81 RC=.0856 RE=.03 CJC=1000P PC=.75 MC=.33 TR=.5703U CJE=415P PE=.75 ME=.5 TF=99.52N)',
-      ]),
-    };
-  },
+    }),
 
   // BJT — PNP
-  'bjt-2n3906': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} Q2N3906`],
-      modelsUsed: new Set([
+  'bjt-2n3906': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'Q2N3906',
+      vceo: 40,
+      pnp: true,
+      model:
         '.model Q2N3906 PNP(IS=1E-14 VAF=100 BF=200 IKF=0.4 XTB=1.5 BR=4 CJC=4.5E-12 CJE=10E-12 RB=20 RC=0.1 RE=0.1 TR=250E-9 TF=350E-12 ITF=1 VTF=2 XTF=3)',
-      ]),
-    };
-  },
-  'bjt-bc557': (comp, netLookup) => {
-    const c = netLookup('C');
-    const b = netLookup('B');
-    const e = netLookup('E');
-    if (!c || !b || !e) return null;
-    return {
-      cards: [`Q_${comp.id} ${c} ${b} ${e} QBC557`],
-      modelsUsed: new Set([
+    }),
+  'bjt-bc557': (comp, netLookup) =>
+    bjtEmission(comp, netLookup, {
+      name: 'QBC557',
+      vceo: 45,
+      pnp: true,
+      model:
         '.model QBC557 PNP(IS=3.83E-14 NF=1.008 ISE=1.22E-14 NE=1.528 BF=344.4 IKF=0.08039 VAF=21.11 NR=1.005 ISC=2.85E-13 NC=1.28 BR=14.84 IKR=0.047 VAR=32.02 RB=1 IRB=1u RBM=1 RE=0.6202 RC=0.5713 XTB=0 EG=1.11 XTI=3 CJE=1.23E-11 VJE=0.6106 MJE=0.378 TF=5.60E-10 XTF=3.414 VTF=5.23 ITF=0.1483 CJC=1.08E-11 VJC=0.1022 MJC=0.3563 XCJC=0.6288 TR=1E-32)',
-      ]),
-    };
-  },
+    }),
 
   // MOSFETs — NMOS. Phase 2.1: VDMOS macro-models from LTSpice-Libraries.
   // VDMOS is 3-terminal (D G S) — no body, no L/W — and uses physical
@@ -707,50 +859,32 @@ const MAPPERS: Record<string, Mapper> = {
   // V(BR)DSS: 60 V for the 2N7000 (onsemi), 100 V for the IRF540 and the
   // IRF9540 (Vishay). The drain now clamps there, as a real part's does
   // before it dissipates the energy or fails (velxio/velxio-prod#110).
-  'mosfet-2n7000': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} M2N7000`],
-      modelsUsed: new Set([
+  'mosfet-2n7000': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'M2N7000',
+      model:
         '.model M2N7000 VDMOS(Rg=3 Vto=1.6 Rd=0 Rs=.75 Rb=.14 Kp=.17 mtriode=1.25 Cgdmax=80p Cgdmin=12p Cgs=50p Cjo=50p Is=.04p BV=60 Vds=60 Ron=2 Qg=1.5n)',
-      ]),
-    };
-  },
-  'mosfet-irf540': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MIRF540`],
-      modelsUsed: new Set([
-        // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
-        // smaller die). Close enough for the canvas.
+    }),
+  'mosfet-irf540': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MIRF540',
+      // Substitute: LTSpice ships IRF530 (same TO-220, 100 V, slightly
+      // smaller die). Close enough for the canvas.
+      model:
         '.model MIRF540 VDMOS(Rg=3 Vto=4 Rd=50m Rs=12m Rb=60m Kp=5 lambda=.01 Cgdmax=1n Cgdmin=.26n Cgs=.2n Cjo=.4n Is=52p BV=100 Vds=100 Ron=160m Qg=26n)',
-      ]),
-    };
-  },
+    }),
 
   // MOSFETs — PMOS (P-channel: Vto is negative, V_GS < Vto turns device ON)
-  'mosfet-irf9540': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MIRF9540`],
-      modelsUsed: new Set([
-        // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
-        // identical pin-out and similar Vto; BV gives it the IRF9540's own
-        // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
-        // engine to flip polarity.
+  'mosfet-irf9540': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MIRF9540',
+      // Substitute: LTSpice ships IRF9640. 200 V vs IRF9540's 100 V, but
+      // identical pin-out and similar Vto; BV gives it the IRF9540's own
+      // 100 V breakdown. The `pchan` keyword is what tells the VDMOS
+      // engine to flip polarity.
+      model:
         '.model MIRF9540 VDMOS(pchan Rg=3 Vto=-3.5 Rd=.15 Rs=.15 Rb=.15 Kp=8 lambda=.01 mtriode=.5 Cgdmax=1.5n Cgdmin=.07n Cgs=1n Cjo=1n Is=38p BV=100 Vds=-100 Ron=.5 Qg=44n)',
-      ]),
-    };
-  },
+    }),
   // FQP27P06: a VDMOS card fitted to Fairchild's datasheet (Rev. A2), as no
   // library carries one (velxio/velxio-prod#136). RDS(on) 54 mohm at VGS
   // -10 V, ID -13.5 A (0.055 typ, 0.07 max); VGS(th) -2.66 V at 250 uA
@@ -760,20 +894,16 @@ const MAPPERS: Record<string, Mapper> = {
   // gate swing turns it well on (0.11 ohm at 1 A); 3.3 V barely (0.5 A at
   // VDS -1 V). The Level-1 placeholder it replaces was 32.6 ohm at -5 V and
   // 10.7 ohm at -10 V (200 times the datasheet), with no breakdown.
-  'mosfet-fqp27p06': (comp, netLookup) => {
-    const d = netLookup('D');
-    const g = netLookup('G');
-    const s = netLookup('S');
-    if (!d || !g || !s) return null;
-    return {
-      cards: [`M_${comp.id} ${d} ${g} ${s} MFQP27P06`],
-      modelsUsed: new Set([
+  'mosfet-fqp27p06': (comp, netLookup) =>
+    mosfetEmission(comp, netLookup, {
+      name: 'MFQP27P06',
+      model:
         '.model MFQP27P06 VDMOS(pchan Vto=-2.9 Kp=6 Rd=20m Rs=10m Rb=10m lambda=.01 Cgdmax=1n Cgdmin=.1n Cgs=1n Cjo=2n BV=60 Vds=-60 Ron=55m Qg=33n)',
-      ]),
-    };
-  },
+    }),
 
-  // Op-amp (behavioral VCVS — simplest macro)
+  // The ideal op-amp: a VCVS of gain 10^6 (very high, not infinite: in a
+  // closed loop it makes no difference you can read), no input current, no
+  // supply and no output limit.
   'opamp-ideal': (comp, netLookup) => {
     const inp = netLookup('IN+');
     const inn = netLookup('IN-');
@@ -785,46 +915,33 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
-  // ── Real op-amp part numbers (behavioral, saturation-clamped) ─────────────
-  // The three behavioural mappers follow the same shape:
+  // ── Real op-amp part numbers ───────────────────────────────────────────────
+  // The LM741 and the TL072 are behavioural and follow the same shape:
   //   V_out = clamp(A · (V_in+ − V_in-), Vsat_lo, Vsat_hi)
   // The output saturates between a low rail (V- + headroom) and a high rail
-  // (V+ − headroom). Headroom is chip-specific (LM324 swings close to its
-  // negative rail, LM741 needs ~1.5 V from each, TL072 with JFET input ~2 V).
-  // The LM358 is a real macro-model whose supply pins carry the same rails.
+  // (V+ − headroom): 1.5 V from each rail for the LM741, 2 V for the TL072
+  // (the original die, specified on ±15 V).
+  // The LM358, and the LM324, its quad sibling, run the LM358 macro-model,
+  // whose output swings from 5 mV above V- to about 1 V below V+
+  // (models/lm358Subckt.ts lists what it measures).
   //
   // The rails are the part's V+ and V- pins (see opampSupply). Unwired, they
   // are the board's logic rail and ground, the only supply an op-amp had
   // before the pins existed, so a circuit drawn then solves as it always did.
   //
   // The behavioural parts load each input with their `rin` to ground. The
-  // LM358's inputs are its macro-model's: the input transistors' bias
-  // current, tens of nanoamperes, and 100 MOhm between the inputs.
-  'opamp-lm358': (comp, netLookup) => {
-    const inp = netLookup('IN+');
-    const inn = netLookup('IN-');
-    const out = netLookup('OUT');
-    if (!inp || !inn || !out) return null;
-    // The LM358 macro-model subcircuit (National's, with the local changes
-    // models/lm358Subckt.ts lists): slew rate (~0.5 V/µs), GBW (~1 MHz) and
-    // the output's swing to each rail come with it, where the behavioural
-    // B-source clamp it replaced had none. Its supply pins take the part's
-    // V+ / V- nets.
-    const { vp, vm } = opampSupply(netLookup);
-    return {
-      cards: [`X_${comp.id} ${inp} ${inn} ${vp ?? 'vcc_rail'} ${vm ?? '0'} ${out} LM358`],
-      modelsUsed: new Set([LM358_SUBCKT]),
-      drives: [out],
-    };
-  },
-  'opamp-lm741': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '2Meg', lo: 1.5, hi: 1.5, iq: '9k' }),
+  // macro-model's inputs are the input transistors' bias current, tens of
+  // nanoamperes, and 100 MOhm between the inputs.
+  'opamp-lm358': (comp, netLookup) => lm358MacroModel(comp, netLookup),
+  'opamp-lm741': (comp, netLookup, ctx) => behaviouralOpamp(comp, netLookup, ctx, LM741_OPAMP),
   // JFET input: huge Z_in, modelled with 1 TΩ
-  'opamp-tl072': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 2e5, rin: '1T', lo: 2.0, hi: 2.0, iq: '11k' }),
-  // Quad op-amp — electrically identical to LM358 per-channel
-  'opamp-lm324': (comp, netLookup, ctx) =>
-    behaviouralOpamp(comp, netLookup, ctx, { gain: 1e5, rin: '10Meg', lo: 0.05, hi: 1.5, iq: '82k' }),
+  'opamp-tl072': (comp, netLookup, ctx) => behaviouralOpamp(comp, netLookup, ctx, TL072_OPAMP),
+  // The LM324 is the LM358's amplifier design, four to a package, and one
+  // part here is one of them. It was a behavioural clamp between V- + 0.05 V
+  // and V+ − 1.5 V, with no slew or bandwidth limit, while its catalog text
+  // called it electrically the LM358 (velxio/velxio-prod#128): it runs the
+  // LM358's macro-model now.
+  'opamp-lm324': (comp, netLookup) => lm358MacroModel(comp, netLookup),
 
   // ── Linear voltage regulators ────────────────────────────────────────────
   // Behavioral model: V_out = min(V_in - V_dropout, V_nom). Dropout voltage
@@ -1900,6 +2017,31 @@ export function periodicSourceHz(comp: ComponentForSpice): number | null {
   return hz !== null && Number.isFinite(hz) && hz > 0 ? hz : null;
 }
 
+/**
+ * Parts whose own cards store energy, a C or an L inside the part (a DC
+ * motor's winding and shaft), with how long the part takes to settle after
+ * its pads change, in seconds. pickDynamicAnalysis (storeAdapter) treats such
+ * a part like a capacitor or an inductor on the canvas: with a driven pin the
+ * deck is a step response, and a pad edge runs the step the circuit takes
+ * from where it was (velxio/velxio-prod#153). Without this, the part's
+ * state was never carried from one pad state to the next: a motor switched
+ * off sent no current through a flyback diode and coasted like one braked
+ * (velxio/velxio-prod#164). A part registers itself, as with
+ * registerSpiceMapper.
+ */
+const SETTLING_PARTS: Record<string, (comp: ComponentForSpice) => number> = {};
+
+export function registerPartSettleTime(id: string, settleS: (comp: ComponentForSpice) => number): void {
+  SETTLING_PARTS[id] = settleS;
+}
+
+/** How long a part that stores energy in its own cards takes to settle, in
+ *  seconds, or null for any other part. */
+export function partSettleS(comp: ComponentForSpice): number | null {
+  const s = SETTLING_PARTS[comp.metadataId]?.(comp) ?? null;
+  return s !== null && Number.isFinite(s) && s > 0 ? s : null;
+}
+
 export function componentToSpice(
   comp: ComponentForSpice,
   netLookup: NetLookup,
@@ -1918,6 +2060,22 @@ const MAPPER_ALIASES: Readonly<Record<string, string>> = {
 };
 for (const [variant, base] of Object.entries(MAPPER_ALIASES)) {
   MAPPERS[variant] = MAPPERS[base];
+}
+
+/**
+ * Parts whose contacts a person works on the canvas while the circuit runs:
+ * a press or a flip changes only these parts' cards. A circuit with a
+ * capacitor or an inductor that such a change leaves away from where it
+ * settles takes its step from the state it is in, and the meters, the LEDs
+ * and the parts follow that step in time (velxio/velxio-prod#107): an RC
+ * timer started by a button lights its LED seconds after the press, with a
+ * board on the canvas or without one.
+ */
+const HAND_SWITCHES: ReadonlySet<string> = new Set(['pushbutton', 'pushbutton-6mm', 'slide-switch']);
+
+/** True for a part whose contacts a person works by hand (HAND_SWITCHES). */
+export function isHandSwitch(metadataId: string): boolean {
+  return HAND_SWITCHES.has(metadataId);
 }
 
 /** True if we have a mapping for this metadataId. */

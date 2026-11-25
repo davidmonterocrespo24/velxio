@@ -510,6 +510,24 @@ class ArduinoCLIService:
         """Return True if the FQBN targets an RP2040/RP2350 board."""
         return any(p in fqbn for p in ("rp2040", "rp2350", "mbed_rp2040", "mbed_rp2350"))
 
+    def _redirects_serial(self, fqbn: str) -> bool:
+        """Return True if the simulator's build of this board renames Serial.
+
+        The RP2040 / RP2350 emulators show UART0 in the serial monitor, and
+        arduino-pico's `Serial` is the USB port, so the simulator's build of a
+        sketch gets `#define Serial Serial1` on top.
+        """
+        return "rp2040" in fqbn
+
+    def hardware_build_differs(self, fqbn: str) -> bool:
+        """Return True if the image the simulator runs is not the one a real
+        board of this FQBN should: `for_hardware` builds other bytes. The
+        frontend mirrors this (utils/boardCompile.ts). An ESP32 built by the
+        ESP-IDF service differs by its sources, not its FQBN: that build's
+        own result says so (`wifi_rewritten`, see routes/compile.py
+        _for_hardware_build)."""
+        return self._redirects_serial(fqbn)
+
     def _is_esp32_board(self, fqbn: str) -> bool:
         """Return True if the FQBN targets an ESP32 family board."""
         return fqbn.startswith("esp32:")
@@ -536,6 +554,7 @@ class ArduinoCLIService:
         board_options: dict | None = None,
         allowed_libraries: set[str] | None = None,
         owner_id: str | None = None,
+        for_hardware: bool = False,
     ) -> dict:
         """
         Compile Arduino sketch using arduino-cli.
@@ -558,6 +577,11 @@ class ArduinoCLIService:
         `owner_id` is the project OWNER's id so a shared / embed compile resolves
         that owner's custom libraries. None/empty manifest (or no overlay) ->
         arduino-cli's default sketchbook -> scan-all (legacy parity).
+
+        `for_hardware` builds the firmware for a real board: what is put in
+        for the simulator alone is left out (today the RP2040 family's Serial
+        redirect, see _redirects_serial; every other board builds the same
+        bytes either way). Off by default: the image goes to the emulator.
 
         Returns:
             dict with keys: success, hex_content, stdout, stderr, error
@@ -586,8 +610,14 @@ class ArduinoCLIService:
                     write_name = "sketch.ino"
                     main_ino_written = True
 
-                # RP2040: redirect Serial → Serial1 in the main sketch file only
-                if "rp2040" in board_fqbn and write_name == "sketch.ino":
+                # RP2040: redirect Serial → Serial1 in the main sketch file only,
+                # and only for the simulator. A real board's Serial is its USB
+                # port: flashed with the redirect it prints nothing there.
+                if (
+                    self._redirects_serial(board_fqbn)
+                    and not for_hardware
+                    and write_name == "sketch.ino"
+                ):
                     content = "#define Serial Serial1\n" + content
 
                 # A core an overlay registered may need a line before the
@@ -891,6 +921,7 @@ class ArduinoCLIService:
                         print("=== Incomplete manifest — retrying scan-all ===\n")
                         retry = await self.compile(
                             files, board_fqbn, board_options=board_options,
+                            for_hardware=for_hardware,
                         )  # allowed_libraries=None -> no scope -> no further retry
                         if retry.get("success"):
                             retry["manifest_incomplete"] = True

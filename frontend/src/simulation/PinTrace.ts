@@ -260,6 +260,10 @@ function wiresAtPin(wires: TraceState['wires'], componentId: string, pinName: st
  * actually in it; and the shared pad NAME is the contract that makes the two
  * grids one net — which is exactly why a socket's pinInfo uses the board's own
  * names. Returns null for anything that is not a seated socket pad.
+ *
+ * Seated on THIS component: with two sockets on the canvas, a board in one is
+ * not in the other. Asked of every component, a XIAO plugged into a Round
+ * Display also joined every pad of a reSpeaker Lite wired beside it.
  */
 function traceThroughSocket(
   state: TraceState,
@@ -272,9 +276,10 @@ function traceThroughSocket(
     | null;
   const sock = el?.boardSocket;
   if (!sock || !Array.isArray(sock.accepts)) return null;
+  const self = state.components.filter((c) => c.id === componentId);
   for (const b of state.boards) {
     if (!sock.accepts.some((prefix) => b.boardKind.startsWith(prefix))) continue;
-    if (!isBoardSeated(b.id, b.boardKind, b.x, b.y, state.components)) continue;
+    if (!isBoardSeated(b.id, b.boardKind, b.x, b.y, self)) continue;
     const pin = boardPinToNumber(b.boardKind, pinName);
     if (pin !== null) return { pin, boardId: b.id };
   }

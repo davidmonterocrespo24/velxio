@@ -3,9 +3,12 @@
  * (velxio/velxio-prod#127).
  *
  * Without a board the LM358 runs from the 5 V rail (#126). On 5 V a real one
- * swings from about 0 V to about 3.5 V (TI SLOS068: VOH about 1.5 V under V+)
- * and takes inputs up to V+ - 1.5 V, and the simulator does exactly that. The
- * example designs did not fit it:
+ * is guaranteed to swing from about 0 V to 3.5 V (TI SLOS068: VOH no lower
+ * than V+ - 1.5 V into 2 kOhm) and to take inputs up to V+ - 1.5 V. The
+ * simulator's model does a little more: its output reaches about 4 V at
+ * light load and its inputs work up to V+ (#128, lm358Subckt.ts). The
+ * examples are designed for the real part's guarantee, which they did not
+ * fit:
  *   - the non-inverting amplifier multiplied its input's 2.5 V DC by 11 too,
  *     27.5 V asked for: 3.96 V flat;
  *   - the inverting one needed 2.5 +- 2 V: clipped at 3.97 V;

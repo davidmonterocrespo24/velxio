@@ -687,7 +687,7 @@ export const EditorToolbar = ({
             ? mergeSuggestedLibraries(activeBoard?.libraries, result.manifest_suggested_libraries)
             : null;
           compileBoardProgram(activeBoardId, program, {
-            uf2: result.uf2_content ?? null,
+            wifiRewritten: result.wifi_rewritten,
             buildSettings: activeBoard && {
               boardOptions: activeBoard.boardOptions,
               libraries: mergedLibs ?? activeBoard.libraries,
@@ -1256,7 +1256,7 @@ export const EditorToolbar = ({
         if (result.success) {
           const program = result.hex_content ?? result.binary_content ?? null;
           if (program) {
-            compileBoardProgram(board.id, program, { uf2: result.uf2_content ?? null, buildSettings: board });
+            compileBoardProgram(board.id, program, { wifiRewritten: result.wifi_rewritten, buildSettings: board });
             if (result.has_wifi !== undefined) {
               updateBoard(board.id, { hasWifi: result.has_wifi });
             }

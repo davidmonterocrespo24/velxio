@@ -16,6 +16,17 @@
  *   const allowed = hub.skipBudget(want, port.now());
  *   // on reboot:
  *   hub.reset();
+ *
+ * A reboot the host never hears of is caught here too. An engine that reboots
+ * in place (an `esp_restart`, a deep-sleep wake) starts its cycle counter over
+ * and calls no hook, so `reset()` does not run. Every gate a model keeps is an
+ * absolute cycle of the uptime that ended: a DHT22 ignores its line until its
+ * last reply is out, and in the new count that moment comes as late as it came
+ * in the old one. A sketch that read the sensor 150 ms after each boot got NaN
+ * from the second boot on. So the hub, as the timeline already does with its
+ * frames, takes a count lower than one it has seen for a reboot and does what
+ * `reset()` does. It sees the count on every call that carries one: a pad
+ * event, an update, a skip query.
  */
 
 import { LineTimeline } from './LineTimeline';
@@ -42,6 +53,8 @@ export class LineSensorHub {
   private readonly clock: LineClock;
   /** Keyed by the record's `pin` (the data or trigger pin), like the wire protocol. */
   private readonly attached = new Map<number, Attached>();
+  /** The highest guest cycle a call has shown since the last reset (see `observe`). */
+  private lastSeen = -Infinity;
 
   constructor(port: LineHostPort) {
     this.port = port;
@@ -67,7 +80,10 @@ export class LineSensorHub {
     if (!model) return false;
     this.detach(rec.pin);
     const unsubscribe = model.listens.map((pin) =>
-      this.port.onPad(pin, (e) => this.emit(model.onPad(e, this.clock))),
+      this.port.onPad(pin, (e) => {
+        this.observe(this.clock.now());
+        this.emit(model.onPad(e, this.clock));
+      }),
     );
     this.attached.set(rec.pin, { rec, model, unsubscribe });
     this.restPins(model);
@@ -80,7 +96,9 @@ export class LineSensorHub {
    */
   update(pin: number, props: Record<string, unknown>): void {
     const model = this.attached.get(pin)?.model;
-    if (model) this.emit(model.update(props, this.clock));
+    if (!model) return;
+    this.observe(this.clock.now());
+    this.emit(model.update(props, this.clock));
   }
 
   detach(pin: number): void {
@@ -96,11 +114,9 @@ export class LineSensorHub {
 
   /** The board rebooted: forget protocol state, forget frames, re-rest pads. */
   reset(): void {
-    this.timeline.reset();
-    for (const a of this.attached.values()) {
-      a.model.reset();
-      this.restPins(a.model);
-    }
+    // The clock starts over with the board: its first count is not a step back.
+    this.lastSeen = -Infinity;
+    this.restart();
   }
 
   /** Pins any attached model drives — off limits to every other layer. */
@@ -113,22 +129,55 @@ export class LineSensorHub {
 
   /** The skip allowed to a mechanism that advances time while the guest executes. */
   skipBudget(want: number, nowCycle: number): number {
+    this.observe(nowCycle);
     return this.timeline.skipBudget(want, nowCycle);
   }
 
   /** The floor alone: false while a self-timed frame is on the wire. */
   maySkip(nowCycle: number): boolean {
+    this.observe(nowCycle);
     return this.timeline.maySkip(nowCycle);
   }
 
   /** The fence alone: cycles to the nearest pending edge, Infinity if none. */
   cyclesUntilNextEdge(nowCycle: number): number {
+    this.observe(nowCycle);
     return this.timeline.cyclesUntilNextEdge(nowCycle);
   }
 
   /** The attached records, for a host that mirrors them somewhere (a worker). */
   records(): LineSensorRecord[] {
     return [...this.attached.values()].map((a) => a.rec);
+  }
+
+  /**
+   * Note the guest's cycle count. A count lower than the highest one seen is a
+   * reboot inside the engine that no host hook announced: every model starts
+   * over and every pad goes back to rest, as at `reset()`. Equal counts are
+   * not a step back: two pad events can share a cycle. A guest that sets its
+   * own counter back (a WSR.CCOUNT write) is taken for a reboot too, as the
+   * timeline has always taken it.
+   */
+  private observe(now: number): void {
+    // Every slip gate of an engine comes through here: the common path is one
+    // compare, and the reboot is a call of its own.
+    if (now < this.lastSeen) this.rebooted(now);
+    else this.lastSeen = now;
+  }
+
+  private rebooted(now: number): void {
+    // Recorded first: re-resting a pad must not find the old count again.
+    this.lastSeen = now;
+    this.restart();
+  }
+
+  /** Forget frames and protocol state, and put every pad back at rest. */
+  private restart(): void {
+    this.timeline.reset();
+    for (const a of this.attached.values()) {
+      a.model.reset();
+      this.restPins(a.model);
+    }
   }
 
   /** Every frame of one answer goes on the wire at the same instant. */

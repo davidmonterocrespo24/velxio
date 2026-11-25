@@ -36,6 +36,10 @@ export interface CompileExtras {
   // Gallery example the workspace was loaded from — analytics only
   // ("which examples get compiled most"). Null/omitted outside examples.
   exampleId?: string | null;
+  // Firmware for a real board: the backend leaves out what it puts in for
+  // the simulator alone. Set by the flash dialog only (utils/boardCompile
+  // needsHardwareBuild); an emulator must never load such a build.
+  forHardware?: boolean;
 }
 
 export interface CompileResult {
@@ -46,6 +50,12 @@ export interface CompileResult {
   /** RP2040 / RP2350: base64 .uf2 for hardware flash (the .bin above feeds the emulator). */
   uf2_content?: string | null;
   has_wifi?: boolean; // True when sketch uses WiFi (ESP32 only)
+  /**
+   * ESP32: this build's WiFi credentials were rewritten for the simulated
+   * networks. A real board needs a build of its own then (`forHardware`).
+   * Absent from a server that predates the field.
+   */
+  wifi_rewritten?: boolean;
   stdout: string;
   stderr: string;
   error?: string;
@@ -321,6 +331,8 @@ export async function compileCode(
         language: extras?.language ?? null,
         initiated_by: extras?.initiatedBy ?? null,
         custom_wifi_ssids: customWifiSsids,
+        // Absent from a simulator build, whose request stays as it was.
+        ...(extras?.forHardware ? { for_hardware: true } : {}),
       },
       { withCredentials: true, timeout: 30000 },
     );

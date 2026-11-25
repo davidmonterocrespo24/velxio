@@ -10,19 +10,22 @@
  *
  * Tags defined:
  *   wokwi-opamp-ideal   — generic ideal op-amp (already used by Velxio)
- *   wokwi-opamp-lm358   — dual rail-to-rail, single supply
+ *   wokwi-opamp-lm358   — dual, single supply: inputs and output reach
+ *                         V-, the output stops about 1 V below V+
  *   wokwi-opamp-lm741   — single, conventional
  *   wokwi-opamp-tl072   — dual, JFET input (audio)
- *   wokwi-opamp-lm324   — quad, rail-to-rail output
+ *   wokwi-opamp-lm324   — quad, the LM358's sibling (the same model)
  *
  * Pin layout (CSS pixels, 80 × 76):
  *   IN+  (0, 12)   IN-  (0, 52)   OUT  (80, 32)   V+  (40, 0)   V-  (40, 64)
  *
  * The supply pins are what a real op-amp is powered from: an LM358 on a
- * 15 V supply swings its output to about 13.5 V, one on the board's 3.3 V
- * rail stops near 2 V. Left unwired they fall back to the board's logic
- * rail and ground, which is what every op-amp was before the pins existed
- * (see componentToSpice.ts). The ideal op-amp has no supply and no rails.
+ * 15 V supply swings its output to about 14 V, one on the board's 3.3 V
+ * rail stops near 2.3 V (the model at light load, as
+ * simulation/spice/models/lm358Subckt.ts lists). Left unwired they fall
+ * back to the board's logic rail and ground, which is what every op-amp
+ * was before the pins existed (see componentToSpice.ts). The ideal op-amp
+ * has no supply and no rails.
  * IN+, IN- and OUT keep their places so circuits drawn before stay wired.
  */
 

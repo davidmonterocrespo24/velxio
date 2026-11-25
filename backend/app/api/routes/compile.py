@@ -449,6 +449,7 @@ def _job_key(
     language: str | None = None,
     custom_wifi_ssids: list[str] | None = None,
     scope_fingerprint: str | None = None,
+    for_hardware: bool = False,
 ) -> str:
     """Stable content hash of (files, board, options, spiffs, libraries, owner)
     used as the deduplication key.
@@ -528,6 +529,12 @@ def _job_key(
         h.update(b"lang:")
         h.update(language.encode())
         h.update(b"\0")
+    if for_hardware:
+        # The image for a real board, where it differs from the simulator's
+        # (the caller says so, see compile_start): the emulator must never be
+        # handed this one, nor a board the other. Guarded so a simulator build
+        # keeps the key it always had.
+        h.update(b"for-hardware\0")
     return h.hexdigest()
 
 
@@ -665,6 +672,15 @@ class CompileRequest(BaseModel):
     # 'agent' = the AI assistant's compile_sketch tool. Metrics overlays
     # use it to keep agent activity distinguishable from the user's own.
     initiated_by: str | None = None
+    # Build the firmware for a real board instead of the simulator: what the
+    # compilers put in for the emulator alone is left out (the RP2040 family's
+    # `#define Serial Serial1`, without which a flashed board prints on its
+    # USB port as its user expects; on an ESP32 the WiFi normalization, so the
+    # board joins the network the sketch names with the password it gives).
+    # Set by the flash path only; everything else, the emulators first of
+    # all, needs the simulator's build. Honoured only where the two builds
+    # can differ (_for_hardware_build): elsewhere it is the simulator's.
+    for_hardware: bool = False
 
 
 class CompileResponse(BaseModel):
@@ -677,6 +693,13 @@ class CompileResponse(BaseModel):
     # browser download) need this one; the emulator keeps loading the .bin.
     uf2_content: str | None = None
     has_wifi: bool = False             # True when sketch uses WiFi (ESP32 only)
+    # ESP32 only: this build's WiFi credentials were rewritten for the
+    # simulated networks, so a real board must not be flashed with it: the
+    # flash asks for a build of its own (`for_hardware`). False for such a
+    # build, for a sketch the normalization leaves as written, and for a
+    # project with its own access points. Said by the compiler of the build
+    # it made, and the only word on it. A flag, never the SSIDs.
+    wifi_rewritten: bool = False
     stdout: str
     stderr: str
     error: str | None = None
@@ -763,6 +786,57 @@ def _classify_compile_error(stderr: str, error: str | None) -> str:
     if "error:" in haystack:
         return "compile_error"
     return "unknown"
+
+
+def _for_hardware_build(request: CompileRequest) -> bool:
+    """Whether this request gets the build for a real board: it asked for
+    one, and that build can differ from the simulator's.
+
+    Decided once per request, before the job key: the key, the artifact
+    stored under it and the compiler all take THIS answer (the request is
+    copied with it), so an image filed as the simulator's was never built for
+    hardware, and a board whose firmware is the simulator's shares its job.
+    Mirrors _run_compile's choice of compiler.
+
+    An ESP32 built by the ESP-IDF service is taken at its word. Whether its
+    simulator build differs is known only to the build itself (its result
+    says `wifi_rewritten`, and the flash dialog asks for a hardware build
+    only after reading that), so nothing here reads the sources to guess:
+    the answer could disagree with what the compiler then does, and a key
+    that says "the simulator's" over an image built for a board is the one
+    mistake this exists to prevent. Without that service arduino-cli builds
+    the ESP32 and rewrites nothing: one build for both.
+    """
+    if not request.for_hardware:
+        return False
+    if request.board_fqbn.startswith("esp32:") and espidf_compiler.available:
+        return True
+    return arduino_cli.hardware_build_differs(request.board_fqbn)
+
+
+def _holds_wifi_credentials(request: CompileRequest) -> bool:
+    """Whether this build's image carries the password of the user's network.
+
+    An ESP32 build for a real board does (the dialog asks for one only when
+    the simulator's build had to replace what the sketch names), and its
+    result is not written to the artifact cache: nobody but the requester
+    has a use for it, and the dialog that asked for it holds it.
+
+    That is the one copy this keeps off the disk for good. The finished job
+    stays in memory (COMPILE_JOBS) until it is purged, for the client to
+    fetch; the compiler removes the sources, objects and images from its
+    shared build dir when the build ends and stores none of its objects in
+    ccache (espidf_compiler._forget_hardware_build).
+    """
+    return request.for_hardware and request.board_fqbn.startswith("esp32:")
+
+
+def _with_hardware_decided(request: CompileRequest) -> CompileRequest:
+    """The request with `for_hardware` set to what will be built."""
+    hardware = _for_hardware_build(request)
+    if hardware == request.for_hardware:
+        return request
+    return request.model_copy(update={"for_hardware": hardware})
 
 
 def _resolve_files(request: CompileRequest) -> list[dict[str, str]]:
@@ -972,6 +1046,7 @@ async def _run_compile(
             pure_idf=pure_idf,
             custom_wifi_ssids=request.custom_wifi_ssids,
             cpu_nice=cpu_nice,
+            for_hardware=request.for_hardware,
         )
         return CompileResponse(
             success=result["success"],
@@ -980,6 +1055,7 @@ async def _run_compile(
             binary_type=result.get("binary_type"),
             uf2_content=result.get("uf2_content"),
             has_wifi=result.get("has_wifi", False),
+            wifi_rewritten=result.get("wifi_rewritten", False),
             stdout=result.get("stdout", ""),
             stderr=result.get("stderr", ""),
             error=result.get("error"),
@@ -1008,6 +1084,7 @@ async def _run_compile(
     result = await arduino_cli.compile(
         files, request.board_fqbn, board_options=request.board_options,
         allowed_libraries=allowed_libraries, owner_id=owner_id,
+        for_hardware=request.for_hardware,
     )
     return CompileResponse(
         success=result["success"],
@@ -1179,7 +1256,7 @@ async def _compile_job(
             # result.stdout once state=done, but having both costs nothing).
             "stdout_buffer": COMPILE_JOBS.get(job_id, {}).get("stdout_buffer", ""),
         }
-        if job_key:
+        if job_key and not _holds_wifi_credentials(request):
             await _artifact_store(job_key, response.model_dump())
         error_kind = response.error_kind
         await _record_async_metric(
@@ -1268,6 +1345,7 @@ async def compile_sketch(
     Auto-installs the required board core if not present.
     """
     files = _resolve_files(request)
+    request = _with_hardware_decided(request)
     started = time.monotonic()
 
     priority, _tier, cpu_nice = await _resolve_queue_priority(user_id, http_request)
@@ -1419,6 +1497,7 @@ async def compile_start(
     failure mode.
     """
     files = _resolve_files(request)
+    request = _with_hardware_decided(request)
     _purge_expired_jobs()
 
     spiffs_dicts = (
@@ -1456,6 +1535,9 @@ async def compile_start(
         language=request.language,
         custom_wifi_ssids=request.custom_wifi_ssids,
         scope_fingerprint=fingerprint,
+        # Already narrowed to where the build differs (_with_hardware_decided):
+        # a board whose real firmware is the simulator's shares its build.
+        for_hardware=request.for_hardware,
     )
     existing_id = JOB_BY_KEY.get(key)
     if existing_id is not None:

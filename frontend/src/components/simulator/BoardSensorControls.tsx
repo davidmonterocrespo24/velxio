@@ -21,6 +21,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { getBoardBridge, getBoardSimulator, getEsp32Bridge } from '../../store/useSimulatorStore';
+import { usePopoverInView } from './popoverPlacement';
 
 interface SensorBridge {
   setImuAcceleration?: (x: number, y: number, z: number) => void;
@@ -70,6 +71,9 @@ export const BoardSensorControls: React.FC<BoardSensorControlsProps> = ({
   const [pitch, setPitch] = useState(0);
   const [batteryMv, setBatteryMv] = useState(4000);
   const padRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const place = usePopoverInView(open, rootRef, popoverRef, boardId);
   const draggingRef = useRef(false);
   /** Previous angles + timestamp, so a drag can be turned into a rotation rate. */
   const lastRef = useRef<{ roll: number; pitch: number; t: number } | null>(null);
@@ -188,7 +192,7 @@ export const BoardSensorControls: React.FC<BoardSensorControlsProps> = ({
   const battPct = Math.round(((batteryMv - BATT_MIN_MV) / (BATT_MAX_MV - BATT_MIN_MV)) * 100);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={rootRef} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={!boardId}
@@ -224,10 +228,9 @@ export const BoardSensorControls: React.FC<BoardSensorControlsProps> = ({
 
       {open && (
         <div
+          ref={popoverRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            right: 0,
+            ...place,
             zIndex: 40,
             background: 'var(--wb-5)',
             border: '1px solid var(--wb-6)',

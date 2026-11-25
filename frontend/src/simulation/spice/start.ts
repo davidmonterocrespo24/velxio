@@ -58,6 +58,7 @@ export function createElectricalStorePort(): ElectricalStorePort {
         analysisMode: snapshot.analysisMode,
         timeWaveforms: snapshot.timeWaveforms,
         stepWaveforms: snapshot.stepWaveforms,
+        stepAtS: snapshot.stepAtS,
         scopeWaveforms: snapshot.scopeWaveforms,
         converged: snapshot.warnings.length === 0,
         error: pickSolverError(snapshot.warnings),
@@ -85,6 +86,9 @@ export function startSimulation(): () => void {
           boardKind as Parameters<typeof collectPinStates>[1],
           wires as Parameters<typeof collectPinStates>[2],
         ),
+      // The toolbar's Stop of a board-less circuit holds a step being
+      // followed where it is (velxio/velxio-prod#107).
+      paused: () => useElectricalStore.getState().paused,
     },
   );
   // Phase 1d #3 — pre-boot the WASM engine the moment the editor

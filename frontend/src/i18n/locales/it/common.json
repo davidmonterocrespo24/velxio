@@ -131,7 +131,7 @@
         "maker": {
           "name": "Maker",
           "tagline": "Per i maker che realizzano circuiti reali con l'aiuto dell'IA.",
-          "f1": "500 crediti IA al giorno (fino a 15.000/mese)",
+          "f1": "1.500 crediti IA al giorno (fino a 15.000/mese)",
           "f2": "Progetti non elencati + Velxio Desktop (offline)",
           "f3": "Tempo di simulazione illimitato per ESP32, STM32 e Raspberry Pi",
           "cta": "Inizia con Maker"
@@ -139,7 +139,7 @@
         "pro": {
           "name": "Pro",
           "tagline": "Progetti privati, sincronizzazione GitHub ed esportazioni BOM.",
-          "f1": "2.000 crediti IA al giorno (fino a 60.000/mese)",
+          "f1": "5.000 crediti IA al giorno (fino a 60.000/mese)",
           "f2": "Progetti privati + BOM CSV + schema PNG",
           "f3": "GitHub Sync + embed senza watermark",
           "cta": "Abbonati a Pro"

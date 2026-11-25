@@ -10,8 +10,8 @@
  *   3. Run ngspice to solve a voltage divider circuit (R1=10k + R2=10k, Vcc=3.3V)
  *      producing V(mid) = 1.65 V.
  *   4. Inject V(mid) into ESP32's ADC channel 6 (GPIO34) via `esp32_adc_set`.
- *   5. Read Serial output and verify the ADC value matches the SPICE voltage
- *      within tolerance (12-bit ADC: 4096 counts over 3.3V → ±20 counts).
+ *   5. Read Serial output and verify the reading matches the SPICE voltage
+ *      under one ADC model for every reading (see ADC models below).
  *   6. Update the circuit (R2=30k → V(mid)=2.475V), re-inject, and verify
  *      the ESP32 reads the new voltage.
  *
@@ -36,6 +36,9 @@ const TIMEOUT_S = parseInt(
 );
 
 // ─── ESP32 ADC sketch ────────────────────────────────────────────────────────
+// Prints the raw code and analogReadMilliVolts(): on a real ESP32 the code
+// follows the chip's curve at the attenuation set (12 dB by default), and the
+// millivolts, from the eFuse calibration, are how a sketch measures volts.
 const SKETCH = `// ESP32 ADC reader for SPICE co-simulation test
 // Reads GPIO34 (ADC1_CH6) at 12-bit resolution
 
@@ -48,10 +51,34 @@ void setup() {
 
 void loop() {
   int raw = analogRead(34);
-  float voltage = raw * 3.3 / 4095.0;
-  Serial.printf("ADC34: raw=%d voltage=%.3fV\\n", raw, voltage);
+  uint32_t mv = analogReadMilliVolts(34);
+  Serial.printf("ADC34: raw=%d mv=%u\\n", raw, (unsigned)mv);
   delay(500);
 }`;
+
+// ─── ADC models ───────────────────────────────────────────────────────────────
+// A run passes when ONE model explains every batch, each with its own
+// tolerance (neither is widened to fit the other):
+//   linear  the libqemu velxio.dev served before velxio/velxio-prod#171: the
+//           pad voltage converted linearly over 0-3.3 V; raw within 50 counts
+//           of V / 3.3 * 4095, the tolerance this test always had.
+//   chip    the libqemu after #171, which converts like a real ESP32: the raw
+//           code follows the chip's 12 dB curve (1.65 V reads about 1872, not
+//           2048) and analogReadMilliVolts() gives the pad voltage back from
+//           the eFuse calibration, to within MV_TOL. Above the range (about
+//           3.13 V at 12 dB) the code is 4095 and the millivolts stop at the
+//           top of the range, below the pad.
+// Drop `linear` once CI downloads the curve library.
+// MV_TOL: the worker hands libqemu the voltage in 12-bit steps of the 3.3 V
+// scale (0.806 mV, so +-0.4 mV), a 12 dB code is 0.8-1.3 mV wide, and ESP-IDF
+// returns whole millivolts: 3 mV covers the three.
+const MV_TOL = 3;
+const ADC_MODELS = [
+  { name: 'linear (libqemu before velxio/velxio-prod#171)',
+    fits: (raw, mv, v) => Math.abs(raw - Math.round(v / 3.3 * 4095)) <= 50 },
+  { name: "the chip's curve and eFuse calibration (libqemu after #171)",
+    fits: (raw, mv, v) => (raw >= 4095 ? mv <= v * 1000 + MV_TOL : Math.abs(mv - v * 1000) <= MV_TOL) },
+];
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
 const T0  = Date.now();
@@ -182,39 +209,40 @@ function runCoSimulation(firmware_b64) {
           if (line.includes('ESP32_ADC_READY') && !readyReceived) {
             readyReceived = true;
             ok('ESP32 ADC ready -- injecting SPICE voltage #1');
-            // Inject v1 into ADC channel 6 (GPIO34)
-            const mv = Math.round(v1 * 1000);
+            // Inject v1 into ADC channel 6 (GPIO34), with its fraction of a
+            // millivolt, as the tab sends it
+            const mv = v1 * 1000;
             ws.send(JSON.stringify({
               type: 'esp32_adc_set',
               data: { channel: 6, millivolts: mv },
             }));
-            spice(`Injected V(mid) = ${v1.toFixed(3)}V (${mv} mV) into ADC CH6`);
+            spice(`Injected V(mid) = ${v1.toFixed(3)}V (${mv.toFixed(1)} mV) into ADC CH6`);
             phase = 1;
             firstInjected = true;
           }
 
           // Parse ADC readings
-          const adcMatch = line.match(/ADC34:\s*raw=(\d+)\s+voltage=([\d.]+)V/);
+          const adcMatch = line.match(/ADC34:\s*raw=(\d+)\s+mv=(\d+)/);
           if (adcMatch) {
             const raw = parseInt(adcMatch[1]);
-            const vRead = parseFloat(adcMatch[2]);
+            const mvRead = parseInt(adcMatch[2]);
 
             if (phase === 1) {
-              firstReadings.push({ raw, voltage: vRead });
+              firstReadings.push({ raw, mv: mvRead });
               // After 3 readings at v1, switch to v2
               if (firstReadings.length >= 3 && !secondInjected) {
                 info('3 readings at v1 collected -- injecting SPICE voltage #2');
-                const mv2 = Math.round(v2 * 1000);
+                const mv2 = v2 * 1000;
                 ws.send(JSON.stringify({
                   type: 'esp32_adc_set',
                   data: { channel: 6, millivolts: mv2 },
                 }));
-                spice(`Injected V(mid) = ${v2.toFixed(3)}V (${mv2} mV) into ADC CH6`);
+                spice(`Injected V(mid) = ${v2.toFixed(3)}V (${mv2.toFixed(1)} mV) into ADC CH6`);
                 phase = 2;
                 secondInjected = true;
               }
             } else if (phase === 2) {
-              secondReadings.push({ raw, voltage: vRead });
+              secondReadings.push({ raw, mv: mvRead });
               if (secondReadings.length >= 3) {
                 clearTimeout(timer);
                 ws.close();
@@ -258,12 +286,8 @@ function validate(result) {
   info('  Co-Simulation Results: ESP32 + ngspice');
   info('═══════════════════════════════════════════════════');
 
-  // Expected ADC raw values (12-bit, 3.3V reference)
-  const expected1 = Math.round(v1 / 3.3 * 4095);
-  const expected2 = Math.round(v2 / 3.3 * 4095);
-
-  info(`Circuit 1: R1=10k, R2=10k -> V(mid)=${v1.toFixed(4)}V -> expected ADC=${expected1}`);
-  info(`Circuit 2: R1=10k, R2=30k -> V(mid)=${v2.toFixed(4)}V -> expected ADC=${expected2}`);
+  info(`Circuit 1: R1=10k, R2=10k -> V(mid)=${v1.toFixed(4)}V (linear ADC ${Math.round(v1 / 3.3 * 4095)})`);
+  info(`Circuit 2: R1=10k, R2=30k -> V(mid)=${v2.toFixed(4)}V (linear ADC ${Math.round(v2 / 3.3 * 4095)})`);
   info('');
 
   let pass = true;
@@ -273,46 +297,43 @@ function validate(result) {
     pass = false;
   }
 
-  // Check first batch
-  if (firstReadings.length < 1) {
-    err('No ADC readings received after first injection');
-    pass = false;
-  } else {
-    const avg1 = firstReadings.reduce((s, r) => s + r.raw, 0) / firstReadings.length;
-    info(`First batch: ${firstReadings.length} readings, avg raw=${avg1.toFixed(0)} (expected ${expected1})`);
-    // Tolerance: ±50 counts (generous for QEMU ADC emulation + timing)
-    if (Math.abs(avg1 - expected1) > 50) {
-      err(`First batch off by ${Math.abs(avg1 - expected1).toFixed(0)} counts (tolerance: 50)`);
+  const avg = (rs, k) => rs.reduce((s, r) => s + r[k], 0) / rs.length;
+  const batches = [];
+  for (const [name, rs, v] of [['First', firstReadings, v1], ['Second', secondReadings, v2]]) {
+    if (rs.length < 1) {
+      err(`No ADC readings received for the ${name.toLowerCase()} batch`);
       pass = false;
-    } else {
-      ok(`First batch within tolerance`);
+      continue;
     }
+    const b = { raw: avg(rs, 'raw'), mv: avg(rs, 'mv'), v };
+    batches.push(b);
+    info(`${name} batch: ${rs.length} readings, avg raw=${b.raw.toFixed(0)} avg mv=${b.mv.toFixed(1)} `
+         + `(pad ${(v * 1000).toFixed(1)} mV)`);
   }
 
-  // Check second batch
-  if (secondReadings.length < 1) {
-    err('No ADC readings received after second injection');
-    pass = false;
-  } else {
-    const avg2 = secondReadings.reduce((s, r) => s + r.raw, 0) / secondReadings.length;
-    info(`Second batch: ${secondReadings.length} readings, avg raw=${avg2.toFixed(0)} (expected ${expected2})`);
-    if (Math.abs(avg2 - expected2) > 50) {
-      err(`Second batch off by ${Math.abs(avg2 - expected2).toFixed(0)} counts (tolerance: 50)`);
-      pass = false;
+  // One ADC model has to explain every batch
+  if (batches.length === 2) {
+    const model = ADC_MODELS.find(m => batches.every(b => m.fits(b.raw, b.mv, b.v)));
+    if (model) {
+      ok(`Every batch fits one ADC model: ${model.name}`);
     } else {
-      ok(`Second batch within tolerance`);
+      err('No ADC model explains every batch:');
+      for (const m of ADC_MODELS) {
+        const off = batches.filter(b => !m.fits(b.raw, b.mv, b.v));
+        err(`  ${m.name}: ${off.length} of ${batches.length} batches off`);
+      }
+      pass = false;
     }
   }
 
   // Check that the two batches are DIFFERENT (proving the circuit change was detected)
-  if (firstReadings.length > 0 && secondReadings.length > 0) {
-    const avg1 = firstReadings.reduce((s, r) => s + r.raw, 0) / firstReadings.length;
-    const avg2 = secondReadings.reduce((s, r) => s + r.raw, 0) / secondReadings.length;
-    if (Math.abs(avg2 - avg1) < 100) {
-      err(`First and second batches too similar (delta=${Math.abs(avg2 - avg1).toFixed(0)}). Circuit change not detected.`);
+  if (batches.length === 2) {
+    const delta = Math.abs(batches[1].raw - batches[0].raw);
+    if (delta < 100) {
+      err(`First and second batches too similar (delta=${delta.toFixed(0)}). Circuit change not detected.`);
       pass = false;
     } else {
-      ok(`Circuit change detected: delta=${Math.abs(avg2 - avg1).toFixed(0)} counts`);
+      ok(`Circuit change detected: delta=${delta.toFixed(0)} counts`);
     }
   }
 

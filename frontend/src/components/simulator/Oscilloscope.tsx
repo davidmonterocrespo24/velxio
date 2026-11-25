@@ -19,14 +19,21 @@ import {
   useOscilloscopeStore,
   OSC_V_DIVS,
   displayShiftV,
+  freeRunWindowEndMs,
   type OscChannel,
+  type OscSeed,
   type OscAnalogChannel,
   type OscSample,
   type TriggerMode,
   type TriggerEdge,
 } from '../../store/useOscilloscopeStore';
 import { parseValue } from '../../simulation/spice/valueParser';
-import { useSimulatorStore } from '../../store/useSimulatorStore';
+import {
+  useSimulatorStore,
+  boardScopeClockMs,
+  scopeSeedFor,
+  scopeUndrawnBusSignal,
+} from '../../store/useSimulatorStore';
 import { boardDisplayName } from '../../types/board';
 import type { BoardKind } from '../../types/board';
 import { boardPads } from '../../simulation/boardPads';
@@ -96,7 +103,12 @@ const VoltsField: React.FC<{
   );
 };
 
-/** Time/div options shown in the selector */
+/**
+ * Time/div options shown in the selector. Up to 5 s/div, a 50 s screen: a
+ * wait of several seconds fits on one (velxio/velxio-prod#196). A digital
+ * channel keeps its last MAX_SAMPLES edges, about 10 s of a 490 Hz PWM, and
+ * shows "no data" before the oldest one it kept.
+ */
 const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [
   { label: '0.1 ms', ms: 0.1 },
   { label: '0.5 ms', ms: 0.5 },
@@ -106,6 +118,9 @@ const TIME_DIV_OPTIONS: { label: string; ms: number }[] = [
   { label: '50 ms', ms: 50 },
   { label: '100 ms', ms: 100 },
   { label: '500 ms', ms: 500 },
+  { label: '1 s', ms: 1000 },
+  { label: '2 s', ms: 2000 },
+  { label: '5 s', ms: 5000 },
 ];
 
 /**
@@ -162,6 +177,8 @@ interface ChannelCanvasProps {
   /** X fraction (0..1) of the trigger marker, or null when no marker should
    *  be drawn (e.g. auto mode or the trigger event is outside the window). */
   triggerXFrac: number | null;
+  /** What a stretch of the row the scope has no samples for says. */
+  noDataLabel: string;
 }
 
 const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
@@ -170,6 +187,7 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
   windowEndMs,
   windowMs,
   triggerXFrac,
+  noDataLabel,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -201,17 +219,21 @@ const ChannelCanvas: React.FC<ChannelCanvasProps> = ({
     if (isAnalog) {
       drawAnalogWaveform(
         ctx, size, samples, color, windowEndMs, windowMs,
-        voltsPerDiv, yOffsetV, NUM_V_DIVS, triggerXFrac, shiftV, scaleText,
+        voltsPerDiv, yOffsetV, NUM_V_DIVS, triggerXFrac, shiftV, scaleText, noDataLabel,
       );
     } else {
-      drawWaveform(ctx, size, samples, color, windowEndMs, windowMs, triggerXFrac);
+      drawWaveform(ctx, size, samples, color, windowEndMs, windowMs, triggerXFrac, noDataLabel);
     }
     // `theme` is not read inside the effect — scopeChrome() picks the new
     // values up on its own — but it belongs in the deps so a stopped scope
     // still repaints its grid when the user switches appearance.
+    // `samples.length`: a digital channel's buffer grows in place (the
+    // store appends without copying it), so a new edge is a new length, not
+    // a new array. A Normal trigger holds the window still and must still
+    // draw the edges that arrive in it.
   }, [
-    samples, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
-    voltsPerDiv, yOffsetV, shiftV, scaleText, theme,
+    samples, samples.length, color, isAnalog, windowEndMs, windowMs, triggerXFrac,
+    voltsPerDiv, yOffsetV, shiftV, scaleText, noDataLabel, theme,
   ]);
 
   return (
@@ -354,6 +376,60 @@ const ChannelPicker: React.FC<ChannelPickerProps> = ({
   );
 };
 
+/**
+ * A note on a channel whose pin carries a hardware I2C or SPI line its board's
+ * engine does not draw (velxio/velxio-prod#160): the ESP32, STM32 and Pi
+ * engines move no pin for a transfer, so the trace stays flat while the bus
+ * is busy, and a flat SDA must not be read as an idle bus. The AVR and RP2040
+ * draw theirs and get no note.
+ */
+const UndrawnBusNote: React.FC<{ boardId: string; pin: number }> = ({ boardId, pin }) => {
+  const { t } = useTranslation();
+  const hw = scopeUndrawnBusSignal(boardId, pin);
+  if (!hw) return null;
+  const params = {
+    bus: hw.bus.toUpperCase(),
+    controller: hw.controller,
+    signal: hw.signal.toUpperCase(),
+  };
+  const title = hw.assumed
+    ? t(
+        'editor.oscilloscope.hwBusDefaultNotDrawn',
+        "This pin is the board's default {{controller}} {{signal}}. If the sketch uses it for hardware {{bus}} (Wire, SPI), the transfers are not drawn: this board's engine moves no pin for them, so the trace stays flat while the bus is busy. A bit-banged bus does show.",
+        params,
+      )
+    : t(
+        'editor.oscilloscope.hwBusNotDrawn',
+        "{{controller}} {{signal}}: this board's engine moves no pin for a hardware {{bus}} transfer, so the trace stays flat while the bus is busy. A bit-banged bus does show.",
+        params,
+      );
+  return (
+    <span className="osc-channel-hwbus" title={title} aria-label={title}>
+      {params.bus} {params.signal}
+    </span>
+  );
+};
+
+/**
+ * The clock of the running boards whose pins are on the scope, in ms, or null
+ * when none is running or keeps one (boardScopeClockMs). Analog channels are
+ * in the solver's own time and have no board.
+ */
+function scopeClockNow(): number | null {
+  const { channels } = useOscilloscopeStore.getState();
+  const { boards } = useSimulatorStore.getState();
+  let now: number | null = null;
+  const seen = new Set<string>();
+  for (const c of channels) {
+    if (c.kind !== 'digital' || seen.has(c.boardId)) continue;
+    seen.add(c.boardId);
+    if (!boards.find((b) => b.id === c.boardId)?.running) continue;
+    const t = boardScopeClockMs(c.boardId);
+    if (t !== null) now = now === null ? t : Math.max(now, t);
+  }
+  return now;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export const Oscilloscope: React.FC = () => {
@@ -432,10 +508,25 @@ export const Oscilloscope: React.FC = () => {
   // ── Display window ──────────────────────────────────────────────────────
   const [, forceRedraw] = useState(0);
   const rafRef = useRef<number | null>(null);
+  // The clock of the running boards whose pins are on the scope, read once a
+  // frame while it captures: the free-running window's right edge
+  // (freeRunWindowEndMs). It stays where it was while the capture is paused
+  // or every board is stopped, so a paused screen holds still.
+  const [clockMs, setClockMs] = useState<number | null>(null);
+  // A scope emptied for another circuit (a project, an example, a new
+  // starter) forgets the clock of the run before it. Adjusted while
+  // rendering, as React's docs do for state that follows a prop.
+  const empty = channels.length === 0;
+  const [wasEmpty, setWasEmpty] = useState(empty);
+  if (empty !== wasEmpty) {
+    setWasEmpty(empty);
+    if (empty) setClockMs(null);
+  }
 
   useEffect(() => {
     if (anyRunning && capturing) {
       const tick = () => {
+        setClockMs(scopeClockNow());
         forceRedraw((n) => n + 1);
         rafRef.current = requestAnimationFrame(tick);
       };
@@ -449,22 +540,17 @@ export const Oscilloscope: React.FC = () => {
   const windowMs = NUM_DIVS * timeDivMs;
 
   // ── Window positioning ─────────────────────────────────────────────────
-  // Auto mode: window's right edge tracks the most recent sample across
-  // all channels (free-running).  Normal / single mode with a latched
-  // trigger: pin the window around the trigger event so it lands at
-  // `triggerPosition * windowMs` from the left.  Normal / single mode
-  // with NO trigger yet: fall back to free-running so the user can still
-  // see what's happening while waiting for the first edge.
+  // Auto mode: the window's right edge tracks the boards' clock, and the
+  // most recent sample where none keeps one (free-running).  Normal / single
+  // mode with a latched trigger: pin the window around the trigger event so
+  // it lands at `triggerPosition * windowMs` from the left.  Normal / single
+  // mode with NO trigger yet: fall back to free-running so the user can
+  // still see what's happening while waiting for the first edge.
   let windowEndMs = 0;
   if (triggerMode !== 'auto' && triggeredAtMs !== null) {
     windowEndMs = triggeredAtMs + (1 - triggerPosition) * windowMs;
   } else {
-    for (const ch of channels) {
-      const buf = samples[ch.id] ?? [];
-      if (buf.length > 0) {
-        windowEndMs = Math.max(windowEndMs, buf[buf.length - 1].timeMs);
-      }
-    }
+    windowEndMs = freeRunWindowEndMs(channels, samples, clockMs, windowMs);
   }
   windowEndMs = Math.max(windowEndMs, windowMs);
 
@@ -486,10 +572,22 @@ export const Oscilloscope: React.FC = () => {
       // probe uses (probeResolve's vccOf).
       const board = useSimulatorStore.getState().boards.find((b) => b.id === boardId);
       const amplitudeV = board ? boardPinGroupFor(board.boardKind).vcc : undefined;
-      addChannel(boardId, pin, pinLabel, amplitudeV);
+      // On a running board the channel starts from the level the pin has
+      // now; before it, the row says "no data" (velxio/velxio-prod#196).
+      addChannel(boardId, pin, pinLabel, amplitudeV, scopeSeedFor(boardId, pin));
     },
     [addChannel],
   );
+
+  /** Clear, with each digital channel of a running board restarting from the
+   *  level its pin has now (as a channel added then does). */
+  const handleClear = useCallback(() => {
+    const seeds: Record<string, OscSeed | null> = {};
+    for (const c of useOscilloscopeStore.getState().channels) {
+      if (c.kind === 'digital') seeds[c.id] = scopeSeedFor(c.boardId, c.pin);
+    }
+    clearSamples(seeds);
+  }, [clearSamples]);
 
   /** What to show in the channel's source column: the board for a GPIO
    *  channel, a net marker for an analog one. */
@@ -719,7 +817,7 @@ export const Oscilloscope: React.FC = () => {
         {/* Clear */}
         <button
           className="osc-btn osc-btn-danger"
-          onClick={clearSamples}
+          onClick={handleClear}
           title={t('editor.oscilloscope.clearTitle')}
         >
           {t('editor.oscilloscope.clear')}
@@ -755,6 +853,7 @@ export const Oscilloscope: React.FC = () => {
                   >
                     {ch.label}
                   </span>
+                  {ch.kind === 'digital' && <UndrawnBusNote boardId={ch.boardId} pin={ch.pin} />}
                   <button
                     className="osc-channel-remove"
                     onClick={() => removeChannel(ch.id)}
@@ -770,6 +869,7 @@ export const Oscilloscope: React.FC = () => {
                   windowEndMs={windowEndMs}
                   windowMs={windowMs}
                   triggerXFrac={triggerXFrac}
+                  noDataLabel={t('editor.oscilloscope.noData', 'no data')}
                 />
               </div>
             ))}

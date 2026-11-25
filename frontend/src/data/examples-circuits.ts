@@ -722,7 +722,8 @@ void loop() {
   {
     id: 'opamp-inverting',
     title: 'Inverting Amplifier (LM358)',
-    description: 'Vout = -(Rf/Rin) * Vin. Gain=-10 with Rin=1k, Rf=10k.',
+    description:
+      "Gain = -Rf/Rin = -10 (Rin = 1k, Rf = 10k) around the 2.5 V that two 10k resistors put on IN+: Vout = 2.5 - 10 * (Vin - 2.5). The LM358 on the Uno's 5 V puts out about 0 to 4 V, so only a Vin between about 2.35 and 2.75 V comes out unclipped.",
     category: 'circuits',
     difficulty: 'intermediate',
     code: `// Inverting amplifier — gain = -Rf/Rin = -10
@@ -772,7 +773,8 @@ void loop() {
   {
     id: 'opamp-voltage-follower',
     title: 'Voltage Follower (Buffer)',
-    description: 'Op-amp with 100% feedback. Vout = Vin. High Z input, low Z output.',
+    description:
+      "Op-amp with 100% feedback: Vout = Vin, within the LM358's 2 mV offset, up to about 4 V. On the Uno's 5 V its output stops about 1 V below the supply, so over the last fifth of the pot's travel A1 stays at about 4.0 V while A0 goes on to 5 V. High Z input, low Z output.",
     category: 'circuits',
     difficulty: 'beginner',
     code: `// Voltage follower — Vout tracks Vin exactly
@@ -1657,20 +1659,23 @@ void loop() {
     id: 'esp32-dual-adc',
     title: 'ESP32 Dual ADC Reader',
     description:
-      'ESP32 reads two analog channels (GPIO34, GPIO35) simultaneously at 12-bit resolution.',
+      "ESP32 reads two analog channels (GPIO34, GPIO35) at 12-bit resolution and prints each in volts with the chip's calibrated analogReadMilliVolts() (about 0.14-3.13 V at the default 12 dB).",
     category: 'circuits',
     difficulty: 'beginner',
     boardType: 'esp32',
-    code: `// ESP32 dual ADC — 12-bit, 3.3V reference
+    code: `// ESP32 dual ADC — 12-bit, 12 dB attenuation (the default).
+// At 12 dB the ESP32 measures about 0.14 V to 3.13 V, and the code is not
+// a straight line from 0 to 3.3 V (1.65 V reads about 1870, not 2048). So
+// the voltage comes from analogReadMilliVolts(), which applies the chip's
+// factory calibration, instead of a straight 3.3/4095 scaling. Below about
+// 0.14 V it reads 0.142 V; above about 3.13 V it reads 3.13 V.
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);
 }
 void loop() {
-  int ch1 = analogRead(34);
-  int ch2 = analogRead(35);
-  float v1 = ch1 * 3.3 / 4095.0;
-  float v2 = ch2 * 3.3 / 4095.0;
+  float v1 = analogReadMilliVolts(34) / 1000.0;
+  float v2 = analogReadMilliVolts(35) / 1000.0;
   Serial.printf("CH1=%.3fV  CH2=%.3fV\\n", v1, v2);
   delay(500);
 }`,

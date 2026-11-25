@@ -13,10 +13,38 @@ import { isNoiseBuildLine } from './compilationLogger';
 import { publishCompileOutput } from '../lib/intellisenseRegistry';
 import { fingerprintSources } from './sourceFingerprint';
 
+/**
+ * Whether the image the simulator runs is not the one a real board of this
+ * FQBN should: a flash then builds its own (`forHardware`) and never reuses
+ * the program on the board. RP2040 / RP2350: the simulator's build renames
+ * Serial to Serial1 (UART0, what its serial monitor shows), and a board
+ * flashed with it prints nothing on its USB port. Mirrors the backend's
+ * ArduinoCLIService.hardware_build_differs.
+ */
+export function hardwareBuildDiffers(fqbn: string | null | undefined): boolean {
+  return !!fqbn && fqbn.includes('rp2040');
+}
+
+/**
+ * Whether a flash of this board to `fqbn` needs an image of its own. By the
+ * FQBN (hardwareBuildDiffers), or by what the server said of the program on
+ * the board: an ESP32 build whose WiFi credentials were rewritten for the
+ * simulated networks would have the real board look for "Velxio-GUEST". The
+ * FQBN alone is too coarse there: most ESP32 sketches are flashed with the
+ * very image the simulator runs, and build nothing. A server that predates
+ * the field never says so, and the board is flashed as it always was.
+ */
+export function needsHardwareBuild(
+  board: Pick<BoardInstance, 'wifiRewritten'>,
+  fqbn: string | null | undefined,
+): boolean {
+  return hardwareBuildDiffers(fqbn) || board.wifiRewritten === true;
+}
+
 /** Per-board compile extras (ESP32 options, SPIFFS, manifest, language, analytics). */
 export function compileOptionsForBoard(
   board: BoardInstance | undefined,
-  more: Pick<CompileExtras, 'initiatedBy'> = {},
+  more: Pick<CompileExtras, 'initiatedBy' | 'forHardware'> = {},
 ): CompileExtras {
   return {
     boardOptions: board?.boardOptions,
@@ -75,7 +103,14 @@ export function isCompiledProgramStale(board: BoardInstance): boolean {
 }
 
 export type BoardCompileOutcome =
-  | { ok: true; program: string; uf2: string | null; elapsedMs: number }
+  | {
+      ok: true;
+      program: string;
+      uf2: string | null;
+      /** The server rewrote this build's WiFi credentials (see needsHardwareBuild). */
+      wifiRewritten: boolean;
+      elapsedMs: number;
+    }
   | { ok: false; error: string; elapsedMs: number };
 
 export interface BoardCompileOptions {
@@ -87,6 +122,8 @@ export interface BoardCompileOptions {
    * runs as RP2350: the caller keeps the result.
    */
   record?: boolean;
+  /** Firmware for a real board, not the simulator (see needsHardwareBuild). */
+  forHardware?: boolean;
 }
 
 /**
@@ -122,7 +159,7 @@ export async function compileBoardForFlash(
           if (line.trim() && !isNoiseBuildLine(line)) onLine(line);
         }
       },
-      compileOptionsForBoard(board),
+      compileOptionsForBoard(board, opts.forHardware ? { forHardware: true } : {}),
     );
     // Intellisense seam: file:line markers in the editor (cleared on green).
     publishCompileOutput(
@@ -146,10 +183,10 @@ export async function compileBoardForFlash(
     }
     if (opts.record !== false) {
       const sim = useSimulatorStore.getState();
-      sim.compileBoardProgram(board.id, program, { uf2 });
+      sim.compileBoardProgram(board.id, program, { wifiRewritten: result.wifi_rewritten });
       if (result.has_wifi !== undefined) sim.updateBoard(board.id, { hasWifi: result.has_wifi });
     }
-    return { ok: true, program, uf2, elapsedMs };
+    return { ok: true, program, uf2, wifiRewritten: result.wifi_rewritten === true, elapsedMs };
   } catch (err) {
     return {
       ok: false,

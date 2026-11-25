@@ -131,7 +131,7 @@
         "maker": {
           "name": "Maker",
           "tagline": "Für Maker, die echte Schaltungen mit KI-Hilfe bauen.",
-          "f1": "500 KI-Credits pro Tag (bis zu 15.000/Monat)",
+          "f1": "1.500 KI-Credits pro Tag (bis zu 15.000/Monat)",
           "f2": "Nicht gelistete Projekte + Velxio Desktop (offline)",
           "f3": "Unbegrenzte Simulationszeit für ESP32, STM32 & Raspberry Pi",
           "cta": "Maker starten"
@@ -139,7 +139,7 @@
         "pro": {
           "name": "Pro",
           "tagline": "Private Projekte, GitHub-Sync und BOM-Exporte.",
-          "f1": "2.000 KI-Credits pro Tag (bis zu 60.000/Monat)",
+          "f1": "5.000 KI-Credits pro Tag (bis zu 60.000/Monat)",
           "f2": "Private Projekte + BOM CSV + Schaltplan PNG",
           "f3": "GitHub-Sync + Embeds ohne Wasserzeichen",
           "cta": "Pro abonnieren"

@@ -25,6 +25,15 @@ import { pinCurrentFindings } from '../verify/pinCurrent';
 import { readSpan, spanStats } from '../spice/waveformStats';
 import type { TimeWaveforms } from '../spice/types';
 import { formatRating, isRatedResistor, resistorPowerRating } from './resistorRating';
+import {
+  readTransistor,
+  transistorFindings,
+  type RatingsLookup,
+  type TransistorFinding,
+  type TransistorSolveView,
+} from '../verify/transistorStress';
+import { ratedPartFromRegistry } from '../verify/partRatings';
+import { flagProperty } from '../../utils/flagProperty';
 
 // ── Tuning ────────────────────────────────────────────────────────────────
 /** Sustained over-limit time before destruction (the "thermal" delay), ms. */
@@ -199,13 +208,21 @@ export function componentStress(
  * Pure burn decision with a first-order thermal delay. Given the current stress
  * ratio and the timestamp the part first went over-limit (0 = not over), return
  * whether it's destroyed now and the updated over-since timestamp.
+ *
+ * `transient`: the ratio is a moment of a step being followed (a capacitor
+ * charging through a resistor after a press, ElectricalSnapshot.stepAtS),
+ * which falls as the step goes on, not a load the part holds. Such a moment
+ * burns a part only once it has lasted BURN_DELAY_MS, however high: a 1/4 W
+ * resistor that takes 2.5 W for the 10 ms a 1000 uF capacitor needs to
+ * charge through 10 ohm survives it (velxio/velxio-prod#107).
  */
 export function decideBurn(
   ratio: number,
   overSince: number,
   now: number,
+  transient = false,
 ): { burn: boolean; overSince: number } {
-  if (ratio >= CATASTROPHIC_RATIO) return { burn: true, overSince };
+  if (ratio >= CATASTROPHIC_RATIO && !transient) return { burn: true, overSince };
   if (ratio > 1) {
     const since = overSince === 0 ? now : overSince;
     return { burn: now - since > BURN_DELAY_MS, overSince: since };
@@ -264,10 +281,105 @@ function checkPinCurrents(): void {
   }
 }
 
+/**
+ * The transistors a published solve takes past a datasheet rating
+ * (velxio/velxio-prod#138): V_CEO / V_DSS at its highest, the current, the
+ * mean power (transistorStress). The step after a pad edge is where a coil
+ * switched off with no flyback diode kicks: the circuit check before Run
+ * holds every pin HIGH and never sees that edge. Parts without ratings in
+ * their metadata (`ratingsOf`) are skipped.
+ */
+export function transistorStressFindings(
+  components: ReadonlyArray<ComponentLike>,
+  pinNetMap: ReadonlyMap<string, string>,
+  view: TransistorSolveView,
+  ratingsOf: RatingsLookup = ratedPartFromRegistry,
+): Array<{ componentId: string; finding: TransistorFinding }> {
+  const out: Array<{ componentId: string; finding: TransistorFinding }> = [];
+  for (const comp of components) {
+    const part = ratingsOf(comp.metadataId);
+    if (!part) continue;
+    const reading = readTransistor(comp.id, part.ratings.kind, pinNetMap, view);
+    if (!reading) continue;
+    const onHeatsink = flagProperty(comp.properties?.heatsink);
+    for (const finding of transistorFindings(comp.id, part, reading, onHeatsink)) {
+      out.push({ componentId: comp.id, finding });
+    }
+  }
+  return out;
+}
+
+/**
+ * Each transistor and rating is reported once per run: a coil kicks at every
+ * edge, and the console needs to hear it once. A thermal rating (the
+ * continuous current, the power) is reported once the circuit has stayed
+ * past it for BURN_DELAY_MS, as a resistor burns: the electronic load's
+ * power-on state, 1.65 A until setup() writes the DAC, lasts milliseconds.
+ * A transistor is not destroyed: a real one over a rating may survive (an
+ * avalanche-rated MOSFET absorbs a small coil's energy), or fail later, and
+ * the sketch keeps running.
+ */
+const reportedTransistor = new Set<string>();
+/** When a thermal finding was first seen, by part and rule (wall ms). */
+const transistorOverSince = new Map<string, number>();
+let transistorRecheck: ReturnType<typeof setTimeout> | null = null;
+
+/** Look again once a thermal finding has had time to count as sustained:
+ *  a circuit that sits still publishes nothing more. */
+function recheckTransistorsLater(): void {
+  if (transistorRecheck !== null) return;
+  transistorRecheck = setTimeout(() => {
+    transistorRecheck = null;
+    checkTransistors();
+  }, BURN_DELAY_MS + 50);
+}
+
+function checkTransistors(): void {
+  const { components } = useSimulatorStore.getState();
+  const el = useElectricalStore.getState();
+  if (!components?.length) return;
+  const found = transistorStressFindings(components as ComponentLike[], el.pinNetMap, el);
+  const now = Date.now();
+  const thermal = new Set<string>();
+  for (const { componentId, finding } of found) {
+    const key = `${componentId}:${finding.rule}`;
+    if (reportedTransistor.has(key)) continue;
+    if (finding.sustained) {
+      thermal.add(key);
+      const since = transistorOverSince.get(key);
+      if (since === undefined) transistorOverSince.set(key, now);
+      if (since === undefined || now - since < BURN_DELAY_MS) {
+        recheckTransistorsLater();
+        continue;
+      }
+    }
+    reportedTransistor.add(key);
+    console.warn(`[transistor] ${finding.message}`);
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try {
+        window.dispatchEvent(
+          new CustomEvent('velxio-circuit-fault', {
+            detail: { componentId, kind: 'transistor-overstress', message: finding.message, severity: 'warning' },
+          }),
+        );
+      } catch {
+        /* CustomEvent unavailable — the console.warn is enough */
+      }
+    }
+  }
+  // A thermal finding the circuit has left starts its clock again.
+  for (const key of [...transistorOverSince.keys()]) if (!thermal.has(key)) transistorOverSince.delete(key);
+}
+
 function check(): void {
-  checkPinCurrents();
+  const { nodeVoltages, pinNetMap, timeWaveforms, window, stepAtS } = useElectricalStore.getState();
+  // A moment of a step being followed is not a load the circuit holds: no
+  // pin is overloaded by an inrush, and no part burns on one at once (see
+  // decideBurn). The operating point it settles to is checked as any is.
+  const transient = stepAtS !== undefined;
+  if (!transient) checkPinCurrents();
+  checkTransistors();
   const sim = useSimulatorStore.getState();
-  const { nodeVoltages, pinNetMap, timeWaveforms, window } = useElectricalStore.getState();
   const now = Date.now();
   for (const comp of sim.components) {
     if (sim.burntComponents.has(comp.id)) continue;
@@ -276,7 +388,7 @@ function check(): void {
       overSinceByComponent.delete(comp.id);
       continue;
     }
-    const { burn, overSince } = decideBurn(stress.ratio, overSinceByComponent.get(comp.id) ?? 0, now);
+    const { burn, overSince } = decideBurn(stress.ratio, overSinceByComponent.get(comp.id) ?? 0, now, transient);
     if (burn) {
       overSinceByComponent.delete(comp.id);
       sim.markComponentBurnt(comp.id);
@@ -302,6 +414,8 @@ export function installRuntimeBurnoutMonitor(): void {
       lastHexEpoch = s.hexEpoch;
       overSinceByComponent.clear();
       reportedPinCurrent.clear();
+      reportedTransistor.clear();
+      transistorOverSince.clear();
     }
   });
   // Re-check on every fresh solve (the store publishes a new object each solve).
@@ -309,6 +423,7 @@ export function installRuntimeBurnoutMonitor(): void {
     if (
       state.nodeVoltages !== prev.nodeVoltages ||
       state.timeWaveforms !== prev.timeWaveforms ||
+      state.stepWaveforms !== prev.stepWaveforms ||
       state.window !== prev.window
     ) {
       check();

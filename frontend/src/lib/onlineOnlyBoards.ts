@@ -460,7 +460,7 @@ export const ONLINE_ONLY_COMPONENT_ADS: OnlineOnlyComponentAd[] = [
     id: 'pro-dc-motor',
     label: 'DC Motor / Fan',
     description:
-      'A brushed motor that is part of the circuit: it draws its current from the supply and turns as fast as the voltage across it lets it, with inertia - available in the online editor',
+      'A brushed motor that is part of the circuit: it draws its start-up current from the supply, turns as fast as the voltage across it lets it and coasts down, and its winding kicks when it is switched off - available in the online editor',
     category: 'motors',
     thumbnailSvg:
       "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'><rect x='16' y='10' width='28' height='16' rx='4' fill='#9aa4ac' stroke='#6b757c' stroke-width='1'/><rect x='20' y='26' width='20' height='4' rx='1.5' fill='#78828a'/><rect x='28' y='30' width='4' height='6' rx='1.5' fill='#7f8a92'/><g transform='translate(30 42)'><path d='M0 0 C6 -5 13 -6 18 -2 C14 4 7 6 0 3 Z' fill='#cdd6dd' stroke='#8d979f' stroke-width='0.8'/><path d='M0 0 C6 -5 13 -6 18 -2 C14 4 7 6 0 3 Z' fill='#cdd6dd' stroke='#8d979f' stroke-width='0.8' transform='rotate(120)'/><path d='M0 0 C6 -5 13 -6 18 -2 C14 4 7 6 0 3 Z' fill='#cdd6dd' stroke='#8d979f' stroke-width='0.8' transform='rotate(240)'/></g><circle cx='30' cy='42' r='4' fill='#5d666c'/></svg>",

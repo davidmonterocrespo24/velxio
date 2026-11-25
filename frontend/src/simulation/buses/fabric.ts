@@ -78,6 +78,16 @@ interface UartSlot {
 const firstPin = (v: number | number[] | undefined): number | undefined =>
   Array.isArray(v) ? v[0] : v;
 
+/** A hardware controller's line on a board pin (BoardBusFabric.hardwareSignalOf). */
+export interface HardwareBusSignal {
+  bus: 'i2c' | 'spi';
+  signal: 'sda' | 'scl' | 'sck' | 'mosi' | 'miso';
+  /** The controller's datasheet name: TWI, I2C0, SPI1, GPSPI2... */
+  controller: string;
+  /** The board's default pad for it: the port cannot say where the guest put the line. */
+  assumed: boolean;
+}
+
 export class BoardBusFabric {
   readonly spiBuses = new Map<number, SpiBus>();
   private readonly decoders = new Map<number, SoftSpiDecoder>();
@@ -666,6 +676,46 @@ export class BoardBusFabric {
       if (slot.rx === pin) rx = slot.ref;
     }
     return { tx, rx };
+  }
+
+  /**
+   * The hardware I2C or SPI line routed to `pin` now, for the oscilloscope: an
+   * engine that moves no pin for a transfer, and does not draw one, shows a
+   * flat line there however busy the bus is (velxio/velxio-prod#160). An SPI
+   * controller counts while it is enabled; an I2C one has no such bit here.
+   */
+  hardwareSignalOf(pin: number): HardwareBusSignal | null {
+    // Each line is resolved now, not read from the last route(): addBoard
+    // binds a board's engine before the board is in the store, so a
+    // controller the board table places ('static', the QEMU lanes) had no
+    // pads until a bus was created, and a freshly placed ESP32 or Blue Pill
+    // with nothing wired to its bus showed no note.
+    const kind = this.kind();
+    const defaults = (bus: 'i2c' | 'spi', unit: number) =>
+      kind ? controllerOf(kind, bus, unit)?.defaultPins : undefined;
+    for (const slot of this.i2cSlots) {
+      const r = slot.port.routing();
+      const assumed = r === 'static';
+      const def = assumed ? defaults('i2c', slot.port.unit) : undefined;
+      const sda = assumed ? firstPin(def?.sda) : r.sda;
+      const scl = assumed ? firstPin(def?.scl) : r.scl;
+      if (sda === pin) return { bus: 'i2c', signal: 'sda', controller: slot.port.name, assumed };
+      if (scl === pin) return { bus: 'i2c', signal: 'scl', controller: slot.port.name, assumed };
+    }
+    for (const slot of this.slots) {
+      const r = slot.port.routing();
+      const isStatic = r === 'static';
+      const def = isStatic ? defaults('spi', slot.port.unit) : undefined;
+      const sck = isStatic ? firstPin(def?.sck) : r.sck;
+      const mosi = isStatic ? firstPin(def?.mosi) : r.mosi;
+      const miso = isStatic ? firstPin(def?.miso) : r.miso;
+      const signal = sck === pin ? 'sck' : mosi === pin ? 'mosi' : miso === pin ? 'miso' : null;
+      if (!signal || !slot.port.config().enabled) continue;
+      // As routingOf decides it: only a GPIO-matrix board's defaults are a guess.
+      const assumed = isStatic && kind !== undefined && getBoardPinFunctions(kind)?.routing === 'matrix';
+      return { bus: 'spi', signal, controller: slot.port.name, assumed };
+    }
+    return null;
   }
 
   // ── Controller routing ────────────────────────────────────────────────────

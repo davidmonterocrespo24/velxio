@@ -18,6 +18,7 @@ import type { StoreSnapshot } from '../spice/storeAdapter';
 import type { Wire } from '../../types/wire';
 import { buildNetlist } from '../spice/NetlistBuilder';
 import { verifyCircuit, occupiedSourcePairs, sourcePairKey, type VerificationResult } from './circuitVerifier';
+import { ratedPartFromRegistry } from './partRatings';
 
 /** The slice of the simulator store the pre-flight reads. */
 export interface PreflightState {
@@ -166,7 +167,8 @@ export async function verifyCircuitFromStore(): Promise<VerificationResult | nul
       boards: sim.boards.map((b) => ({ id: b.id, boardKind: b.boardKind })),
     });
     const input = buildInputFromStore(snap);
-    const result = await verifyCircuit(input, { synthesizedPins });
+    // The transistors are held to the ratings in their metadata (#138).
+    const result = await verifyCircuit(input, { synthesizedPins, ratingsOf: ratedPartFromRegistry });
     // Concise outcome log: verification failing silently in production is
     // hard to spot otherwise (the rules read 0 A when currents are missing).
     console.log(

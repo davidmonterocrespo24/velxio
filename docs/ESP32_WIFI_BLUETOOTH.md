@@ -227,6 +227,38 @@ Conectado!
 IP: 192.168.4.15
 ```
 
+### Grabar en una placa real
+
+El build del simulador reescribe las credenciales WiFi del sketch: un SSID que
+las radios simuladas no emiten pasa a ser `Velxio-GUEST`, la contraseña se
+quita y se agrega el canal. Una placa real grabada con esa imagen buscaría
+`Velxio-GUEST` y no entraría a la red del usuario.
+
+Por eso el resultado de la compilación dice `wifi_rewritten` cuando el build
+fue reescrito, y el diálogo de grabación pide entonces un build propio
+(`for_hardware: true` en la petición), que deja el sketch tal como está
+escrito, también si nombra `Velxio-GUEST` a propósito. Ese build se queda en
+el diálogo: el emulador sigue con el suyo. Un sketch sin WiFi, o uno que la
+normalización no cambia, se graba con la misma imagen que corre el simulador,
+sin compilar otra vez.
+
+Ese build lleva la contraseña de la red del usuario, y el servidor lo trata
+aparte:
+
+- su resultado no se escribe en la caché de artefactos en disco;
+- al terminar, y antes de soltar el directorio de build que comparte con otros
+  usuarios, se borran de ahí sus fuentes (`main/`), los objetos y el archivo
+  del componente `main`, la imagen enlazada y la imagen unida;
+- no guarda objetos en ccache (`CCACHE_READONLY`) y no se usa para calentar
+  una réplica del directorio;
+- el log del servidor de un build fallido recibe la salida del compilador sin
+  el texto del usuario (las líneas de código que cita GCC, y todo lo que sigue
+  a la primera comilla de cualquier otra línea).
+
+Lo que queda: el resultado en memoria (`COMPILE_JOBS`) hasta 30 minutos, para
+que el cliente lo recoja, y la salida completa del compilador, que el propio
+usuario ve.
+
 ### Servidor HTTP
 
 ```cpp

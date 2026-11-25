@@ -105,7 +105,7 @@ describe('analog projects for the blog post', () => {
     const v = await run(example('esp32-pwm-dac-lm358-12v'));
     expect(v('u1:OUT')).toBeCloseTo(11.1, 0);
     expect(v('esp32:34')).toBeCloseTo((11.1 * 22) / 122, 1);
-    // V+ disconnected: the op-amp is back on the ESP32's 3.3 V and stops near 2 V.
+    // V+ disconnected: the op-amp is back on the ESP32's 3.3 V and stops near 2.3 V.
     const ex = example('esp32-pwm-dac-lm358-12v');
     const unpowered = await run({ ...ex, wires: ex.wires.filter((w) => w.id !== 'w4') });
     expect(unpowered('u1:OUT')).toBeLessThan(2.6);
