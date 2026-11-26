@@ -4937,6 +4937,7 @@
       "tagName": "wokwi-ntc-temperature-sensor",
       "name": "NTC Temperature Sensor",
       "category": "sensors",
+      "description": "NTC thermistor module: the NTC from OUT to GND under a fixed pull-up from VCC, so OUT = VCC x R_ntc / (R_ntc + pull-up) and falls as it warms. R_ntc = R0 x exp(beta x (1/T - 1/298.15 K)). Set the temperature in the sensor panel.",
       "thumbnail": "",
       "properties": [
         {
@@ -4976,8 +4977,7 @@
         "ntc",
         "temperature",
         "sensor"
-      ],
-      "description": "NTC thermistor module: the NTC from OUT to GND under a fixed pull-up from VCC, so OUT = VCC x R_ntc / (R_ntc + pull-up) and falls as it warms. R_ntc = R0 x exp(beta x (1/T - 1/298.15 K)). Set the temperature in the sensor panel."
+      ]
     },
     {
       "thumbnail": "",
