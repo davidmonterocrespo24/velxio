@@ -27,6 +27,16 @@ jobs:
         with:
           node-version: '22'
 
+      # Same pin as frontend-tests.yml, for the same reason (the full note is
+      # there): the npm 10.9 that Node 22 bundles cannot resolve
+      # frontend/package.json and dies with "Cannot read properties of null
+      # (reading 'edgesOut')" before it installs anything. That workflow got
+      # the pin on 2026-09-07 and this one did not, so every nightly from
+      # 2026-09-04 on failed at "Install frontend dependencies" and compiled
+      # no example at all.
+      - name: Pin npm (Node 22 ships a resolver that cannot install this tree)
+        run: npm install -g npm@11
+
       - name: Setup arduino-cli
         uses: arduino/setup-arduino-cli@81d310742121c928ea9c8bbd407b4217b432ae02  # v2.0.0
         with:
