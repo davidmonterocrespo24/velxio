@@ -191,12 +191,19 @@ class MetadataGenerator {
     // Apply custom overrides from component-overrides.json
     this.applyOverrides(components);
 
-    // Sort by category and name
+    // Sort by category and name, with the collation named. With no locale,
+    // localeCompare takes the one of the machine that runs this script, and
+    // CI compares the result byte for byte: Danish, Norwegian, Faroese, Greek,
+    // Welsh, Thai, Azerbaijani and Hawaiian put these names in another order
+    // than the en-US a CI runner resolves to, so a file regenerated there was
+    // "stale" on every run. The id settles a tie between two parts with one
+    // name, which a stable sort would leave in readdir order (the file
+    // system's, not ours).
     components.sort((a, b) => {
       if (a.category !== b.category) {
-        return a.category.localeCompare(b.category);
+        return a.category.localeCompare(b.category, 'en');
       }
-      return a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name, 'en') || a.id.localeCompare(b.id, 'en');
     });
 
     // Note: no `generatedAt` timestamp — it would change on every run and
