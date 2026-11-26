@@ -30,11 +30,15 @@ MEM = 2 * 65536  # the runtime's memory at chip_setup: two pages
 # vx_spi_config at 64: sck 0, mosi 1, miso 2, cs none, mode 0, no callbacks;
 # 0x40.. at 256 is the chip's own buffer. arm(ptr, count) is vx_spi_start.
 _FILL = "".join(f"\\{b:02x}" for b in range(0x40, 0x60))
+# The sixteen zero bytes are built out here: before Python 3.12 an expression
+# inside an f-string cannot hold a backslash (a SyntaxError), and CI runs this
+# file on 3.11, where it ended the whole run at collection.
+_ZEROS = "\\00" * 16
 ARMING_CHIP = f"""(module
   (import "env" "memory" (memory 2))
   (import "env" "vx_spi_attach" (func $attach (param i32) (result i32)))
   (import "env" "vx_spi_start" (func $start (param i32 i32 i32)))
-  (data (i32.const 64) "\\00\\00\\00\\00\\01\\00\\00\\00\\02\\00\\00\\00\\ff\\ff\\ff\\ff{'\\00' * 16}")
+  (data (i32.const 64) "\\00\\00\\00\\00\\01\\00\\00\\00\\02\\00\\00\\00\\ff\\ff\\ff\\ff{_ZEROS}")
   (data (i32.const 256) "{_FILL}")
   (func (export "chip_setup") (drop (call $attach (i32.const 64))))
   (func (export "arm") (param $p i32) (param $n i32)
