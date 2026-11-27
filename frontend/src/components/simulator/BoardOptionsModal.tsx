@@ -84,7 +84,9 @@ export const BoardOptionsModal = ({
 }: BoardOptionsModalProps) => {
   const { t } = useTranslation();
   const seed = useMemo(
-    () => currentOptions ?? getDefaultOptionsForKind(boardKind),
+    // Stored options may name only some keys (an example's, or a board
+    // kind's): the rest show the kind's defaults instead of empty selects.
+    () => ({ ...getDefaultOptionsForKind(boardKind), ...(currentOptions ?? {}) }),
     [currentOptions, boardKind],
   );
   const [tab, setTab] = useState<TabKey>('options');

@@ -19,6 +19,7 @@ import { trackOpenExample } from './analytics';
 import { stripBrandPrefix } from './exampleToBuildNetlistInput';
 import { resolveExamplePartSdFiles, resolveExampleSdFiles } from './sdCardFiles';
 import { exampleWireCorners } from './exampleWireRoutes';
+import { implicitBoardOptions, type ESP32BoardOptions } from '../types/boardOptions';
 
 export interface LibraryInstallProgress {
   total: number;
@@ -97,6 +98,22 @@ function seedChipProgramGroups(example: ExampleProject): {
  * Load an example project into the editor + simulator stores.
  * Does NOT navigate — the caller is responsible for navigation.
  */
+/**
+ * The options an example board is stored with: what its kind declares (the
+ * module it ships on) under what the example asks for. Partial on purpose,
+ * like `implicitBoardOptions`: the keys nobody set stay with the compiler's
+ * defaults instead of being filled from the dialog's.
+ */
+export function exampleBoardOptions(
+  boardKind: string,
+  requested: Partial<ESP32BoardOptions>,
+): ESP32BoardOptions {
+  return {
+    ...(implicitBoardOptions(boardKind as BoardKind) ?? {}),
+    ...requested,
+  } as ESP32BoardOptions;
+}
+
 export async function loadExample(
   example: ExampleProject,
   onLibraryProgress?: (progress: LibraryInstallProgress | null) => void,
@@ -205,6 +222,18 @@ export async function loadExample(
         const filename = isPiBoardKind(eb.boardKind) ? 'main.cpp' : 'sketch.ino';
         useEditorStore.getState().setActiveGroup(board.activeFileGroupId);
         useEditorStore.getState().loadFiles([{ name: filename, content: eb.code }]);
+      }
+
+      // The Board Options the example is written for (flash mode and speed,
+      // PSRAM, ...): on the board, over what its kind declares, so the
+      // simulator, a download and a flash to the real board all build with
+      // them. Without this a flashed example went out with the generic
+      // defaults (DIO at 40 MHz on a XIAO S3, whose own core uses QIO at
+      // 80 MHz) and ran far slower on the board than it should.
+      if (eb.boardOptions) {
+        useSimulatorStore.getState().updateBoard(boardId, {
+          boardOptions: exampleBoardOptions(eb.boardKind, eb.boardOptions),
+        });
       }
 
       // Built-in SD slot uploads (XIAO Sense): land on the board exactly as

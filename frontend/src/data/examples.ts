@@ -48,6 +48,14 @@ export interface ExampleBoard {
    *  loader fetches it when the example opens and stores the bytes on the
    *  board exactly like an inline file. */
   sdFiles?: ExampleSdFile[];
+  /** Board Options (ESP32 family) the example is written for: the flash mode
+   *  and speed, PSRAM, the core loop() runs on... Loading the example puts
+   *  them on the board, on top of what the board kind declares, so the
+   *  simulator, a download and a flash to the real board all build with
+   *  them; the Board Options dialog shows them. Only the keys given are
+   *  stored: the compiler fills the rest with its own defaults, as it does
+   *  for a board nobody configured. */
+  boardOptions?: Partial<import('../types/boardOptions').ESP32BoardOptions>;
 }
 
 /** One file on an example board's built-in microSD: inline bytes, or a URL
