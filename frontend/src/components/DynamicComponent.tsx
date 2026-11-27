@@ -799,6 +799,21 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         transformOrigin: 'center center',
       }}
       onMouseDownCapture={handleMouseDown}
+      // Bubble phase, after the element has handled the press: a part that
+      // owns its pointer (handleMouseDown lets the press reach it while the
+      // simulation runs) must not hand it on to the canvas, which pans on any
+      // left press that reaches it. Dragging a slide potentiometer or a
+      // joystick, or a click on a pushbutton that moved a pixel, panned the
+      // whole canvas (velxio#418). Stopping it in the capture phase instead
+      // would starve the element: this runs only once it is done. Left button
+      // only: the canvas pans on a middle or right drag anywhere, parts included.
+      onMouseDown={(e) => {
+        if (!interactionRunning || e.button !== 0) return;
+        const target = e.target as HTMLElement & { ownsPointer?: boolean };
+        if (tagOwnsPointer(target.tagName?.toLowerCase() ?? '') || target.ownsPointer === true) {
+          e.stopPropagation();
+        }
+      }}
       // Capture phase: interactive parts (pushbutton, switch, pot) stop
       // propagation in their own handlers, which would otherwise swallow the
       // right click before the canvas ever saw it.
