@@ -6276,6 +6276,8 @@ class ESPIDFCompiler:
             drops += (
                 'CONFIG_ARDUINO_RUNNING_CORE',
                 'CONFIG_ARDUINO_EVENT_RUNNING_CORE',
+                'CONFIG_ARDUINO_RUN_CORE',
+                'CONFIG_ARDUINO_EVENT_RUN_CORE',
             )
         if idf_target in ('esp32c3', 'esp32c6', 'esp32c5'):
             drops += (

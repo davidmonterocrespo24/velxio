@@ -66,8 +66,6 @@ CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 # ── Arduino-as-component: we provide our own app_main (main.cpp) ─────────
 CONFIG_AUTOSTART_ARDUINO=n
 
-# Which core Arduino's setup/loop and event task run on. Both default to
-# core 1 (matches Arduino IDE) but the user can pin them independently.
 # Which board variant Arduino builds against. This is what puts
 # variants/<VARIANT>/pins_arduino.h on the include path, and therefore what
 # makes the board's own pin names (D0..D10 on a XIAO, the M5 silk names, ...)
@@ -76,6 +74,17 @@ CONFIG_AUTOSTART_ARDUINO=n
 # fails on its very first pin macro.
 CONFIG_ARDUINO_VARIANT="${ARDUINO_VARIANT}"
 
+# "Arduino runs on core" and "Events run on core" from Board Options (both
+# core 1 by default, as in the Arduino IDE). The first is the core a sketch
+# gets as ARDUINO_RUNNING_CORE; it does NOT move setup()/loop() here, because
+# this template calls them from app_main (main/main.cpp), which ESP-IDF runs
+# on core 0. The second is the core of the network event task.
+# Each is a Kconfig CHOICE (the RUN_CORE0 / RUN_CORE1 symbols): the integer
+# values on the last two lines are derived from it and have no prompt, so
+# setting the integers alone was silently ignored (always core 1). The choice
+# symbols select it; the integers stay for readers of this file.
+CONFIG_ARDUINO_RUN_CORE${ARDUINO_RUNNING_CORE}=y
+CONFIG_ARDUINO_EVENT_RUN_CORE${ARDUINO_EVENT_RUNNING_CORE}=y
 CONFIG_ARDUINO_RUNNING_CORE=${ARDUINO_RUNNING_CORE}
 CONFIG_ARDUINO_EVENT_RUNNING_CORE=${ARDUINO_EVENT_RUNNING_CORE}
 

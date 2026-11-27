@@ -231,6 +231,19 @@ def test_render_sdkconfig_arduino_running_core(compiler: ESPIDFCompiler) -> None
     text = compiler._render_sdkconfig(opts, _TEMPLATE_DIR)
     assert 'CONFIG_ARDUINO_RUNNING_CORE=0' in text
     assert 'CONFIG_ARDUINO_EVENT_RUNNING_CORE=0' in text
+    # The integers above are derived (no prompt): Kconfig ignores them. The
+    # choice symbols are what put setup()/loop() and the events on core 0.
+    assert 'CONFIG_ARDUINO_RUN_CORE0=y' in text
+    assert 'CONFIG_ARDUINO_EVENT_RUN_CORE0=y' in text
+    assert 'CONFIG_ARDUINO_RUN_CORE1=y' not in text
+
+
+def test_render_sdkconfig_arduino_running_core_default_is_core_1(compiler: ESPIDFCompiler) -> None:
+    from app.services.espidf_compiler import _TEMPLATE_DIR
+    text = compiler._render_sdkconfig(compiler._normalize_options(None, idf_target='esp32s3'), _TEMPLATE_DIR,
+                                      idf_target='esp32s3', use_idf5=True, arduino_mode=True)
+    assert 'CONFIG_ARDUINO_RUN_CORE1=y' in text
+    assert 'CONFIG_ARDUINO_EVENT_RUN_CORE1=y' in text
 
 
 # ── _parse_partition_csv ──────────────────────────────────────────────────
@@ -440,6 +453,8 @@ def test_render_sdkconfig_idf5_arduino_keeps_component_symbols(
         _TEMPLATE_DIR, idf_target='esp32c6', use_idf5=True, arduino_mode=True,
     )
     assert 'CONFIG_ARDUINO_RUNNING_CORE' not in c6
+    assert 'CONFIG_ARDUINO_RUN_CORE' not in c6  # CORE1 depends on !FREERTOS_UNICORE
+    assert 'CONFIG_ARDUINO_EVENT_RUN_CORE' not in c6
     assert 'CONFIG_AUTOSTART_ARDUINO=n' in c6
     assert 'CONFIG_SPIRAM' not in c6  # no PSRAM controller on C6
 
