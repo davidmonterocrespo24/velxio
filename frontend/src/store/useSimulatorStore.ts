@@ -45,7 +45,7 @@ import { createEsp32Bridge } from '../simulation/Esp32BridgeFactory';
 import { Stm32Bridge, stm32PinNameToLinear } from '../simulation/Stm32Bridge';
 import { STM32_LED } from '../components/velxio-components/Stm32BluePillElement';
 import { useEditorStore } from './useEditorStore';
-import { fingerprintSources } from '../utils/sourceFingerprint';
+import { fingerprintSources, type BoardBuildSettings } from '../utils/sourceFingerprint';
 import { useVfsStore } from './useVfsStore';
 import { b64ToBytes, buildProjectSdImage, decodeSdFiles, bytesToB64 } from '../utils/sdCardFiles';
 import {
@@ -1847,15 +1847,14 @@ interface SimulatorState {
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
   setActiveBoardId: (boardId: string) => void;
   /**
-   * Record a board's build: what its simulator runs. `facts` is what the
-   * compile said of it (BoardInstance.wifiRewritten); a program recorded
-   * without them is one nothing is known about.
+   * Record the simulator program, the compiler Wi-Fi result, and the source
+   * fingerprint used to detect stale builds.
    */
-  compileBoardProgram: (
-    boardId: string,
-    program: string,
-    facts?: { wifiRewritten?: boolean },
-  ) => void;
+  compileBoardProgram: (boardId: string, program: string, extras?: {
+    wifiRewritten?: boolean;
+    buildSettings?: BoardBuildSettings;
+    sourceHash?: string | null;
+  }) => void;
   loadMicroPythonProgram: (
     boardId: string,
     files: Array<{ name: string; content: string }>,
@@ -2600,9 +2599,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // A build that finished while the board waited goes into the new runtime.
       const built = get().boards.find((b) => b.id === id);
       if (built?.compiledProgram) {
-        // The same build, into another runtime: what was said of it stands.
+        // Keep the build metadata when attaching the same program to a new runtime.
         get().compileBoardProgram(id, built.compiledProgram, {
           wifiRewritten: built.wifiRewritten,
+          sourceHash: built.compiledSourceHash,
         });
       }
     }
@@ -3954,11 +3954,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       useEditorStore.getState().setActiveGroup(board.activeFileGroupId);
     },
 
-    compileBoardProgram: (
-      boardId: string,
-      program: string,
-      facts?: { wifiRewritten?: boolean },
-    ) => {
+    compileBoardProgram: (boardId, program, extras) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) {
         console.warn(`[compileBoardProgram] board not found: ${boardId}`);
@@ -4019,8 +4015,14 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
       // Remember what this program was built from, so the Flash dialog can
       // tell a fresh build from one the user has edited past.
-      const compiledSourceHash = fingerprintSources(
-        board,
+      const settings = extras?.buildSettings ?? board;
+      const compiledSourceHash = extras?.sourceHash !== undefined ? extras.sourceHash : fingerprintSources(
+        {
+          languageMode: board.languageMode,
+          boardOptions: settings.boardOptions,
+          libraries: settings.libraries,
+          spiffsFiles: settings.spiffsFiles,
+        },
         useEditorStore.getState().getGroupFiles(board.activeFileGroupId),
       );
       set((s) => {
@@ -4030,7 +4032,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                 ...b,
                 compiledProgram: program,
                 compiledSourceHash,
-                wifiRewritten: facts?.wifiRewritten,
+                wifiRewritten: extras?.wifiRewritten,
               }
             : b,
         );

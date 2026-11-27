@@ -312,19 +312,22 @@ describe('the flash dialog', () => {
   });
 
   it('files its own build under the sources it was made from', async () => {
-    // The code changes while the simulator's build runs; the board's own is
-    // then made from the new code. The flash fails, the user undoes the
-    // edit and tries again: the dialog holds an image of OTHER code, and
-    // must build this one.
+    // Reject the simulator build if the sketch changes while it runs.
+    // Retry with the edited sketch, then undo the edit and retry the failed
+    // upload. The dialog must build again instead of reusing the edited image.
     const id = await open('esp32', null);
     const group = boardOf(id).activeFileGroupId;
     const file = () => useEditorStore.getState().getGroupFiles(group)[0];
     const written = file().content;
     const edit = (content: string) =>
       act(async () => useEditorStore.getState().updateGroupFile(group, file().id, content));
+    let editDuringBuild = true;
     compile.mockImplementation(async (files, _fqbn, _project, _onProgress, extras) => {
       const name = `${extras?.forHardware ? 'HARDWARE' : 'SIMULATOR'} of ${files[0].content}`;
-      if (!extras?.forHardware) await edit('EDITED');
+      if (!extras?.forHardware && editDuringBuild) {
+        editDuringBuild = false;
+        await edit('EDITED');
+      }
       return {
         success: true,
         binary_content: name,
@@ -344,6 +347,11 @@ describe('the flash dialog', () => {
     } as WebFlashImpl);
 
     await press();
+    expect(flashed).toEqual([]);
+    expect(boardOf(id).compiledProgram).toBeFalsy();
+    expect(host.textContent).toContain('The sketch changed during compilation');
+
+    await press(/retry/i);
     expect(flashed.map((r) => r.binaryBase64)).toEqual(['HARDWARE of EDITED']);
 
     await edit(written);

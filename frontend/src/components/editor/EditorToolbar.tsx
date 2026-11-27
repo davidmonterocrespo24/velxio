@@ -678,18 +678,25 @@ export const EditorToolbar = ({
       if (result.success) {
         const program = result.hex_content ?? result.binary_content ?? null;
         if (program && activeBoardId) {
-          compileBoardProgram(activeBoardId, program, { wifiRewritten: result.wifi_rewritten });
-          if (result.has_wifi !== undefined) {
-            updateBoard(activeBoardId, { hasWifi: result.has_wifi });
-          }
           // P2.4 auto-migration: a green build reports the libraries it
           // really used; fold single-candidate ones into this board's
           // declared manifest so the NEXT compile runs scoped instead of
           // scan-all (the mode where unrelated libraries could leak in).
-          const mergedLibs = mergeSuggestedLibraries(
-            activeBoard?.libraries,
-            result.manifest_suggested_libraries,
-          );
+          const liveBoard = useSimulatorStore.getState().boards.find((board) => board.id === activeBoardId);
+          const mergedLibs = liveBoard && liveBoard.libraries === activeBoard?.libraries
+            ? mergeSuggestedLibraries(activeBoard?.libraries, result.manifest_suggested_libraries)
+            : null;
+          compileBoardProgram(activeBoardId, program, {
+            wifiRewritten: result.wifi_rewritten,
+            buildSettings: activeBoard && {
+              boardOptions: activeBoard.boardOptions,
+              libraries: mergedLibs ?? activeBoard.libraries,
+              spiffsFiles: activeBoard.spiffsFiles,
+            },
+          });
+          if (result.has_wifi !== undefined) {
+            updateBoard(activeBoardId, { hasWifi: result.has_wifi });
+          }
           if (mergedLibs) {
             updateBoard(activeBoardId, { libraries: mergedLibs });
             console.log('[manifest] auto-declared from build:', mergedLibs);
@@ -1249,7 +1256,7 @@ export const EditorToolbar = ({
         if (result.success) {
           const program = result.hex_content ?? result.binary_content ?? null;
           if (program) {
-            compileBoardProgram(board.id, program, { wifiRewritten: result.wifi_rewritten });
+            compileBoardProgram(board.id, program, { wifiRewritten: result.wifi_rewritten, buildSettings: board });
             if (result.has_wifi !== undefined) {
               updateBoard(board.id, { hasWifi: result.has_wifi });
             }
