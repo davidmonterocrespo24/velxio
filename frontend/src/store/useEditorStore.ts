@@ -139,6 +139,12 @@ export const CHIP_GROUP_PREFIX = 'group-chip-';
  */
 export type EditorViewMode = 'code' | 'circuit' | 'both';
 
+interface RevealLocation {
+  groupId: string;
+  fileId: string;
+  position: { lineNumber: number; column: number };
+}
+
 interface EditorState {
   files: WorkspaceFile[];
   activeFileId: string;
@@ -149,6 +155,8 @@ interface EditorState {
    *  libraries.json entry; the Library Manager modal is what edits the manifest. */
   manifestViewBoardId: string | null;
   setManifestView: (boardId: string | null) => void;
+  revealLocation: RevealLocation | null;
+  setRevealLocation: (location: RevealLocation | null) => void;
   fontSize: number;
   viewMode: EditorViewMode;
   setViewMode: (mode: EditorViewMode) => void;
@@ -245,6 +253,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFileIds: [MAIN_ID],
   manifestViewBoardId: null,
   setManifestView: (boardId: string | null) => set({ manifestViewBoardId: boardId }),
+  revealLocation: null,
+  setRevealLocation: (revealLocation) => set({ revealLocation }),
   fontSize: 14,
   viewMode: 'both',
   setViewMode: (mode) => set({ viewMode: mode }),

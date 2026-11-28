@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { CircleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { registerEditorCommand } from '../../lib/editorCommands';
 import { publishCompileOutput } from '../../lib/intellisenseRegistry';
@@ -602,15 +603,16 @@ export const EditorToolbar = ({
       const groupFiles = activeBoard?.activeFileGroupId
         ? useEditorStore.getState().getGroupFiles(activeBoard.activeFileGroupId)
         : files;
-      const sketchFiles = (groupFiles.length > 0 ? groupFiles : files)
+      const sourceFiles = (groupFiles.length > 0 ? groupFiles : files)
         // Keep chip-program files (a chip's programFile, or .s/.asm/.hex/.bin)
         // out of the arduino-cli build — they're compiled to ROM above, not
         // Arduino sources, and avr-gcc chokes on e.g. SDCC's __at().
-        .filter((f) => !chipProgramFiles.has(f.name) && !isChipProgramFile(f.name))
-        .map((f) => ({
-          name: f.name,
-          content: f.content,
-        }));
+        .filter((f) => !chipProgramFiles.has(f.name) && !isChipProgramFile(f.name));
+      const sourceGroup = activeBoard?.activeFileGroupId ?? useEditorStore.getState().activeGroupId;
+      const sketchFiles = sourceFiles.map((f) => ({
+        name: f.name,
+        content: f.content,
+      }));
 
       // Progress card over the canvas: from here on the user can see the
       // build advance (and, when the server is busy, that it is queued rather
@@ -665,7 +667,10 @@ export const EditorToolbar = ({
       // colour + the auto-switch-to-errors filter. streamedLive tells it not
       // to reprint the stdout the stream (final 'done' flush included)
       // already showed.
-      const resultLogs = parseCompileResult(result, boardLabel, boardTarget, lastStreamedLen > 0);
+      const resultLogs = parseCompileResult(result, boardLabel, boardTarget, lastStreamedLen > 0, {
+        groupId: sourceGroup,
+        files: sourceFiles,
+      });
       setCompileLogs((prev: CompilationLog[]) => [...prev, ...resultLogs]);
 
       // Intellisense seam: hand the raw compiler text to the overlay so it
@@ -1206,9 +1211,8 @@ export const EditorToolbar = ({
 
       try {
         const groupFiles = useEditorStore.getState().getGroupFiles(board.activeFileGroupId);
-        const sketchFiles = groupFiles
-          .filter((f) => !chipProgramFiles.has(f.name) && !isChipProgramFile(f.name))
-          .map((f) => ({ name: f.name, content: f.content }));
+        const sourceFiles = groupFiles.filter((f) => !chipProgramFiles.has(f.name) && !isChipProgramFile(f.name));
+        const sketchFiles = sourceFiles.map((f) => ({ name: f.name, content: f.content }));
 
         // Stream live cmake + ninja output per-board (Compile-All flow).
         let lastStreamedLen = 0;
@@ -1243,7 +1247,10 @@ export const EditorToolbar = ({
           { boardOptions: board.boardOptions, spiffsFiles: board.spiffsFiles, boardKind: board.boardKind, exampleId: useProjectStore.getState().currentExampleId, libraries: board.libraries, language: board.languageMode === 'espidf' ? 'espidf' : undefined },
         );
 
-        const resultLogs = parseCompileResult(result, label, boardTarget, lastStreamedLen > 0);
+        const resultLogs = parseCompileResult(result, label, boardTarget, lastStreamedLen > 0, {
+          groupId: board.activeFileGroupId,
+          files: sourceFiles,
+        });
         setCompileLogs((prev: CompilationLog[]) => [...prev, ...resultLogs]);
 
         if (result.success) {
@@ -1758,7 +1765,7 @@ export const EditorToolbar = ({
 
   return (
     <>
-      <div className="editor-toolbar-wrapper" style={{ position: 'relative' }}>
+      <div className="editor-toolbar-wrapper">
         <div className="editor-toolbar" ref={toolbarRef}>
           {/* Language selector — only when active board supports an
               alternative to Arduino C++ (MicroPython on Pico/ESP32 boards,
@@ -2205,12 +2212,20 @@ export const EditorToolbar = ({
             {rightSlot}
           </div>
         </div>
+        {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
+          <div className="toolbar-error-detail">
+            <CircleAlert size={15} aria-hidden />
+            <p role="alert">{message.text}</p>
+            <button
+              type="button"
+              aria-label={t('editor.toolbar.dismissError', 'Dismiss error')}
+              onClick={() => setMessage(null)}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Error detail bar */}
-      {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
-        <div className="toolbar-error-detail">{message.text}</div>
-      )}
 
       {/* Missing library hint */}
       {missingLibHint && (

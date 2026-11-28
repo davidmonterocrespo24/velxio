@@ -50,7 +50,8 @@
         "title": "Flash to a real board over USB",
         "pick": "Flash which board?",
         "active": "active"
-      }
+      },
+      "dismissError": "Dismiss error"
     },
     "fileExplorer": {
       "workspace": "WORKSPACE",
@@ -503,14 +504,10 @@
       "compileFlash": "Compile & flash",
       "connectFlash": "Connect & flash",
       "connectCompileFlash": "Connect, compile & flash",
-      "noBuild": "This board has no compiled program yet — it will be compiled first, then flashed. Compiler output shows in the console below.",
-      "staleBuild": "The code changed since the last compile. The sketch will be recompiled before flashing so the board gets what you see in the editor.",
       "webIntro": "Flash over USB, right from the browser.",
-      "webHint": "Plug the board in via USB and click the button — your browser will ask which serial port to use. Close any other program using the port (serial monitors, IDEs) first.",
       "mpyTwoSteps": "This MicroPython project flashes in two steps: the MicroPython firmware is installed first if the board does not have it (about a minute), then your .py files are uploaded and the board reboots into main.py.",
       "mpyUnavailable": "MicroPython projects cannot be flashed to a real board from here.",
       "compiling": "Compiling the sketch...",
-      "compilingHint": "Flashing starts automatically when the build succeeds.",
       "flashingOn": "Flashing on {{port}}...",
       "success": "Flashed successfully in {{seconds}}s",
       "compileFailed": "Compilation failed — fix the errors below and try again. {{error}}",
@@ -519,17 +516,16 @@
       "startOver": "Start over",
       "pickAnotherPort": "Pick another port",
       "retry": "Retry",
-      "retryCompile": "Recompile & flash",
       "cancel": "Cancel",
       "hide": "Hide",
       "paidOnlyTitle": "Flashing real boards is part of the paid Velxio Desktop license",
       "paidOnlyBody": "Uploading a sketch to a real USB-attached board is available with a Personal, Commercial or Enterprise license. The simulator itself stays free.",
       "seePlans": "See plans",
       "log": {
+        "compilingRevision": "Building for {{revision}} (flash only; the simulator keeps its own build)...",
         "compiling": "Compiling the sketch before flashing...",
         "recompiling": "Code changed since the last build — recompiling before flashing...",
-        "compiled": "Build OK in {{seconds}}s. Starting flash...",
-        "compilingRevision": "Building for {{revision}} (flash only; the simulator keeps its own build)..."
+        "compiled": "Build OK in {{seconds}}s. Starting flash..."
       },
       "downloadUf2": "Download .uf2",
       "downloadUf2Hint": "Prefer to copy the file yourself? Save the .uf2 and drop it on the board's USB drive (RPI-RP2 or RP2350).",
@@ -548,7 +544,12 @@
       },
       "revision": "Real board revision",
       "saveToDrive": "Copy to the board's drive",
-      "savedToDrive": "Copied {{file}} onto {{drive}}. The board reboots into your sketch."
+      "savedToDrive": "Copied {{file}} onto {{drive}}. The board reboots into your sketch.",
+      "noBuild": "This board has no compiled program yet — it will be compiled first, then flashed. Compiler output shows in the console below.",
+      "staleBuild": "The code changed since the last compile. The sketch will be recompiled before flashing so the board gets what you see in the editor.",
+      "webHint": "Plug the board in via USB and click the button — your browser will ask which serial port to use. Close any other program using the port (serial monitors, IDEs) first.",
+      "compilingHint": "Flashing starts automatically when the build succeeds.",
+      "retryCompile": "Recompile & flash"
     }
   },
   "about": {

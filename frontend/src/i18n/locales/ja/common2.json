@@ -48,7 +48,8 @@
         "title": "USB で実機ボードに書き込む",
         "pick": "どのボードに書き込みますか？",
         "active": "アクティブ"
-      }
+      },
+      "dismissError": "エラーを閉じる"
     },
     "fileExplorer": {
       "workspace": "ワークスペース",

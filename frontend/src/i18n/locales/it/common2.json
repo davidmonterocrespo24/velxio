@@ -48,7 +48,8 @@
         "title": "Programma una scheda reale via USB",
         "pick": "Quale scheda programmare?",
         "active": "attiva"
-      }
+      },
+      "dismissError": "Chiudi errore"
     },
     "fileExplorer": {
       "workspace": "WORKSPACE",

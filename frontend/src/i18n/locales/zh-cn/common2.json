@@ -48,7 +48,8 @@
         "title": "通过 USB 烧录到真实开发板",
         "pick": "烧录哪块开发板？",
         "active": "当前"
-      }
+      },
+      "dismissError": "关闭错误提示"
     },
     "fileExplorer": {
       "workspace": "工作区",

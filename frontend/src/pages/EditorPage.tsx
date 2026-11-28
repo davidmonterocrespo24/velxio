@@ -37,6 +37,7 @@ import { whenNewsClear } from '../lib/newsGate';
 import { EditorMenuBar } from '../components/editor/EditorMenuBar';
 import type { CompilationLog } from '../utils/compilationLogger';
 import '../App.css';
+import '../components/editor/Workspace.css';
 
 const MOBILE_BREAKPOINT = 768;
 
