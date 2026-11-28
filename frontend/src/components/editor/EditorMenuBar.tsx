@@ -29,6 +29,7 @@ import type { ThemeMode } from '../../lib/theme';
 import { LOCALES, LOCALE_META, type Locale } from '../../i18n/config';
 import { getLocaleFromPath, switchLocale } from '../../i18n/path';
 import {
+  getEditingPane,
   hasEditorCommand,
   runEditorCommand,
   subscribeEditorCommands,
@@ -68,7 +69,7 @@ const SITE = import.meta.env.VITE_PRO_BUILD ? '' : 'https://velxio.dev';
 
 export const EditorMenuBar: React.FC = () => {
   const { t } = useTranslation();
-  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'account' | 'help' | null>(null);
+  const [open, setOpen] = useState<'file' | 'edit' | 'view' | 'run' | 'account' | 'help' | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Re-render when owners (un)register their commands.
@@ -93,6 +94,8 @@ export const EditorMenuBar: React.FC = () => {
   const redo = useSimulatorStore((s) => s.redo);
   const history = useSimulatorStore((s) => s.history);
   const historyIndex = useSimulatorStore((s) => s.historyIndex);
+
+  const codeHistory = viewMode === 'code' || (viewMode === 'both' && getEditingPane() === 'code');
 
   useEffect(() => {
     if (!open) return;
@@ -204,6 +207,13 @@ export const EditorMenuBar: React.FC = () => {
   // in the View menu, like the desktop app.
   const editItems: Item[] = [
     { kind: 'separator' },
+    { kind: 'command', id: 'edit.cut', label: t('editor.menu.cut', 'Cut'), shortcut: 'Ctrl+X' },
+    { kind: 'command', id: 'edit.copy', label: t('editor.menu.copy', 'Copy'), shortcut: 'Ctrl+C' },
+    { kind: 'command', id: 'edit.paste', label: t('editor.menu.paste', 'Paste'), shortcut: 'Ctrl+V' },
+    { kind: 'separator' },
+    { kind: 'command', id: 'edit.find', label: t('editor.menu.find', 'Find'), shortcut: 'Ctrl+F' },
+    { kind: 'command', id: 'edit.replace', label: t('editor.menu.replace', 'Replace'), shortcut: 'Ctrl+H' },
+    { kind: 'separator' },
     {
       kind: 'command',
       id: 'edit.formatDocument',
@@ -214,12 +224,14 @@ export const EditorMenuBar: React.FC = () => {
 
   // File Explorer is rendered as a checkmarked row in the View block below
   // (it reads the store), not as a plain command here.
-  const viewItems: Item[] = [
+  const runItems: Item[] = [
     { kind: 'command', id: 'sim.compile', label: t('editor.menu.compile', 'Compile'), shortcut: 'Ctrl+B' },
     { kind: 'command', id: 'sim.run', label: t('editor.menu.run', 'Run') },
     { kind: 'command', id: 'sim.stop', label: t('editor.toolbar.stop', 'Stop') },
     { kind: 'command', id: 'sim.resetBoard', label: t('editor.toolbar.reset', 'Reset') },
-    { kind: 'separator' },
+  ];
+
+  const viewItems: Item[] = [
     { kind: 'command', id: 'view.toggleConsole', label: t('editor.menu.toggleConsole', 'Output Console') },
     { kind: 'separator' },
     { kind: 'command', id: 'view.reset', label: t('editor.menu.centerView', 'Center canvas view') },
@@ -272,7 +284,7 @@ export const EditorMenuBar: React.FC = () => {
     </button>
   );
 
-  const menu = (which: 'file' | 'edit' | 'view' | 'account' | 'help', label: string, items: Item[]): React.ReactNode => (
+  const menu = (which: 'file' | 'edit' | 'view' | 'run' | 'account' | 'help', label: string, items: Item[]): React.ReactNode => (
     <div className="emb-root" key={which}>
       <button
         className={`emb-trigger${open === which ? ' emb-trigger-open' : ''}`}
@@ -425,10 +437,11 @@ export const EditorMenuBar: React.FC = () => {
               <button
                 role="menuitem"
                 className="emb-item"
-                disabled={historyIndex < 0}
+                disabled={codeHistory ? !hasEditorCommand('edit.undo') : historyIndex < 0}
                 onClick={() => {
                   setOpen(null);
-                  undo();
+                  if (codeHistory) runEditorCommand('edit.undo');
+                  else undo();
                 }}
               >
                 <span>{t('editor.menu.undo', 'Undo')}</span>
@@ -437,10 +450,11 @@ export const EditorMenuBar: React.FC = () => {
               <button
                 role="menuitem"
                 className="emb-item"
-                disabled={historyIndex >= history.length - 1}
+                disabled={codeHistory ? !hasEditorCommand('edit.redo') : historyIndex >= history.length - 1}
                 onClick={() => {
                   setOpen(null);
-                  redo();
+                  if (codeHistory) runEditorCommand('edit.redo');
+                  else redo();
                 }}
               >
                 <span>{t('editor.menu.redo', 'Redo')}</span>
@@ -472,6 +486,7 @@ export const EditorMenuBar: React.FC = () => {
       {menu('file', t('editor.menu.file', 'File'), fileItems)}
       {menu('edit', t('editor.menu.edit', 'Edit'), editItems)}
       {menu('view', t('editor.menu.view', 'View'), viewItems)}
+      {menu('run', t('editor.menu.run', 'Run'), runItems)}
       {menu('account', t('editor.menu.account', 'Account'), [])}
       {menu('help', t('editor.menu.help', 'Help'), helpItems)}
     </div>

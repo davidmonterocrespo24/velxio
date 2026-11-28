@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "Board zum Ausführen hinzufügen",
         "runMicropython": "MicroPython ausführen",
-        "run": "Ausführen (automatisch kompilieren falls nötig)"
+        "run": "Ausführen (automatisch kompilieren falls nötig)",
+        "runActiveOnly": "Nur {{name}} starten",
+        "options": "Ausführungsoptionen",
+        "verifying": "Schaltung wird geprüft…",
+        "emptyCircuit": "Füge zum Starten ein Board oder Bauteil hinzu",
+        "digitalRunning": "Digitalsimulation läuft",
+        "resumeDigital": "Digitalsimulation fortsetzen"
       },
       "stop": "Stopp",
       "reset": "Zurücksetzen",
@@ -194,7 +200,8 @@
         "rotate": "Drehen (R)",
         "copy": "Board kopieren (Strg+C)",
         "paste": "Einfügen (Strg+V)"
-      }
+      },
+      "circuitCanvas": "Schaltungsfläche"
     },
     "componentPicker": {
       "title": "Komponente hinzufügen",
@@ -437,7 +444,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "Ausschneiden",
+      "copy": "Kopieren",
+      "paste": "Einfügen",
+      "find": "Suchen",
+      "replace": "Ersetzen"
     },
     "inspector": {
       "propertiesTab": "Eigenschaften",

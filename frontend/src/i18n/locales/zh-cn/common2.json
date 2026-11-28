@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "添加要运行的板",
         "runMicropython": "运行 MicroPython",
-        "run": "运行 (如需则自动编译)"
+        "run": "运行 (如需则自动编译)",
+        "runActiveOnly": "仅运行 {{name}}",
+        "options": "运行选项",
+        "verifying": "正在检查电路…",
+        "emptyCircuit": "添加开发板或元件后即可运行",
+        "digitalRunning": "数字仿真正运行",
+        "resumeDigital": "继续数字仿真"
       },
       "stop": "停止",
       "reset": "重置",
@@ -194,7 +200,8 @@
         "rotate": "旋转 (R)",
         "copy": "复制开发板 (Ctrl+C)",
         "paste": "粘贴 (Ctrl+V)"
-      }
+      },
+      "circuitCanvas": "电路画布"
     },
     "componentPicker": {
       "title": "添加元件",
@@ -437,7 +444,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "剪切",
+      "copy": "复制",
+      "paste": "粘贴",
+      "find": "查找",
+      "replace": "替换"
     },
     "inspector": {
       "propertiesTab": "属性",

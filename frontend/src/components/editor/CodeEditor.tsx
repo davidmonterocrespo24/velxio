@@ -9,7 +9,7 @@ import { attachIntellisenseMonaco } from '../../lib/intellisenseRegistry';
 import { CHIP_JSON_SCHEMA, CHIP_JSON_SCHEMA_URI } from './chipJsonSchema';
 import { defineVelxioThemes, monacoThemeFor } from './monacoThemes';
 import { useResolvedTheme } from '../../hooks/useTheme';
-import { registerEditorCommand } from '../../lib/editorCommands';
+import { registerEditorCommand, setEditingPane } from '../../lib/editorCommands';
 import {
   hasDocumentFormatter,
   registerCodeFormatters,
@@ -58,6 +58,61 @@ export const CodeEditor = () => {
       void instance.getAction('editor.action.formatDocument')?.run();
     });
   }, [instance, language, manifestViewBoardId]);
+  useEffect(() => {
+    if (!instance || !activeFileId || manifestViewBoardId) return;
+    const editActions = [
+      ['edit.cut', 'editor.action.clipboardCutAction'],
+      ['edit.copy', 'editor.action.clipboardCopyAction'],
+      ['edit.paste', 'editor.action.clipboardPasteAction'],
+      ['edit.find', 'actions.find'],
+      ['edit.replace', 'editor.action.startFindReplaceAction'],
+    ] as const;
+    const removers = editActions.map(([id, action]) => registerEditorCommand(id, () => {
+      if (!instance.getModel()) return;
+      instance.focus();
+      instance.trigger('editMenu', action, null);
+    }));
+    return () => removers.forEach((remove) => remove());
+  }, [instance, activeFileId, manifestViewBoardId]);
+  useEffect(() => {
+    if (!instance || !activeFileId || manifestViewBoardId) return;
+    let removeUndo: (() => void) | undefined;
+    let removeRedo: (() => void) | undefined;
+    const editHistory = (action: 'undo' | 'redo') => () => {
+      instance.focus();
+      instance.trigger('editMenu', action, null);
+    };
+    const updateHistoryCommands = () => {
+      const model = instance.getModel();
+      if (model?.canUndo()) {
+        removeUndo ??= registerEditorCommand('edit.undo', editHistory('undo'));
+      } else {
+        removeUndo?.();
+        removeUndo = undefined;
+      }
+      if (model?.canRedo()) {
+        removeRedo ??= registerEditorCommand('edit.redo', editHistory('redo'));
+      } else {
+        removeRedo?.();
+        removeRedo = undefined;
+      }
+    };
+    const modelChange = instance.onDidChangeModel(updateHistoryCommands);
+    const contentChange = instance.onDidChangeModelContent(() => {
+      if (instance.hasTextFocus()) setEditingPane('code');
+      updateHistoryCommands();
+    });
+    const focus = instance.onDidFocusEditorText(() => setEditingPane('code'));
+    if (instance.hasTextFocus()) setEditingPane('code');
+    updateHistoryCommands();
+    return () => {
+      modelChange.dispose();
+      contentChange.dispose();
+      focus.dispose();
+      removeUndo?.();
+      removeRedo?.();
+    };
+  }, [instance, activeFileId, manifestViewBoardId]);
   useEffect(() => {
     setFormatterMessages({
       failedTitle: () => t('editor.format.failed', 'Could not format the file'),

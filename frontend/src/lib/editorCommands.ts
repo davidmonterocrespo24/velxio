@@ -29,6 +29,13 @@ export type EditorCommandId =
   // Monaco's own Format Document action, registered by CodeEditor while the
   // open file has a formatter (C/C++, Python, JSON) — see codeFormatters.ts.
   | 'edit.formatDocument'
+  | 'edit.undo'
+  | 'edit.redo'
+  | 'edit.cut'
+  | 'edit.copy'
+  | 'edit.paste'
+  | 'edit.find'
+  | 'edit.replace'
   // Account-scoped, registered ONLY by the pro overlay and only in the
   // matching session state (myProjects when signed in, login when not).
   // OSS has no auth at all, so both stay unregistered here and the menu
@@ -63,6 +70,18 @@ const handlers = new Map<EditorCommandId, () => void>();
 // Menus re-render on registration changes so items enable/disable live.
 let version = 0;
 const listeners = new Set<() => void>();
+let editingPane: 'code' | 'circuit' = 'circuit';
+
+export function getEditingPane(): typeof editingPane {
+  return editingPane;
+}
+
+export function setEditingPane(pane: typeof editingPane): void {
+  if (editingPane === pane) return;
+  editingPane = pane;
+  version++;
+  for (const listener of listeners) listener();
+}
 
 export function registerEditorCommand(id: EditorCommandId, run: () => void): () => void {
   handlers.set(id, run);

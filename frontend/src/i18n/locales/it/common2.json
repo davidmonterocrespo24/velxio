@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "Aggiungi una scheda da eseguire",
         "runMicropython": "Esegui MicroPython",
-        "run": "Esegui (auto-compila se necessario)"
+        "run": "Esegui (auto-compila se necessario)",
+        "runActiveOnly": "Esegui solo {{name}}",
+        "options": "Opzioni di esecuzione",
+        "verifying": "Verifica del circuito…",
+        "emptyCircuit": "Aggiungi una scheda o un componente per eseguire",
+        "digitalRunning": "Simulazione digitale in corso",
+        "resumeDigital": "Riprendi simulazione digitale"
       },
       "stop": "Ferma",
       "reset": "Ripristina",
@@ -194,7 +200,8 @@
         "rotate": "Ruota (R)",
         "copy": "Copia scheda (Ctrl+C)",
         "paste": "Incolla (Ctrl+V)"
-      }
+      },
+      "circuitCanvas": "Area del circuito"
     },
     "componentPicker": {
       "title": "Aggiungi componente",
@@ -437,7 +444,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "Taglia",
+      "copy": "Copia",
+      "paste": "Incolla",
+      "find": "Trova",
+      "replace": "Sostituisci"
     },
     "inspector": {
       "propertiesTab": "Proprietà",

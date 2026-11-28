@@ -11,7 +11,13 @@
       "run": {
         "addBoard": "Добавить плату для запуска",
         "runMicropython": "Запустить MicroPython",
-        "run": "Запустить (автокомпиляция при необходимости)"
+        "run": "Запустить (автокомпиляция при необходимости)",
+        "runActiveOnly": "Запустить только {{name}}",
+        "options": "Параметры запуска",
+        "verifying": "Проверка схемы…",
+        "emptyCircuit": "Добавьте плату или компонент для запуска",
+        "digitalRunning": "Цифровая симуляция запущена",
+        "resumeDigital": "Продолжить цифровую симуляцию"
       },
       "stop": "Стоп",
       "reset": "Сброс",
@@ -194,7 +200,8 @@
         "rotate": "Повернуть (R)",
         "copy": "Копировать плату (Ctrl+C)",
         "paste": "Вставить (Ctrl+V)"
-      }
+      },
+      "circuitCanvas": "Полотно схемы"
     },
     "componentPicker": {
       "title": "Добавить компонент",
@@ -437,7 +444,12 @@
       "appearance": "Appearance",
       "themeDark": "Dark",
       "themeLight": "Light",
-      "themeSystem": "Match system"
+      "themeSystem": "Match system",
+      "cut": "Вырезать",
+      "copy": "Копировать",
+      "paste": "Вставить",
+      "find": "Найти",
+      "replace": "Заменить"
     },
     "inspector": {
       "propertiesTab": "Свойства",
