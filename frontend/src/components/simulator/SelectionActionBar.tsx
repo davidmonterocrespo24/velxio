@@ -16,6 +16,8 @@
  * also wire each button to fire on `touchend` directly so taps work.
  */
 
+import { RotateIcon, TrashCanIcon } from '../ui/CustomIcons';
+import { X } from 'lucide-react';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { WIRE_KEY_COLORS } from '../../utils/wireUtils';
@@ -36,59 +38,6 @@ interface SelectionActionBarProps {
 }
 
 const ICON_SIZE = 16;
-
-const TrashIcon: React.FC = () => (
-  <svg
-    width={ICON_SIZE}
-    height={ICON_SIZE}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    <line x1="10" y1="11" x2="10" y2="17" />
-    <line x1="14" y1="11" x2="14" y2="17" />
-  </svg>
-);
-
-const RotateIcon: React.FC = () => (
-  <svg
-    width={ICON_SIZE}
-    height={ICON_SIZE}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polyline points="23 4 23 10 17 10" />
-    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-  </svg>
-);
-
-const CloseIcon: React.FC = () => (
-  <svg
-    width={ICON_SIZE}
-    height={ICON_SIZE}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
 
 /**
  * Bind native touch listeners to a button so taps fire the action even when
@@ -279,7 +228,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
           title={t('editor.selectionBar.rotate90')}
           aria-label={t('editor.selectionBar.rotate')}
         >
-          <RotateIcon />
+          <RotateIcon size={ICON_SIZE} aria-hidden />
           <span className="selection-action-bar__label" style={buttonLabelStyle}>
             {t('editor.selectionBar.rotate')}
           </span>
@@ -294,7 +243,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
         title={t(`editor.selectionBar.deleteKind.${kind}`)}
         aria-label={t(`editor.selectionBar.deleteKind.${kind}`)}
       >
-        <TrashIcon />
+        <TrashCanIcon size={ICON_SIZE} aria-hidden />
         <span className="selection-action-bar__label" style={buttonLabelStyle}>
           {t('editor.selectionBar.delete')}
         </span>
@@ -308,7 +257,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
         title={t('editor.selectionBar.deselect')}
         aria-label={t('editor.selectionBar.deselect')}
       >
-        <CloseIcon />
+        <X size={ICON_SIZE} aria-hidden />
       </button>
     </div>
   );

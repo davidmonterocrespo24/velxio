@@ -6,6 +6,7 @@
  * red with the reason in the tooltip when it could not, grey when off.
  * Renders nothing for the common project with no such component.
  */
+import { CameraIcon } from '../ui/CustomIcons';
 import React from 'react';
 import { useComponentCameras } from '../../lib/componentCameraRegistry';
 import type { ComponentCameraEntry } from '../../lib/componentCameraRegistry';
@@ -36,19 +37,7 @@ const Toggle: React.FC<{ cam: ComponentCameraEntry }> = ({ cam }) => {
         cursor: 'pointer',
       }}
     >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-        <circle cx="12" cy="13" r="4" />
-      </svg>
+      <CameraIcon size={16} />
       {/* The button says "Camera", exactly like the board CameraToggle —
           one header language (user feedback: "HuskyLens cam" next to the
           ESP32-CAM's plain "Camera" read as a different thing). WHICH
