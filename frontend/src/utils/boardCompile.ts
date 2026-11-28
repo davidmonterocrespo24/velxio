@@ -8,7 +8,7 @@ import { isChipProgramFile } from '../services/romCompileService';
 import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useProjectStore } from '../store/useProjectStore';
-import { fqbnForLanguage, type BoardInstance } from '../types/board';
+import { fqbnForLanguage, type BoardInstance, type LanguageMode } from '../types/board';
 import { isNoiseBuildLine } from './compilationLogger';
 import { publishCompileOutput } from '../lib/intellisenseRegistry';
 import { fingerprintSources } from './sourceFingerprint';
@@ -16,29 +16,38 @@ import { fingerprintSources } from './sourceFingerprint';
 /**
  * Whether the image the simulator runs is not the one a real board of this
  * FQBN should: a flash then builds its own (`forHardware`) and never reuses
- * the program on the board. RP2040 / RP2350: the simulator's build renames
- * Serial to Serial1 (UART0, what its serial monitor shows), and a board
- * flashed with it prints nothing on its USB port. Mirrors the backend's
- * ArduinoCLIService.hardware_build_differs.
+ * the program on the board.
+ *  - RP2040 / RP2350: the simulator's build renames Serial to Serial1 (UART0,
+ *    what its serial monitor shows), and a board flashed with it prints
+ *    nothing on its USB port. Mirrors ArduinoCLIService.hardware_build_differs.
+ *  - ESP32, an Arduino sketch: the simulator's wrapper sleeps a tick after
+ *    every loop() so the emulator can idle, which on a board caps loop() at
+ *    about 1000 passes a second; the board's runs it back to back, as the
+ *    Arduino IDE does (espidf_compiler._wrapper_for_hardware). Pure ESP-IDF
+ *    sources have no wrapper. A server without the ESP-IDF service builds
+ *    one image for both and answers the request with the simulator's.
  */
-export function hardwareBuildDiffers(fqbn: string | null | undefined): boolean {
-  return !!fqbn && fqbn.includes('rp2040');
+export function hardwareBuildDiffers(
+  fqbn: string | null | undefined,
+  languageMode?: LanguageMode,
+): boolean {
+  if (!fqbn) return false;
+  if (fqbn.includes('rp2040')) return true;
+  return fqbn.startsWith('esp32:') && (languageMode ?? 'arduino') === 'arduino';
 }
 
 /**
  * Whether a flash of this board to `fqbn` needs an image of its own. By the
- * FQBN (hardwareBuildDiffers), or by what the server said of the program on
- * the board: an ESP32 build whose WiFi credentials were rewritten for the
- * simulated networks would have the real board look for "Velxio-GUEST". The
- * FQBN alone is too coarse there: most ESP32 sketches are flashed with the
- * very image the simulator runs, and build nothing. A server that predates
- * the field never says so, and the board is flashed as it always was.
+ * FQBN and language (hardwareBuildDiffers), or by what the server said of the
+ * program on the board: an ESP32 build whose WiFi credentials were rewritten
+ * for the simulated networks would have the real board look for
+ * "Velxio-GUEST", a pure ESP-IDF one included.
  */
 export function needsHardwareBuild(
-  board: Pick<BoardInstance, 'wifiRewritten'>,
+  board: Pick<BoardInstance, 'wifiRewritten'> & Partial<Pick<BoardInstance, 'languageMode'>>,
   fqbn: string | null | undefined,
 ): boolean {
-  return hardwareBuildDiffers(fqbn) || board.wifiRewritten === true;
+  return hardwareBuildDiffers(fqbn, board.languageMode) || board.wifiRewritten === true;
 }
 
 /** Per-board compile extras (ESP32 options, SPIFFS, manifest, language, analytics). */

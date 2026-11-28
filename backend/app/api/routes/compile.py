@@ -798,14 +798,15 @@ def _for_hardware_build(request: CompileRequest) -> bool:
     hardware, and a board whose firmware is the simulator's shares its job.
     Mirrors _run_compile's choice of compiler.
 
-    An ESP32 built by the ESP-IDF service is taken at its word. Whether its
-    simulator build differs is known only to the build itself (its result
-    says `wifi_rewritten`, and the flash dialog asks for a hardware build
-    only after reading that), so nothing here reads the sources to guess:
-    the answer could disagree with what the compiler then does, and a key
-    that says "the simulator's" over an image built for a board is the one
-    mistake this exists to prevent. Without that service arduino-cli builds
-    the ESP32 and rewrites nothing: one build for both.
+    An ESP32 built by the ESP-IDF service is taken at its word: the board's
+    image differs from the simulator's for every Arduino sketch (the
+    simulator's wrapper sleeps a tick after each loop(), the board's runs it
+    back to back) and, when the result says `wifi_rewritten`, by the WiFi
+    the sketch names too. Nothing here reads the sources to guess: the answer
+    could disagree with what the compiler then does, and a key that says
+    "the simulator's" over an image built for a board is the one mistake this
+    exists to prevent. Without that service arduino-cli builds the ESP32 and
+    changes nothing: one build for both.
     """
     if not request.for_hardware:
         return False
@@ -817,10 +818,10 @@ def _for_hardware_build(request: CompileRequest) -> bool:
 def _holds_wifi_credentials(request: CompileRequest) -> bool:
     """Whether this build's image carries the password of the user's network.
 
-    An ESP32 build for a real board does (the dialog asks for one only when
-    the simulator's build had to replace what the sketch names), and its
-    result is not written to the artifact cache: nobody but the requester
-    has a use for it, and the dialog that asked for it holds it.
+    An ESP32 build for a real board may (the sketch's own network, which the
+    simulator's build replaces), and its result is not written to the
+    artifact cache: nobody but the requester has a use for it, and the
+    dialog that asked for it holds it.
 
     That is the one copy this keeps off the disk for good. The finished job
     stays in memory (COMPILE_JOBS) until it is purged, for the client to

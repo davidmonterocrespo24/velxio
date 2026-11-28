@@ -131,8 +131,9 @@ export const FlashModal = ({ board: boardProp, fqbn, onClose }: Props) => {
   // The flash builds an image of its own when the simulator's is not what
   // this board should run: another chip (a revision), or a build that only
   // serves the simulator (needsHardwareBuild: an RP2040's Serial on UART0,
-  // an ESP32's WiFi credentials swapped for the simulated network). Everyone
-  // else is flashed with the program the simulator runs. Asked of the board
+  // an ESP32 Arduino sketch's loop() that sleeps a tick per pass, an ESP32's
+  // WiFi credentials swapped for the simulated network). Everyone else is
+  // flashed with the program the simulator runs. Asked of the board
   // as it is NOW: a compile inside the dialog can be what tells.
   const ownBuildFor = useCallback(
     (b: BoardInstance) => isAltRevision || needsHardwareBuild(b, hwFqbn),

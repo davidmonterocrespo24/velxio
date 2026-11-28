@@ -75,10 +75,10 @@ CONFIG_AUTOSTART_ARDUINO=n
 CONFIG_ARDUINO_VARIANT="${ARDUINO_VARIANT}"
 
 # "Arduino runs on core" and "Events run on core" from Board Options (both
-# core 1 by default, as in the Arduino IDE). The first is the core a sketch
-# gets as ARDUINO_RUNNING_CORE; it does NOT move setup()/loop() here, because
-# this template calls them from app_main (main/main.cpp), which ESP-IDF runs
-# on core 0. The second is the core of the network event task.
+# core 1 by default, as in the Arduino IDE). The first is ARDUINO_RUNNING_CORE:
+# the core of the task main/main.cpp runs setup() and loop() in, and what a
+# sketch reads to keep its own tasks off it. The second is the core of the
+# network event task.
 # Each is a Kconfig CHOICE (the RUN_CORE0 / RUN_CORE1 symbols): the integer
 # values on the last two lines are derived from it and have no prompt, so
 # setting the integers alone was silently ignored (always core 1). The choice

@@ -11,9 +11,12 @@
  *
  * ESP32: the simulator's build of a WiFi sketch has its SSID swapped for the
  * simulated network and its password dropped, so the flashed board looked
- * for "Velxio-GUEST" at the user's home. Only such a build differs, and the
- * server says which one is (`wifi_rewritten`): the dialog builds its own
- * image then, and flashes every other ESP32 with the program it already has.
+ * for "Velxio-GUEST" at the user's home; the server says which build is one
+ * (`wifi_rewritten`). And since 2026-11 every Arduino sketch differs: the
+ * simulator's loop() sleeps a tick per pass so the emulator can idle, the
+ * board's runs back to back as in the Arduino IDE. The dialog builds an
+ * ESP32 Arduino sketch its own image every time, and pure ESP-IDF sources
+ * only when their WiFi was rewritten.
  */
 import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -71,7 +74,7 @@ import { FlashModal } from '../components/simulator/FlashModal';
 import { installWebFlashImpl, type WebFlashImpl, type WebFlashRequest } from '../lib/proWebFlash';
 import { useEditorStore } from '../store/useEditorStore';
 import { useSimulatorStore } from '../store/useSimulatorStore';
-import { BOARD_KIND_FQBN, BOARD_KIND_LABELS, type BoardKind } from '../types/board';
+import { BOARD_KIND_FQBN, BOARD_KIND_LABELS, type BoardKind, type LanguageMode } from '../types/board';
 import {
   compileBoardForFlash,
   hardwareBuildDiffers,
@@ -117,24 +120,36 @@ describe('hardwareBuildDiffers', () => {
     ['rp2040:rp2040:seeed_xiao_rp2040', true],
     ['rp2040:rp2040:rpipico2w:arch=riscv', true],
     ['arduino:avr:uno', false],
-    ['esp32:esp32:esp32', false],
+    ['esp32:esp32:esp32', true],
+    ['esp32:esp32:XIAO_ESP32S3', true],
     [null, false],
   ])('%s: %s', (fqbn, differs) => {
     expect(hardwareBuildDiffers(fqbn)).toBe(differs);
+  });
+
+  it.each([
+    ['arduino', true],
+    ['espidf', false],
+    ['micropython', false],
+  ] as const)('an ESP32 in %s: %s', (languageMode, differs) => {
+    expect(hardwareBuildDiffers('esp32:esp32:esp32', languageMode)).toBe(differs);
   });
 });
 
 describe('needsHardwareBuild', () => {
   it.each([
-    ['esp32:esp32:esp32', true, true],
-    ['esp32:esp32:esp32', false, false],
+    ['esp32:esp32:esp32', 'arduino', true, true],
+    ['esp32:esp32:esp32', 'arduino', false, true],
+    ['esp32:esp32:esp32', undefined, undefined, true],
+    ['esp32:esp32:esp32', 'espidf', true, true],
+    ['esp32:esp32:esp32', 'espidf', false, false],
     // A server that predates the field: flashed as it always was.
-    ['esp32:esp32:esp32', undefined, false],
-    ['rp2040:rp2040:rpipico', undefined, true],
-    ['rp2040:rp2040:rpipico', false, true],
-    ['arduino:avr:uno', undefined, false],
-  ])('%s, wifiRewritten %s: %s', (fqbn, wifiRewritten, own) => {
-    expect(needsHardwareBuild({ wifiRewritten }, fqbn)).toBe(own);
+    ['esp32:esp32:esp32', 'espidf', undefined, false],
+    ['rp2040:rp2040:rpipico', undefined, undefined, true],
+    ['rp2040:rp2040:rpipico', undefined, false, true],
+    ['arduino:avr:uno', undefined, undefined, false],
+  ] as const)('%s in %s, wifiRewritten %s: %s', (fqbn, languageMode, wifiRewritten, own) => {
+    expect(needsHardwareBuild({ wifiRewritten, languageMode }, fqbn)).toBe(own);
   });
 });
 
@@ -236,8 +251,10 @@ describe('the flash dialog', () => {
   async function open(
     kind: string,
     built: { wifiRewritten?: boolean } | null = {},
+    languageMode?: LanguageMode,
   ): Promise<string> {
     const id = useSimulatorStore.getState().addBoard(kind as BoardKind, 0, 0);
+    if (languageMode) useSimulatorStore.getState().updateBoard(id, { languageMode });
     if (built) {
       useSimulatorStore.getState().compileBoardProgram(id, btoa('SIMULATOR.bin'), built);
     }
@@ -293,8 +310,19 @@ describe('the flash dialog', () => {
   it.each([
     ['nothing was rewritten', false],
     ['the server predates the field', undefined],
-  ])('flashes an ESP32 with the simulator\'s program when %s, without a build', async (_why, said) => {
-    await open('esp32', { wifiRewritten: said });
+  ])('builds an ESP32 Arduino sketch its own image when %s: its loop() does not sleep', async (_why, said) => {
+    const id = await open('esp32', { wifiRewritten: said });
+    await press();
+    expect(forHardware()).toEqual([true]);
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('HARDWARE.bin')]);
+    expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
+  });
+
+  it.each([
+    ['nothing was rewritten', false],
+    ['the server predates the field', undefined],
+  ])('flashes pure ESP-IDF sources with the simulator\'s program when %s, without a build', async (_why, said) => {
+    await open('esp32', { wifiRewritten: said }, 'espidf');
     await press();
     expect(compile).not.toHaveBeenCalled();
     expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('SIMULATOR.bin')]);
@@ -302,7 +330,7 @@ describe('the flash dialog', () => {
 
   it('learns from the build it makes that an ESP32 needs its own', async () => {
     serverBuilds(true);
-    const id = await open('esp32', null);
+    const id = await open('esp32', null, 'espidf');
     await press();
     // The simulator's first, as ever, then the board's.
     expect(forHardware()).toEqual([false, true]);
@@ -316,7 +344,8 @@ describe('the flash dialog', () => {
     // then made from the new code. The flash fails, the user undoes the
     // edit and tries again: the dialog holds an image of OTHER code, and
     // must build this one.
-    const id = await open('esp32', null);
+    // Pure ESP-IDF sources, whose simulator build comes first.
+    const id = await open('esp32', null, 'espidf');
     const group = boardOf(id).activeFileGroupId;
     const file = () => useEditorStore.getState().getGroupFiles(group)[0];
     const written = file().content;
@@ -367,12 +396,21 @@ describe('the flash dialog', () => {
   it.each([
     ['nothing was rewritten', false],
     ['the server predates the field', undefined],
-  ])('makes one build of a never-compiled ESP32 when %s', async (_why, said) => {
+  ])('makes one build of never-compiled pure ESP-IDF sources when %s', async (_why, said) => {
     serverBuilds(said);
-    const id = await open('esp32', null);
+    const id = await open('esp32', null, 'espidf');
     await press();
     expect(forHardware()).toEqual([false]);
     expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('SIMULATOR.bin')]);
     expect(boardOf(id).compiledProgram).toBe(btoa('SIMULATOR.bin'));
+  });
+
+  it('makes one build of a never-compiled ESP32 Arduino sketch: the board\'s', async () => {
+    const id = await open('esp32', null);
+    await press();
+    expect(forHardware()).toEqual([true]);
+    expect(flashed.map((r) => r.binaryBase64)).toEqual([btoa('HARDWARE.bin')]);
+    // Not recorded: the simulator never runs an image built for a board.
+    expect(boardOf(id).compiledProgram ?? null).toBeNull();
   });
 });

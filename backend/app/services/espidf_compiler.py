@@ -1849,6 +1849,39 @@ _SKETCH_OUTPUTS = (
 )
 
 
+# The template wrapper's switch for the one-tick sleep after every loop()
+# (esp-idf-template/main/main.cpp): on for the simulator, off for a real board.
+_LOOP_YIELD_SIM_LINE = '#define VELXIO_LOOP_YIELD 1\n'
+_LOOP_YIELD_BOARD_LINE = '#define VELXIO_LOOP_YIELD 0\n'
+
+
+def _wrapper_for_hardware(main_cpp: Path) -> bool:
+    """Turn the template wrapper in main/ into the one for a real board.
+
+    The simulator's wrapper sleeps one tick after every pass of loop(), so a
+    sketch that polls in a tight loop lets the emulator idle; on a board that
+    caps loop() at the tick rate (about 1000 passes a second) and the Arduino
+    IDE does no such thing. A build for a real board gets loop() back to back.
+
+    Returns whether the wrapper was rewritten: False when there is none (the
+    sketch brings its own app_main()) or it no longer carries the line (a
+    template edited without this; logged). Safe in the shared variant dir:
+    the next simulator build restores the template's main.cpp, whose content
+    differs from what this build compiled, and _advance_changed_inputs gives
+    it a new mtime, so ninja compiles it again.
+    """
+    try:
+        text = main_cpp.read_text(encoding='utf-8')
+    except OSError:
+        return False
+    if _LOOP_YIELD_SIM_LINE not in text:
+        logger.warning(f'[espidf] {main_cpp} has no {_LOOP_YIELD_SIM_LINE.strip()!r}; '
+                       'the build for the board keeps the loop yield')
+        return False
+    main_cpp.write_text(text.replace(_LOOP_YIELD_SIM_LINE, _LOOP_YIELD_BOARD_LINE, 1), encoding='utf-8')
+    return True
+
+
 def _forget_hardware_build(project_dir: Path) -> None:
     """Remove from a shared variant dir what a build for a real board left
     there with the user's network in it: the sources in main/, the main
@@ -7456,6 +7489,9 @@ class ESPIDFCompiler:
                     'stdout': '',
                     'stderr': '',
                 }
+            if for_hardware:
+                # A real board: loop() back to back, as in the Arduino IDE.
+                _wrapper_for_hardware(project_dir / 'main' / 'main.cpp')
 
             # Remove the pure-C main to avoid conflict
             main_c = project_dir / 'main' / 'main.c'

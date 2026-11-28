@@ -523,9 +523,9 @@ class ArduinoCLIService:
         """Return True if the image the simulator runs is not the one a real
         board of this FQBN should: `for_hardware` builds other bytes. The
         frontend mirrors this (utils/boardCompile.ts). An ESP32 built by the
-        ESP-IDF service differs by its sources, not its FQBN: that build's
-        own result says so (`wifi_rewritten`, see routes/compile.py
-        _for_hardware_build)."""
+        ESP-IDF service differs too (its loop wrapper, and its WiFi when the
+        result says `wifi_rewritten`; see routes/compile.py
+        _for_hardware_build); one built here does not."""
         return self._redirects_serial(fqbn)
 
     def _is_esp32_board(self, fqbn: str) -> bool:
